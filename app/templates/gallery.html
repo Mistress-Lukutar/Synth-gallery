@@ -1,0 +1,510 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="gallery" id="gallery">
+    {% if items %}
+        {% for item in items %}
+            {% if item.type == 'album' %}
+            <div class="gallery-item album-item" data-album-id="{{ item.id }}" data-item-type="album">
+                <a href="/album/{{ item.id }}" class="gallery-link">
+                    {% if item.cover_photo_id %}
+                    <img src="/thumbnails/{{ item.cover_photo_id }}.jpg"
+                         alt="{{ item.name }}"
+                         loading="lazy">
+                    {% else %}
+                    <div class="album-placeholder">
+                        <span>Empty Album</span>
+                    </div>
+                    {% endif %}
+                    <div class="album-badge">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                            <rect x="3" y="3" width="7" height="7" rx="1"/>
+                            <rect x="14" y="3" width="7" height="7" rx="1"/>
+                            <rect x="3" y="14" width="7" height="7" rx="1"/>
+                            <rect x="14" y="14" width="7" height="7" rx="1"/>
+                        </svg>
+                        <span>{{ item.photo_count }}</span>
+                    </div>
+                </a>
+                <div class="select-indicator" title="Select">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </div>
+            </div>
+            {% else %}
+            <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo">
+                <a href="/photo/{{ item.id }}" class="gallery-link">
+                    <img src="/thumbnails/{{ item.id }}.jpg"
+                         alt="{{ item.original_name }}"
+                         loading="lazy">
+                    {% if item.media_type == 'video' %}
+                    <div class="video-badge">
+                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                    </div>
+                    {% endif %}
+                </a>
+                <div class="select-indicator" title="Select">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </div>
+            </div>
+            {% endif %}
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">
+            <p>No photos yet</p>
+            <p>Click "Upload" or drag & drop to add your first photos</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    // State
+    const selectedPhotos = new Set();
+    const selectedAlbums = new Set();
+    let allTags = [];
+    let allItems = []; // Store all gallery items for masonry
+
+    // DOM elements
+    const gallery = document.getElementById('gallery');
+    const selectionMenu = document.getElementById('selection-menu');
+    const selectionCount = document.getElementById('selection-count');
+    const searchInput = document.getElementById('tag-search-input');
+    const suggestions = document.getElementById('tag-suggestions');
+
+    // Exit if not on gallery page
+    if (!gallery) return;
+
+    // ============ Masonry Layout ============
+    const MIN_COLUMN_WIDTH = 280;
+
+    function getColumnCount() {
+        const width = gallery.clientWidth;
+        return Math.max(2, Math.floor(width / MIN_COLUMN_WIDTH));
+    }
+
+    function initMasonry() {
+        // Collect all items on first run
+        if (allItems.length === 0) {
+            allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        }
+
+        // Wait for images to load, then build masonry
+        const images = gallery.querySelectorAll('img');
+        let loadedCount = 0;
+        const totalImages = images.length;
+
+        if (totalImages === 0) {
+            rebuildMasonry();
+            return;
+        }
+
+        const onImageLoad = () => {
+            loadedCount++;
+            if (loadedCount >= totalImages) {
+                rebuildMasonry();
+            }
+        };
+
+        images.forEach(img => {
+            if (img.complete) {
+                onImageLoad();
+            } else {
+                img.addEventListener('load', onImageLoad);
+                img.addEventListener('error', onImageLoad);
+            }
+        });
+
+        // Fallback: build anyway after timeout
+        setTimeout(rebuildMasonry, 500);
+    }
+
+    function rebuildMasonry() {
+        const columnCount = getColumnCount();
+
+        // Get visible items
+        const visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
+
+        // Clear gallery
+        gallery.innerHTML = '';
+
+        // Handle empty state
+        if (visibleItems.length === 0 && allItems.length > 0) {
+            gallery.innerHTML = '<div class="empty-state"><p>No matches found</p></div>';
+            saveNavigationOrder([]);
+            return;
+        }
+
+        if (visibleItems.length === 0) {
+            gallery.innerHTML = '<div class="empty-state"><p>No photos yet</p><p>Click "Upload" or drag & drop to add your first photos</p></div>';
+            saveNavigationOrder([]);
+            return;
+        }
+
+        // Create columns with height tracking
+        const columns = [];
+        const columnHeights = [];
+        for (let i = 0; i < columnCount; i++) {
+            const col = document.createElement('div');
+            col.className = 'gallery-column';
+            columns.push(col);
+            columnHeights.push(0);
+            gallery.appendChild(col);
+        }
+
+        // Track visual order for navigation (row by row reading order)
+        const itemPositions = []; // {item, column, row}
+
+        // Distribute items to shortest column for balanced heights
+        visibleItems.forEach((item) => {
+            // Find shortest column
+            let shortestIndex = 0;
+            let shortestHeight = columnHeights[0];
+            for (let i = 1; i < columnCount; i++) {
+                if (columnHeights[i] < shortestHeight) {
+                    shortestHeight = columnHeights[i];
+                    shortestIndex = i;
+                }
+            }
+
+            // Track position for navigation
+            const row = columns[shortestIndex].children.length;
+            itemPositions.push({ item, column: shortestIndex, row });
+
+            columns[shortestIndex].appendChild(item);
+
+            // Update height estimate
+            const img = item.querySelector('img');
+            const itemHeight = img && img.naturalHeight && img.naturalWidth
+                ? (img.naturalHeight / img.naturalWidth) * (gallery.clientWidth / columnCount)
+                : 300;
+            columnHeights[shortestIndex] += itemHeight + 16; // 16 = gap
+        });
+
+        // Sort by visual reading order (row first, then column)
+        itemPositions.sort((a, b) => {
+            if (a.row !== b.row) return a.row - b.row;
+            return a.column - b.column;
+        });
+
+        // Save navigation order to sessionStorage
+        const navOrder = itemPositions.map(p => ({
+            type: p.item.dataset.itemType,
+            id: p.item.dataset.photoId || p.item.dataset.albumId
+        }));
+        saveNavigationOrder(navOrder);
+    }
+
+    function saveNavigationOrder(order) {
+        sessionStorage.setItem('galleryNavOrder', JSON.stringify(order));
+    }
+
+    // Rebuild on resize
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(rebuildMasonry, 100);
+    });
+
+    // Initialize masonry
+    if (document.readyState === 'complete') {
+        initMasonry();
+    } else {
+        window.addEventListener('load', initMasonry);
+    }
+
+    // Load all tags for autocomplete
+    async function loadAllTags() {
+        try {
+            const resp = await fetch('/api/tags/all');
+            allTags = await resp.json();
+        } catch (e) {
+            console.error('Failed to load tags:', e);
+        }
+    }
+    loadAllTags();
+
+    // Restore search from URL on page load
+    const urlParams = new URLSearchParams(window.location.search);
+    const savedQuery = urlParams.get('q');
+    if (savedQuery) {
+        searchInput.value = savedQuery;
+        sessionStorage.setItem('gallerySearchQuery', savedQuery);
+        performSearch();
+    } else {
+        // Clear sessionStorage if no query in URL
+        sessionStorage.removeItem('gallerySearchQuery');
+    }
+
+    // Selection handling
+    function updateSelectionUI() {
+        const count = selectedPhotos.size + selectedAlbums.size;
+        if (count > 0) {
+            selectionMenu.classList.remove('hidden');
+            selectionCount.textContent = count + ' selected';
+        } else {
+            selectionMenu.classList.add('hidden');
+        }
+
+        // Update visual state of items
+        document.querySelectorAll('.gallery-item').forEach(item => {
+            const photoId = item.dataset.photoId;
+            const albumId = item.dataset.albumId;
+            if (selectedPhotos.has(photoId) || selectedAlbums.has(albumId)) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+    }
+
+    // Handle click on select indicator
+    gallery.addEventListener('click', (e) => {
+        const indicator = e.target.closest('.select-indicator');
+        if (indicator) {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = indicator.closest('.gallery-item');
+            const itemType = item.dataset.itemType;
+
+            if (itemType === 'album') {
+                const albumId = item.dataset.albumId;
+                if (selectedAlbums.has(albumId)) {
+                    selectedAlbums.delete(albumId);
+                } else {
+                    selectedAlbums.add(albumId);
+                }
+            } else {
+                const photoId = item.dataset.photoId;
+                if (selectedPhotos.has(photoId)) {
+                    selectedPhotos.delete(photoId);
+                } else {
+                    selectedPhotos.add(photoId);
+                }
+            }
+            updateSelectionUI();
+        }
+    });
+
+    // Select all (only visible items)
+    document.getElementById('select-all-btn').addEventListener('click', () => {
+        allItems.forEach(item => {
+            if (item.dataset.hidden !== 'true') {
+                if (item.dataset.itemType === 'album') {
+                    selectedAlbums.add(item.dataset.albumId);
+                } else {
+                    selectedPhotos.add(item.dataset.photoId);
+                }
+            }
+        });
+        updateSelectionUI();
+    });
+
+    // Deselect all
+    document.getElementById('deselect-all-btn').addEventListener('click', () => {
+        selectedPhotos.clear();
+        selectedAlbums.clear();
+        updateSelectionUI();
+    });
+
+    // Delete selected
+    document.getElementById('delete-selected-btn').addEventListener('click', async () => {
+        if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
+
+        const count = selectedPhotos.size + selectedAlbums.size;
+        if (!confirm(`Delete ${count} item(s)? This cannot be undone.`)) return;
+
+        try {
+            const resp = await fetch('/api/photos/batch-delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    photo_ids: Array.from(selectedPhotos),
+                    album_ids: Array.from(selectedAlbums)
+                })
+            });
+            const data = await resp.json();
+            if (data.status === 'ok') {
+                location.reload();
+            }
+        } catch (e) {
+            console.error('Delete failed:', e);
+            alert('Failed to delete items');
+        }
+    });
+
+    // AI tags for selected
+    document.getElementById('ai-selected-btn').addEventListener('click', async () => {
+        if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
+
+        const btn = document.getElementById('ai-selected-btn');
+        btn.disabled = true;
+        btn.textContent = 'Processing...';
+
+        try {
+            const resp = await fetch('/api/photos/batch-ai-tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    photo_ids: Array.from(selectedPhotos),
+                    album_ids: Array.from(selectedAlbums)
+                })
+            });
+            const data = await resp.json();
+            if (data.status === 'ok') {
+                alert(`AI tags generated for ${data.processed} photo(s)`);
+                selectedPhotos.clear();
+                selectedAlbums.clear();
+                updateSelectionUI();
+            }
+        } catch (e) {
+            console.error('AI tagging failed:', e);
+            alert('Failed to generate AI tags');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'AI Tags';
+        }
+    });
+
+    // Tag search with autocomplete
+    let debounceTimer;
+    searchInput.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        const value = e.target.value.trim();
+
+        // Get the last word being typed for suggestions
+        const words = value.split(/\s+/);
+        const currentWord = words[words.length - 1].toLowerCase();
+
+        // Show suggestions for current word
+        if (currentWord.length > 0) {
+            debounceTimer = setTimeout(() => {
+                const existingWords = words.slice(0, -1).map(w => w.toLowerCase());
+                const matches = allTags.filter(t =>
+                    t.tag.toLowerCase().includes(currentWord) &&
+                    !existingWords.includes(t.tag.toLowerCase())
+                ).slice(0, 8);
+
+                if (matches.length > 0) {
+                    suggestions.innerHTML = matches.map(t => `
+                        <div class="suggestion-item" data-tag="${t.tag}" style="--tag-color: ${t.color}">
+                            ${t.tag}
+                        </div>
+                    `).join('');
+                    suggestions.classList.remove('hidden');
+                } else {
+                    suggestions.classList.add('hidden');
+                }
+            }, 150);
+        } else {
+            suggestions.classList.add('hidden');
+        }
+
+        // Perform search as user types
+        debounceTimer = setTimeout(() => {
+            performSearch();
+        }, 300);
+    });
+
+    // Handle suggestion click - add tag to input
+    suggestions.addEventListener('click', (e) => {
+        const item = e.target.closest('.suggestion-item');
+        if (item) {
+            const tag = item.dataset.tag.toLowerCase();
+            const value = searchInput.value.trim();
+            const words = value.split(/\s+/);
+            words[words.length - 1] = tag;
+            searchInput.value = words.join(' ') + ' ';
+            suggestions.classList.add('hidden');
+            searchInput.focus();
+            performSearch();
+        }
+    });
+
+    // Handle Enter key - just perform search
+    searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            suggestions.classList.add('hidden');
+            performSearch();
+        }
+    });
+
+    // Hide suggestions on click outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-container')) {
+            suggestions.classList.add('hidden');
+        }
+    });
+
+    // Perform search
+    async function performSearch() {
+        try {
+            const query = searchInput.value.trim();
+
+            // Update URL without reloading
+            const url = new URL(window.location);
+            if (query) {
+                url.searchParams.set('q', query);
+                sessionStorage.setItem('gallerySearchQuery', query);
+            } else {
+                url.searchParams.delete('q');
+                sessionStorage.removeItem('gallerySearchQuery');
+            }
+            window.history.replaceState({}, '', url);
+
+            const resp = await fetch(`/api/photos/search?tags=${encodeURIComponent(query)}`);
+            const results = await resp.json();
+
+            // Separate matching IDs by type
+            const matchingPhotoIds = new Set(results.filter(r => r.type === 'photo').map(r => r.id));
+            const matchingAlbumIds = new Set(results.filter(r => r.type === 'album').map(r => r.id));
+
+            const hasQuery = query.length > 0;
+
+            allItems.forEach(item => {
+                const itemType = item.dataset.itemType;
+                const photoId = item.dataset.photoId;
+                const albumId = item.dataset.albumId;
+
+                let matches = false;
+                if (!hasQuery) {
+                    matches = true;
+                } else if (itemType === 'album') {
+                    matches = matchingAlbumIds.has(albumId);
+                } else {
+                    matches = matchingPhotoIds.has(photoId);
+                }
+
+                if (matches) {
+                    item.dataset.hidden = 'false';
+                } else {
+                    item.dataset.hidden = 'true';
+                    // Deselect hidden items
+                    if (itemType === 'album') {
+                        selectedAlbums.delete(albumId);
+                    } else {
+                        selectedPhotos.delete(photoId);
+                    }
+                }
+            });
+
+            // Rebuild masonry with filtered items
+            rebuildMasonry();
+
+            // Update selection UI
+            updateSelectionUI();
+        } catch (e) {
+            console.error('Search failed:', e);
+        }
+    }
+})();
+</script>
+{% endblock %}
