@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+
+# Данные
+uploads/
+thumbnails/
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
