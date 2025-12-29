@@ -1,8 +1,24 @@
 import sqlite3
+import hashlib
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "gallery.db"
+
+
+def hash_password(password: str, salt: str = None) -> tuple[str, str]:
+    """Hash password with salt using SHA-256"""
+    if salt is None:
+        salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((salt + password).encode()).hexdigest()
+    return hashed, salt
+
+
+def verify_password(password: str, hashed: str, salt: str) -> bool:
+    """Verify password against hash"""
+    check_hash, _ = hash_password(password, salt)
+    return check_hash == hashed
 
 _connection = None
 
@@ -19,6 +35,29 @@ def get_db() -> sqlite3.Connection:
 def init_db():
     """Initialize database schema"""
     db = get_db()
+
+    # Users table for authentication
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Sessions table for login sessions
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
 
     # Albums table
     db.execute("""
@@ -154,4 +193,118 @@ def init_db():
             SELECT ?, id FROM tag_categories WHERE name = ?
         """, (tag_name, category_name))
 
+    db.commit()
+
+
+# === User Management Functions ===
+
+def create_user(username: str, password: str, display_name: str) -> int:
+    """Create a new user. Returns user ID."""
+    db = get_db()
+    password_hash, password_salt = hash_password(password)
+    cursor = db.execute(
+        "INSERT INTO users (username, password_hash, password_salt, display_name) VALUES (?, ?, ?, ?)",
+        (username.lower().strip(), password_hash, password_salt, display_name.strip())
+    )
+    db.commit()
+    return cursor.lastrowid
+
+
+def get_user_by_username(username: str):
+    """Get user by username"""
+    db = get_db()
+    return db.execute(
+        "SELECT * FROM users WHERE username = ?",
+        (username.lower().strip(),)
+    ).fetchone()
+
+
+def get_user_by_id(user_id: int):
+    """Get user by ID"""
+    db = get_db()
+    return db.execute(
+        "SELECT * FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+
+
+def update_user_password(user_id: int, new_password: str):
+    """Update user password"""
+    db = get_db()
+    password_hash, password_salt = hash_password(new_password)
+    db.execute(
+        "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?",
+        (password_hash, password_salt, user_id)
+    )
+    db.commit()
+
+
+def update_user_display_name(user_id: int, display_name: str):
+    """Update user display name"""
+    db = get_db()
+    db.execute(
+        "UPDATE users SET display_name = ? WHERE id = ?",
+        (display_name.strip(), user_id)
+    )
+    db.commit()
+
+
+def delete_user(user_id: int):
+    """Delete user and their sessions"""
+    db = get_db()
+    db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+
+
+def list_users():
+    """List all users"""
+    db = get_db()
+    return db.execute(
+        "SELECT id, username, display_name, created_at FROM users ORDER BY id"
+    ).fetchall()
+
+
+def authenticate_user(username: str, password: str):
+    """Authenticate user. Returns user row if valid, None otherwise."""
+    user = get_user_by_username(username)
+    if user and verify_password(password, user["password_hash"], user["password_salt"]):
+        return user
+    return None
+
+
+# === Session Management ===
+
+def create_session(user_id: int, expires_hours: int = 24 * 7) -> str:
+    """Create a new session. Returns session ID."""
+    db = get_db()
+    session_id = secrets.token_urlsafe(32)
+    db.execute(
+        "INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, datetime('now', '+' || ? || ' hours'))",
+        (session_id, user_id, expires_hours)
+    )
+    db.commit()
+    return session_id
+
+
+def get_session(session_id: str):
+    """Get session if valid and not expired"""
+    db = get_db()
+    return db.execute(
+        "SELECT s.*, u.username, u.display_name FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.id = ? AND s.expires_at > datetime('now')",
+        (session_id,)
+    ).fetchone()
+
+
+def delete_session(session_id: str):
+    """Delete session (logout)"""
+    db = get_db()
+    db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    db.commit()
+
+
+def cleanup_expired_sessions():
+    """Remove expired sessions"""
+    db = get_db()
+    db.execute("DELETE FROM sessions WHERE expires_at <= datetime('now')")
     db.commit()
