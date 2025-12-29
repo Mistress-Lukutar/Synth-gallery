@@ -1779,3 +1779,277 @@ main {
         font-size: 0.8rem;
     }
 }
+
+/* Share Modal */
+.share-modal-content {
+    max-width: 500px;
+}
+
+.share-search {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.share-search input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 1rem;
+}
+
+.share-search input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.user-search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 10;
+}
+
+.search-result-item {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.search-result-item:hover {
+    background: var(--bg);
+}
+
+.search-result-username {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.no-results {
+    padding: 0.75rem 1rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.add-permission-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.add-permission-form #selected-user-name {
+    flex: 1;
+    font-weight: 500;
+    min-width: 100px;
+}
+
+.add-permission-form select {
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text);
+}
+
+.permissions-section {
+    margin-top: 1rem;
+}
+
+.permissions-section h3 {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.permissions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.permission-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border-radius: 8px;
+}
+
+.permission-user {
+    flex: 1;
+    font-weight: 500;
+}
+
+.permission-select {
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text);
+    font-size: 0.85rem;
+}
+
+.btn-remove-permission {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-remove-permission:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.no-permissions {
+    color: var(--text-secondary);
+    font-style: italic;
+    text-align: center;
+    padding: 1rem;
+}
+
+/* Share button */
+.btn-share {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.btn-share:hover {
+    background: var(--bg);
+    border-color: var(--accent);
+}
+
+/* Sidebar folder sections */
+.folder-section {
+    margin-bottom: 1rem;
+}
+
+.folder-section-header {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.25rem;
+}
+
+.no-folders {
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+    padding: 2rem 1rem;
+    font-size: 0.9rem;
+}
+
+/* Folder owner display for shared folders */
+.folder-owner {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    margin-right: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 80px;
+}
+
+/* === Own Folder Styles (by share status) === */
+
+/* Private folder - gray lock icon */
+.folder-item.private .folder-icon {
+    stroke: var(--text-muted);
+}
+
+/* Shared with viewers only - green eye icon */
+.folder-item.shared-viewers .folder-icon {
+    stroke: #10b981;
+}
+
+.folder-item.shared-viewers {
+    border-left: 2px solid #10b981;
+    margin-left: -2px;
+    padding-left: calc(0.75rem - 2px);
+}
+
+/* Shared with editors - orange upload icon */
+.folder-item.shared-editors .folder-icon {
+    stroke: #f59e0b;
+}
+
+.folder-item.shared-editors {
+    border-left: 2px solid #f59e0b;
+    margin-left: -2px;
+    padding-left: calc(0.75rem - 2px);
+}
+
+/* === Incoming Shared Folder Styles === */
+
+/* Incoming folder where I'm viewer - green */
+.folder-item.incoming-viewer .folder-icon {
+    stroke: #10b981;
+}
+
+.folder-item.incoming-viewer {
+    border-left: 2px solid #10b981;
+    margin-left: -2px;
+    padding-left: calc(0.75rem - 2px);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+/* Incoming folder where I'm editor - orange */
+.folder-item.incoming-editor .folder-icon {
+    stroke: #f59e0b;
+}
+
+.folder-item.incoming-editor {
+    border-left: 2px solid #f59e0b;
+    margin-left: -2px;
+    padding-left: calc(0.75rem - 2px);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+/* Active state overrides */
+.folder-item.active.shared-viewers,
+.folder-item.active.shared-editors,
+.folder-item.active.incoming-viewer,
+.folder-item.active.incoming-editor {
+    border-left-color: transparent;
+    margin-left: 0;
+    padding-left: 0.75rem;
+}
+
+.folder-item.active .folder-icon {
+    stroke: white;
+}

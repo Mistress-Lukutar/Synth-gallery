@@ -146,25 +146,46 @@
                 </select>
             </div>
 
-            <div class="form-group">
-                <label>Access mode:</label>
-                <div class="radio-group">
-                    <label class="radio-label">
-                        <input type="radio" name="folder-access" value="private" checked>
-                        <span class="radio-mark"></span>
-                        Private (only you)
-                    </label>
-                    <label class="radio-label">
-                        <input type="radio" name="folder-access" value="public">
-                        <span class="radio-mark"></span>
-                        Public (everyone)
-                    </label>
+            <div class="modal-actions">
+                <button type="button" id="folder-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="folder-submit-btn" class="btn">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Share modal -->
+    <div id="share-modal" class="modal hidden">
+        <div class="modal-content share-modal-content">
+            <span class="close" onclick="closeShareModal()">&times;</span>
+            <h2>Share Folder</h2>
+
+            <!-- User search -->
+            <div class="share-search">
+                <input type="text" id="user-search-input" placeholder="Search users..." autocomplete="off">
+                <div id="user-search-results" class="user-search-results hidden"></div>
+            </div>
+
+            <!-- Add permission form -->
+            <div id="add-permission-form" class="add-permission-form hidden">
+                <span id="selected-user-name"></span>
+                <select id="permission-level-select">
+                    <option value="viewer">Viewer (view only)</option>
+                    <option value="editor">Editor (can upload)</option>
+                </select>
+                <button type="button" id="add-permission-btn" class="btn">Add</button>
+                <button type="button" id="cancel-add-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+
+            <!-- Current permissions list -->
+            <div class="permissions-section">
+                <h3>People with access</h3>
+                <div id="permissions-list" class="permissions-list">
+                    <!-- Dynamically populated -->
                 </div>
             </div>
 
             <div class="modal-actions">
-                <button type="button" id="folder-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button type="button" id="folder-submit-btn" class="btn">Create</button>
+                <button type="button" onclick="closeShareModal()" class="btn">Done</button>
             </div>
         </div>
     </div>
@@ -451,51 +472,112 @@
 
         // Render folder tree recursively
         function renderFolderTree() {
-            folderTreeContainer.innerHTML = buildTreeHTML(null, 0);
+            const myFolders = folderTree.filter(f => f.permission === 'owner');
+            const sharedFolders = folderTree.filter(f => f.permission !== 'owner');
+
+            let html = '';
+
+            // My Folders section
+            if (myFolders.length > 0) {
+                html += '<div class="folder-section">';
+                html += '<div class="folder-section-header">My Folders</div>';
+                html += buildTreeHTML(null, 0, myFolders);
+                html += '</div>';
+            }
+
+            // Shared with me section
+            if (sharedFolders.length > 0) {
+                html += '<div class="folder-section">';
+                html += '<div class="folder-section-header">Shared with me</div>';
+                html += sharedFolders.map(folder => buildFolderItem(folder, 0, false)).join('');
+                html += '</div>';
+            }
+
+            folderTreeContainer.innerHTML = html || '<div class="no-folders">No folders yet</div>';
         }
 
-        function buildTreeHTML(parentId, level) {
-            const children = folderTree.filter(f => f.parent_id === parentId);
+        function buildTreeHTML(parentId, level, folders = folderTree) {
+            const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner');
             if (children.length === 0) return '';
 
-            return children.map(folder => {
-                const isActive = folder.id === currentFolderId;
-                const isPublic = folder.access_mode === 'public';
-                const hasChildren = folderTree.some(f => f.parent_id === folder.id);
+            return children.map(folder => buildFolderItem(folder, level, true) + buildTreeHTML(folder.id, level + 1, folders)).join('');
+        }
 
-                const folderIcon = isPublic
-                    ? `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                       </svg>`
-                    : `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                         <rect x="8" y="11" width="8" height="6" rx="1"/>
-                         <path d="M10 11V9a2 2 0 1 1 4 0v2"/>
-                       </svg>`;
+        function buildFolderItem(folder, level, isOwn) {
+            const isActive = folder.id === currentFolderId;
+            const permission = folder.permission;
+            const shareStatus = folder.share_status;
+            const photoCount = folder.photo_count || 0;
 
-                const photoCount = folder.photo_count || 0;
+            // Icon and class based on ownership and share status
+            let folderIcon;
+            let folderClass = '';
 
-                return `
-                    <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
-                        <div class="folder-item ${isActive ? 'active' : ''} ${isPublic ? 'public' : 'private'}"
-                             data-folder-id="${folder.id}"
-                             onclick="navigateToFolder('${folder.id}')">
-                            ${folderIcon}
-                            <span class="folder-name">${escapeHtml(folder.name)}</span>
-                            <span class="folder-count">${photoCount}</span>
-                        </div>
-                        <div class="folder-actions-inline">
-                            <button class="folder-action-btn" onclick="event.stopPropagation(); openEditFolder('${folder.id}')" title="Edit">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
-                            <button class="folder-action-btn" onclick="event.stopPropagation(); deleteFolder('${folder.id}')" title="Delete">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                            </button>
-                        </div>
+            if (permission === 'owner') {
+                // Own folder - show share status
+                if (shareStatus === 'has_editors') {
+                    // Shared with editors (orange)
+                    folderClass = 'shared-editors';
+                    folderIcon = `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        <path d="M15 12l-3 3m0 0l-3-3m3 3V9"/>
+                    </svg>`;
+                } else if (shareStatus === 'has_viewers') {
+                    // Shared with viewers only (green)
+                    folderClass = 'shared-viewers';
+                    folderIcon = `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        <circle cx="12" cy="13" r="2"/><path d="M18 13c-1.5 2-3.5 3-6 3s-4.5-1-6-3c1.5-2 3.5-3 6-3s4.5 1 6 3z"/>
+                    </svg>`;
+                } else {
+                    // Private folder (default gray with lock)
+                    folderClass = 'private';
+                    folderIcon = `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        <rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10 11V9a2 2 0 1 1 4 0v2"/>
+                    </svg>`;
+                }
+            } else if (permission === 'editor') {
+                // Shared folder where I'm editor (orange border)
+                folderClass = 'incoming-editor';
+                folderIcon = `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    <path d="M12 16V9m0 0l3 3m-3-3l-3 3"/>
+                </svg>`;
+            } else {
+                // Shared folder where I'm viewer (green border)
+                folderClass = 'incoming-viewer';
+                folderIcon = `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="2"/><path d="M18 13c-1.5 2-3.5 3-6 3s-4.5-1-6-3c1.5-2 3.5-3 6-3s4.5 1 6 3z"/>
+                </svg>`;
+            }
+
+            const ownerInfo = !isOwn && folder.owner_name ? `<span class="folder-owner">${escapeHtml(folder.owner_name)}</span>` : '';
+
+            const actionsHtml = isOwn ? `
+                <div class="folder-actions-inline">
+                    <button class="folder-action-btn" onclick="event.stopPropagation(); openEditFolder('${folder.id}')" title="Edit">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button class="folder-action-btn" onclick="event.stopPropagation(); deleteFolder('${folder.id}')" title="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                </div>` : '';
+
+            return `
+                <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
+                    <div class="folder-item ${folderClass} ${isActive ? 'active' : ''}"
+                         data-folder-id="${folder.id}"
+                         onclick="navigateToFolder('${folder.id}')">
+                        ${folderIcon}
+                        <span class="folder-name">${escapeHtml(folder.name)}</span>
+                        ${ownerInfo}
+                        <span class="folder-count">${photoCount}</span>
                     </div>
-                    ${buildTreeHTML(folder.id, level + 1)}
-                `;
-            }).join('');
+                    ${actionsHtml}
+                </div>
+            `;
         }
 
         function escapeHtml(text) {
@@ -512,6 +594,8 @@
         function updateParentSelect() {
             folderParentSelect.innerHTML = '<option value="">Root level</option>';
             folderTree.forEach(folder => {
+                // Only show owned folders as parent options
+                if (folder.permission !== 'owner') return;
                 // Don't show current folder as parent option when editing
                 if (editingFolderId && folder.id === editingFolderId) return;
                 const opt = document.createElement('option');
@@ -528,7 +612,6 @@
             folderSubmitBtn.textContent = 'Create';
             folderNameInput.value = '';
             folderParentSelect.value = currentFolderId || '';
-            document.querySelector('input[name="folder-access"][value="private"]').checked = true;
             updateParentSelect();
             folderModal.classList.remove('hidden');
             folderNameInput.focus();
@@ -543,7 +626,6 @@
             folderSubmitBtn.textContent = 'Save';
             folderNameInput.value = folder.name;
             folderParentSelect.value = folder.parent_id || '';
-            document.querySelector(`input[name="folder-access"][value="${folder.access_mode}"]`).checked = true;
             updateParentSelect();
             folderModal.classList.remove('hidden');
             folderNameInput.focus();
@@ -570,7 +652,6 @@
             }
 
             const parentId = folderParentSelect.value || null;
-            const accessMode = document.querySelector('input[name="folder-access"]:checked').value;
 
             try {
                 if (editingFolderId) {
@@ -578,14 +659,14 @@
                     await fetch(`/api/folders/${editingFolderId}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name, access_mode: accessMode })
+                        body: JSON.stringify({ name })
                     });
                 } else {
                     // Create new folder
                     await fetch('/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name, parent_id: parentId, access_mode: accessMode })
+                        body: JSON.stringify({ name, parent_id: parentId })
                     });
                 }
                 closeFolderModal();
@@ -614,6 +695,165 @@
             } catch (err) {
                 console.error('Delete failed:', err);
                 alert('Delete failed');
+            }
+        }
+
+        // === Share Modal ===
+        let shareModalFolderId = null;
+        let selectedUserId = null;
+        let searchTimeout = null;
+
+        function openShareModal(folderId) {
+            shareModalFolderId = folderId;
+            document.getElementById('share-modal').classList.remove('hidden');
+            document.getElementById('user-search-input').value = '';
+            document.getElementById('user-search-results').classList.add('hidden');
+            document.getElementById('add-permission-form').classList.add('hidden');
+            loadPermissions();
+        }
+
+        function closeShareModal() {
+            document.getElementById('share-modal').classList.add('hidden');
+            shareModalFolderId = null;
+            selectedUserId = null;
+        }
+
+        async function loadPermissions() {
+            if (!shareModalFolderId) return;
+
+            try {
+                const resp = await fetch(`/api/folders/${shareModalFolderId}/permissions`);
+                const data = await resp.json();
+                renderPermissions(data.permissions || []);
+            } catch (err) {
+                console.error('Failed to load permissions:', err);
+            }
+        }
+
+        function renderPermissions(permissions) {
+            const container = document.getElementById('permissions-list');
+
+            if (permissions.length === 0) {
+                container.innerHTML = '<p class="no-permissions">No one else has access</p>';
+                return;
+            }
+
+            container.innerHTML = permissions.map(p => `
+                <div class="permission-item" data-user-id="${p.user_id}">
+                    <span class="permission-user">${escapeHtml(p.display_name || p.username)}</span>
+                    <select class="permission-select" onchange="updatePermission(${p.user_id}, this.value)">
+                        <option value="viewer" ${p.permission === 'viewer' ? 'selected' : ''}>Viewer</option>
+                        <option value="editor" ${p.permission === 'editor' ? 'selected' : ''}>Editor</option>
+                    </select>
+                    <button class="btn-remove-permission" onclick="removePermission(${p.user_id})" title="Remove">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // User search
+        document.getElementById('user-search-input')?.addEventListener('input', function(e) {
+            const query = e.target.value.trim();
+
+            clearTimeout(searchTimeout);
+            if (query.length < 2) {
+                document.getElementById('user-search-results').classList.add('hidden');
+                return;
+            }
+
+            searchTimeout = setTimeout(() => searchUsers(query), 300);
+        });
+
+        async function searchUsers(query) {
+            try {
+                const resp = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+                const data = await resp.json();
+                renderSearchResults(data.users || []);
+            } catch (err) {
+                console.error('Search failed:', err);
+            }
+        }
+
+        function renderSearchResults(users) {
+            const container = document.getElementById('user-search-results');
+
+            if (users.length === 0) {
+                container.innerHTML = '<div class="no-results">No users found</div>';
+            } else {
+                container.innerHTML = users.map(u => `
+                    <div class="search-result-item" onclick="selectUser(${u.id}, '${escapeHtml(u.display_name || u.username)}')">
+                        ${escapeHtml(u.display_name || u.username)}
+                        <span class="search-result-username">@${escapeHtml(u.username)}</span>
+                    </div>
+                `).join('');
+            }
+            container.classList.remove('hidden');
+        }
+
+        function selectUser(userId, displayName) {
+            selectedUserId = userId;
+            document.getElementById('user-search-results').classList.add('hidden');
+            document.getElementById('user-search-input').value = '';
+            document.getElementById('selected-user-name').textContent = displayName;
+            document.getElementById('add-permission-form').classList.remove('hidden');
+        }
+
+        document.getElementById('cancel-add-btn')?.addEventListener('click', function() {
+            document.getElementById('add-permission-form').classList.add('hidden');
+            selectedUserId = null;
+        });
+
+        document.getElementById('add-permission-btn')?.addEventListener('click', async function() {
+            if (!selectedUserId || !shareModalFolderId) return;
+
+            const permission = document.getElementById('permission-level-select').value;
+
+            try {
+                await fetch(`/api/folders/${shareModalFolderId}/permissions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: selectedUserId, permission })
+                });
+                document.getElementById('add-permission-form').classList.add('hidden');
+                selectedUserId = null;
+                loadPermissions();
+            } catch (err) {
+                console.error('Add permission failed:', err);
+                alert('Failed to add permission');
+            }
+        });
+
+        async function updatePermission(userId, permission) {
+            if (!shareModalFolderId) return;
+
+            try {
+                await fetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ permission })
+                });
+            } catch (err) {
+                console.error('Update permission failed:', err);
+                alert('Failed to update permission');
+                loadPermissions();
+            }
+        }
+
+        async function removePermission(userId) {
+            if (!shareModalFolderId) return;
+            if (!confirm('Remove access for this user?')) return;
+
+            try {
+                await fetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
+                    method: 'DELETE'
+                });
+                loadPermissions();
+            } catch (err) {
+                console.error('Remove permission failed:', err);
+                alert('Failed to remove permission');
             }
         }
 
