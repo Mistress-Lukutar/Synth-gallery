@@ -2,15 +2,12 @@ services:
   gallery:
     build: .
     ports:
-      - "8000:8000"
+      - "8008:8008"
     volumes:
-      # Код приложения (для разработки — изменения сразу видны)
       - ./app:/app/app
-      # Данные (сохраняются при перезапуске)
       - ./uploads:/app/uploads
       - ./thumbnails:/app/thumbnails
       - ./gallery.db:/app/gallery.db
     environment:
       - PYTHONUNBUFFERED=1
-    # Автоперезапуск при изменении кода
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8008 --reload
