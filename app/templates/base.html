@@ -8,41 +8,66 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <header>
-        <nav>
-            <a href="/" class="logo"><img src="/static/favicon.svg" alt="" class="logo-icon">Synth</a>
-
-            {% block header_controls %}
-            <!-- Tag Search -->
-            <div class="search-container">
-                <input type="text" id="tag-search-input" placeholder="Search by tags..." autocomplete="off">
-                <div id="tag-suggestions" class="suggestions hidden"></div>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h3>Folders</h3>
+                <button id="create-folder-btn" class="btn btn-small" title="Create folder">+</button>
             </div>
-
-            <!-- Selection Menu (hidden by default) -->
-            <div id="selection-menu" class="selection-menu hidden">
-                <span id="selection-count">0 selected</span>
-                <button id="select-all-btn" class="btn btn-small btn-secondary">Select All</button>
-                <button id="deselect-all-btn" class="btn btn-small btn-secondary">Deselect</button>
-                <button id="ai-selected-btn" class="btn btn-small">AI Tags</button>
-                <button id="delete-selected-btn" class="btn btn-small btn-danger">Delete</button>
+            <div class="folder-tree" id="folder-tree">
+                <!-- Folder tree rendered by JS -->
             </div>
-            {% endblock %}
+        </aside>
 
-            <button id="upload-btn" class="btn">Upload</button>
+        <!-- Main content area -->
+        <div class="main-content">
+            <header>
+                <nav>
+                    <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle folders">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 12h18M3 6h18M3 18h18"/>
+                        </svg>
+                    </button>
 
-            {% if user %}
-            <div class="user-menu">
-                <span class="user-name">{{ user.display_name }}</span>
-                <a href="/logout" class="btn btn-secondary btn-small">Logout</a>
-            </div>
-            {% endif %}
-        </nav>
-    </header>
+                    <a href="/" class="logo"><img src="/static/favicon.svg" alt="" class="logo-icon">Synth</a>
 
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+                    {% block header_controls %}
+                    <!-- Tag Search -->
+                    <div class="search-container">
+                        <input type="text" id="tag-search-input" placeholder="Search by tags..." autocomplete="off">
+                        <div id="tag-suggestions" class="suggestions hidden"></div>
+                    </div>
+
+                    <!-- Selection Menu (hidden by default) -->
+                    <div id="selection-menu" class="selection-menu hidden">
+                        <span id="selection-count">0 selected</span>
+                        <button id="select-all-btn" class="btn btn-small btn-secondary">Select All</button>
+                        <button id="deselect-all-btn" class="btn btn-small btn-secondary">Deselect</button>
+                        <button id="ai-selected-btn" class="btn btn-small">AI Tags</button>
+                        <button id="delete-selected-btn" class="btn btn-small btn-danger">Delete</button>
+                    </div>
+                    {% endblock %}
+
+                    <button id="upload-btn" class="btn">Upload</button>
+
+                    {% if user %}
+                    <div class="user-menu">
+                        <span class="user-name">{{ user.display_name }}</span>
+                        <a href="/logout" class="btn btn-secondary btn-small">Logout</a>
+                    </div>
+                    {% endif %}
+                </nav>
+            </header>
+
+            <main>
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Sidebar overlay for mobile -->
+    <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
 
     <!-- Upload modal -->
     <div id="upload-modal" class="modal hidden">
@@ -102,6 +127,54 @@
             </div>
         </div>
     </div>
+
+    <!-- Folder modal -->
+    <div id="folder-modal" class="modal hidden">
+        <div class="modal-content folder-modal-content">
+            <span class="close">&times;</span>
+            <h2 id="folder-modal-title">Create Folder</h2>
+
+            <div class="form-group">
+                <label for="folder-name-input">Folder name:</label>
+                <input type="text" id="folder-name-input" placeholder="My Folder" autocomplete="off">
+            </div>
+
+            <div class="form-group">
+                <label for="folder-parent-select">Parent folder:</label>
+                <select id="folder-parent-select">
+                    <option value="">Root level</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Access mode:</label>
+                <div class="radio-group">
+                    <label class="radio-label">
+                        <input type="radio" name="folder-access" value="private" checked>
+                        <span class="radio-mark"></span>
+                        Private (only you)
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="folder-access" value="public">
+                        <span class="radio-mark"></span>
+                        Public (everyone)
+                    </label>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" id="folder-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="folder-submit-btn" class="btn">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get current folder ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentFolderId = urlParams.get('folder_id');
+        console.log('[DEBUG] Current folder ID:', currentFolderId);
+    </script>
 
     <script>
         // Upload modal elements
@@ -236,6 +309,12 @@
             const files = Array.from(fileInput.files).filter(isValidMedia);
             if (!files.length) return;
 
+            // Check that we have a valid folder
+            if (!currentFolderId) {
+                alert('No folder selected. Please navigate to a folder first.');
+                return;
+            }
+
             isUploading = true;
             submitBtn.disabled = true;
             cancelBtn.disabled = true;
@@ -259,7 +338,12 @@
                     for (const file of files) {
                         formData.append('files', file);
                     }
+                    formData.append('folder_id', currentFolderId);
                     const resp = await fetch('/upload-album', { method: 'POST', body: formData });
+                    if (!resp.ok) {
+                        const err = await resp.json();
+                        throw new Error(err.detail || 'Upload failed');
+                    }
                     const data = await resp.json();
                     uploadedIds = data.photos.map(p => p.id);
                     progressFill.style.width = '100%';
@@ -270,7 +354,15 @@
 
                         const formData = new FormData();
                         formData.append('file', files[i]);
+                        formData.append('folder_id', currentFolderId);
+                        console.log('[DEBUG] Uploading file:', files[i].name, 'to folder:', currentFolderId);
+                        console.log('[DEBUG] FormData entries:', [...formData.entries()]);
                         const resp = await fetch('/upload', { method: 'POST', body: formData });
+                        console.log('[DEBUG] Response status:', resp.status);
+                        if (!resp.ok) {
+                            const err = await resp.json();
+                            throw new Error(err.detail || 'Upload failed');
+                        }
                         const data = await resp.json();
                         uploadedIds.push(data.id);
                     }
@@ -311,6 +403,222 @@
                 cancelBtn.disabled = false;
             }
         };
+    </script>
+
+    <script>
+        // === Sidebar and Folder Management ===
+        let folderTree = [];
+        let editingFolderId = null;
+
+        // Sidebar elements
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        const folderTreeContainer = document.getElementById('folder-tree');
+        const createFolderBtn = document.getElementById('create-folder-btn');
+
+        // Folder modal elements
+        const folderModal = document.getElementById('folder-modal');
+        const folderModalTitle = document.getElementById('folder-modal-title');
+        const folderNameInput = document.getElementById('folder-name-input');
+        const folderParentSelect = document.getElementById('folder-parent-select');
+        const folderCancelBtn = document.getElementById('folder-cancel-btn');
+        const folderSubmitBtn = document.getElementById('folder-submit-btn');
+        const folderModalClose = folderModal.querySelector('.close');
+
+        // Mobile sidebar toggle
+        sidebarToggle.onclick = () => {
+            sidebar.classList.toggle('open');
+            sidebarOverlay.classList.toggle('visible');
+        };
+
+        sidebarOverlay.onclick = () => {
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('visible');
+        };
+
+        // Load folder tree
+        async function loadFolderTree() {
+            try {
+                const resp = await fetch('/api/folders');
+                folderTree = await resp.json();
+                renderFolderTree();
+                updateParentSelect();
+            } catch (err) {
+                console.error('Failed to load folders:', err);
+            }
+        }
+
+        // Render folder tree recursively
+        function renderFolderTree() {
+            folderTreeContainer.innerHTML = buildTreeHTML(null, 0);
+        }
+
+        function buildTreeHTML(parentId, level) {
+            const children = folderTree.filter(f => f.parent_id === parentId);
+            if (children.length === 0) return '';
+
+            return children.map(folder => {
+                const isActive = folder.id === currentFolderId;
+                const isPublic = folder.access_mode === 'public';
+                const hasChildren = folderTree.some(f => f.parent_id === folder.id);
+
+                const folderIcon = isPublic
+                    ? `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                       </svg>`
+                    : `<svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                         <rect x="8" y="11" width="8" height="6" rx="1"/>
+                         <path d="M10 11V9a2 2 0 1 1 4 0v2"/>
+                       </svg>`;
+
+                const photoCount = folder.photo_count || 0;
+
+                return `
+                    <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
+                        <div class="folder-item ${isActive ? 'active' : ''} ${isPublic ? 'public' : 'private'}"
+                             data-folder-id="${folder.id}"
+                             onclick="navigateToFolder('${folder.id}')">
+                            ${folderIcon}
+                            <span class="folder-name">${escapeHtml(folder.name)}</span>
+                            <span class="folder-count">${photoCount}</span>
+                        </div>
+                        <div class="folder-actions-inline">
+                            <button class="folder-action-btn" onclick="event.stopPropagation(); openEditFolder('${folder.id}')" title="Edit">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                            <button class="folder-action-btn" onclick="event.stopPropagation(); deleteFolder('${folder.id}')" title="Delete">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    ${buildTreeHTML(folder.id, level + 1)}
+                `;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function navigateToFolder(folderId) {
+            window.location.href = `/?folder_id=${folderId}`;
+        }
+
+        // Update parent folder select options
+        function updateParentSelect() {
+            folderParentSelect.innerHTML = '<option value="">Root level</option>';
+            folderTree.forEach(folder => {
+                // Don't show current folder as parent option when editing
+                if (editingFolderId && folder.id === editingFolderId) return;
+                const opt = document.createElement('option');
+                opt.value = folder.id;
+                opt.textContent = folder.name;
+                folderParentSelect.appendChild(opt);
+            });
+        }
+
+        // Folder modal functions
+        function openCreateFolder() {
+            editingFolderId = null;
+            folderModalTitle.textContent = 'Create Folder';
+            folderSubmitBtn.textContent = 'Create';
+            folderNameInput.value = '';
+            folderParentSelect.value = currentFolderId || '';
+            document.querySelector('input[name="folder-access"][value="private"]').checked = true;
+            updateParentSelect();
+            folderModal.classList.remove('hidden');
+            folderNameInput.focus();
+        }
+
+        function openEditFolder(folderId) {
+            const folder = folderTree.find(f => f.id === folderId);
+            if (!folder) return;
+
+            editingFolderId = folderId;
+            folderModalTitle.textContent = 'Edit Folder';
+            folderSubmitBtn.textContent = 'Save';
+            folderNameInput.value = folder.name;
+            folderParentSelect.value = folder.parent_id || '';
+            document.querySelector(`input[name="folder-access"][value="${folder.access_mode}"]`).checked = true;
+            updateParentSelect();
+            folderModal.classList.remove('hidden');
+            folderNameInput.focus();
+        }
+
+        function closeFolderModal() {
+            folderModal.classList.add('hidden');
+            editingFolderId = null;
+        }
+
+        createFolderBtn.onclick = openCreateFolder;
+        folderCancelBtn.onclick = closeFolderModal;
+        folderModalClose.onclick = closeFolderModal;
+        folderModal.onclick = (e) => {
+            if (e.target === folderModal) closeFolderModal();
+        };
+
+        // Create or update folder
+        folderSubmitBtn.onclick = async () => {
+            const name = folderNameInput.value.trim();
+            if (!name) {
+                alert('Please enter a folder name');
+                return;
+            }
+
+            const parentId = folderParentSelect.value || null;
+            const accessMode = document.querySelector('input[name="folder-access"]:checked').value;
+
+            try {
+                if (editingFolderId) {
+                    // Update existing folder
+                    await fetch(`/api/folders/${editingFolderId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, access_mode: accessMode })
+                    });
+                } else {
+                    // Create new folder
+                    await fetch('/api/folders', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name, parent_id: parentId, access_mode: accessMode })
+                    });
+                }
+                closeFolderModal();
+                loadFolderTree();
+            } catch (err) {
+                console.error('Folder operation failed:', err);
+                alert('Operation failed');
+            }
+        };
+
+        // Delete folder
+        async function deleteFolder(folderId) {
+            const folder = folderTree.find(f => f.id === folderId);
+            if (!folder) return;
+
+            if (!confirm(`Delete folder "${folder.name}" and all its contents?`)) return;
+
+            try {
+                await fetch(`/api/folders/${folderId}`, { method: 'DELETE' });
+                if (folderId === currentFolderId) {
+                    // Navigate to parent or root
+                    window.location.href = folder.parent_id ? `/?folder_id=${folder.parent_id}` : '/';
+                } else {
+                    loadFolderTree();
+                }
+            } catch (err) {
+                console.error('Delete failed:', err);
+                alert('Delete failed');
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', loadFolderTree);
     </script>
 
     {% block scripts %}{% endblock %}
