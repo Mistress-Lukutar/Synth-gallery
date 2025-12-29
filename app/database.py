@@ -66,10 +66,25 @@ def init_db():
             name TEXT NOT NULL,
             parent_id TEXT,
             user_id INTEGER NOT NULL,
-            access_mode TEXT DEFAULT 'private' CHECK(access_mode IN ('private', 'public')),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Folder permissions table for sharing
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS folder_permissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            folder_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            permission TEXT NOT NULL CHECK(permission IN ('viewer', 'editor')),
+            granted_by INTEGER NOT NULL,
+            granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (granted_by) REFERENCES users(id),
+            UNIQUE(folder_id, user_id)
         )
     """)
 
@@ -222,6 +237,28 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id)
     """)
 
+    # Migration: remove access_mode from folders (replaced by folder_permissions)
+    folder_columns = {row[1] for row in db.execute("PRAGMA table_info(folders)").fetchall()}
+    if "access_mode" in folder_columns:
+        # SQLite doesn't support DROP COLUMN, need to recreate table
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS folders_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                parent_id TEXT,
+                user_id INTEGER NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+        db.execute("""
+            INSERT INTO folders_new (id, name, parent_id, user_id, created_at)
+            SELECT id, name, parent_id, user_id, created_at FROM folders
+        """)
+        db.execute("DROP TABLE folders")
+        db.execute("ALTER TABLE folders_new RENAME TO folders")
+
     # Insert default categories if not exist
     default_categories = [
         ("Subject", "#3b82f6"),      # Blue - people, animals, objects
@@ -303,6 +340,31 @@ def get_user_by_id(user_id: int):
         "SELECT * FROM users WHERE id = ?",
         (user_id,)
     ).fetchone()
+
+
+def search_users(query: str, exclude_user_id: int = None, limit: int = 10) -> list:
+    """Search users by username or display_name"""
+    db = get_db()
+    search_pattern = f"%{query.lower()}%"
+
+    if exclude_user_id:
+        users = db.execute("""
+            SELECT id, username, display_name
+            FROM users
+            WHERE id != ? AND (LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
+            ORDER BY display_name
+            LIMIT ?
+        """, (exclude_user_id, search_pattern, search_pattern, limit)).fetchall()
+    else:
+        users = db.execute("""
+            SELECT id, username, display_name
+            FROM users
+            WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
+            ORDER BY display_name
+            LIMIT ?
+        """, (search_pattern, search_pattern, limit)).fetchall()
+
+    return [dict(u) for u in users]
 
 
 def update_user_password(user_id: int, new_password: str):
@@ -389,14 +451,14 @@ def cleanup_expired_sessions():
 
 # === Folder Management ===
 
-def create_folder(name: str, user_id: int, parent_id: str = None, access_mode: str = 'private') -> str:
+def create_folder(name: str, user_id: int, parent_id: str = None) -> str:
     """Create a new folder. Returns folder ID."""
     import uuid
     db = get_db()
     folder_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO folders (id, name, parent_id, user_id, access_mode) VALUES (?, ?, ?, ?, ?)",
-        (folder_id, name.strip(), parent_id, user_id, access_mode)
+        "INSERT INTO folders (id, name, parent_id, user_id) VALUES (?, ?, ?, ?)",
+        (folder_id, name.strip(), parent_id, user_id)
     )
     db.commit()
     return folder_id
@@ -411,14 +473,12 @@ def get_folder(folder_id: str):
     ).fetchone()
 
 
-def update_folder(folder_id: str, name: str = None, access_mode: str = None):
-    """Update folder name and/or access mode"""
+def update_folder(folder_id: str, name: str = None):
+    """Update folder name"""
     db = get_db()
     if name is not None:
         db.execute("UPDATE folders SET name = ? WHERE id = ?", (name.strip(), folder_id))
-    if access_mode is not None:
-        db.execute("UPDATE folders SET access_mode = ? WHERE id = ?", (access_mode, folder_id))
-    db.commit()
+        db.commit()
 
 
 def delete_folder(folder_id: str):
@@ -457,16 +517,28 @@ def get_user_folders(user_id: int) -> list:
 
 
 def get_folder_tree(user_id: int) -> list:
-    """Get folder tree for sidebar (user's folders + public folders from others)"""
+    """Get folder tree for sidebar (user's folders + folders with permissions)"""
     db = get_db()
     folders = db.execute("""
         SELECT f.*, u.display_name as owner_name,
-               (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+               (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count,
+               CASE
+                   WHEN f.user_id = ? THEN 'owner'
+                   ELSE (SELECT permission FROM folder_permissions WHERE folder_id = f.id AND user_id = ?)
+               END as permission,
+               -- For owned folders: check sharing status
+               CASE
+                   WHEN f.user_id != ? THEN NULL
+                   WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id AND permission = 'editor') THEN 'has_editors'
+                   WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id) THEN 'has_viewers'
+                   ELSE 'private'
+               END as share_status
         FROM folders f
         JOIN users u ON f.user_id = u.id
-        WHERE f.user_id = ? OR f.access_mode = 'public'
+        WHERE f.user_id = ?
+           OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
         ORDER BY f.name
-    """, (user_id,)).fetchall()
+    """, (user_id, user_id, user_id, user_id, user_id)).fetchall()
     return [dict(f) for f in folders]
 
 
@@ -531,31 +603,106 @@ def set_user_default_folder(user_id: int, folder_id: str):
     db.commit()
 
 
+# === Folder Permissions ===
+
+def add_folder_permission(folder_id: str, user_id: int, permission: str, granted_by: int) -> bool:
+    """Add or update permission for a user on a folder"""
+    if permission not in ('viewer', 'editor'):
+        return False
+
+    db = get_db()
+    try:
+        db.execute("""
+            INSERT INTO folder_permissions (folder_id, user_id, permission, granted_by)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(folder_id, user_id) DO UPDATE SET permission = ?, granted_by = ?, granted_at = CURRENT_TIMESTAMP
+        """, (folder_id, user_id, permission, granted_by, permission, granted_by))
+        db.commit()
+        return True
+    except Exception:
+        return False
+
+
+def remove_folder_permission(folder_id: str, user_id: int) -> bool:
+    """Remove permission for a user on a folder"""
+    db = get_db()
+    result = db.execute(
+        "DELETE FROM folder_permissions WHERE folder_id = ? AND user_id = ?",
+        (folder_id, user_id)
+    )
+    db.commit()
+    return result.rowcount > 0
+
+
+def update_folder_permission(folder_id: str, user_id: int, permission: str) -> bool:
+    """Update permission level for a user on a folder"""
+    if permission not in ('viewer', 'editor'):
+        return False
+
+    db = get_db()
+    result = db.execute(
+        "UPDATE folder_permissions SET permission = ? WHERE folder_id = ? AND user_id = ?",
+        (permission, folder_id, user_id)
+    )
+    db.commit()
+    return result.rowcount > 0
+
+
+def get_folder_permissions(folder_id: str) -> list:
+    """Get all permissions for a folder with user info"""
+    db = get_db()
+    permissions = db.execute("""
+        SELECT fp.user_id, fp.permission, fp.granted_at,
+               u.username, u.display_name
+        FROM folder_permissions fp
+        JOIN users u ON fp.user_id = u.id
+        WHERE fp.folder_id = ?
+        ORDER BY u.display_name
+    """, (folder_id,)).fetchall()
+    return [dict(p) for p in permissions]
+
+
+def get_user_permission(folder_id: str, user_id: int) -> str | None:
+    """Get user's permission level for a folder: 'owner', 'editor', 'viewer', or None"""
+    db = get_db()
+
+    # Check if user is owner
+    folder = db.execute("SELECT user_id FROM folders WHERE id = ?", (folder_id,)).fetchone()
+    if folder and folder["user_id"] == user_id:
+        return 'owner'
+
+    # Check explicit permissions
+    perm = db.execute(
+        "SELECT permission FROM folder_permissions WHERE folder_id = ? AND user_id = ?",
+        (folder_id, user_id)
+    ).fetchone()
+
+    return perm["permission"] if perm else None
+
+
+def can_view_folder(folder_id: str, user_id: int) -> bool:
+    """Check if user can view folder (owner, viewer, or editor)"""
+    if not folder_id:
+        return True
+
+    permission = get_user_permission(folder_id, user_id)
+    return permission in ('owner', 'viewer', 'editor')
+
+
+def can_edit_folder(folder_id: str, user_id: int) -> bool:
+    """Check if user can edit folder content (owner or editor)"""
+    if not folder_id:
+        return False
+
+    permission = get_user_permission(folder_id, user_id)
+    return permission in ('owner', 'editor')
+
+
 # === Access Control ===
 
 def can_access_folder(folder_id: str, user_id: int) -> bool:
-    """Check if user can access folder"""
-    if not folder_id:
-        return True  # Root/no folder = accessible
-
-    db = get_db()
-    folder = db.execute(
-        "SELECT user_id, access_mode FROM folders WHERE id = ?",
-        (folder_id,)
-    ).fetchone()
-
-    if not folder:
-        return False
-
-    # Owner always has access
-    if folder["user_id"] == user_id:
-        return True
-
-    # Public folders accessible to all
-    if folder["access_mode"] == 'public':
-        return True
-
-    return False
+    """Check if user can access folder (view permission)"""
+    return can_view_folder(folder_id, user_id)
 
 
 def can_access_photo(photo_id: str, user_id: int) -> bool:
@@ -623,12 +770,15 @@ def get_folder_contents(folder_id: str, user_id: int) -> dict:
     """Get contents of a folder (subfolders, albums, photos)"""
     db = get_db()
 
-    # Get subfolders (own + public)
+    # Get subfolders (own + folders with permission)
     subfolders = db.execute("""
         SELECT * FROM folders
-        WHERE parent_id = ? AND (user_id = ? OR access_mode = 'public')
+        WHERE parent_id = ? AND (
+            user_id = ?
+            OR id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+        )
         ORDER BY name
-    """, (folder_id, user_id)).fetchall()
+    """, (folder_id, user_id, user_id)).fetchall()
 
     # Get albums in this folder
     albums = db.execute("""
