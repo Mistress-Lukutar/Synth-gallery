@@ -1,18 +1,22 @@
-from contextlib import asynccontextmanager
 import random
+import shutil
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, Request, HTTPException
+import cv2
+from PIL import Image
+from fastapi import FastAPI, UploadFile, Request, HTTPException, Form
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from pathlib import Path
-from PIL import Image
-import cv2
-import uuid
-import shutil
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from .database import get_db, init_db
+from .database import (
+    get_db, init_db, authenticate_user, create_session,
+    get_session, delete_session, cleanup_expired_sessions
+)
 
 # Allowed media types
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
@@ -33,6 +37,7 @@ THUMBNAILS_DIR.mkdir(exist_ok=True)
 async def lifespan(app: FastAPI):
     # Startup: runs before the application starts accepting requests
     init_db()
+    cleanup_expired_sessions()
     yield
     # Shutdown: runs when application is stopping (cleanup code goes here)
 
@@ -40,9 +45,50 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Photo Gallery", lifespan=lifespan)
 
 # Static files and templates
+# Note: /thumbnails is served via a route (not StaticFiles) to enforce authentication
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
-app.mount("/thumbnails", StaticFiles(directory=THUMBNAILS_DIR), name="thumbnails")
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
+
+# Session cookie name
+SESSION_COOKIE = "synth_session"
+
+# Paths that don't require authentication
+PUBLIC_PATHS = {"/login", "/static", "/favicon.ico"}
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Middleware to check authentication on all routes"""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Allow public paths
+        if path in PUBLIC_PATHS or path.startswith("/static/"):
+            return await call_next(request)
+
+        # Check session cookie
+        session_id = request.cookies.get(SESSION_COOKIE)
+        if session_id:
+            session = get_session(session_id)
+            if session:
+                # Valid session - attach user info to request state
+                request.state.user = {
+                    "id": session["user_id"],
+                    "username": session["username"],
+                    "display_name": session["display_name"]
+                }
+                return await call_next(request)
+
+        # No valid session - redirect to login
+        if request.method == "GET":
+            return RedirectResponse(url="/login", status_code=302)
+
+        # For API calls, return 401
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+
+
+app.add_middleware(AuthMiddleware)
 
 
 def create_thumbnail(source_path: Path, thumb_path: Path, size: tuple[int, int] = (400, 400)):
@@ -76,19 +122,82 @@ def get_media_type(content_type: str) -> str:
     return "image"
 
 
+# === Authentication Routes ===
+
+@app.get("/login")
+def login_page(request: Request, error: str = None):
+    """Show login page"""
+    # If already logged in, redirect to gallery
+    session_id = request.cookies.get(SESSION_COOKIE)
+    if session_id and get_session(session_id):
+        return RedirectResponse(url="/", status_code=302)
+
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "error": error, "username": ""}
+    )
+
+
+@app.post("/login")
+def login(request: Request, username: str = Form(...), password: str = Form(...)):
+    """Process login form"""
+    user = authenticate_user(username, password)
+
+    if not user:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "error": "Invalid username or password", "username": username},
+            status_code=401
+        )
+
+    # Create session
+    session_id = create_session(user["id"])
+
+    # Redirect to gallery with session cookie
+    response = RedirectResponse(url="/", status_code=302)
+    response.set_cookie(
+        key=SESSION_COOKIE,
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7  # 7 days
+    )
+    return response
+
+
+@app.get("/logout")
+def logout(request: Request):
+    """Logout user"""
+    session_id = request.cookies.get(SESSION_COOKIE)
+    if session_id:
+        delete_session(session_id)
+
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie(SESSION_COOKIE)
+    return response
+
+
+def get_current_user(request: Request) -> dict | None:
+    """Get current user from request state"""
+    return getattr(request.state, "user", None)
+
+
+# === Gallery Routes ===
+
 @app.get("/")
 def gallery(request: Request):
     """Main page - gallery with albums and standalone photos"""
     db = get_db()
+    user = get_current_user(request)
 
     # Get albums with their cover photo (first photo) and count
     albums = db.execute("""
-        SELECT a.*,
-               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
-               (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
-        FROM albums a
-        ORDER BY a.created_at DESC
-    """).fetchall()
+                        SELECT a.*,
+                               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as         photo_count,
+                               (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
+                        FROM albums a
+                        ORDER BY a.created_at DESC
+                        """).fetchall()
 
     # Get standalone photos (not in any album)
     photos = db.execute(
@@ -121,7 +230,7 @@ def gallery(request: Request):
 
     return templates.TemplateResponse(
         "gallery.html",
-        {"request": request, "items": items, "photos": photos, "albums": albums}
+        {"request": request, "items": items, "photos": photos, "albums": albums, "user": user}
     )
 
 
@@ -129,6 +238,7 @@ def gallery(request: Request):
 def view_photo(request: Request, photo_id: str):
     """Photo view page"""
     db = get_db()
+    user = get_current_user(request)
     photo = db.execute(
         "SELECT * FROM photos WHERE id = ?", (photo_id,)
     ).fetchone()
@@ -137,11 +247,11 @@ def view_photo(request: Request, photo_id: str):
         raise HTTPException(status_code=404, detail="Photo not found")
 
     tags = db.execute("""
-        SELECT t.id, t.tag, t.category_id, c.name as category_name, c.color
-        FROM tags t
-        LEFT JOIN tag_categories c ON t.category_id = c.id
-        WHERE t.photo_id = ?
-    """, (photo_id,)).fetchall()
+                      SELECT t.id, t.tag, t.category_id, c.name as category_name, c.color
+                      FROM tags t
+                               LEFT JOIN tag_categories c ON t.category_id = c.id
+                      WHERE t.photo_id = ?
+                      """, (photo_id,)).fetchall()
 
     tags_data = [
         {"id": t["id"], "tag": t["tag"], "category_id": t["category_id"],
@@ -179,45 +289,54 @@ def view_photo(request: Request, photo_id: str):
         # If at album edges, get next/prev item outside album
         if not prev_photo:
             prev_photo = db.execute("""
-                SELECT id, 'photo' as type FROM photos
-                WHERE album_id IS NULL AND uploaded_at > (SELECT created_at FROM albums WHERE id = ?)
-                ORDER BY uploaded_at ASC LIMIT 1
-            """, (photo["album_id"],)).fetchone()
+                                    SELECT id, 'photo' as type
+                                    FROM photos
+                                    WHERE album_id IS NULL
+                                      AND uploaded_at > (SELECT created_at FROM albums WHERE id = ?)
+                                    ORDER BY uploaded_at ASC LIMIT 1
+                                    """, (photo["album_id"],)).fetchone()
             if not prev_photo:
                 prev_photo = db.execute("""
-                    SELECT a.id, 'album' as type FROM albums a
-                    WHERE a.created_at > (SELECT created_at FROM albums WHERE id = ?)
-                    ORDER BY a.created_at ASC LIMIT 1
-                """, (photo["album_id"],)).fetchone()
+                                        SELECT a.id, 'album' as type
+                                        FROM albums a
+                                        WHERE a.created_at > (SELECT created_at FROM albums WHERE id = ?)
+                                        ORDER BY a.created_at ASC LIMIT 1
+                                        """, (photo["album_id"],)).fetchone()
 
         if not next_photo:
             next_photo = db.execute("""
-                SELECT id, 'photo' as type FROM photos
-                WHERE album_id IS NULL AND uploaded_at < (SELECT created_at FROM albums WHERE id = ?)
-                ORDER BY uploaded_at DESC LIMIT 1
-            """, (photo["album_id"],)).fetchone()
+                                    SELECT id, 'photo' as type
+                                    FROM photos
+                                    WHERE album_id IS NULL
+                                      AND uploaded_at < (SELECT created_at FROM albums WHERE id = ?)
+                                    ORDER BY uploaded_at DESC LIMIT 1
+                                    """, (photo["album_id"],)).fetchone()
             if not next_photo:
                 next_photo = db.execute("""
-                    SELECT a.id, 'album' as type FROM albums a
-                    WHERE a.created_at < (SELECT created_at FROM albums WHERE id = ?)
-                    ORDER BY a.created_at DESC LIMIT 1
-                """, (photo["album_id"],)).fetchone()
+                                        SELECT a.id, 'album' as type
+                                        FROM albums a
+                                        WHERE a.created_at < (SELECT created_at FROM albums WHERE id = ?)
+                                        ORDER BY a.created_at DESC LIMIT 1
+                                        """, (photo["album_id"],)).fetchone()
     else:
         # Standalone photo navigation - need to find prev/next items (photos or albums)
         current_time = photo["uploaded_at"]
 
         # Find previous item (newer) - could be photo or album
         prev_photo = db.execute("""
-            SELECT id, 'photo' as type, uploaded_at as item_time FROM photos
-            WHERE album_id IS NULL AND uploaded_at > ?
-            ORDER BY uploaded_at ASC LIMIT 1
-        """, (current_time,)).fetchone()
+                                SELECT id, 'photo' as type, uploaded_at as item_time
+                                FROM photos
+                                WHERE album_id IS NULL
+                                  AND uploaded_at > ?
+                                ORDER BY uploaded_at ASC LIMIT 1
+                                """, (current_time,)).fetchone()
 
         prev_album = db.execute("""
-            SELECT id, 'album' as type, created_at as item_time FROM albums
-            WHERE created_at > ?
-            ORDER BY created_at ASC LIMIT 1
-        """, (current_time,)).fetchone()
+                                SELECT id, 'album' as type, created_at as item_time
+                                FROM albums
+                                WHERE created_at > ?
+                                ORDER BY created_at ASC LIMIT 1
+                                """, (current_time,)).fetchone()
 
         # Pick the closest one
         if prev_photo and prev_album:
@@ -227,16 +346,19 @@ def view_photo(request: Request, photo_id: str):
 
         # Find next item (older) - could be photo or album
         next_photo = db.execute("""
-            SELECT id, 'photo' as type, uploaded_at as item_time FROM photos
-            WHERE album_id IS NULL AND uploaded_at < ?
-            ORDER BY uploaded_at DESC LIMIT 1
-        """, (current_time,)).fetchone()
+                                SELECT id, 'photo' as type, uploaded_at as item_time
+                                FROM photos
+                                WHERE album_id IS NULL
+                                  AND uploaded_at < ?
+                                ORDER BY uploaded_at DESC LIMIT 1
+                                """, (current_time,)).fetchone()
 
         next_album = db.execute("""
-            SELECT id, 'album' as type, created_at as item_time FROM albums
-            WHERE created_at < ?
-            ORDER BY created_at DESC LIMIT 1
-        """, (current_time,)).fetchone()
+                                SELECT id, 'album' as type, created_at as item_time
+                                FROM albums
+                                WHERE created_at < ?
+                                ORDER BY created_at DESC LIMIT 1
+                                """, (current_time,)).fetchone()
 
         # Pick the closest one
         if next_photo and next_album:
@@ -263,7 +385,8 @@ def view_photo(request: Request, photo_id: str):
             "prev_type": prev_type,
             "next_type": next_type,
             "album_info": album_info,
-            "media_type": photo["media_type"] or "image"
+            "media_type": photo["media_type"] or "image",
+            "user": user
         }
     )
 
@@ -280,14 +403,22 @@ def view_album(request: Request, album_id: str):
     if not first_photo:
         raise HTTPException(status_code=404, detail="Album is empty or not found")
 
-    from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"/photo/{first_photo['id']}", status_code=302)
 
 
 @app.get("/uploads/{filename}")
 def get_upload(filename: str):
-    """Serves original photo"""
+    """Serves original photo (protected by auth middleware)"""
     file_path = UPLOADS_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(file_path)
+
+
+@app.get("/thumbnails/{filename}")
+def get_thumbnail(filename: str):
+    """Serves thumbnail (protected by auth middleware)"""
+    file_path = THUMBNAILS_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404)
     return FileResponse(file_path)
@@ -455,19 +586,19 @@ def get_tag_presets(search: str = ""):
 
     if search:
         presets = db.execute("""
-            SELECT p.id, p.name, p.category_id, c.name as category_name, c.color
-            FROM tag_presets p
-            JOIN tag_categories c ON p.category_id = c.id
-            WHERE p.name LIKE ?
-            ORDER BY c.id, p.name
-        """, (f"%{search.lower()}%",)).fetchall()
+                             SELECT p.id, p.name, p.category_id, c.name as category_name, c.color
+                             FROM tag_presets p
+                                      JOIN tag_categories c ON p.category_id = c.id
+                             WHERE p.name LIKE ?
+                             ORDER BY c.id, p.name
+                             """, (f"%{search.lower()}%",)).fetchall()
     else:
         presets = db.execute("""
-            SELECT p.id, p.name, p.category_id, c.name as category_name, c.color
-            FROM tag_presets p
-            JOIN tag_categories c ON p.category_id = c.id
-            ORDER BY c.id, p.name
-        """).fetchall()
+                             SELECT p.id, p.name, p.category_id, c.name as category_name, c.color
+                             FROM tag_presets p
+                                      JOIN tag_categories c ON p.category_id = c.id
+                             ORDER BY c.id, p.name
+                             """).fetchall()
 
     # Group by category
     result = {}
@@ -579,10 +710,10 @@ def generate_ai_tags(photo_id: str):
 
     # Get random presets from different categories
     presets = db.execute("""
-        SELECT p.name, p.category_id, c.color
-        FROM tag_presets p
-        JOIN tag_categories c ON p.category_id = c.id
-    """).fetchall()
+                         SELECT p.name, p.category_id, c.color
+                         FROM tag_presets p
+                                  JOIN tag_categories c ON p.category_id = c.id
+                         """).fetchall()
 
     if not presets:
         return {"status": "error", "message": "No preset tags available"}
@@ -618,11 +749,11 @@ def get_all_tags():
     """Get all unique tags for autocomplete"""
     db = get_db()
     tags = db.execute("""
-        SELECT DISTINCT t.tag, t.category_id, c.color
-        FROM tags t
-        LEFT JOIN tag_categories c ON t.category_id = c.id
-        ORDER BY t.tag
-    """).fetchall()
+                      SELECT DISTINCT t.tag, t.category_id, c.color
+                      FROM tags t
+                               LEFT JOIN tag_categories c ON t.category_id = c.id
+                      ORDER BY t.tag
+                      """).fetchall()
     return [{"tag": t["tag"], "category_id": t["category_id"], "color": t["color"] or "#6b7280"} for t in tags]
 
 
@@ -737,10 +868,10 @@ def batch_generate_ai_tags(data: BatchAIInput):
 
     # Get all presets
     presets = db.execute("""
-        SELECT p.name, p.category_id, c.color
-        FROM tag_presets p
-        JOIN tag_categories c ON p.category_id = c.id
-    """).fetchall()
+                         SELECT p.name, p.category_id, c.color
+                         FROM tag_presets p
+                                  JOIN tag_categories c ON p.category_id = c.id
+                         """).fetchall()
 
     if not presets:
         return {"status": "error", "message": "No preset tags available"}

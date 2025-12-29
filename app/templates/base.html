@@ -30,6 +30,13 @@
             {% endblock %}
 
             <button id="upload-btn" class="btn">Upload</button>
+
+            {% if user %}
+            <div class="user-menu">
+                <span class="user-name">{{ user.display_name }}</span>
+                <a href="/logout" class="btn btn-secondary btn-small">Logout</a>
+            </div>
+            {% endif %}
         </nav>
     </header>
 
