@@ -23,6 +23,7 @@ from .database import (
     # Access control
     can_access_folder, can_access_photo, can_access_album,
     can_view_folder, can_edit_folder, get_user_permission,
+    can_delete_photo, can_delete_album,
     # Folder permissions
     add_folder_permission, remove_folder_permission, update_folder_permission,
     get_folder_permissions,
@@ -308,195 +309,6 @@ def gallery(request: Request, folder_id: str = None):
     )
 
 
-@app.get("/photo/{photo_id}")
-def view_photo(request: Request, photo_id: str):
-    """Photo view page"""
-    db = get_db()
-    user = get_current_user(request)
-
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    photo = db.execute(
-        "SELECT * FROM photos WHERE id = ?", (photo_id,)
-    ).fetchone()
-
-    if not photo:
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    # Check access
-    if not can_access_photo(photo_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    tags = db.execute("""
-                      SELECT t.id, t.tag, t.category_id, c.name as category_name, c.color
-                      FROM tags t
-                               LEFT JOIN tag_categories c ON t.category_id = c.id
-                      WHERE t.photo_id = ?
-                      """, (photo_id,)).fetchall()
-
-    tags_data = [
-        {"id": t["id"], "tag": t["tag"], "category_id": t["category_id"],
-         "category": t["category_name"], "color": t["color"] or "#6b7280"}
-        for t in tags
-    ]
-
-    album_info = None
-    album_photos = []
-
-    # Check if photo is part of an album
-    if photo["album_id"]:
-        album = db.execute(
-            "SELECT * FROM albums WHERE id = ?", (photo["album_id"],)
-        ).fetchone()
-        album_photos = db.execute(
-            "SELECT id, position FROM photos WHERE album_id = ? ORDER BY position",
-            (photo["album_id"],)
-        ).fetchall()
-        current_index = next(
-            (i for i, p in enumerate(album_photos) if p["id"] == photo_id), 0
-        )
-        album_info = {
-            "id": album["id"],
-            "name": album["name"],
-            "total": len(album_photos),
-            "current": current_index + 1,
-            "photo_ids": [p["id"] for p in album_photos]
-        }
-
-        # Navigation within album
-        prev_photo = album_photos[current_index - 1] if current_index > 0 else None
-        next_photo = album_photos[current_index + 1] if current_index < len(album_photos) - 1 else None
-
-        # If at album edges, get next/prev item outside album
-        if not prev_photo:
-            prev_photo = db.execute("""
-                                    SELECT id, 'photo' as type
-                                    FROM photos
-                                    WHERE album_id IS NULL
-                                      AND uploaded_at > (SELECT created_at FROM albums WHERE id = ?)
-                                    ORDER BY uploaded_at ASC LIMIT 1
-                                    """, (photo["album_id"],)).fetchone()
-            if not prev_photo:
-                prev_photo = db.execute("""
-                                        SELECT a.id, 'album' as type
-                                        FROM albums a
-                                        WHERE a.created_at > (SELECT created_at FROM albums WHERE id = ?)
-                                        ORDER BY a.created_at ASC LIMIT 1
-                                        """, (photo["album_id"],)).fetchone()
-
-        if not next_photo:
-            next_photo = db.execute("""
-                                    SELECT id, 'photo' as type
-                                    FROM photos
-                                    WHERE album_id IS NULL
-                                      AND uploaded_at < (SELECT created_at FROM albums WHERE id = ?)
-                                    ORDER BY uploaded_at DESC LIMIT 1
-                                    """, (photo["album_id"],)).fetchone()
-            if not next_photo:
-                next_photo = db.execute("""
-                                        SELECT a.id, 'album' as type
-                                        FROM albums a
-                                        WHERE a.created_at < (SELECT created_at FROM albums WHERE id = ?)
-                                        ORDER BY a.created_at DESC LIMIT 1
-                                        """, (photo["album_id"],)).fetchone()
-    else:
-        # Standalone photo navigation - need to find prev/next items (photos or albums)
-        current_time = photo["uploaded_at"]
-
-        # Find previous item (newer) - could be photo or album
-        prev_photo = db.execute("""
-                                SELECT id, 'photo' as type, uploaded_at as item_time
-                                FROM photos
-                                WHERE album_id IS NULL
-                                  AND uploaded_at > ?
-                                ORDER BY uploaded_at ASC LIMIT 1
-                                """, (current_time,)).fetchone()
-
-        prev_album = db.execute("""
-                                SELECT id, 'album' as type, created_at as item_time
-                                FROM albums
-                                WHERE created_at > ?
-                                ORDER BY created_at ASC LIMIT 1
-                                """, (current_time,)).fetchone()
-
-        # Pick the closest one
-        if prev_photo and prev_album:
-            prev_item = prev_photo if prev_photo["item_time"] < prev_album["item_time"] else prev_album
-        else:
-            prev_item = prev_photo or prev_album
-
-        # Find next item (older) - could be photo or album
-        next_photo = db.execute("""
-                                SELECT id, 'photo' as type, uploaded_at as item_time
-                                FROM photos
-                                WHERE album_id IS NULL
-                                  AND uploaded_at < ?
-                                ORDER BY uploaded_at DESC LIMIT 1
-                                """, (current_time,)).fetchone()
-
-        next_album = db.execute("""
-                                SELECT id, 'album' as type, created_at as item_time
-                                FROM albums
-                                WHERE created_at < ?
-                                ORDER BY created_at DESC LIMIT 1
-                                """, (current_time,)).fetchone()
-
-        # Pick the closest one
-        if next_photo and next_album:
-            next_item = next_photo if next_photo["item_time"] > next_album["item_time"] else next_album
-        else:
-            next_item = next_photo or next_album
-
-        prev_photo = prev_item
-        next_photo = next_item
-
-    prev_id = prev_photo["id"] if prev_photo else None
-    next_id = next_photo["id"] if next_photo else None
-    prev_type = prev_photo["type"] if prev_photo and "type" in prev_photo.keys() else "photo"
-    next_type = next_photo["type"] if next_photo and "type" in next_photo.keys() else "photo"
-
-    return templates.TemplateResponse(
-        "photo.html",
-        {
-            "request": request,
-            "photo": photo,
-            "tags": tags_data,
-            "prev_id": prev_id,
-            "next_id": next_id,
-            "prev_type": prev_type,
-            "next_type": next_type,
-            "album_info": album_info,
-            "media_type": photo["media_type"] or "image",
-            "user": user
-        }
-    )
-
-
-@app.get("/album/{album_id}")
-def view_album(request: Request, album_id: str):
-    """Redirect to first photo in album"""
-    db = get_db()
-    user = get_current_user(request)
-
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-
-    # Check access
-    if not can_access_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    first_photo = db.execute(
-        "SELECT id FROM photos WHERE album_id = ? ORDER BY position LIMIT 1",
-        (album_id,)
-    ).fetchone()
-
-    if not first_photo:
-        raise HTTPException(status_code=404, detail="Album is empty or not found")
-
-    return RedirectResponse(url=f"/photo/{first_photo['id']}", status_code=302)
-
-
 @app.get("/uploads/{filename}")
 def get_upload(request: Request, filename: str):
     """Serves original photo (protected by auth + folder access)"""
@@ -654,6 +466,98 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
         raise HTTPException(status_code=400, detail="No valid media files were uploaded")
 
     return {"album_id": album_id, "photos": uploaded_photos}
+
+
+# === Photo/Album Data API ===
+
+@app.get("/api/photos/{photo_id}")
+def get_photo_data(photo_id: str, request: Request):
+    """Get photo data for lightbox viewer"""
+    user = request.state.user
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db = get_db()
+    photo = db.execute(
+        "SELECT * FROM photos WHERE id = ?", (photo_id,)
+    ).fetchone()
+
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    # Check access
+    if not can_access_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get tags
+    tags = db.execute("""
+        SELECT t.id, t.tag, t.category_id, c.color
+        FROM tags t
+        LEFT JOIN tag_categories c ON t.category_id = c.id
+        WHERE t.photo_id = ?
+    """, (photo_id,)).fetchall()
+
+    # Get album info if photo is in album
+    album_info = None
+    if photo["album_id"]:
+        album = db.execute("SELECT * FROM albums WHERE id = ?", (photo["album_id"],)).fetchone()
+        if album:
+            album_photos = db.execute(
+                "SELECT id FROM photos WHERE album_id = ? ORDER BY position, id",
+                (photo["album_id"],)
+            ).fetchall()
+            photo_ids = [p["id"] for p in album_photos]
+            current_index = photo_ids.index(photo_id) if photo_id in photo_ids else 0
+            album_info = {
+                "id": album["id"],
+                "name": album["name"],
+                "total": len(photo_ids),
+                "current": current_index + 1,
+                "photo_ids": photo_ids
+            }
+
+    return {
+        "id": photo["id"],
+        "filename": photo["filename"],
+        "original_name": photo["original_name"],
+        "media_type": photo["media_type"] or "image",
+        "uploaded_at": photo["uploaded_at"],
+        "tags": [{"id": t["id"], "tag": t["tag"], "color": t["color"] or "#6b7280"} for t in tags],
+        "album": album_info
+    }
+
+
+@app.get("/api/albums/{album_id}")
+def get_album_data(album_id: str, request: Request):
+    """Get album data with photo list"""
+    user = request.state.user
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    db = get_db()
+    album = db.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
+
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    # Check access
+    if not can_access_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Get photos in album
+    photos = db.execute("""
+        SELECT id, filename, original_name, media_type
+        FROM photos
+        WHERE album_id = ?
+        ORDER BY position, id
+    """, (album_id,)).fetchall()
+
+    return {
+        "id": album["id"],
+        "name": album["name"],
+        "created_at": album["created_at"],
+        "photos": [{"id": p["id"], "filename": p["filename"], "media_type": p["media_type"] or "image"} for p in photos]
+    }
 
 
 # === AI Service API ===
@@ -977,14 +881,25 @@ class BatchDeleteInput(BaseModel):
 
 
 @app.post("/api/photos/batch-delete")
-def batch_delete_photos(data: BatchDeleteInput):
+def batch_delete_photos(data: BatchDeleteInput, request: Request):
     """Delete multiple photos and albums"""
+    user = request.state.user
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     db = get_db()
     deleted_photos = 0
     deleted_albums = 0
+    skipped_photos = 0
+    skipped_albums = 0
 
     # Delete individual photos
     for photo_id in data.photo_ids:
+        # Check permission to delete
+        if not can_delete_photo(photo_id, user["id"]):
+            skipped_photos += 1
+            continue
+
         photo = db.execute("SELECT filename FROM photos WHERE id = ?", (photo_id,)).fetchone()
         if photo:
             file_path = UPLOADS_DIR / photo["filename"]
@@ -996,6 +911,11 @@ def batch_delete_photos(data: BatchDeleteInput):
 
     # Delete albums and their photos
     for album_id in data.album_ids:
+        # Check permission to delete album
+        if not can_delete_album(album_id, user["id"]):
+            skipped_albums += 1
+            continue
+
         photos = db.execute("SELECT id, filename FROM photos WHERE album_id = ?", (album_id,)).fetchall()
         for photo in photos:
             file_path = UPLOADS_DIR / photo["filename"]
@@ -1007,7 +927,13 @@ def batch_delete_photos(data: BatchDeleteInput):
         deleted_albums += 1
 
     db.commit()
-    return {"status": "ok", "deleted_photos": deleted_photos, "deleted_albums": deleted_albums}
+    return {
+        "status": "ok",
+        "deleted_photos": deleted_photos,
+        "deleted_albums": deleted_albums,
+        "skipped_photos": skipped_photos,
+        "skipped_albums": skipped_albums
+    }
 
 
 class BatchAIInput(BaseModel):
