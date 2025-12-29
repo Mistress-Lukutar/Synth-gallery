@@ -1,6 +1,7 @@
 import sqlite3
 import hashlib
 import secrets
+import threading
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,16 +21,16 @@ def verify_password(password: str, hashed: str, salt: str) -> bool:
     check_hash, _ = hash_password(password, salt)
     return check_hash == hashed
 
-_connection = None
+# Thread-local storage for database connections
+_local = threading.local()
 
 
 def get_db() -> sqlite3.Connection:
-    """Get database connection"""
-    global _connection
-    if _connection is None:
-        _connection = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
-        _connection.row_factory = sqlite3.Row
-    return _connection
+    """Get thread-local database connection"""
+    if not hasattr(_local, 'connection') or _local.connection is None:
+        _local.connection = sqlite3.connect(DATABASE_PATH)
+        _local.connection.row_factory = sqlite3.Row
+    return _local.connection
 
 
 def init_db():
@@ -762,6 +763,86 @@ def can_access_album(album_id: str, user_id: int) -> bool:
     # Legacy albums without folder/user - accessible to all
     if album["folder_id"] is None and album["user_id"] is None:
         return True
+
+    return False
+
+
+def can_delete_photo(photo_id: str, user_id: int) -> bool:
+    """Check if user can delete photo.
+
+    Rules:
+    - Photo owner can always delete
+    - Folder owner can delete any photo in their folder
+    - Editor can only delete photos they uploaded
+    - Viewer cannot delete
+    """
+    db = get_db()
+    photo = db.execute(
+        "SELECT folder_id, user_id, album_id FROM photos WHERE id = ?",
+        (photo_id,)
+    ).fetchone()
+
+    if not photo:
+        return False
+
+    # Photo owner can always delete
+    if photo["user_id"] == user_id:
+        return True
+
+    # Check folder permissions
+    folder_id = photo["folder_id"]
+
+    # If photo is in album, get folder from album
+    if not folder_id and photo["album_id"]:
+        album = db.execute("SELECT folder_id, user_id FROM albums WHERE id = ?", (photo["album_id"],)).fetchone()
+        if album:
+            # Album owner can delete photos in their album
+            if album["user_id"] == user_id:
+                return True
+            folder_id = album["folder_id"]
+
+    if folder_id:
+        # Get folder to check ownership
+        folder = db.execute("SELECT user_id FROM folders WHERE id = ?", (folder_id,)).fetchone()
+        if folder and folder["user_id"] == user_id:
+            # Folder owner can delete anything
+            return True
+
+        # Editors cannot delete other people's photos
+        # (they can only delete their own, which is checked above)
+        return False
+
+    return False
+
+
+def can_delete_album(album_id: str, user_id: int) -> bool:
+    """Check if user can delete album.
+
+    Rules:
+    - Album owner can always delete
+    - Folder owner can delete any album in their folder
+    - Editor can only delete albums they created
+    - Viewer cannot delete
+    """
+    db = get_db()
+    album = db.execute(
+        "SELECT folder_id, user_id FROM albums WHERE id = ?",
+        (album_id,)
+    ).fetchone()
+
+    if not album:
+        return False
+
+    # Album owner can always delete
+    if album["user_id"] == user_id:
+        return True
+
+    # Check folder ownership
+    if album["folder_id"]:
+        folder = db.execute("SELECT user_id FROM folders WHERE id = ?", (album["folder_id"],)).fetchone()
+        if folder and folder["user_id"] == user_id:
+            # Folder owner can delete anything
+            return True
 
     return False
 
