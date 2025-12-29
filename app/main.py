@@ -15,7 +15,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .database import (
     get_db, init_db, authenticate_user, create_session,
-    get_session, delete_session, cleanup_expired_sessions
+    get_session, delete_session, cleanup_expired_sessions,
+    # Folder management
+    create_folder, get_folder, update_folder, delete_folder as db_delete_folder,
+    get_user_folders, get_folder_tree, get_folder_breadcrumbs,
+    get_user_default_folder, set_user_default_folder, get_folder_contents,
+    # Access control
+    can_access_folder, can_access_photo, can_access_album
 )
 
 # Allowed media types
@@ -95,6 +101,9 @@ def create_thumbnail(source_path: Path, thumb_path: Path, size: tuple[int, int] 
     """Creates image thumbnail"""
     with Image.open(source_path) as img:
         img.thumbnail(size, Image.Resampling.LANCZOS)
+        # Convert RGBA/P to RGB for JPEG (no transparency support)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
         img.save(thumb_path, "JPEG", quality=85)
 
 
@@ -185,27 +194,76 @@ def get_current_user(request: Request) -> dict | None:
 # === Gallery Routes ===
 
 @app.get("/")
-def gallery(request: Request):
-    """Main page - gallery with albums and standalone photos"""
+def gallery(request: Request, folder_id: str = None):
+    """Main page - gallery with folders, albums and photos"""
     db = get_db()
     user = get_current_user(request)
 
-    # Get albums with their cover photo (first photo) and count
-    albums = db.execute("""
-                        SELECT a.*,
-                               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as         photo_count,
-                               (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
-                        FROM albums a
-                        ORDER BY a.created_at DESC
-                        """).fetchall()
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
 
-    # Get standalone photos (not in any album)
-    photos = db.execute(
-        "SELECT * FROM photos WHERE album_id IS NULL ORDER BY uploaded_at DESC"
-    ).fetchall()
+    # Get folder tree for sidebar
+    folder_tree = get_folder_tree(user["id"])
+
+    # If no folder specified, use user's default folder
+    current_folder = None
+    breadcrumbs = []
+
+    if folder_id:
+        # Check access to requested folder
+        if not can_access_folder(folder_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Access denied")
+        current_folder = get_folder(folder_id)
+        if current_folder:
+            current_folder = dict(current_folder)
+            breadcrumbs = get_folder_breadcrumbs(folder_id)
+    else:
+        # Redirect to default folder
+        default_folder_id = get_user_default_folder(user["id"])
+        return RedirectResponse(url=f"/?folder_id={default_folder_id}", status_code=302)
+
+    # Get subfolders of current folder with photo count
+    subfolders = db.execute("""
+        SELECT f.*,
+               (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+        FROM folders f
+        WHERE f.parent_id = ? AND (f.user_id = ? OR f.access_mode = 'public')
+        ORDER BY f.name
+    """, (folder_id, user["id"])).fetchall()
+
+    # Get albums in current folder
+    albums = db.execute("""
+        SELECT a.*,
+               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+               (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
+        FROM albums a
+        WHERE a.folder_id = ?
+        ORDER BY a.created_at DESC
+    """, (folder_id,)).fetchall()
+
+    # Get standalone photos in current folder
+    photos = db.execute("""
+        SELECT * FROM photos
+        WHERE folder_id = ? AND album_id IS NULL
+        ORDER BY uploaded_at DESC
+    """, (folder_id,)).fetchall()
 
     # Create a combined list with type markers for ordering
     items = []
+
+    # Add subfolders first
+    for folder in subfolders:
+        items.append({
+            "type": "folder",
+            "id": folder["id"],
+            "name": folder["name"],
+            "created_at": folder["created_at"],
+            "access_mode": folder["access_mode"],
+            "user_id": folder["user_id"],
+            "is_own": folder["user_id"] == user["id"],
+            "photo_count": folder["photo_count"]
+        })
+
     for album in albums:
         items.append({
             "type": "album",
@@ -215,6 +273,7 @@ def gallery(request: Request):
             "photo_count": album["photo_count"],
             "cover_photo_id": album["cover_photo_id"]
         })
+
     for photo in photos:
         items.append({
             "type": "photo",
@@ -225,12 +284,19 @@ def gallery(request: Request):
             "media_type": photo["media_type"] or "image"
         })
 
-    # Sort by date (newest first)
-    items.sort(key=lambda x: x.get("created_at") or x.get("uploaded_at"), reverse=True)
-
     return templates.TemplateResponse(
         "gallery.html",
-        {"request": request, "items": items, "photos": photos, "albums": albums, "user": user}
+        {
+            "request": request,
+            "items": items,
+            "photos": photos,
+            "albums": albums,
+            "user": user,
+            "current_folder": current_folder,
+            "folder_id": folder_id,
+            "breadcrumbs": breadcrumbs,
+            "folder_tree": folder_tree
+        }
     )
 
 
@@ -239,12 +305,20 @@ def view_photo(request: Request, photo_id: str):
     """Photo view page"""
     db = get_db()
     user = get_current_user(request)
+
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
     photo = db.execute(
         "SELECT * FROM photos WHERE id = ?", (photo_id,)
     ).fetchone()
 
     if not photo:
         raise HTTPException(status_code=404, detail="Photo not found")
+
+    # Check access
+    if not can_access_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     tags = db.execute("""
                       SELECT t.id, t.tag, t.category_id, c.name as category_name, c.color
@@ -395,6 +469,15 @@ def view_photo(request: Request, photo_id: str):
 def view_album(request: Request, album_id: str):
     """Redirect to first photo in album"""
     db = get_db()
+    user = get_current_user(request)
+
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    # Check access
+    if not can_access_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     first_photo = db.execute(
         "SELECT id FROM photos WHERE album_id = ? ORDER BY position LIMIT 1",
         (album_id,)
@@ -407,26 +490,64 @@ def view_album(request: Request, album_id: str):
 
 
 @app.get("/uploads/{filename}")
-def get_upload(filename: str):
-    """Serves original photo (protected by auth middleware)"""
+def get_upload(request: Request, filename: str):
+    """Serves original photo (protected by auth + folder access)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
     file_path = UPLOADS_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404)
+
+    # Get photo_id from filename (remove extension)
+    photo_id = Path(filename).stem
+    if not can_access_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     return FileResponse(file_path)
 
 
 @app.get("/thumbnails/{filename}")
-def get_thumbnail(filename: str):
-    """Serves thumbnail (protected by auth middleware)"""
+def get_thumbnail(request: Request, filename: str):
+    """Serves thumbnail (protected by auth + folder access)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
     file_path = THUMBNAILS_DIR / filename
     if not file_path.exists():
         raise HTTPException(status_code=404)
+
+    # Get photo_id from filename (remove .jpg extension)
+    photo_id = Path(filename).stem
+    if not can_access_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     return FileResponse(file_path)
 
 
 @app.post("/upload")
-async def upload_photo(file: UploadFile):
-    """Upload new photo or video"""
+async def upload_photo(request: Request, file: UploadFile = None, folder_id: str = Form(None)):
+    """Upload new photo or video to specified folder"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    if not file:
+        raise HTTPException(status_code=400, detail="file is required")
+
+    if not folder_id:
+        raise HTTPException(status_code=400, detail="folder_id is required")
+
+    # Verify folder access
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot upload to this folder")
+
+    folder = get_folder(folder_id)
+    if folder and folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Cannot upload to another user's folder")
+
     # Check file type
     if file.content_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
@@ -454,11 +575,11 @@ async def upload_photo(file: UploadFile):
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Processing error: {e}")
 
-    # Save to database
+    # Save to database with folder and user
     db = get_db()
     db.execute(
-        "INSERT INTO photos (id, filename, original_name, media_type) VALUES (?, ?, ?, ?)",
-        (photo_id, filename, file.filename, media_type)
+        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (photo_id, filename, file.filename, media_type, folder_id, user["id"])
     )
     db.commit()
 
@@ -466,15 +587,30 @@ async def upload_photo(file: UploadFile):
 
 
 @app.post("/upload-album")
-async def upload_album(files: list[UploadFile]):
-    """Upload multiple photos/videos as an album"""
+async def upload_album(request: Request, files: list[UploadFile], folder_id: str = Form(None)):
+    """Upload multiple photos/videos as an album to specified folder"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    if not folder_id:
+        raise HTTPException(status_code=400, detail="folder_id is required")
+
+    # Verify folder access
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot upload to this folder")
+
+    folder = get_folder(folder_id)
+    if folder and folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Cannot upload to another user's folder")
+
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Album requires at least 2 items")
 
-    # Create album
+    # Create album with folder and user
     album_id = str(uuid.uuid4())
     db = get_db()
-    db.execute("INSERT INTO albums (id) VALUES (?)", (album_id,))
+    db.execute("INSERT INTO albums (id, folder_id, user_id) VALUES (?, ?, ?)", (album_id, folder_id, user["id"]))
 
     uploaded_photos = []
     for position, file in enumerate(files):
@@ -502,10 +638,10 @@ async def upload_album(files: list[UploadFile]):
             file_path.unlink(missing_ok=True)
             continue
 
-        # Save to database with album reference
+        # Save to database with album, folder and user reference
         db.execute(
-            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type) VALUES (?, ?, ?, ?, ?, ?)",
-            (photo_id, filename, file.filename, album_id, position, media_type)
+            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"])
         )
         uploaded_photos.append({"id": photo_id, "filename": filename, "media_type": media_type})
 
@@ -569,6 +705,17 @@ class TagInput(BaseModel):
 class TagPresetInput(BaseModel):
     name: str
     category_id: int
+
+
+class FolderCreate(BaseModel):
+    name: str
+    parent_id: str | None = None
+    access_mode: str = 'private'
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = None
+    access_mode: str | None = None
 
 
 @app.get("/api/tag-categories")
@@ -906,3 +1053,117 @@ def batch_generate_ai_tags(data: BatchAIInput):
 
     db.commit()
     return {"status": "ok", "processed": processed}
+
+
+# === Folder API ===
+
+@app.get("/api/folders")
+def get_folders(request: Request):
+    """Get folder tree for current user"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folders = get_folder_tree(user["id"])
+    return folders
+
+
+@app.post("/api/folders")
+def create_new_folder(request: Request, data: FolderCreate):
+    """Create a new folder"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    # If parent_id specified, verify access
+    if data.parent_id:
+        if not can_access_folder(data.parent_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Cannot create folder in this location")
+        parent = get_folder(data.parent_id)
+        if parent and parent["user_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Cannot create folder in another user's folder")
+
+    folder_id = create_folder(data.name, user["id"], data.parent_id, data.access_mode)
+    folder = get_folder(folder_id)
+
+    return {"status": "ok", "folder": dict(folder)}
+
+
+@app.put("/api/folders/{folder_id}")
+def update_existing_folder(request: Request, folder_id: str, data: FolderUpdate):
+    """Update folder name and/or access mode"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="You don't own this folder")
+
+    update_folder(folder_id, data.name, data.access_mode)
+    updated = get_folder(folder_id)
+
+    return {"status": "ok", "folder": dict(updated)}
+
+
+@app.delete("/api/folders/{folder_id}")
+def delete_folder_route(request: Request, folder_id: str):
+    """Delete folder and all its contents"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="You don't own this folder")
+
+    # Get filenames to delete
+    filenames = db_delete_folder(folder_id)
+
+    # Delete actual files
+    for filename in filenames:
+        file_path = UPLOADS_DIR / filename
+        photo_id = Path(filename).stem
+        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        file_path.unlink(missing_ok=True)
+        thumb_path.unlink(missing_ok=True)
+
+    return {"status": "ok"}
+
+
+@app.get("/api/folders/{folder_id}/contents")
+def get_folder_contents_route(request: Request, folder_id: str):
+    """Get contents of a specific folder"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    contents = get_folder_contents(folder_id, user["id"])
+    return contents
+
+
+@app.post("/api/folders/{folder_id}/set-default")
+def set_default_folder(request: Request, folder_id: str):
+    """Set folder as user's default folder"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="You don't own this folder")
+
+    set_user_default_folder(user["id"], folder_id)
+    return {"status": "ok"}

@@ -59,6 +59,20 @@ def init_db():
         )
     """)
 
+    # Folders table for organizing content
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS folders (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            parent_id TEXT,
+            user_id INTEGER NOT NULL,
+            access_mode TEXT DEFAULT 'private' CHECK(access_mode IN ('private', 'public')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
     # Albums table
     db.execute("""
         CREATE TABLE IF NOT EXISTS albums (
@@ -143,6 +157,69 @@ def init_db():
 
     db.execute("""
         CREATE INDEX IF NOT EXISTS idx_photos_album_id ON photos(album_id)
+    """)
+
+    # Folders indexes
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)
+    """)
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)
+    """)
+
+    # Migration: add default_folder_id to users
+    user_columns = [row[1] for row in db.execute("PRAGMA table_info(users)").fetchall()]
+    if "default_folder_id" not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN default_folder_id TEXT")
+
+    # Migration: add folder_id and user_id to albums
+    album_columns = [row[1] for row in db.execute("PRAGMA table_info(albums)").fetchall()]
+    if "folder_id" not in album_columns:
+        db.execute("ALTER TABLE albums ADD COLUMN folder_id TEXT")
+    if "user_id" not in album_columns:
+        db.execute("ALTER TABLE albums ADD COLUMN user_id INTEGER")
+
+    # Migration: add folder_id and user_id to photos
+    if "folder_id" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN folder_id TEXT")
+    else:
+        # Fix: check if folder_id has wrong type (INTEGER instead of TEXT)
+        photo_column_types = {row[1]: row[2] for row in db.execute("PRAGMA table_info(photos)").fetchall()}
+        if photo_column_types.get("folder_id", "").upper() == "INTEGER":
+            # Need to fix column type - SQLite requires table recreation
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS photos_new (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    original_name TEXT,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    ai_processed INTEGER DEFAULT 0,
+                    album_id TEXT,
+                    position INTEGER DEFAULT 0,
+                    media_type TEXT DEFAULT 'image',
+                    folder_id TEXT,
+                    user_id INTEGER,
+                    FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE
+                )
+            """)
+            db.execute("""
+                INSERT INTO photos_new (id, filename, original_name, uploaded_at, ai_processed, album_id, position, media_type, folder_id, user_id)
+                SELECT id, filename, original_name, uploaded_at, ai_processed, album_id, position, media_type,
+                       CAST(folder_id AS TEXT), user_id
+                FROM photos
+            """)
+            db.execute("DROP TABLE photos")
+            db.execute("ALTER TABLE photos_new RENAME TO photos")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_photos_album_id ON photos(album_id)")
+
+    if "user_id" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN user_id INTEGER")
+
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)
+    """)
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id)
     """)
 
     # Insert default categories if not exist
@@ -308,3 +385,270 @@ def cleanup_expired_sessions():
     db = get_db()
     db.execute("DELETE FROM sessions WHERE expires_at <= datetime('now')")
     db.commit()
+
+
+# === Folder Management ===
+
+def create_folder(name: str, user_id: int, parent_id: str = None, access_mode: str = 'private') -> str:
+    """Create a new folder. Returns folder ID."""
+    import uuid
+    db = get_db()
+    folder_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO folders (id, name, parent_id, user_id, access_mode) VALUES (?, ?, ?, ?, ?)",
+        (folder_id, name.strip(), parent_id, user_id, access_mode)
+    )
+    db.commit()
+    return folder_id
+
+
+def get_folder(folder_id: str):
+    """Get folder by ID"""
+    db = get_db()
+    return db.execute(
+        "SELECT * FROM folders WHERE id = ?",
+        (folder_id,)
+    ).fetchone()
+
+
+def update_folder(folder_id: str, name: str = None, access_mode: str = None):
+    """Update folder name and/or access mode"""
+    db = get_db()
+    if name is not None:
+        db.execute("UPDATE folders SET name = ? WHERE id = ?", (name.strip(), folder_id))
+    if access_mode is not None:
+        db.execute("UPDATE folders SET access_mode = ? WHERE id = ?", (access_mode, folder_id))
+    db.commit()
+
+
+def delete_folder(folder_id: str):
+    """Delete folder and all its contents (cascades via FK)"""
+    db = get_db()
+    # SQLite CASCADE will handle child folders, but we need to clean up files
+    # First collect all photo filenames for cleanup
+    photos = db.execute("""
+        WITH RECURSIVE folder_tree AS (
+            SELECT id FROM folders WHERE id = ?
+            UNION ALL
+            SELECT f.id FROM folders f JOIN folder_tree ft ON f.parent_id = ft.id
+        )
+        SELECT p.filename FROM photos p
+        WHERE p.folder_id IN (SELECT id FROM folder_tree)
+           OR p.album_id IN (SELECT a.id FROM albums a WHERE a.folder_id IN (SELECT id FROM folder_tree))
+    """, (folder_id,)).fetchall()
+
+    filenames = [p["filename"] for p in photos]
+
+    # Delete the folder (cascades to children, albums, photos via FK)
+    db.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+    db.commit()
+
+    return filenames  # Return for file cleanup in main.py
+
+
+def get_user_folders(user_id: int) -> list:
+    """Get all folders owned by user"""
+    db = get_db()
+    folders = db.execute(
+        "SELECT * FROM folders WHERE user_id = ? ORDER BY name",
+        (user_id,)
+    ).fetchall()
+    return [dict(f) for f in folders]
+
+
+def get_folder_tree(user_id: int) -> list:
+    """Get folder tree for sidebar (user's folders + public folders from others)"""
+    db = get_db()
+    folders = db.execute("""
+        SELECT f.*, u.display_name as owner_name,
+               (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+        FROM folders f
+        JOIN users u ON f.user_id = u.id
+        WHERE f.user_id = ? OR f.access_mode = 'public'
+        ORDER BY f.name
+    """, (user_id,)).fetchall()
+    return [dict(f) for f in folders]
+
+
+def get_folder_children(folder_id: str) -> list:
+    """Get direct child folders"""
+    db = get_db()
+    folders = db.execute(
+        "SELECT * FROM folders WHERE parent_id = ? ORDER BY name",
+        (folder_id,)
+    ).fetchall()
+    return [dict(f) for f in folders]
+
+
+def get_folder_breadcrumbs(folder_id: str) -> list:
+    """Get breadcrumb path from root to folder"""
+    db = get_db()
+    breadcrumbs = []
+    current_id = folder_id
+
+    while current_id:
+        folder = db.execute(
+            "SELECT id, name, parent_id FROM folders WHERE id = ?",
+            (current_id,)
+        ).fetchone()
+        if folder:
+            breadcrumbs.insert(0, {"id": folder["id"], "name": folder["name"]})
+            current_id = folder["parent_id"]
+        else:
+            break
+
+    return breadcrumbs
+
+
+def create_default_folder(user_id: int) -> str:
+    """Create default folder for user and set it as default"""
+    db = get_db()
+    folder_id = create_folder("My Gallery", user_id, None, 'private')
+    db.execute("UPDATE users SET default_folder_id = ? WHERE id = ?", (folder_id, user_id))
+    db.commit()
+    return folder_id
+
+
+def get_user_default_folder(user_id: int) -> str:
+    """Get user's default folder ID, create if doesn't exist"""
+    db = get_db()
+    user = db.execute("SELECT default_folder_id FROM users WHERE id = ?", (user_id,)).fetchone()
+
+    if user and user["default_folder_id"]:
+        # Verify folder still exists
+        folder = get_folder(user["default_folder_id"])
+        if folder:
+            return user["default_folder_id"]
+
+    # Create default folder if missing
+    return create_default_folder(user_id)
+
+
+def set_user_default_folder(user_id: int, folder_id: str):
+    """Set user's default folder"""
+    db = get_db()
+    db.execute("UPDATE users SET default_folder_id = ? WHERE id = ?", (folder_id, user_id))
+    db.commit()
+
+
+# === Access Control ===
+
+def can_access_folder(folder_id: str, user_id: int) -> bool:
+    """Check if user can access folder"""
+    if not folder_id:
+        return True  # Root/no folder = accessible
+
+    db = get_db()
+    folder = db.execute(
+        "SELECT user_id, access_mode FROM folders WHERE id = ?",
+        (folder_id,)
+    ).fetchone()
+
+    if not folder:
+        return False
+
+    # Owner always has access
+    if folder["user_id"] == user_id:
+        return True
+
+    # Public folders accessible to all
+    if folder["access_mode"] == 'public':
+        return True
+
+    return False
+
+
+def can_access_photo(photo_id: str, user_id: int) -> bool:
+    """Check if user can access photo"""
+    db = get_db()
+    photo = db.execute(
+        "SELECT folder_id, user_id, album_id FROM photos WHERE id = ?",
+        (photo_id,)
+    ).fetchone()
+
+    if not photo:
+        return False
+
+    # Owner always has access
+    if photo["user_id"] == user_id:
+        return True
+
+    # Check folder access if photo is in a folder
+    if photo["folder_id"]:
+        return can_access_folder(photo["folder_id"], user_id)
+
+    # Check album's folder if photo is in album
+    if photo["album_id"]:
+        album = db.execute("SELECT folder_id, user_id FROM albums WHERE id = ?", (photo["album_id"],)).fetchone()
+        if album:
+            if album["user_id"] == user_id:
+                return True
+            if album["folder_id"]:
+                return can_access_folder(album["folder_id"], user_id)
+
+    # Legacy photos without folder/user - accessible to all authenticated users
+    if photo["folder_id"] is None and photo["user_id"] is None:
+        return True
+
+    return False
+
+
+def can_access_album(album_id: str, user_id: int) -> bool:
+    """Check if user can access album"""
+    db = get_db()
+    album = db.execute(
+        "SELECT folder_id, user_id FROM albums WHERE id = ?",
+        (album_id,)
+    ).fetchone()
+
+    if not album:
+        return False
+
+    # Owner always has access
+    if album["user_id"] == user_id:
+        return True
+
+    # Check folder access
+    if album["folder_id"]:
+        return can_access_folder(album["folder_id"], user_id)
+
+    # Legacy albums without folder/user - accessible to all
+    if album["folder_id"] is None and album["user_id"] is None:
+        return True
+
+    return False
+
+
+def get_folder_contents(folder_id: str, user_id: int) -> dict:
+    """Get contents of a folder (subfolders, albums, photos)"""
+    db = get_db()
+
+    # Get subfolders (own + public)
+    subfolders = db.execute("""
+        SELECT * FROM folders
+        WHERE parent_id = ? AND (user_id = ? OR access_mode = 'public')
+        ORDER BY name
+    """, (folder_id, user_id)).fetchall()
+
+    # Get albums in this folder
+    albums = db.execute("""
+        SELECT a.*,
+               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+               (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
+        FROM albums a
+        WHERE a.folder_id = ?
+        ORDER BY a.created_at DESC
+    """, (folder_id,)).fetchall()
+
+    # Get standalone photos in this folder
+    photos = db.execute("""
+        SELECT * FROM photos
+        WHERE folder_id = ? AND album_id IS NULL
+        ORDER BY uploaded_at DESC
+    """, (folder_id,)).fetchall()
+
+    return {
+        "subfolders": [dict(f) for f in subfolders],
+        "albums": [dict(a) for a in albums],
+        "photos": [dict(p) for p in photos]
+    }
