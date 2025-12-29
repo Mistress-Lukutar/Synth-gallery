@@ -20,10 +20,15 @@
 <div class="folder-header">
     <h2>{{ current_folder.name }}</h2>
     <div class="folder-header-actions">
-        <select class="access-select" id="folder-access-select" onchange="updateFolderAccess()">
-            <option value="private" {% if current_folder.access_mode == 'private' %}selected{% endif %}>Private</option>
-            <option value="public" {% if current_folder.access_mode == 'public' %}selected{% endif %}>Public</option>
-        </select>
+        {% if current_folder.user_id == user.id %}
+        <button class="btn-share" onclick="openShareModal('{{ current_folder.id }}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            Share
+        </button>
+        {% endif %}
     </div>
 </div>
 {% endif %}
@@ -33,21 +38,13 @@
         {% for item in items %}
             {% if item.type == 'folder' %}
             <!-- Subfolder card -->
-            <div class="gallery-item folder-item-card {% if item.access_mode == 'public' %}public-folder{% else %}private-folder{% endif %}"
+            <div class="gallery-item folder-item-card"
                  data-folder-id="{{ item.id }}"
                  data-item-type="folder"
                  onclick="window.location.href='/?folder_id={{ item.id }}'">
-                {% if item.access_mode == 'public' %}
                 <svg class="folder-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                 </svg>
-                {% else %}
-                <svg class="folder-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                    <rect x="8" y="11" width="8" height="6" rx="1"/>
-                    <path d="M10 11V9a2 2 0 1 1 4 0v2"/>
-                </svg>
-                {% endif %}
                 <span class="folder-card-name">{{ item.name }}</span>
                 <span class="folder-card-count">{{ item.photo_count }}</span>
             </div>
@@ -553,22 +550,5 @@
         }
     }
 })();
-
-// Update folder access mode
-async function updateFolderAccess() {
-    const select = document.getElementById('folder-access-select');
-    const accessMode = select.value;
-
-    try {
-        await fetch(`/api/folders/${currentFolderId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ access_mode: accessMode })
-        });
-    } catch (err) {
-        console.error('Failed to update folder access:', err);
-        alert('Failed to update access mode');
-    }
-}
 </script>
 {% endblock %}

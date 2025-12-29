@@ -21,7 +21,13 @@ from .database import (
     get_user_folders, get_folder_tree, get_folder_breadcrumbs,
     get_user_default_folder, set_user_default_folder, get_folder_contents,
     # Access control
-    can_access_folder, can_access_photo, can_access_album
+    can_access_folder, can_access_photo, can_access_album,
+    can_view_folder, can_edit_folder, get_user_permission,
+    # Folder permissions
+    add_folder_permission, remove_folder_permission, update_folder_permission,
+    get_folder_permissions,
+    # User search
+    search_users
 )
 
 # Allowed media types
@@ -227,9 +233,12 @@ def gallery(request: Request, folder_id: str = None):
         SELECT f.*,
                (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
         FROM folders f
-        WHERE f.parent_id = ? AND (f.user_id = ? OR f.access_mode = 'public')
+        WHERE f.parent_id = ? AND (
+            f.user_id = ?
+            OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+        )
         ORDER BY f.name
-    """, (folder_id, user["id"])).fetchall()
+    """, (folder_id, user["id"], user["id"])).fetchall()
 
     # Get albums in current folder
     albums = db.execute("""
@@ -258,7 +267,6 @@ def gallery(request: Request, folder_id: str = None):
             "id": folder["id"],
             "name": folder["name"],
             "created_at": folder["created_at"],
-            "access_mode": folder["access_mode"],
             "user_id": folder["user_id"],
             "is_own": folder["user_id"] == user["id"],
             "photo_count": folder["photo_count"]
@@ -540,13 +548,9 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     if not folder_id:
         raise HTTPException(status_code=400, detail="folder_id is required")
 
-    # Verify folder access
-    if not can_access_folder(folder_id, user["id"]):
+    # Verify folder edit access (owner or editor)
+    if not can_edit_folder(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Cannot upload to this folder")
-
-    folder = get_folder(folder_id)
-    if folder and folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Cannot upload to another user's folder")
 
     # Check file type
     if file.content_type not in ALLOWED_MEDIA_TYPES:
@@ -596,13 +600,9 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
     if not folder_id:
         raise HTTPException(status_code=400, detail="folder_id is required")
 
-    # Verify folder access
-    if not can_access_folder(folder_id, user["id"]):
+    # Verify folder edit access (owner or editor)
+    if not can_edit_folder(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Cannot upload to this folder")
-
-    folder = get_folder(folder_id)
-    if folder and folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Cannot upload to another user's folder")
 
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Album requires at least 2 items")
@@ -710,12 +710,19 @@ class TagPresetInput(BaseModel):
 class FolderCreate(BaseModel):
     name: str
     parent_id: str | None = None
-    access_mode: str = 'private'
 
 
 class FolderUpdate(BaseModel):
     name: str | None = None
-    access_mode: str | None = None
+
+
+class PermissionCreate(BaseModel):
+    user_id: int
+    permission: str  # 'viewer' | 'editor'
+
+
+class PermissionUpdate(BaseModel):
+    permission: str  # 'viewer' | 'editor'
 
 
 @app.get("/api/tag-categories")
@@ -1075,15 +1082,15 @@ def create_new_folder(request: Request, data: FolderCreate):
     if not user:
         raise HTTPException(status_code=401)
 
-    # If parent_id specified, verify access
+    # If parent_id specified, verify user owns the parent folder
     if data.parent_id:
-        if not can_access_folder(data.parent_id, user["id"]):
-            raise HTTPException(status_code=403, detail="Cannot create folder in this location")
         parent = get_folder(data.parent_id)
-        if parent and parent["user_id"] != user["id"]:
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent folder not found")
+        if parent["user_id"] != user["id"]:
             raise HTTPException(status_code=403, detail="Cannot create folder in another user's folder")
 
-    folder_id = create_folder(data.name, user["id"], data.parent_id, data.access_mode)
+    folder_id = create_folder(data.name, user["id"], data.parent_id)
     folder = get_folder(folder_id)
 
     return {"status": "ok", "folder": dict(folder)}
@@ -1091,7 +1098,7 @@ def create_new_folder(request: Request, data: FolderCreate):
 
 @app.put("/api/folders/{folder_id}")
 def update_existing_folder(request: Request, folder_id: str, data: FolderUpdate):
-    """Update folder name and/or access mode"""
+    """Update folder name"""
     user = get_current_user(request)
     if not user:
         raise HTTPException(status_code=401)
@@ -1103,7 +1110,7 @@ def update_existing_folder(request: Request, folder_id: str, data: FolderUpdate)
     if folder["user_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="You don't own this folder")
 
-    update_folder(folder_id, data.name, data.access_mode)
+    update_folder(folder_id, data.name)
     updated = get_folder(folder_id)
 
     return {"status": "ok", "folder": dict(updated)}
@@ -1167,3 +1174,112 @@ def set_default_folder(request: Request, folder_id: str):
 
     set_user_default_folder(user["id"], folder_id)
     return {"status": "ok"}
+
+
+# === Folder Permissions API ===
+
+@app.get("/api/folders/{folder_id}/permissions")
+def get_folder_permissions_route(request: Request, folder_id: str):
+    """Get all permissions for a folder (owner only)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
+
+    permissions = get_folder_permissions(folder_id)
+    return {"permissions": permissions}
+
+
+@app.post("/api/folders/{folder_id}/permissions")
+def add_folder_permission_route(request: Request, folder_id: str, data: PermissionCreate):
+    """Add permission for a user on a folder (owner only)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
+
+    if data.user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot set permission for yourself")
+
+    if data.permission not in ('viewer', 'editor'):
+        raise HTTPException(status_code=400, detail="Permission must be 'viewer' or 'editor'")
+
+    success = add_folder_permission(folder_id, data.user_id, data.permission, user["id"])
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to add permission")
+
+    permissions = get_folder_permissions(folder_id)
+    return {"status": "ok", "permissions": permissions}
+
+
+@app.put("/api/folders/{folder_id}/permissions/{target_user_id}")
+def update_folder_permission_route(request: Request, folder_id: str, target_user_id: int, data: PermissionUpdate):
+    """Update permission for a user on a folder (owner only)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
+
+    if data.permission not in ('viewer', 'editor'):
+        raise HTTPException(status_code=400, detail="Permission must be 'viewer' or 'editor'")
+
+    success = update_folder_permission(folder_id, target_user_id, data.permission)
+    if not success:
+        raise HTTPException(status_code=404, detail="Permission not found")
+
+    permissions = get_folder_permissions(folder_id)
+    return {"status": "ok", "permissions": permissions}
+
+
+@app.delete("/api/folders/{folder_id}/permissions/{target_user_id}")
+def remove_folder_permission_route(request: Request, folder_id: str, target_user_id: int):
+    """Remove permission for a user on a folder (owner only)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    folder = get_folder(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if folder["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
+
+    success = remove_folder_permission(folder_id, target_user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Permission not found")
+
+    permissions = get_folder_permissions(folder_id)
+    return {"status": "ok", "permissions": permissions}
+
+
+@app.get("/api/users/search")
+def search_users_route(request: Request, q: str = ""):
+    """Search users by name (for sharing)"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401)
+
+    if len(q) < 2:
+        return {"users": []}
+
+    users = search_users(q, exclude_user_id=user["id"], limit=10)
+    return {"users": users}
