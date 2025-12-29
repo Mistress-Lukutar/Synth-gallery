@@ -1,6 +1,90 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- Photo Lightbox Modal -->
+<div id="lightbox" class="lightbox hidden">
+    <div class="lightbox-overlay" onclick="closeLightbox()"></div>
+    <button class="lightbox-close" onclick="closeLightbox()" title="Close (Esc)">&times;</button>
+    <button class="lightbox-nav lightbox-prev" onclick="navigateLightbox(-1)" title="Previous (←)">‹</button>
+    <button class="lightbox-nav lightbox-next" onclick="navigateLightbox(1)" title="Next (→)">›</button>
+
+    <div class="lightbox-main">
+        <div class="lightbox-content">
+            <div class="lightbox-media" id="lightbox-media">
+                <!-- Photo or video inserted here -->
+            </div>
+
+            <div class="lightbox-album-indicator hidden" id="lightbox-album-indicator">
+                <div class="album-indicator-bars" id="lightbox-album-bars"></div>
+                <div class="album-indicator-text" id="lightbox-album-text"></div>
+            </div>
+        </div>
+
+        <div class="lightbox-info">
+            <div class="lightbox-tags" id="lightbox-tags"></div>
+            <div class="lightbox-actions">
+                <a id="lightbox-download" class="btn btn-small" download>Download</a>
+                <button id="lightbox-edit-tags" class="btn btn-small btn-secondary" onclick="openTagEditor()">Edit Tags</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tag Editor Side Panel -->
+    <div id="tag-editor-panel" class="tag-editor-panel">
+        <div class="tag-editor-header">
+            <h3>Edit Tags</h3>
+            <button class="tag-editor-close" onclick="closeTagEditor()">&times;</button>
+        </div>
+
+        <div class="tag-editor-body">
+            <!-- AI Analysis button -->
+            <div class="ai-analysis-section">
+                <button id="request-ai-btn" class="btn btn-secondary btn-block" onclick="requestAIAnalysis()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                        <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
+                        <circle cx="12" cy="20" r="2"/>
+                        <path d="M12 18v-2"/>
+                    </svg>
+                    Request AI Analysis
+                </button>
+            </div>
+
+            <!-- Current tags -->
+            <div class="current-tags-section">
+                <label>Selected:</label>
+                <div id="current-tags-container" class="selected-tags-container">
+                    <span class="no-tags-hint">No tags selected</span>
+                </div>
+            </div>
+
+            <div class="tag-search-container">
+                <input type="text" id="tag-search" placeholder="Search or add new tag..." autocomplete="off">
+            </div>
+
+            <div id="tag-presets-container" class="tag-presets">
+                <!-- Categories and tags will be loaded here -->
+            </div>
+
+            <div id="add-new-tag-section" class="add-new-tag-section hidden">
+                <p>Tag "<span id="new-tag-name"></span>" not found</p>
+                <div class="category-select">
+                    <label>Select category:</label>
+                    <div id="category-buttons" class="category-buttons">
+                        <!-- Category buttons will be loaded here -->
+                    </div>
+                </div>
+                <button id="add-new-tag-btn" class="btn btn-small" disabled onclick="addNewTag()">Add to Library</button>
+            </div>
+        </div>
+
+        <div class="tag-editor-footer">
+            <button class="btn btn-secondary" onclick="closeTagEditor()">Cancel</button>
+            <button id="save-tags-btn" class="btn" onclick="saveTagChanges()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
 <!-- Breadcrumbs -->
 {% if breadcrumbs and breadcrumbs|length > 1 %}
 <div class="folder-breadcrumbs">
@@ -50,7 +134,7 @@
             </div>
             {% elif item.type == 'album' %}
             <div class="gallery-item album-item" data-album-id="{{ item.id }}" data-item-type="album">
-                <a href="/album/{{ item.id }}" class="gallery-link">
+                <div class="gallery-link" onclick="openAlbum('{{ item.id }}')">
                     {% if item.cover_photo_id %}
                     <img src="/thumbnails/{{ item.cover_photo_id }}.jpg"
                          alt="{{ item.name }}"
@@ -69,7 +153,7 @@
                         </svg>
                         <span>{{ item.photo_count }}</span>
                     </div>
-                </a>
+                </div>
                 <div class="select-indicator" title="Select">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                         <polyline points="20 6 9 17 4 12"></polyline>
@@ -77,8 +161,8 @@
                 </div>
             </div>
             {% else %}
-            <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo">
-                <a href="/photo/{{ item.id }}" class="gallery-link">
+            <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo" data-media-type="{{ item.media_type or 'image' }}">
+                <div class="gallery-link" onclick="openPhoto('{{ item.id }}')">
                     <img src="/thumbnails/{{ item.id }}.jpg"
                          alt="{{ item.original_name }}"
                          loading="lazy">
@@ -89,7 +173,7 @@
                         </svg>
                     </div>
                     {% endif %}
-                </a>
+                </div>
                 <div class="select-indicator" title="Select">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                         <polyline points="20 6 9 17 4 12"></polyline>
@@ -549,6 +633,580 @@
             console.error('Search failed:', e);
         }
     }
+})();
+
+// ============ Lightbox Photo Viewer ============
+(function() {
+    const lightbox = document.getElementById('lightbox');
+    const lightboxMedia = document.getElementById('lightbox-media');
+    const lightboxTags = document.getElementById('lightbox-tags');
+    const lightboxDownload = document.getElementById('lightbox-download');
+    const lightboxAlbumIndicator = document.getElementById('lightbox-album-indicator');
+    const lightboxAlbumBars = document.getElementById('lightbox-album-bars');
+    const lightboxAlbumText = document.getElementById('lightbox-album-text');
+    const prevBtn = document.querySelector('.lightbox-prev');
+    const nextBtn = document.querySelector('.lightbox-next');
+
+    // Navigation state
+    let navOrder = []; // [{type, id}, ...]
+    let currentNavIndex = -1;
+    let currentPhotoId = null;
+    let currentAlbumPhotos = []; // Photo IDs in current album
+    let currentAlbumIndex = -1;
+    let navigationDirection = 0; // -1 = left (prev), 1 = right (next)
+
+    // Expose current photo ID for tag editor
+    Object.defineProperty(window, 'currentLightboxPhotoId', {
+        get: () => currentPhotoId
+    });
+
+    // Reload current photo (called after tag changes)
+    window.reloadCurrentPhoto = function() {
+        if (currentPhotoId) {
+            loadPhoto(currentPhotoId);
+        }
+    };
+
+    // Load navigation order from sessionStorage
+    function loadNavOrder() {
+        const stored = sessionStorage.getItem('galleryNavOrder');
+        if (stored) {
+            try {
+                navOrder = JSON.parse(stored);
+            } catch (e) {
+                navOrder = [];
+            }
+        }
+    }
+
+    // Open photo in lightbox
+    window.openPhoto = async function(photoId) {
+        loadNavOrder();
+        currentPhotoId = photoId;
+        currentAlbumPhotos = [];
+        currentAlbumIndex = -1;
+
+        // Find position in nav order
+        currentNavIndex = navOrder.findIndex(item => item.type === 'photo' && item.id === photoId);
+
+        await loadPhoto(photoId);
+        showLightbox();
+    };
+
+    // Open album in lightbox (starts from first photo by default)
+    window.openAlbum = async function(albumId, startFromEnd = false) {
+        loadNavOrder();
+
+        try {
+            const resp = await fetch(`/api/albums/${albumId}`);
+            if (!resp.ok) return;
+            const album = await resp.json();
+
+            if (!album.photos || album.photos.length === 0) return;
+
+            currentAlbumPhotos = album.photos.map(p => p.id);
+            currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
+            currentPhotoId = currentAlbumPhotos[currentAlbumIndex];
+
+            // Find album position in nav order
+            currentNavIndex = navOrder.findIndex(item => item.type === 'album' && item.id === albumId);
+
+            await loadPhoto(currentPhotoId);
+            showLightbox();
+        } catch (e) {
+            console.error('Failed to load album:', e);
+        }
+    };
+
+    // Load and display photo
+    async function loadPhoto(photoId) {
+        // Always hide album indicator first, will be shown if photo is in album
+        lightboxAlbumIndicator.classList.add('hidden');
+
+        try {
+            const resp = await fetch(`/api/photos/${photoId}`);
+            if (!resp.ok) {
+                console.error('Failed to load photo');
+                return;
+            }
+            const photo = await resp.json();
+
+            // Update media
+            if (photo.media_type === 'video') {
+                lightboxMedia.innerHTML = `
+                    <video src="/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
+                        Your browser does not support video.
+                    </video>`;
+            } else {
+                lightboxMedia.innerHTML = `
+                    <img src="/uploads/${photo.filename}" alt="${photo.original_name}" class="lightbox-image">`;
+            }
+
+            // Update tags
+            if (photo.tags && photo.tags.length > 0) {
+                lightboxTags.innerHTML = photo.tags.map(t =>
+                    `<span class="tag" style="--tag-color: ${t.color}">${t.tag}</span>`
+                ).join('');
+            } else {
+                lightboxTags.innerHTML = '<span class="no-tags">No tags</span>';
+            }
+
+            // Update download link
+            lightboxDownload.href = `/uploads/${photo.filename}`;
+            lightboxDownload.download = photo.original_name;
+
+            // Update album indicator
+            if (photo.album) {
+                currentAlbumPhotos = photo.album.photo_ids;
+                currentAlbumIndex = photo.album.current - 1;
+
+                lightboxAlbumBars.innerHTML = currentAlbumPhotos.map((id, i) =>
+                    `<div class="album-bar ${i === currentAlbumIndex ? 'active' : ''}" data-photo-id="${id}"></div>`
+                ).join('');
+                lightboxAlbumText.textContent = `${photo.album.current} / ${photo.album.total}`;
+                lightboxAlbumIndicator.classList.remove('hidden');
+
+                // Add click handlers to album bars
+                lightboxAlbumBars.querySelectorAll('.album-bar').forEach(bar => {
+                    bar.addEventListener('click', () => {
+                        const targetId = bar.dataset.photoId;
+                        currentAlbumIndex = currentAlbumPhotos.indexOf(targetId);
+                        currentPhotoId = targetId;
+                        loadPhoto(targetId);
+                    });
+                });
+            } else {
+                currentAlbumPhotos = [];
+                currentAlbumIndex = -1;
+                lightboxAlbumIndicator.classList.add('hidden');
+            }
+
+            // Update URL without reload (preserve folder_id from URL)
+            const urlFolderId = new URLSearchParams(window.location.search).get('folder_id') || '';
+            history.replaceState(null, '', `?folder_id=${urlFolderId}&photo=${photoId}`);
+
+            updateNavButtons();
+        } catch (e) {
+            console.error('Error loading photo:', e);
+        }
+    }
+
+    // Update navigation button visibility
+    function updateNavButtons() {
+        const hasPrev = canNavigate(-1);
+        const hasNext = canNavigate(1);
+        prevBtn.style.display = hasPrev ? '' : 'none';
+        nextBtn.style.display = hasNext ? '' : 'none';
+    }
+
+    // Check if can navigate in direction
+    function canNavigate(direction) {
+        // If in album, check album bounds
+        if (currentAlbumPhotos.length > 0) {
+            const newIndex = currentAlbumIndex + direction;
+            if (newIndex >= 0 && newIndex < currentAlbumPhotos.length) {
+                return true;
+            }
+        }
+        // Check main nav order
+        const newNavIndex = currentNavIndex + direction;
+        return newNavIndex >= 0 && newNavIndex < navOrder.length;
+    }
+
+    // Navigate in direction (-1 = prev, 1 = next)
+    window.navigateLightbox = function(direction) {
+        navigationDirection = direction;
+
+        // If in album, try to navigate within album first
+        if (currentAlbumPhotos.length > 0) {
+            const newAlbumIndex = currentAlbumIndex + direction;
+            if (newAlbumIndex >= 0 && newAlbumIndex < currentAlbumPhotos.length) {
+                currentAlbumIndex = newAlbumIndex;
+                currentPhotoId = currentAlbumPhotos[currentAlbumIndex];
+                loadPhoto(currentPhotoId);
+                return;
+            }
+            // Exit album, move to next/prev in main nav
+            currentAlbumPhotos = [];
+            currentAlbumIndex = -1;
+        }
+
+        // Navigate in main order
+        const newNavIndex = currentNavIndex + direction;
+        if (newNavIndex < 0 || newNavIndex >= navOrder.length) return;
+
+        currentNavIndex = newNavIndex;
+        const nextItem = navOrder[currentNavIndex];
+
+        if (nextItem.type === 'album') {
+            // Entering album from navigation:
+            // - Going right (forward): start from first photo
+            // - Going left (backward): start from last photo
+            const startFromEnd = direction < 0;
+            openAlbum(nextItem.id, startFromEnd);
+        } else {
+            currentPhotoId = nextItem.id;
+            loadPhoto(currentPhotoId);
+        }
+    };
+
+    // Show lightbox
+    function showLightbox() {
+        lightbox.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    // Close lightbox
+    window.closeLightbox = function() {
+        lightbox.classList.add('hidden');
+        document.body.style.overflow = '';
+
+        // Stop video if playing
+        const video = lightboxMedia.querySelector('video');
+        if (video) video.pause();
+
+        // Restore URL
+        const url = new URL(window.location);
+        url.searchParams.delete('photo');
+        history.replaceState(null, '', url);
+    };
+
+    // Keyboard navigation
+    document.addEventListener('keydown', (e) => {
+        if (lightbox.classList.contains('hidden')) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+        switch (e.key) {
+            case 'ArrowLeft':
+                e.preventDefault();
+                navigateLightbox(-1);
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                navigateLightbox(1);
+                break;
+            case 'Escape':
+                e.preventDefault();
+                closeLightbox();
+                break;
+        }
+    });
+
+    // Check URL for photo param on load
+    const urlParams = new URLSearchParams(window.location.search);
+    const photoParam = urlParams.get('photo');
+    if (photoParam) {
+        openPhoto(photoParam);
+    }
+})();
+
+// ============ Tag Editor ============
+(function() {
+    const tagEditorPanel = document.getElementById('tag-editor-panel');
+    const lightbox = document.getElementById('lightbox');
+    const tagSearch = document.getElementById('tag-search');
+    const addNewTagSection = document.getElementById('add-new-tag-section');
+    const presetsContainer = document.getElementById('tag-presets-container');
+    const currentTagsContainer = document.getElementById('current-tags-container');
+
+    let categories = [];
+    let editingTags = [];
+    let originalTags = [];
+    let selectedCategoryId = null;
+    let currentEditingPhotoId = null;
+
+    // Open tag editor
+    window.openTagEditor = async function() {
+        if (!window.currentLightboxPhotoId) return;
+
+        currentEditingPhotoId = window.currentLightboxPhotoId;
+
+        // Get current tags from lightbox
+        const resp = await fetch(`/api/photos/${currentEditingPhotoId}`);
+        const photo = await resp.json();
+
+        originalTags = photo.tags.map(t => ({
+            id: t.id,
+            name: t.tag,
+            category_id: t.category_id,
+            color: t.color
+        }));
+        editingTags = originalTags.map(t => ({ ...t }));
+
+        updateCurrentTagsDisplay();
+        tagEditorPanel.classList.add('open');
+        lightbox.classList.add('panel-open');
+        await loadCategories();
+        await loadTagPresets();
+        tagSearch.value = '';
+        tagSearch.focus();
+        addNewTagSection.classList.add('hidden');
+    };
+
+    // Close tag editor
+    window.closeTagEditor = function() {
+        tagEditorPanel.classList.remove('open');
+        lightbox.classList.remove('panel-open');
+        selectedCategoryId = null;
+        editingTags = [];
+        originalTags = [];
+    };
+
+    // Load tag categories
+    async function loadCategories() {
+        const response = await fetch('/api/tag-categories');
+        categories = await response.json();
+        renderCategoryButtons();
+    }
+
+    // Load tag presets
+    async function loadTagPresets(search = "") {
+        const response = await fetch(`/api/tag-presets?search=${encodeURIComponent(search)}`);
+        const data = await response.json();
+        renderPresets(data);
+        return data;
+    }
+
+    // Render preset tags by category
+    function renderPresets(presetsData) {
+        if (presetsData.length === 0) {
+            presetsContainer.innerHTML = '<p class="no-presets">No matching tags found</p>';
+            return;
+        }
+
+        presetsContainer.innerHTML = presetsData.map(category => `
+            <div class="preset-category">
+                <h4 style="--cat-color: ${category.color}">${category.name}</h4>
+                <div class="preset-tags">
+                    ${category.tags.map(tag => {
+                        const isSelected = editingTags.some(t => t.name.toLowerCase() === tag.name.toLowerCase());
+                        return `
+                            <button class="preset-tag ${isSelected ? 'selected' : ''}"
+                                    style="--tag-color: ${category.color}"
+                                    data-tag-name="${tag.name}"
+                                    data-category-id="${category.id}"
+                                    data-color="${category.color}">
+                                ${tag.name}
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
+            btn.onclick = () => toggleTag(btn.dataset.tagName, parseInt(btn.dataset.categoryId), btn.dataset.color);
+        });
+    }
+
+    // Render category buttons for new tags
+    function renderCategoryButtons() {
+        const container = document.getElementById('category-buttons');
+        container.innerHTML = categories.map(cat => `
+            <button class="category-btn" style="--cat-color: ${cat.color}" data-category-id="${cat.id}">
+                ${cat.name}
+            </button>
+        `).join('');
+
+        container.querySelectorAll('.category-btn').forEach(btn => {
+            btn.onclick = () => selectCategory(parseInt(btn.dataset.categoryId));
+        });
+    }
+
+    // Select category for new tag
+    function selectCategory(categoryId) {
+        selectedCategoryId = categoryId;
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.classList.toggle('selected', parseInt(btn.dataset.categoryId) === categoryId);
+        });
+        document.getElementById('add-new-tag-btn').disabled = false;
+    }
+
+    // Toggle tag selection
+    function toggleTag(tagName, categoryId, color) {
+        const index = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
+
+        if (index === -1) {
+            editingTags.push({ name: tagName, category_id: categoryId, color: color });
+        } else {
+            editingTags.splice(index, 1);
+        }
+
+        updateCurrentTagsDisplay();
+        updatePresetButtons();
+    }
+
+    // Remove tag from editing list
+    window.removeTagFromEditing = function(tagName) {
+        const index = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
+        if (index !== -1) {
+            editingTags.splice(index, 1);
+            updateCurrentTagsDisplay();
+            updatePresetButtons();
+        }
+    };
+
+    // Update current tags display
+    function updateCurrentTagsDisplay() {
+        if (editingTags.length === 0) {
+            currentTagsContainer.innerHTML = '<span class="no-tags-hint">No tags selected</span>';
+        } else {
+            currentTagsContainer.innerHTML = editingTags.map(tag => `
+                <span class="selected-tag" style="--tag-color: ${tag.color}">
+                    ${tag.name}
+                    <button class="tag-remove" onclick="removeTagFromEditing('${tag.name}')">&times;</button>
+                </span>
+            `).join('');
+        }
+    }
+
+    // Update preset button states
+    function updatePresetButtons() {
+        presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
+            const tagName = btn.dataset.tagName;
+            const isSelected = editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase());
+            btn.classList.toggle('selected', isSelected);
+        });
+    }
+
+    // Save tag changes
+    window.saveTagChanges = async function() {
+        const saveBtn = document.getElementById('save-tags-btn');
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+
+        const toAdd = editingTags.filter(et =>
+            !originalTags.some(ot => ot.name.toLowerCase() === et.name.toLowerCase())
+        );
+
+        const toRemove = originalTags.filter(ot =>
+            !editingTags.some(et => et.name.toLowerCase() === ot.name.toLowerCase())
+        );
+
+        for (const tag of toRemove) {
+            await fetch(`/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
+        }
+
+        for (const tag of toAdd) {
+            await fetch(`/api/photos/${currentEditingPhotoId}/tag`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
+            });
+        }
+
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Changes';
+        closeTagEditor();
+
+        // Reload photo in lightbox to show updated tags
+        if (window.reloadCurrentPhoto) {
+            window.reloadCurrentPhoto();
+        }
+    };
+
+    // Add new tag to library
+    window.addNewTag = async function() {
+        const tagName = tagSearch.value.trim();
+        if (!tagName || !selectedCategoryId) return;
+
+        if (editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase())) {
+            alert('This tag is already selected');
+            return;
+        }
+
+        await fetch('/api/tag-presets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
+        });
+
+        const category = categories.find(c => c.id === selectedCategoryId);
+        editingTags.push({
+            name: tagName.toLowerCase(),
+            category_id: selectedCategoryId,
+            color: category?.color || '#6b7280'
+        });
+
+        updateCurrentTagsDisplay();
+        tagSearch.value = '';
+        addNewTagSection.classList.add('hidden');
+        await loadTagPresets();
+    };
+
+    // Request AI analysis
+    window.requestAIAnalysis = async function() {
+        if (!currentEditingPhotoId) return;
+
+        const btn = document.getElementById('request-ai-btn');
+        btn.disabled = true;
+        btn.innerHTML = 'Analyzing...';
+
+        try {
+            const response = await fetch(`/api/photos/${currentEditingPhotoId}/ai-tags`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+
+            if (data.status === 'ok') {
+                closeTagEditor();
+                if (window.reloadCurrentPhoto) {
+                    window.reloadCurrentPhoto();
+                }
+            } else {
+                btn.innerHTML = 'Error occurred';
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                        <path d="M16 14v1a4 4 0 0 1-8 0v-1"/><circle cx="12" cy="20" r="2"/><path d="M12 18v-2"/>
+                    </svg> Request AI Analysis`;
+                }, 2000);
+            }
+        } catch (err) {
+            btn.innerHTML = 'Error occurred';
+            btn.disabled = false;
+        }
+    };
+
+    // Search functionality
+    let searchTimeout;
+    tagSearch.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        const query = tagSearch.value.trim();
+
+        searchTimeout = setTimeout(async () => {
+            const presets = await loadTagPresets(query);
+
+            if (query.length > 0) {
+                const hasExactMatch = presets.some(cat =>
+                    cat.tags.some(t => t.name.toLowerCase() === query.toLowerCase())
+                );
+
+                if (!hasExactMatch) {
+                    document.getElementById('new-tag-name').textContent = query;
+                    addNewTagSection.classList.remove('hidden');
+                    selectedCategoryId = null;
+                    document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('selected'));
+                    document.getElementById('add-new-tag-btn').disabled = true;
+                } else {
+                    addNewTagSection.classList.add('hidden');
+                }
+            } else {
+                addNewTagSection.classList.add('hidden');
+            }
+        }, 300);
+    });
+
+    // Handle ESC key in tag editor
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && tagEditorPanel.classList.contains('open')) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeTagEditor();
+        }
+    });
 })();
 </script>
 {% endblock %}
