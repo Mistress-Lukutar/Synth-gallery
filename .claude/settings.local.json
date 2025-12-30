@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(dir /s /b /a:-d)",
+      "Bash(findstr:*)",
+      "Bash(python manage_users.py:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python -c:*)"
     ]
   }
 }
