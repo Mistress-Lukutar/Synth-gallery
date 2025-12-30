@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Photo metadata extraction from EXIF and PNG data
+- Sort photos by capture date (date taken) or upload date
+- Per-user, per-folder sort preference persistence
+- New service module: `services/metadata.py`
+- Album dates now display the latest photo capture date
+
+### Changed
+- Photos table includes `taken_at` field for capture date
+- Gallery view supports sorting toggle in UI
+- Database schema includes `user_folder_preferences` table
+
 ## [0.4.0] - 2025-12-30
 
 ### Changed
