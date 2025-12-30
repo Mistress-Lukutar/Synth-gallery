@@ -521,28 +521,49 @@ def update_folder(folder_id: str, name: str = None):
 
 
 def delete_folder(folder_id: str):
-    """Delete folder and all its contents (cascades via FK)"""
+    """Delete folder and all its contents."""
     db = get_db()
-    # SQLite CASCADE will handle child folders, but we need to clean up files
-    # First collect all photo filenames for cleanup
-    photos = db.execute("""
+
+    # Get all folder IDs in the tree (recursive)
+    folder_ids = db.execute("""
         WITH RECURSIVE folder_tree AS (
             SELECT id FROM folders WHERE id = ?
             UNION ALL
             SELECT f.id FROM folders f JOIN folder_tree ft ON f.parent_id = ft.id
         )
-        SELECT p.filename FROM photos p
-        WHERE p.folder_id IN (SELECT id FROM folder_tree)
-           OR p.album_id IN (SELECT a.id FROM albums a WHERE a.folder_id IN (SELECT id FROM folder_tree))
+        SELECT id FROM folder_tree
     """, (folder_id,)).fetchall()
+    folder_id_list = [f["id"] for f in folder_ids]
+
+    if not folder_id_list:
+        return []
+
+    # Collect all photo filenames for file cleanup
+    placeholders = ",".join("?" * len(folder_id_list))
+    photos = db.execute(f"""
+        SELECT p.filename FROM photos p
+        WHERE p.folder_id IN ({placeholders})
+           OR p.album_id IN (SELECT a.id FROM albums a WHERE a.folder_id IN ({placeholders}))
+    """, folder_id_list + folder_id_list).fetchall()
 
     filenames = [p["filename"] for p in photos]
 
-    # Delete the folder (cascades to children, albums, photos via FK)
-    db.execute("DELETE FROM folders WHERE id = ?", (folder_id,))
+    # Delete photos in these folders (both standalone and in albums)
+    db.execute(f"""
+        DELETE FROM photos
+        WHERE folder_id IN ({placeholders})
+           OR album_id IN (SELECT id FROM albums WHERE folder_id IN ({placeholders}))
+    """, folder_id_list + folder_id_list)
+
+    # Delete albums in these folders
+    db.execute(f"DELETE FROM albums WHERE folder_id IN ({placeholders})", folder_id_list)
+
+    # Delete the folders themselves (children first due to recursive CTE order)
+    db.execute(f"DELETE FROM folders WHERE id IN ({placeholders})", folder_id_list)
+
     db.commit()
 
-    return filenames  # Return for file cleanup in main.py
+    return filenames  # Return for file cleanup
 
 
 def get_user_folders(user_id: int) -> list:
