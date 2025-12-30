@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}Synth{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
@@ -191,6 +192,29 @@
     </div>
 
     <script>
+        // CSRF protection helper
+        function getCsrfToken() {
+            // First try meta tag
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta) return meta.getAttribute('content');
+            // Fallback to cookie
+            const match = document.cookie.match(/synth_csrf=([^;]+)/);
+            return match ? match[1] : '';
+        }
+
+        // Enhanced fetch with CSRF token
+        async function csrfFetch(url, options = {}) {
+            const csrfToken = getCsrfToken();
+            const headers = options.headers || {};
+
+            // Add CSRF header for mutating requests
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
+                headers['X-CSRF-Token'] = csrfToken;
+            }
+
+            return fetch(url, { ...options, headers });
+        }
+
         // Get current folder ID from URL
         const urlParams = new URLSearchParams(window.location.search);
         const currentFolderId = urlParams.get('folder_id');
@@ -360,7 +384,7 @@
                         formData.append('files', file);
                     }
                     formData.append('folder_id', currentFolderId);
-                    const resp = await fetch('/upload-album', { method: 'POST', body: formData });
+                    const resp = await csrfFetch('/upload-album', { method: 'POST', body: formData });
                     if (!resp.ok) {
                         const err = await resp.json();
                         throw new Error(err.detail || 'Upload failed');
@@ -378,7 +402,7 @@
                         formData.append('folder_id', currentFolderId);
                         console.log('[DEBUG] Uploading file:', files[i].name, 'to folder:', currentFolderId);
                         console.log('[DEBUG] FormData entries:', [...formData.entries()]);
-                        const resp = await fetch('/upload', { method: 'POST', body: formData });
+                        const resp = await csrfFetch('/upload', { method: 'POST', body: formData });
                         console.log('[DEBUG] Response status:', resp.status);
                         if (!resp.ok) {
                             const err = await resp.json();
@@ -392,7 +416,7 @@
                 // Apply AI tags if requested
                 if (useAiTags && uploadedIds.length > 0) {
                     progressText.textContent = 'Generating AI tags...';
-                    await fetch('/api/photos/batch-ai-tags', {
+                    await csrfFetch('/api/photos/batch-ai-tags', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ photo_ids: uploadedIds })
@@ -404,7 +428,7 @@
                     progressText.textContent = 'Applying tags...';
                     for (const photoId of uploadedIds) {
                         for (const tag of manualTags) {
-                            await fetch(`/api/photos/${photoId}/tag`, {
+                            await csrfFetch(`/api/photos/${photoId}/tag`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ tag: tag, category_id: 6 })
@@ -656,14 +680,14 @@
             try {
                 if (editingFolderId) {
                     // Update existing folder
-                    await fetch(`/api/folders/${editingFolderId}`, {
+                    await csrfFetch(`/api/folders/${editingFolderId}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name })
                     });
                 } else {
                     // Create new folder
-                    await fetch('/api/folders', {
+                    await csrfFetch('/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name, parent_id: parentId })
@@ -685,7 +709,7 @@
             if (!confirm(`Delete folder "${folder.name}" and all its contents?`)) return;
 
             try {
-                await fetch(`/api/folders/${folderId}`, { method: 'DELETE' });
+                await csrfFetch(`/api/folders/${folderId}`, { method: 'DELETE' });
                 if (folderId === currentFolderId) {
                     // Navigate to parent or root
                     window.location.href = folder.parent_id ? `/?folder_id=${folder.parent_id}` : '/';
@@ -812,7 +836,7 @@
             const permission = document.getElementById('permission-level-select').value;
 
             try {
-                await fetch(`/api/folders/${shareModalFolderId}/permissions`, {
+                await csrfFetch(`/api/folders/${shareModalFolderId}/permissions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: selectedUserId, permission })
@@ -830,7 +854,7 @@
             if (!shareModalFolderId) return;
 
             try {
-                await fetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
+                await csrfFetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ permission })
@@ -847,7 +871,7 @@
             if (!confirm('Remove access for this user?')) return;
 
             try {
-                await fetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
+                await csrfFetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
                     method: 'DELETE'
                 });
                 loadPermissions();
