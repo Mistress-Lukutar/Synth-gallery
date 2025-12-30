@@ -450,7 +450,7 @@
         if (!confirm(`Delete ${count} item(s)? This cannot be undone.`)) return;
 
         try {
-            const resp = await fetch('/api/photos/batch-delete', {
+            const resp = await csrfFetch('/api/photos/batch-delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -477,7 +477,7 @@
         btn.textContent = 'Processing...';
 
         try {
-            const resp = await fetch('/api/photos/batch-ai-tags', {
+            const resp = await csrfFetch('/api/photos/batch-ai-tags', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1085,11 +1085,11 @@
         );
 
         for (const tag of toRemove) {
-            await fetch(`/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
+            await csrfFetch(`/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
         }
 
         for (const tag of toAdd) {
-            await fetch(`/api/photos/${currentEditingPhotoId}/tag`, {
+            await csrfFetch(`/api/photos/${currentEditingPhotoId}/tag`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
@@ -1116,7 +1116,7 @@
             return;
         }
 
-        await fetch('/api/tag-presets', {
+        await csrfFetch('/api/tag-presets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
@@ -1144,7 +1144,7 @@
         btn.innerHTML = 'Analyzing...';
 
         try {
-            const response = await fetch(`/api/photos/${currentEditingPhotoId}/ai-tags`, {
+            const response = await csrfFetch(`/api/photos/${currentEditingPhotoId}/ai-tags`, {
                 method: 'POST'
             });
             const data = await response.json();
