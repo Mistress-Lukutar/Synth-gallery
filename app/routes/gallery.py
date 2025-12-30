@@ -342,6 +342,184 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
     return {"album_id": album_id, "photos": uploaded_photos}
 
 
+@router.post("/upload-bulk")
+async def upload_bulk(
+    request: Request,
+    files: list[UploadFile],
+    paths: str = Form(...),
+    folder_id: str = Form(...)
+):
+    """Upload folder structure with files.
+
+    Files at root level become individual photos.
+    Files in subfolders become albums (one album per subfolder).
+
+    Args:
+        files: List of uploaded files
+        paths: JSON array of relative paths corresponding to each file
+        folder_id: Target folder ID
+    """
+    import json
+
+    user = require_user(request)
+
+    if not folder_id:
+        raise HTTPException(status_code=400, detail="folder_id is required")
+
+    # Verify folder edit access (owner or editor)
+    if not can_edit_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot upload to this folder")
+
+    # Parse paths JSON
+    try:
+        file_paths = json.loads(paths)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid paths format")
+
+    if len(files) != len(file_paths):
+        raise HTTPException(status_code=400, detail="Files and paths count mismatch")
+
+    # Group files by their parent folder
+    # Root level files go to '__root__'
+    # Subfolder files go to their subfolder name
+    from collections import defaultdict
+    groups = defaultdict(list)
+
+    for file, path in zip(files, file_paths):
+        parts = path.split('/')
+        if len(parts) == 1:
+            # Root level file
+            groups['__root__'].append((file, path))
+        elif len(parts) == 2:
+            # First level subfolder
+            album_name = parts[0]
+            groups[album_name].append((file, path))
+        # else: nested deeper - skip
+
+    db = get_db()
+    summary = {
+        "total_files": len(files),
+        "individual_photos": 0,
+        "albums_created": 0,
+        "photos_in_albums": 0,
+        "failed": 0,
+        "skipped_nested": len(files) - sum(len(g) for g in groups.values())
+    }
+    albums_created = []
+
+    # Process root level files as individual photos
+    for file, path in groups.pop('__root__', []):
+        if file.content_type not in ALLOWED_MEDIA_TYPES:
+            summary["failed"] += 1
+            continue
+
+        media_type = get_media_type(file.content_type)
+        photo_id = str(uuid.uuid4())
+        # Get just the filename without path
+        original_name = Path(file.filename).name
+        ext = Path(original_name).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
+        filename = f"{photo_id}{ext}"
+
+        # Save original
+        file_path = UPLOADS_DIR / filename
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        # Create thumbnail
+        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        try:
+            if media_type == "video":
+                create_video_thumbnail(file_path, thumb_path)
+            else:
+                create_thumbnail(file_path, thumb_path)
+        except Exception:
+            file_path.unlink(missing_ok=True)
+            summary["failed"] += 1
+            continue
+
+        # Extract taken date from image metadata
+        taken_at = None
+        if media_type == "image":
+            taken_at = extract_taken_date(file_path)
+
+        # Save to database
+        db.execute(
+            "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (photo_id, filename, original_name, media_type, folder_id, user["id"], taken_at)
+        )
+        summary["individual_photos"] += 1
+
+    # Process each subfolder as an album
+    for album_name, album_files in groups.items():
+        album_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO albums (id, name, folder_id, user_id) VALUES (?, ?, ?, ?)",
+            (album_id, album_name, folder_id, user["id"])
+        )
+
+        photos_uploaded = 0
+        for position, (file, path) in enumerate(album_files):
+            if file.content_type not in ALLOWED_MEDIA_TYPES:
+                summary["failed"] += 1
+                continue
+
+            media_type = get_media_type(file.content_type)
+            photo_id = str(uuid.uuid4())
+            # Get just the filename without path
+            original_name = Path(file.filename).name
+            ext = Path(original_name).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
+            filename = f"{photo_id}{ext}"
+
+            # Save original
+            file_path = UPLOADS_DIR / filename
+            with open(file_path, "wb") as f:
+                shutil.copyfileobj(file.file, f)
+
+            # Create thumbnail
+            thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+            try:
+                if media_type == "video":
+                    create_video_thumbnail(file_path, thumb_path)
+                else:
+                    create_thumbnail(file_path, thumb_path)
+            except Exception:
+                file_path.unlink(missing_ok=True)
+                summary["failed"] += 1
+                continue
+
+            # Extract taken date from image metadata
+            taken_at = None
+            if media_type == "image":
+                taken_at = extract_taken_date(file_path)
+
+            # Save to database with album reference
+            db.execute(
+                "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (photo_id, filename, original_name, album_id, position, media_type, folder_id, user["id"], taken_at)
+            )
+            photos_uploaded += 1
+            summary["photos_in_albums"] += 1
+
+        if photos_uploaded > 0:
+            summary["albums_created"] += 1
+            albums_created.append({
+                "id": album_id,
+                "name": album_name,
+                "photo_count": photos_uploaded
+            })
+        else:
+            # No photos uploaded, delete empty album
+            db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "summary": summary,
+        "albums": albums_created
+    }
+
+
 @router.get("/api/photos/{photo_id}")
 def get_photo_data(photo_id: str, request: Request):
     """Get photo data for lightbox viewer."""
