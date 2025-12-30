@@ -1,4 +1,7 @@
-"""Metadata extraction service for images."""
+"""Metadata extraction service for images and videos."""
+import json
+import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -8,28 +11,43 @@ from PIL.ExifTags import TAGS
 
 
 def extract_taken_date(file_path: Path) -> Optional[datetime]:
-    """Extract the date when photo was taken from image metadata.
+    """Extract the date when media was created from metadata.
 
-    Checks multiple metadata fields in order of priority:
+    For images, checks:
     1. EXIF DateTimeOriginal (when photo was actually taken)
     2. EXIF DateTimeDigitized (when photo was digitized)
     3. EXIF DateTime (last modification in camera)
-    4. PNG tEXt Creation Time
-    5. PNG tEXt Date
+    4. PNG tEXt Creation Time / Date
+    5. GIF comment or XMP data
+    6. WebP EXIF data
+
+    For videos, uses ffprobe to extract creation_time.
 
     Returns datetime object or None if no date found.
     """
+    suffix = file_path.suffix.lower()
+
+    # Video files
+    if suffix in ('.mp4', '.webm', '.mov', '.avi', '.mkv'):
+        return _extract_video_date(file_path)
+
+    # Image files
     try:
         with Image.open(file_path) as img:
-            # Try EXIF data first (works for JPEG, some PNG, TIFF)
+            # Try EXIF data first (works for JPEG, WebP, some PNG, TIFF)
             exif_date = _extract_exif_date(img)
             if exif_date:
                 return exif_date
 
-            # Try PNG text chunks
-            png_date = _extract_png_date(img)
-            if png_date:
-                return png_date
+            # Try PNG/GIF text chunks and info
+            info_date = _extract_info_date(img)
+            if info_date:
+                return info_date
+
+            # Try XMP data (embedded XML metadata)
+            xmp_date = _extract_xmp_date(img)
+            if xmp_date:
+                return xmp_date
 
     except Exception:
         pass
@@ -63,21 +81,105 @@ def _extract_exif_date(img: Image.Image) -> Optional[datetime]:
     return None
 
 
-def _extract_png_date(img: Image.Image) -> Optional[datetime]:
-    """Extract date from PNG text chunks."""
+def _extract_info_date(img: Image.Image) -> Optional[datetime]:
+    """Extract date from image info dict (PNG text chunks, GIF comments, etc.)."""
     try:
-        # PNG stores metadata in info dict
         info = img.info
 
-        # Check common PNG date fields
-        date_fields = ['Creation Time', 'Date', 'creation_time', 'date']
+        # Check common date fields in image info
+        date_fields = [
+            'Creation Time', 'Date', 'creation_time', 'date',
+            'DateTimeOriginal', 'DateTime', 'ModifyDate',
+            'comment',  # GIF comments sometimes contain dates
+        ]
 
         for field in date_fields:
             if field in info and info[field]:
-                parsed = _parse_flexible_datetime(info[field])
+                value = info[field]
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8', errors='ignore')
+                parsed = _parse_flexible_datetime(str(value))
                 if parsed:
                     return parsed
 
+    except Exception:
+        pass
+
+    return None
+
+
+def _extract_xmp_date(img: Image.Image) -> Optional[datetime]:
+    """Extract date from XMP metadata (XML-based, used in many formats)."""
+    try:
+        # Try to get XMP data from image
+        xmp_data = None
+
+        # Check for XMP in image info
+        if 'XML:com.adobe.xmp' in img.info:
+            xmp_data = img.info['XML:com.adobe.xmp']
+        elif 'xmp' in img.info:
+            xmp_data = img.info['xmp']
+
+        if not xmp_data:
+            return None
+
+        if isinstance(xmp_data, bytes):
+            xmp_data = xmp_data.decode('utf-8', errors='ignore')
+
+        # Look for date patterns in XMP
+        # xmp:CreateDate, photoshop:DateCreated, exif:DateTimeOriginal
+        date_patterns = [
+            r'<xmp:CreateDate>([^<]+)</xmp:CreateDate>',
+            r'<photoshop:DateCreated>([^<]+)</photoshop:DateCreated>',
+            r'<exif:DateTimeOriginal>([^<]+)</exif:DateTimeOriginal>',
+            r'xmp:CreateDate="([^"]+)"',
+            r'photoshop:DateCreated="([^"]+)"',
+        ]
+
+        for pattern in date_patterns:
+            match = re.search(pattern, xmp_data)
+            if match:
+                parsed = _parse_flexible_datetime(match.group(1))
+                if parsed:
+                    return parsed
+
+    except Exception:
+        pass
+
+    return None
+
+
+def _extract_video_date(file_path: Path) -> Optional[datetime]:
+    """Extract creation date from video using ffprobe."""
+    try:
+        # Try ffprobe first
+        result = subprocess.run(
+            [
+                'ffprobe', '-v', 'quiet',
+                '-print_format', 'json',
+                '-show_format',
+                str(file_path)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            tags = data.get('format', {}).get('tags', {})
+
+            # Try various date fields
+            date_fields = ['creation_time', 'date', 'DATE', 'Creation Time']
+            for field in date_fields:
+                if field in tags:
+                    parsed = _parse_flexible_datetime(tags[field])
+                    if parsed:
+                        return parsed
+
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
+        # ffprobe not available or failed
+        pass
     except Exception:
         pass
 

@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gallery view supports sorting toggle in UI
 - Database schema includes `user_folder_preferences` table
 - `taken_at` now defaults to upload date when metadata extraction fails (instead of NULL)
+- Metadata extraction now supports all file types:
+  - JPEG, PNG, WebP: EXIF + XMP
+  - GIF: info dict, comments, XMP
+  - MP4, WebM: ffprobe (creation_time)
 
 ### Fixed
 - Folder deletion now properly removes photos and albums from database
