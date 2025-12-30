@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-12-30
+
 ### Added
 - Photo metadata extraction from EXIF and PNG data
 - Sort photos by capture date (date taken) or upload date
@@ -17,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Root-level files become individual photos
   - Subfolders become albums (named after folder)
   - Uses native browser folder picker (`webkitdirectory`)
+- Lightbox now displays capture date and upload date with monochrome icons
 
 ### Changed
 - Photos table includes `taken_at` field for capture date
@@ -94,6 +97,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.5.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.1.0...v0.2.0
