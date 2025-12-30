@@ -571,6 +571,7 @@ def get_photo_data(photo_id: str, request: Request):
         "original_name": photo["original_name"],
         "media_type": photo["media_type"] or "image",
         "uploaded_at": photo["uploaded_at"],
+        "taken_at": photo["taken_at"],
         "tags": [{"id": t["id"], "tag": t["tag"], "color": t["color"] or "#6b7280"} for t in tags],
         "album": album_info
     }
