@@ -1023,6 +1023,21 @@
             searchTimeout = setTimeout(() => searchUsers(query), 300);
         });
 
+        // Hide suggestions on blur (with delay to allow clicking on results)
+        document.getElementById('user-search-input')?.addEventListener('blur', function() {
+            setTimeout(() => {
+                document.getElementById('user-search-results').classList.add('hidden');
+            }, 200);
+        });
+
+        // Show suggestions on focus if there's a query
+        document.getElementById('user-search-input')?.addEventListener('focus', function(e) {
+            const query = e.target.value.trim();
+            if (query.length >= 2) {
+                searchUsers(query);
+            }
+        });
+
         async function searchUsers(query) {
             try {
                 const resp = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
