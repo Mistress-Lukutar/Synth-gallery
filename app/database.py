@@ -248,6 +248,27 @@ def init_db():
     if "user_id" not in photo_columns:
         db.execute("ALTER TABLE photos ADD COLUMN user_id INTEGER")
 
+    # Migration: add taken_at (photo capture date from EXIF) to photos
+    photo_columns = [row[1] for row in db.execute("PRAGMA table_info(photos)").fetchall()]
+    if "taken_at" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN taken_at TIMESTAMP")
+
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at)
+    """)
+
+    # User folder preferences (sort settings per user per folder)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS user_folder_preferences (
+            user_id INTEGER NOT NULL,
+            folder_id TEXT NOT NULL,
+            sort_by TEXT DEFAULT 'uploaded',
+            PRIMARY KEY (user_id, folder_id),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
+        )
+    """)
+
     db.execute("""
         CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)
     """)
@@ -664,6 +685,33 @@ def update_folder_permission(folder_id: str, user_id: int, permission: str) -> b
     )
     db.commit()
     return result.rowcount > 0
+
+
+# === User Folder Preferences ===
+
+def get_folder_sort_preference(user_id: int, folder_id: str) -> str:
+    """Get user's sort preference for a folder. Returns 'uploaded' as default."""
+    db = get_db()
+    result = db.execute(
+        "SELECT sort_by FROM user_folder_preferences WHERE user_id = ? AND folder_id = ?",
+        (user_id, folder_id)
+    ).fetchone()
+    return result["sort_by"] if result else "uploaded"
+
+
+def set_folder_sort_preference(user_id: int, folder_id: str, sort_by: str) -> bool:
+    """Set user's sort preference for a folder."""
+    if sort_by not in ("uploaded", "taken"):
+        return False
+
+    db = get_db()
+    db.execute("""
+        INSERT INTO user_folder_preferences (user_id, folder_id, sort_by)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id, folder_id) DO UPDATE SET sort_by = excluded.sort_by
+    """, (user_id, folder_id, sort_by))
+    db.commit()
+    return True
 
 
 def get_folder_permissions(folder_id: str) -> list:
