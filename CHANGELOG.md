@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Per-user, per-folder sort preference persistence
 - New service module: `services/metadata.py`
 - Album dates now display the latest photo capture date
+- Bulk folder upload: select a folder to upload its structure
+  - Root-level files become individual photos
+  - Subfolders become albums (named after folder)
+  - Uses native browser folder picker (`webkitdirectory`)
 
 ### Changed
 - Photos table includes `taken_at` field for capture date
