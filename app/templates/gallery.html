@@ -21,7 +21,10 @@
         </div>
 
         <div class="lightbox-info">
-            <div class="lightbox-tags" id="lightbox-tags"></div>
+            <div class="lightbox-meta">
+                <div class="lightbox-dates" id="lightbox-dates"></div>
+                <div class="lightbox-tags" id="lightbox-tags"></div>
+            </div>
             <div class="lightbox-actions">
                 <a id="lightbox-download" class="btn btn-small" download>Download</a>
                 <button id="lightbox-edit-tags" class="btn btn-small btn-secondary" onclick="openTagEditor()">Edit Tags</button>
@@ -640,6 +643,7 @@
     const lightbox = document.getElementById('lightbox');
     const lightboxMedia = document.getElementById('lightbox-media');
     const lightboxTags = document.getElementById('lightbox-tags');
+    const lightboxDates = document.getElementById('lightbox-dates');
     const lightboxDownload = document.getElementById('lightbox-download');
     const lightboxAlbumIndicator = document.getElementById('lightbox-album-indicator');
     const lightboxAlbumBars = document.getElementById('lightbox-album-bars');
@@ -750,6 +754,24 @@
             } else {
                 lightboxTags.innerHTML = '<span class="no-tags">No tags</span>';
             }
+
+            // Update dates
+            const formatDate = (dateStr) => {
+                if (!dateStr) return null;
+                const d = new Date(dateStr);
+                return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+                       ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            };
+            const takenDate = formatDate(photo.taken_at);
+            const uploadedDate = formatDate(photo.uploaded_at);
+            let datesHtml = '';
+            if (takenDate) {
+                datesHtml += `<span class="date-item" title="Capture date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> ${takenDate}</span>`;
+            }
+            if (uploadedDate && uploadedDate !== takenDate) {
+                datesHtml += `<span class="date-item" title="Upload date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> ${uploadedDate}</span>`;
+            }
+            lightboxDates.innerHTML = datesHtml;
 
             // Update download link
             lightboxDownload.href = `/uploads/${photo.filename}`;
