@@ -11,18 +11,25 @@ from ..config import BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES
 from ..database import (
     get_db, get_folder, get_folder_tree, get_folder_breadcrumbs,
     get_user_default_folder, can_access_folder, can_access_photo,
-    can_access_album, can_edit_folder, can_delete_photo, can_delete_album
+    can_access_album, can_edit_folder, can_delete_photo, can_delete_album,
+    get_folder_sort_preference
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import create_thumbnail, create_video_thumbnail, get_media_type
+from ..services.metadata import extract_taken_date
 
 router = APIRouter()
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
 
 @router.get("/")
-def gallery(request: Request, folder_id: str = None):
-    """Main page - gallery with folders, albums and photos."""
+def gallery(request: Request, folder_id: str = None, sort: str = None):
+    """Main page - gallery with folders, albums and photos.
+
+    Args:
+        sort: Sort order for photos - "uploaded" (upload date) or "taken" (capture date)
+              If not provided, uses saved user preference for this folder.
+    """
     db = get_db()
     user = get_current_user(request)
 
@@ -49,6 +56,10 @@ def gallery(request: Request, folder_id: str = None):
         default_folder_id = get_user_default_folder(user["id"])
         return RedirectResponse(url=f"/?folder_id={default_folder_id}", status_code=302)
 
+    # Get sort preference: use URL param if provided, otherwise use saved preference
+    if sort is None or sort not in ("uploaded", "taken"):
+        sort = get_folder_sort_preference(user["id"], folder_id)
+
     # Get subfolders of current folder with photo count
     subfolders = db.execute("""
         SELECT f.*,
@@ -61,27 +72,48 @@ def gallery(request: Request, folder_id: str = None):
         ORDER BY f.name
     """, (folder_id, user["id"], user["id"])).fetchall()
 
-    # Get albums in current folder
-    albums = db.execute("""
-        SELECT a.*,
-               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
-               (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
-        FROM albums a
-        WHERE a.folder_id = ?
-        ORDER BY a.created_at DESC
-    """, (folder_id,)).fetchall()
+    # Get albums in current folder with appropriate sort order
+    # For "taken" sort: use latest taken_at from photos in album
+    if sort == "taken":
+        albums = db.execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id,
+                   (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date
+            FROM albums a
+            WHERE a.folder_id = ?
+            ORDER BY latest_date DESC
+        """, (folder_id,)).fetchall()
+    else:
+        albums = db.execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id,
+                   a.created_at as latest_date
+            FROM albums a
+            WHERE a.folder_id = ?
+            ORDER BY a.created_at DESC
+        """, (folder_id,)).fetchall()
 
-    # Get standalone photos in current folder
-    photos = db.execute("""
-        SELECT * FROM photos
-        WHERE folder_id = ? AND album_id IS NULL
-        ORDER BY uploaded_at DESC
-    """, (folder_id,)).fetchall()
+    # Get standalone photos in current folder with appropriate sort order
+    # For "taken" sort: use taken_at if available, fall back to uploaded_at
+    if sort == "taken":
+        photos = db.execute("""
+            SELECT *, COALESCE(taken_at, uploaded_at) as sort_date FROM photos
+            WHERE folder_id = ? AND album_id IS NULL
+            ORDER BY sort_date DESC
+        """, (folder_id,)).fetchall()
+    else:
+        photos = db.execute("""
+            SELECT *, uploaded_at as sort_date FROM photos
+            WHERE folder_id = ? AND album_id IS NULL
+            ORDER BY uploaded_at DESC
+        """, (folder_id,)).fetchall()
 
     # Create a combined list with type markers for ordering
     items = []
 
-    # Add subfolders first
+    # Add subfolders first (always at top, sorted by name)
     for folder in subfolders:
         items.append({
             "type": "folder",
@@ -93,25 +125,35 @@ def gallery(request: Request, folder_id: str = None):
             "photo_count": folder["photo_count"]
         })
 
+    # Collect albums and photos with sort_date for mixed sorting
+    media_items = []
+
     for album in albums:
-        items.append({
+        media_items.append({
             "type": "album",
             "id": album["id"],
             "name": album["name"],
             "created_at": album["created_at"],
             "photo_count": album["photo_count"],
-            "cover_photo_id": album["cover_photo_id"]
+            "cover_photo_id": album["cover_photo_id"],
+            "sort_date": album["latest_date"]
         })
 
     for photo in photos:
-        items.append({
+        media_items.append({
             "type": "photo",
             "id": photo["id"],
             "filename": photo["filename"],
             "original_name": photo["original_name"],
             "uploaded_at": photo["uploaded_at"],
-            "media_type": photo["media_type"] or "image"
+            "taken_at": photo["taken_at"],
+            "media_type": photo["media_type"] or "image",
+            "sort_date": photo["sort_date"]
         })
+
+    # Sort media items by sort_date (descending), None values go to end
+    media_items.sort(key=lambda x: x["sort_date"] or "", reverse=True)
+    items.extend(media_items)
 
     return templates.TemplateResponse(
         "gallery.html",
@@ -125,7 +167,8 @@ def gallery(request: Request, folder_id: str = None):
             "folder_id": folder_id,
             "breadcrumbs": breadcrumbs,
             "folder_tree": folder_tree,
-            "csrf_token": get_csrf_token(request)
+            "csrf_token": get_csrf_token(request),
+            "sort": sort
         }
     )
 
@@ -214,15 +257,20 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Processing error: {e}")
 
+    # Extract taken date from image metadata
+    taken_at = None
+    if media_type == "image":
+        taken_at = extract_taken_date(file_path)
+
     # Save to database with folder and user
     db = get_db()
     db.execute(
-        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id) VALUES (?, ?, ?, ?, ?, ?)",
-        (photo_id, filename, file.filename, media_type, folder_id, user["id"])
+        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at)
     )
     db.commit()
 
-    return {"id": photo_id, "filename": filename, "media_type": media_type}
+    return {"id": photo_id, "filename": filename, "media_type": media_type, "taken_at": taken_at.isoformat() if taken_at else None}
 
 
 @router.post("/upload-album")
@@ -271,10 +319,15 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
             file_path.unlink(missing_ok=True)
             continue
 
+        # Extract taken date from image metadata
+        taken_at = None
+        if media_type == "image":
+            taken_at = extract_taken_date(file_path)
+
         # Save to database with album, folder and user reference
         db.execute(
-            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"])
+            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"], taken_at)
         )
         uploaded_photos.append({"id": photo_id, "filename": filename, "media_type": media_type})
 

@@ -40,6 +40,14 @@
                         <div id="tag-suggestions" class="suggestions hidden"></div>
                     </div>
 
+                    <!-- Sort Selector -->
+                    <div class="sort-container">
+                        <select id="sort-select" class="sort-select" title="Sort photos by">
+                            <option value="uploaded" {% if sort == 'uploaded' %}selected{% endif %}>Upload date</option>
+                            <option value="taken" {% if sort == 'taken' %}selected{% endif %}>Capture date</option>
+                        </select>
+                    </div>
+
                     <!-- Selection Menu (hidden by default) -->
                     <div id="selection-menu" class="selection-menu hidden">
                         <span id="selection-count">0 selected</span>
@@ -879,6 +887,32 @@
                 console.error('Remove permission failed:', err);
                 alert('Failed to remove permission');
             }
+        }
+
+        // Sort selector handler
+        const sortSelect = document.getElementById('sort-select');
+        if (sortSelect) {
+            sortSelect.addEventListener('change', async function() {
+                const sortBy = this.value;
+
+                // Save preference via API
+                if (currentFolderId) {
+                    try {
+                        await csrfFetch(`/api/folders/${currentFolderId}/sort`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sort_by: sortBy })
+                        });
+                    } catch (e) {
+                        console.error('Failed to save sort preference:', e);
+                    }
+                }
+
+                // Reload page with new sort (will be read from saved preference)
+                const url = new URL(window.location);
+                url.searchParams.delete('sort'); // Remove sort param, use saved preference
+                window.location.href = url.toString();
+            });
         }
 
         // Initialize
