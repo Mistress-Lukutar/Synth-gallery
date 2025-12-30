@@ -1,6 +1,7 @@
 """Gallery routes - main page, uploads, photo/album views."""
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Request, UploadFile, HTTPException, Form
@@ -257,10 +258,12 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Processing error: {e}")
 
-    # Extract taken date from image metadata
+    # Extract taken date from image metadata, fallback to current time
     taken_at = None
     if media_type == "image":
         taken_at = extract_taken_date(file_path)
+    if taken_at is None:
+        taken_at = datetime.now()
 
     # Save to database with folder and user
     db = get_db()
@@ -270,7 +273,7 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     )
     db.commit()
 
-    return {"id": photo_id, "filename": filename, "media_type": media_type, "taken_at": taken_at.isoformat() if taken_at else None}
+    return {"id": photo_id, "filename": filename, "media_type": media_type, "taken_at": taken_at.isoformat()}
 
 
 @router.post("/upload-album")
@@ -319,10 +322,12 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
             file_path.unlink(missing_ok=True)
             continue
 
-        # Extract taken date from image metadata
+        # Extract taken date from image metadata, fallback to current time
         taken_at = None
         if media_type == "image":
             taken_at = extract_taken_date(file_path)
+        if taken_at is None:
+            taken_at = datetime.now()
 
         # Save to database with album, folder and user reference
         db.execute(
@@ -437,10 +442,12 @@ async def upload_bulk(
             summary["failed"] += 1
             continue
 
-        # Extract taken date from image metadata
+        # Extract taken date from image metadata, fallback to current time
         taken_at = None
         if media_type == "image":
             taken_at = extract_taken_date(file_path)
+        if taken_at is None:
+            taken_at = datetime.now()
 
         # Save to database
         db.execute(
@@ -487,10 +494,12 @@ async def upload_bulk(
                 summary["failed"] += 1
                 continue
 
-            # Extract taken date from image metadata
+            # Extract taken date from image metadata, fallback to current time
             taken_at = None
             if media_type == "image":
                 taken_at = extract_taken_date(file_path)
+            if taken_at is None:
+                taken_at = datetime.now()
 
             # Save to database with album reference
             db.execute(
