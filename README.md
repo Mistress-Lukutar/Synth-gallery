@@ -4,16 +4,17 @@ Local gallery for storing and organizing AI-generated images with multi-user sup
 
 ## Features
 
-- **User Authentication** — Registration, login, personal galleries
+- **User Authentication** — Session-based auth with bcrypt password hashing
 - **Folder System** — Hierarchical folder structure for organizing content
 - **Sharing & Permissions** — Share folders with other users as Viewer (read-only) or Editor (can upload/delete)
 - **Media Support** — Images (jpg, png, gif, webp) and videos (mp4, webm)
 - **Albums** — Group multiple files into albums
 - **Tag System** — Categories (Subject, Location, Mood, Style, Event, Other) with presets
 - **Tag Search** — Autocomplete search across your accessible content
-- **AI Tags** — Auto-generate tags for photos (simulation mode)
+- **AI Tags** — Auto-generate tags for photos (simulation mode + external AI service API)
 - **Batch Operations** — Delete or tag multiple items at once
 - **Dark Theme** — Modern dark UI
+- **Security** — CSRF protection, API key authentication for external services
 
 ## Quick Start
 
@@ -32,6 +33,12 @@ uvicorn app.main:app --reload --port 8000
 
 Open http://localhost:8000
 
+### Environment Variables
+
+```bash
+SYNTH_AI_API_KEY=your-secret-key  # Required for external AI service API
+```
+
 ### User Management
 
 Create users via CLI:
@@ -40,6 +47,7 @@ Create users via CLI:
 python manage_users.py add <username> <password> [--display-name "Display Name"]
 python manage_users.py list
 python manage_users.py delete <username>
+python manage_users.py passwd <username> <new_password>
 ```
 
 ## Folder Permissions
@@ -67,84 +75,125 @@ Folders in the sidebar are color-coded:
 
 ```
 app/
-├── main.py          # FastAPI routes and application logic
-├── database.py      # SQLite schema, queries, permissions
-├── templates/       # Jinja2 templates (base, gallery, photo, login)
-└── static/          # CSS and icons
+├── main.py              # FastAPI app entry point
+├── config.py            # Constants, paths, environment variables
+├── middleware.py        # Auth and CSRF middleware
+├── dependencies.py      # Shared dependencies
+├── database.py          # SQLite schema, queries, access control
+├── routes/
+│   ├── auth.py          # Login/logout
+│   ├── gallery.py       # Main gallery, uploads
+│   ├── folders.py       # Folder management
+│   ├── tags.py          # Tag management
+│   └── api.py           # External AI service API
+├── services/
+│   └── media.py         # Thumbnail generation
+├── templates/           # Jinja2 templates
+└── static/              # CSS and icons
 
-uploads/             # Original files (created automatically)
-thumbnails/          # 400x400 previews (created automatically)
-gallery.db           # SQLite database
-manage_users.py      # CLI for user management
+uploads/                 # Original files (created automatically)
+thumbnails/              # 400x400 previews (created automatically)
+gallery.db               # SQLite database
+manage_users.py          # CLI for user management
 ```
 
 ## API
 
 ### Authentication
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/login` | Login page |
-| POST | `/login` | Authenticate user |
-| GET | `/logout` | Logout |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/login` | Public | Login page |
+| POST | `/login` | Public+CSRF | Authenticate user |
+| GET | `/logout` | Session | Logout |
 
 ### Folders
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/folders` | List user's folders and shared folders |
-| POST | `/api/folders` | Create folder |
-| PUT | `/api/folders/{id}` | Update folder |
-| DELETE | `/api/folders/{id}` | Delete folder (owner only) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/folders` | Session | List user's folders and shared folders |
+| POST | `/api/folders` | Session+CSRF | Create folder |
+| PUT | `/api/folders/{id}` | Session+CSRF | Update folder |
+| DELETE | `/api/folders/{id}` | Session+CSRF | Delete folder (owner only) |
 
 ### Folder Permissions
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/folders/{id}/permissions` | List folder permissions |
-| POST | `/api/folders/{id}/permissions` | Add user permission |
-| PUT | `/api/folders/{id}/permissions/{user_id}` | Update permission |
-| DELETE | `/api/folders/{id}/permissions/{user_id}` | Remove permission |
-| GET | `/api/users/search?q=` | Search users for sharing |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/folders/{id}/permissions` | Session | List folder permissions |
+| POST | `/api/folders/{id}/permissions` | Session+CSRF | Add user permission |
+| PUT | `/api/folders/{id}/permissions/{user_id}` | Session+CSRF | Update permission |
+| DELETE | `/api/folders/{id}/permissions/{user_id}` | Session+CSRF | Remove permission |
+| GET | `/api/users/search?q=` | Session | Search users for sharing |
 
 ### Upload
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/upload` | Upload single file to folder |
-| POST | `/upload-album` | Upload album (2+ files) |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/upload` | Session+CSRF | Upload single file to folder |
+| POST | `/upload-album` | Session+CSRF | Upload album (2+ files) |
 
 ### Tags
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tag-categories` | List tag categories |
-| GET | `/api/tag-presets` | Preset tags by category |
-| POST | `/api/tag-presets` | Add preset tag |
-| POST | `/api/photos/{id}/tag` | Add tag to photo |
-| DELETE | `/api/photos/{id}/tag/{tag_id}` | Remove tag |
-| POST | `/api/photos/{id}/ai-tags` | Generate AI tags |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/tag-categories` | Session | List tag categories |
+| GET | `/api/tag-presets` | Session | Preset tags by category |
+| POST | `/api/tag-presets` | Session+CSRF | Add preset tag |
+| POST | `/api/photos/{id}/tag` | Session+CSRF | Add tag to photo |
+| DELETE | `/api/photos/{id}/tag/{tag_id}` | Session+CSRF | Remove tag |
+| POST | `/api/photos/{id}/ai-tags` | Session+CSRF | Generate AI tags (simulation) |
 
 ### Search and Batch Operations
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/tags/all` | All tags (for autocomplete) |
-| GET | `/api/photos/search?tags=` | Search by tags (space-separated) |
-| POST | `/api/photos/batch-delete` | Batch delete |
-| POST | `/api/photos/batch-ai-tags` | Batch AI tag generation |
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/tags/all` | Session | All tags (for autocomplete) |
+| GET | `/api/photos/search?tags=` | Session | Search by tags (space-separated) |
+| POST | `/api/photos/batch-delete` | Session+CSRF | Batch delete |
+| POST | `/api/photos/batch-ai-tags` | Session+CSRF | Batch AI tag generation |
 
-### External AI Service
+### External AI Service API
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/photos/untagged` | Photos without tags (limit 10) |
-| POST | `/api/photos/{id}/tags` | Set tags (array of strings) |
+These endpoints are for external AI services and require API key authentication:
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/ai/photos/untagged` | API Key | Photos without tags (limit 10) |
+| POST | `/api/ai/photos/{id}/tags` | API Key | Set tags (array of strings) |
+| GET | `/api/ai/stats` | API Key | Tagging statistics |
+
+**Usage:**
+```bash
+# Set API key
+export SYNTH_AI_API_KEY=your-secret-key
+
+# Get untagged photos
+curl -H "X-API-Key: $SYNTH_AI_API_KEY" http://localhost:8000/api/ai/photos/untagged
+
+# Set tags for a photo
+curl -X POST \
+  -H "X-API-Key: $SYNTH_AI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '["portrait", "outdoor", "happy"]' \
+  http://localhost:8000/api/ai/photos/{photo_id}/tags
+```
+
+## Security
+
+- **Authentication**: Session-based with HTTP-only cookies (7 days expiry)
+- **Password Hashing**: bcrypt via passlib (auto-migrates legacy SHA-256 hashes)
+- **CSRF Protection**: Token validation for all mutating requests
+- **Path Traversal Prevention**: File path validation for uploads/thumbnails
+- **API Key**: Separate authentication for external AI service endpoints
 
 ## Database Schema
 
 **users** — user accounts
-- id, username, password_hash, display_name, created_at
+- id, username, password_hash, password_salt, display_name, default_folder_id, created_at
+
+**sessions** — login sessions
+- id, user_id, created_at, expires_at
 
 **folders** — folder hierarchy
 - id, name, user_id, parent_id, created_at

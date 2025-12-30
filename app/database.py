@@ -1,25 +1,42 @@
 import sqlite3
-import hashlib
 import secrets
 import threading
 from pathlib import Path
+
+from passlib.hash import bcrypt
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "gallery.db"
 
 
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
-    """Hash password with salt using SHA-256"""
-    if salt is None:
-        salt = secrets.token_hex(16)
-    hashed = hashlib.sha256((salt + password).encode()).hexdigest()
-    return hashed, salt
+    """Hash password using bcrypt.
+
+    Note: salt parameter is ignored for bcrypt (it generates its own).
+    Kept for backward compatibility with existing code.
+    Returns (hash, empty_string) tuple for API compatibility.
+    """
+    hashed = bcrypt.hash(password)
+    return hashed, ""
 
 
-def verify_password(password: str, hashed: str, salt: str) -> bool:
-    """Verify password against hash"""
-    check_hash, _ = hash_password(password, salt)
-    return check_hash == hashed
+def verify_password(password: str, hashed: str, salt: str = None) -> bool:
+    """Verify password against bcrypt hash.
+
+    Also handles legacy SHA-256 hashes for migration.
+    """
+    # Check if this is a bcrypt hash (starts with $2b$)
+    if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
+        return bcrypt.verify(password, hashed)
+
+    # Legacy SHA-256 verification for old passwords
+    import hashlib
+    if salt:
+        check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+        if check_hash == hashed:
+            return True
+
+    return False
 
 # Thread-local storage for database connections
 _local = threading.local()
@@ -576,7 +593,7 @@ def get_folder_breadcrumbs(folder_id: str) -> list:
 def create_default_folder(user_id: int) -> str:
     """Create default folder for user and set it as default"""
     db = get_db()
-    folder_id = create_folder("My Gallery", user_id, None, 'private')
+    folder_id = create_folder("My Gallery", user_id, None)
     db.execute("UPDATE users SET default_folder_id = ? WHERE id = ?", (folder_id, user_id))
     db.commit()
     return folder_id
