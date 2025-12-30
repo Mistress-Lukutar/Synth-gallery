@@ -258,10 +258,8 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Processing error: {e}")
 
-    # Extract taken date from image metadata, fallback to current time
-    taken_at = None
-    if media_type == "image":
-        taken_at = extract_taken_date(file_path)
+    # Extract taken date from metadata, fallback to current time
+    taken_at = extract_taken_date(file_path)
     if taken_at is None:
         taken_at = datetime.now()
 
@@ -322,10 +320,8 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
             file_path.unlink(missing_ok=True)
             continue
 
-        # Extract taken date from image metadata, fallback to current time
-        taken_at = None
-        if media_type == "image":
-            taken_at = extract_taken_date(file_path)
+        # Extract taken date from metadata, fallback to current time
+        taken_at = extract_taken_date(file_path)
         if taken_at is None:
             taken_at = datetime.now()
 
@@ -442,10 +438,8 @@ async def upload_bulk(
             summary["failed"] += 1
             continue
 
-        # Extract taken date from image metadata, fallback to current time
-        taken_at = None
-        if media_type == "image":
-            taken_at = extract_taken_date(file_path)
+        # Extract taken date from metadata, fallback to current time
+        taken_at = extract_taken_date(file_path)
         if taken_at is None:
             taken_at = datetime.now()
 
@@ -494,10 +488,8 @@ async def upload_bulk(
                 summary["failed"] += 1
                 continue
 
-            # Extract taken date from image metadata, fallback to current time
-            taken_at = None
-            if media_type == "image":
-                taken_at = extract_taken_date(file_path)
+            # Extract taken date from metadata, fallback to current time
+            taken_at = extract_taken_date(file_path)
             if taken_at is None:
                 taken_at = datetime.now()
 
