@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Photos table includes `taken_at` field for capture date
 - Gallery view supports sorting toggle in UI
 - Database schema includes `user_folder_preferences` table
+- `taken_at` now defaults to upload date when metadata extraction fails (instead of NULL)
+
+### Fixed
+- Folder deletion now properly removes photos and albums from database
 
 ## [0.4.0] - 2025-12-30
 
