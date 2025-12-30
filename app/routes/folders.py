@@ -11,7 +11,8 @@ from ..database import (
     get_user_default_folder, set_user_default_folder,
     can_access_folder, can_edit_folder,
     add_folder_permission, remove_folder_permission, update_folder_permission,
-    get_folder_permissions, search_users
+    get_folder_permissions, search_users,
+    get_folder_sort_preference, set_folder_sort_preference
 )
 from ..dependencies import require_user
 
@@ -220,6 +221,41 @@ def remove_folder_permission_route(request: Request, folder_id: str, target_user
 
     permissions = get_folder_permissions(folder_id)
     return {"status": "ok", "permissions": permissions}
+
+
+# === Folder Preferences ===
+
+class SortPreference(BaseModel):
+    sort_by: str  # 'uploaded' | 'taken'
+
+
+@router.put("/{folder_id}/sort")
+def set_sort_preference(request: Request, folder_id: str, data: SortPreference):
+    """Set sort preference for a folder (per user)."""
+    user = require_user(request)
+
+    # Check user has access to folder
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if data.sort_by not in ('uploaded', 'taken'):
+        raise HTTPException(status_code=400, detail="sort_by must be 'uploaded' or 'taken'")
+
+    set_folder_sort_preference(user["id"], folder_id, data.sort_by)
+    return {"status": "ok", "sort_by": data.sort_by}
+
+
+@router.get("/{folder_id}/sort")
+def get_sort_preference(request: Request, folder_id: str):
+    """Get sort preference for a folder (per user)."""
+    user = require_user(request)
+
+    # Check user has access to folder
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    sort_by = get_folder_sort_preference(user["id"], folder_id)
+    return {"sort_by": sort_by}
 
 
 # User search for sharing (separate router prefix)

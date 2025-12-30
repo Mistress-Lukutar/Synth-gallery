@@ -6,7 +6,9 @@
       "Bash(findstr:*)",
       "Bash(python manage_users.py:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(python -c:*)"
+      "Bash(python -c:*)",
+      "Bash(git tag:*)",
+      "Bash(gh release create:*)"
     ]
   }
 }
