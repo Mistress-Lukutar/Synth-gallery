@@ -137,27 +137,13 @@
                 <button class="modal-close" onclick="closeAddPhotosModal()">&times;</button>
             </div>
             <div class="add-photos-modal-body">
-                <div class="photo-carousel">
-                    <button class="carousel-nav carousel-prev" onclick="carouselNavigate(-1)">&#8249;</button>
-                    <div class="carousel-main">
-                        <img id="carousel-image" src="" alt="">
-                        <div class="carousel-select-indicator hidden" id="carousel-select-indicator">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                <polyline points="20 6 9 17 4 12"></polyline>
-                            </svg>
-                        </div>
-                    </div>
-                    <button class="carousel-nav carousel-next" onclick="carouselNavigate(1)">&#8250;</button>
-                </div>
-                <div class="carousel-counter" id="carousel-counter">0 / 0</div>
-                <div class="carousel-thumbnails" id="carousel-thumbnails">
-                    <!-- Thumbnail strip -->
+                <div class="available-photos-grid" id="available-photos-grid">
+                    <!-- Photos grid -->
                 </div>
                 <div class="selected-count" id="selected-photos-count">0 selected</div>
             </div>
             <div class="add-photos-modal-footer">
                 <button class="btn btn-secondary" onclick="closeAddPhotosModal()">Cancel</button>
-                <button class="btn" id="carousel-toggle-btn" onclick="toggleCurrentPhoto()">Select</button>
                 <button class="btn" id="confirm-add-btn" onclick="confirmAddPhotos()" disabled>Add Selected</button>
             </div>
         </div>
@@ -1328,12 +1314,8 @@
 
     // Add photos modal elements
     const addPhotosModal = document.getElementById('add-photos-modal');
-    const carouselImage = document.getElementById('carousel-image');
-    const carouselCounter = document.getElementById('carousel-counter');
-    const carouselThumbnails = document.getElementById('carousel-thumbnails');
-    const carouselSelectIndicator = document.getElementById('carousel-select-indicator');
+    const availablePhotosGrid = document.getElementById('available-photos-grid');
     const selectedPhotosCount = document.getElementById('selected-photos-count');
-    const carouselToggleBtn = document.getElementById('carousel-toggle-btn');
     const confirmAddBtn = document.getElementById('confirm-add-btn');
     const openAddPhotosBtn = document.getElementById('open-add-photos-btn');
 
@@ -1345,9 +1327,6 @@
     let selectedToAdd = new Set();
     let canEdit = false;
     let hasChanges = false;
-
-    // Carousel state
-    let carouselIndex = 0;
 
     // Drag state
     let draggedItem = null;
@@ -1403,12 +1382,10 @@
         albumEditorPanel.classList.remove('open');
         lightbox.classList.remove('panel-open');
 
-        // Refresh gallery and lightbox if changes were made
+        // Reload page if changes were made to refresh gallery
         if (hasChanges) {
-            updateGalleryAlbumCover();
-            if (window.reloadCurrentPhoto) {
-                window.reloadCurrentPhoto();
-            }
+            window.location.reload();
+            return;
         }
 
         currentAlbumId = null;
@@ -1418,17 +1395,6 @@
         selectedToAdd.clear();
         hasChanges = false;
     };
-
-    // Update gallery album cover without full page reload
-    function updateGalleryAlbumCover() {
-        const albumItem = document.querySelector(`.gallery-item[data-album-id="${currentAlbumId}"]`);
-        if (albumItem && coverPhotoId) {
-            const img = albumItem.querySelector('img');
-            if (img) {
-                img.src = `/thumbnails/${coverPhotoId}.jpg`;
-            }
-        }
-    }
 
     // Update add photos button state
     function updateOpenAddPhotosBtn() {
@@ -1604,15 +1570,14 @@
         }
     };
 
-    // ========== Add Photos Modal / Carousel ==========
+    // ========== Add Photos Modal ==========
 
     // Open add photos modal
     window.openAddPhotosModal = function() {
         if (availablePhotos.length === 0) return;
 
         selectedToAdd.clear();
-        carouselIndex = 0;
-        renderCarousel();
+        renderAvailablePhotosGrid();
         addPhotosModal.classList.remove('hidden');
     };
 
@@ -1622,75 +1587,57 @@
         selectedToAdd.clear();
     };
 
-    // Render carousel
-    function renderCarousel() {
-        if (availablePhotos.length === 0) return;
+    // Render available photos grid
+    function renderAvailablePhotosGrid() {
+        if (availablePhotos.length === 0) {
+            availablePhotosGrid.innerHTML = '<div class="empty-state">No photos available</div>';
+            return;
+        }
 
-        const photo = availablePhotos[carouselIndex];
-        carouselImage.src = `/thumbnails/${photo.id}.jpg`;
-        carouselCounter.textContent = `${carouselIndex + 1} / ${availablePhotos.length}`;
-
-        // Update select indicator
-        const isSelected = selectedToAdd.has(photo.id);
-        carouselSelectIndicator.classList.toggle('hidden', !isSelected);
-        carouselToggleBtn.textContent = isSelected ? 'Deselect' : 'Select';
-        carouselToggleBtn.classList.toggle('btn-secondary', isSelected);
-
-        // Render thumbnails
-        carouselThumbnails.innerHTML = availablePhotos.map((p, i) => `
-            <div class="carousel-thumb ${i === carouselIndex ? 'active' : ''} ${selectedToAdd.has(p.id) ? 'selected' : ''}"
-                 data-index="${i}"
-                 onclick="goToCarouselIndex(${i})">
+        availablePhotosGrid.innerHTML = availablePhotos.map(p => `
+            <div class="available-photo-item ${selectedToAdd.has(p.id) ? 'selected' : ''}"
+                 data-photo-id="${p.id}"
+                 onclick="togglePhotoSelection('${p.id}')">
                 <img src="/thumbnails/${p.id}.jpg" alt="">
+                <div class="photo-check-indicator">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </div>
             </div>
         `).join('');
 
-        // Update selected count
+        updateSelectionUI();
+    }
+
+    // Toggle photo selection
+    window.togglePhotoSelection = function(photoId) {
+        if (selectedToAdd.has(photoId)) {
+            selectedToAdd.delete(photoId);
+        } else {
+            selectedToAdd.add(photoId);
+        }
+
+        // Update visual state
+        const item = availablePhotosGrid.querySelector(`[data-photo-id="${photoId}"]`);
+        if (item) {
+            item.classList.toggle('selected', selectedToAdd.has(photoId));
+        }
+
+        updateSelectionUI();
+    };
+
+    // Update selection count and button
+    function updateSelectionUI() {
         selectedPhotosCount.textContent = selectedToAdd.size > 0
             ? `${selectedToAdd.size} selected`
             : 'None selected';
 
-        // Update confirm button
         confirmAddBtn.disabled = selectedToAdd.size === 0;
         confirmAddBtn.textContent = selectedToAdd.size > 0
             ? `Add ${selectedToAdd.size} Photo${selectedToAdd.size > 1 ? 's' : ''}`
             : 'Add Selected';
-
-        // Scroll active thumbnail into view
-        const activeThumb = carouselThumbnails.querySelector('.active');
-        if (activeThumb) {
-            activeThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        }
     }
-
-    // Navigate carousel
-    window.carouselNavigate = function(direction) {
-        const newIndex = carouselIndex + direction;
-        if (newIndex >= 0 && newIndex < availablePhotos.length) {
-            carouselIndex = newIndex;
-            renderCarousel();
-        }
-    };
-
-    // Go to specific carousel index
-    window.goToCarouselIndex = function(index) {
-        carouselIndex = index;
-        renderCarousel();
-    };
-
-    // Toggle current photo selection
-    window.toggleCurrentPhoto = function() {
-        const photo = availablePhotos[carouselIndex];
-        if (!photo) return;
-
-        if (selectedToAdd.has(photo.id)) {
-            selectedToAdd.delete(photo.id);
-        } else {
-            selectedToAdd.add(photo.id);
-        }
-
-        renderCarousel();
-    };
 
     // Confirm adding selected photos
     window.confirmAddPhotos = async function() {
@@ -1731,28 +1678,11 @@
         }
     };
 
-    // Keyboard navigation in carousel
+    // Keyboard: ESC to close modal
     document.addEventListener('keydown', (e) => {
-        if (addPhotosModal.classList.contains('hidden')) return;
-
-        switch (e.key) {
-            case 'ArrowLeft':
-                e.preventDefault();
-                carouselNavigate(-1);
-                break;
-            case 'ArrowRight':
-                e.preventDefault();
-                carouselNavigate(1);
-                break;
-            case ' ':
-            case 'Enter':
-                e.preventDefault();
-                toggleCurrentPhoto();
-                break;
-            case 'Escape':
-                e.preventDefault();
-                closeAddPhotosModal();
-                break;
+        if (e.key === 'Escape' && !addPhotosModal.classList.contains('hidden')) {
+            e.preventDefault();
+            closeAddPhotosModal();
         }
     });
 
