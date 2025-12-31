@@ -9,6 +9,8 @@ Usage:
     python manage_users.py delete <username>
     python manage_users.py passwd <username> <new_password>
     python manage_users.py rename <username> <new_display_name>
+    python manage_users.py admin <username>       - grant admin rights
+    python manage_users.py unadmin <username>     - revoke admin rights
 """
 
 import sys
@@ -24,7 +26,9 @@ from app.database import (
     get_user_by_username,
     delete_user,
     update_user_password,
-    update_user_display_name
+    update_user_display_name,
+    set_user_admin,
+    is_user_admin
 )
 
 
@@ -64,10 +68,11 @@ def cmd_list(args):
         print("No users found. Create one with: python manage_users.py add <username> <password> <display_name>")
         return 0
 
-    print(f"{'ID':<5} {'Username':<20} {'Display Name':<30} {'Created'}")
-    print("-" * 80)
+    print(f"{'ID':<5} {'Username':<20} {'Display Name':<25} {'Admin':<6} {'Created'}")
+    print("-" * 90)
     for user in users:
-        print(f"{user['id']:<5} {user['username']:<20} {user['display_name']:<30} {user['created_at']}")
+        admin_flag = "Yes" if is_user_admin(user['id']) else ""
+        print(f"{user['id']:<5} {user['username']:<20} {user['display_name']:<25} {admin_flag:<6} {user['created_at']}")
     return 0
 
 
@@ -132,6 +137,48 @@ def cmd_rename(args):
     return 0
 
 
+def cmd_admin(args):
+    if len(args) < 1:
+        print("Error: admin requires <username>")
+        return 1
+
+    username = args[0]
+    user = get_user_by_username(username)
+
+    if not user:
+        print(f"Error: User '{username}' not found")
+        return 1
+
+    if is_user_admin(user['id']):
+        print(f"User '{username}' is already an admin")
+        return 0
+
+    set_user_admin(user['id'], True)
+    print(f"User '{username}' is now an admin")
+    return 0
+
+
+def cmd_unadmin(args):
+    if len(args) < 1:
+        print("Error: unadmin requires <username>")
+        return 1
+
+    username = args[0]
+    user = get_user_by_username(username)
+
+    if not user:
+        print(f"Error: User '{username}' not found")
+        return 1
+
+    if not is_user_admin(user['id']):
+        print(f"User '{username}' is not an admin")
+        return 0
+
+    set_user_admin(user['id'], False)
+    print(f"Admin rights revoked from '{username}'")
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
         print_usage()
@@ -149,6 +196,8 @@ def main():
         'delete': cmd_delete,
         'passwd': cmd_passwd,
         'rename': cmd_rename,
+        'admin': cmd_admin,
+        'unadmin': cmd_unadmin,
         'help': lambda _: (print_usage(), 0)[1],
     }
 

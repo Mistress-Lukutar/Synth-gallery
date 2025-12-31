@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Backup Management - Synth Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .admin-layout {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .admin-header h1 {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .back-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .back-link:hover {
+            color: var(--text);
+        }
+        .backup-actions {
+            margin-bottom: 1.5rem;
+        }
+        .backup-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .backup-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .backup-info {
+            flex: 1;
+        }
+        .backup-name {
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+        }
+        .backup-meta {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .backup-meta span {
+            margin-right: 1rem;
+        }
+        .backup-reason {
+            display: inline-block;
+            padding: 0.125rem 0.5rem;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            font-size: 0.75rem;
+            text-transform: capitalize;
+        }
+        .backup-item-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        .status-message {
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .status-message.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+        .status-message.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-layout">
+        <header class="admin-header">
+            <h1>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Database Backups
+            </h1>
+            <a href="/" class="back-link">&larr; Back to Gallery</a>
+        </header>
+
+        <div id="status-message" class="status-message"></div>
+
+        <div class="backup-actions">
+            <button id="create-backup-btn" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Create Backup
+            </button>
+        </div>
+
+        <div id="backup-list" class="backup-list">
+            {% if backups %}
+                {% for backup in backups %}
+                <div class="backup-item" data-name="{{ backup.name }}">
+                    <div class="backup-info">
+                        <div class="backup-name">{{ backup.name }}</div>
+                        <div class="backup-meta">
+                            <span>{{ backup.size_human }}</span>
+                            <span>{{ backup.created_at[:19].replace('T', ' ') }}</span>
+                            <span class="backup-reason">{{ backup.reason }}</span>
+                        </div>
+                    </div>
+                    <div class="backup-item-actions">
+                        <a href="/api/admin/backup/{{ backup.name }}/download" class="btn btn-small btn-secondary">Download</a>
+                        <button class="btn btn-small btn-secondary" onclick="restoreBackup('{{ backup.name }}')">Restore</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteBackup('{{ backup.name }}')">Delete</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>No backups yet</p>
+                    <p>Click "Create Backup" to create your first backup</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function getCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
+
+        async function csrfFetch(url, options = {}) {
+            const headers = options.headers || {};
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
+                headers['X-CSRF-Token'] = getCsrfToken();
+            }
+            return fetch(url, { ...options, headers });
+        }
+
+        function showStatus(message, isError = false) {
+            const el = document.getElementById('status-message');
+            el.textContent = message;
+            el.className = 'status-message ' + (isError ? 'error' : 'success');
+            setTimeout(() => { el.className = 'status-message'; }, 5000);
+        }
+
+        document.getElementById('create-backup-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('create-backup-btn');
+            btn.disabled = true;
+            btn.textContent = 'Creating...';
+
+            try {
+                const resp = await csrfFetch('/api/admin/backup', { method: 'POST' });
+                if (!resp.ok) throw new Error('Failed to create backup');
+
+                const data = await resp.json();
+                showStatus('Backup created: ' + data.filename);
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) {
+                showStatus('Failed to create backup: ' + err.message, true);
+                btn.disabled = false;
+                btn.textContent = 'Create Backup';
+            }
+        });
+
+        async function restoreBackup(filename) {
+            if (!confirm(`Restore database from "${filename}"?\n\nThis will replace the current database. A backup of the current state will be created first.`)) {
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`/api/admin/backup/${filename}/restore`, { method: 'POST' });
+                if (!resp.ok) throw new Error('Failed to restore backup');
+
+                const data = await resp.json();
+                showStatus(data.message);
+                setTimeout(() => location.reload(), 2000);
+            } catch (err) {
+                showStatus('Failed to restore: ' + err.message, true);
+            }
+        }
+
+        async function deleteBackup(filename) {
+            if (!confirm(`Delete backup "${filename}"?`)) {
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`/api/admin/backup/${filename}`, { method: 'DELETE' });
+                if (!resp.ok) throw new Error('Failed to delete backup');
+
+                const item = document.querySelector(`.backup-item[data-name="${filename}"]`);
+                if (item) item.remove();
+
+                showStatus('Backup deleted');
+
+                // Check if list is now empty
+                if (document.querySelectorAll('.backup-item').length === 0) {
+                    document.getElementById('backup-list').innerHTML = `
+                        <div class="empty-state">
+                            <p>No backups yet</p>
+                            <p>Click "Create Backup" to create your first backup</p>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                showStatus('Failed to delete: ' + err.message, true);
+            }
+        }
+    </script>
+</body>
+</html>
