@@ -7,15 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-12-31
+
 ### Added
 - Album management functionality:
   - Add/remove photos from albums
   - Reorder photos with drag-and-drop
   - Set custom cover photo for albums
   - Album editor side panel in lightbox
+- Database backup system:
+  - Automatic backup before database migrations
+  - Manual backup/restore/delete via admin UI (`/admin/backups`)
+  - Backup rotation (keeps last 5)
+  - Download backups as files
+- Admin role for users (`is_admin` flag)
+- CLI commands: `admin`/`unadmin` for `manage_users.py`
 
 ### Changed
 - Albums table includes `cover_photo_id` field
+- Users table includes `is_admin` field
 
 ## [0.5.0] - 2025-12-30
 
@@ -107,6 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.6.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.2.0...v0.3.0
