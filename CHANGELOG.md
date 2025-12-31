@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Album management functionality:
+  - Add/remove photos from albums
+  - Reorder photos with drag-and-drop
+  - Set custom cover photo for albums
+  - Album editor side panel in lightbox
+
+### Changed
+- Albums table includes `cover_photo_id` field
+
 ## [0.5.0] - 2025-12-30
 
 ### Added
