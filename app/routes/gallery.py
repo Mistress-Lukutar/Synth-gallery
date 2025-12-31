@@ -13,7 +13,9 @@ from ..database import (
     get_db, get_folder, get_folder_tree, get_folder_breadcrumbs,
     get_user_default_folder, can_access_folder, can_access_photo,
     can_access_album, can_edit_folder, can_delete_photo, can_delete_album,
-    get_folder_sort_preference
+    get_folder_sort_preference, can_edit_album, set_album_cover,
+    add_photos_to_album, remove_photos_from_album, reorder_album_photos,
+    get_available_photos_for_album, get_album_photos, get_album
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import create_thumbnail, create_video_thumbnail, get_media_type
@@ -75,11 +77,14 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
 
     # Get albums in current folder with appropriate sort order
     # For "taken" sort: use latest taken_at from photos in album
+    # Cover photo: use explicit cover_photo_id if set, otherwise first photo by position
     if sort == "taken":
         albums = db.execute("""
             SELECT a.*,
                    (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
-                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id,
+                   COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   ) as effective_cover_photo_id,
                    (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date
             FROM albums a
             WHERE a.folder_id = ?
@@ -89,7 +94,9 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
         albums = db.execute("""
             SELECT a.*,
                    (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
-                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id,
+                   COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   ) as effective_cover_photo_id,
                    a.created_at as latest_date
             FROM albums a
             WHERE a.folder_id = ?
@@ -136,7 +143,7 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             "name": album["name"],
             "created_at": album["created_at"],
             "photo_count": album["photo_count"],
-            "cover_photo_id": album["cover_photo_id"],
+            "cover_photo_id": album["effective_cover_photo_id"],
             "sort_date": album["latest_date"]
         })
 
@@ -562,7 +569,8 @@ def get_photo_data(photo_id: str, request: Request):
                 "name": album["name"],
                 "total": len(photo_ids),
                 "current": current_index + 1,
-                "photo_ids": photo_ids
+                "photo_ids": photo_ids,
+                "can_edit": can_edit_album(photo["album_id"], user["id"])
             }
 
     return {
@@ -582,28 +590,24 @@ def get_album_data(album_id: str, request: Request):
     """Get album data with photo list."""
     user = require_user(request)
 
-    db = get_db()
-    album = db.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
-
-    if not album:
-        raise HTTPException(status_code=404, detail="Album not found")
-
     # Check access
     if not can_access_album(album_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    album = get_album(album_id)
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+
     # Get photos in album
-    photos = db.execute("""
-        SELECT id, filename, original_name, media_type
-        FROM photos
-        WHERE album_id = ?
-        ORDER BY position, id
-    """, (album_id,)).fetchall()
+    photos = get_album_photos(album_id)
 
     return {
         "id": album["id"],
         "name": album["name"],
         "created_at": album["created_at"],
+        "cover_photo_id": album.get("cover_photo_id"),
+        "effective_cover_photo_id": album.get("effective_cover_photo_id"),
+        "can_edit": can_edit_album(album_id, user["id"]),
         "photos": [{"id": p["id"], "filename": p["filename"], "media_type": p["media_type"] or "image"} for p in photos]
     }
 
@@ -614,6 +618,14 @@ from pydantic import BaseModel
 class BatchDeleteInput(BaseModel):
     photo_ids: list[str] = []
     album_ids: list[str] = []
+
+
+class AlbumPhotosInput(BaseModel):
+    photo_ids: list[str]
+
+
+class AlbumCoverInput(BaseModel):
+    photo_id: str | None = None
 
 
 @router.post("/api/photos/batch-delete")
@@ -668,3 +680,83 @@ def batch_delete_photos(data: BatchDeleteInput, request: Request):
         "skipped_photos": skipped_photos,
         "skipped_albums": skipped_albums
     }
+
+
+# === Album Management Endpoints ===
+
+@router.get("/api/albums/{album_id}/available-photos")
+def get_available_photos(album_id: str, request: Request):
+    """Get photos from folder that can be added to album."""
+    user = require_user(request)
+
+    if not can_access_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not can_edit_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot edit this album")
+
+    photos = get_available_photos_for_album(album_id)
+    return {"photos": photos}
+
+
+@router.post("/api/albums/{album_id}/photos")
+def add_photos_to_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Request):
+    """Add photos to album."""
+    user = require_user(request)
+
+    if not can_edit_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot edit this album")
+
+    if not data.photo_ids:
+        raise HTTPException(status_code=400, detail="No photos specified")
+
+    added = add_photos_to_album(album_id, data.photo_ids)
+    return {"status": "ok", "added": added}
+
+
+@router.delete("/api/albums/{album_id}/photos")
+def remove_photos_from_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Request):
+    """Remove photos from album. Photos stay in folder."""
+    user = require_user(request)
+
+    if not can_edit_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot edit this album")
+
+    if not data.photo_ids:
+        raise HTTPException(status_code=400, detail="No photos specified")
+
+    removed = remove_photos_from_album(album_id, data.photo_ids)
+    return {"status": "ok", "removed": removed}
+
+
+@router.put("/api/albums/{album_id}/reorder")
+def reorder_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Request):
+    """Reorder photos in album."""
+    user = require_user(request)
+
+    if not can_edit_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot edit this album")
+
+    if not data.photo_ids:
+        raise HTTPException(status_code=400, detail="No photos specified")
+
+    success = reorder_album_photos(album_id, data.photo_ids)
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid photo IDs")
+
+    return {"status": "ok"}
+
+
+@router.put("/api/albums/{album_id}/cover")
+def set_album_cover_endpoint(album_id: str, data: AlbumCoverInput, request: Request):
+    """Set album cover photo. Pass null photo_id to reset to default."""
+    user = require_user(request)
+
+    if not can_edit_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot edit this album")
+
+    success = set_album_cover(album_id, data.photo_id)
+    if not success and data.photo_id:
+        raise HTTPException(status_code=400, detail="Photo not in album")
+
+    return {"status": "ok"}
