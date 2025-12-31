@@ -41,6 +41,25 @@ def verify_password(password: str, hashed: str, salt: str = None) -> bool:
 # Thread-local storage for database connections
 _local = threading.local()
 
+# Flag to prevent multiple backups during single init
+_migration_backup_done = False
+
+
+def _backup_before_migration():
+    """Create backup before running migrations (once per init)."""
+    global _migration_backup_done
+    if _migration_backup_done:
+        return
+
+    try:
+        from .services.backup import create_backup
+        if DATABASE_PATH.exists():
+            create_backup("pre-migration")
+            _migration_backup_done = True
+    except Exception as e:
+        # Don't fail init if backup fails, just log
+        print(f"Warning: Could not create pre-migration backup: {e}")
+
 
 def get_db() -> sqlite3.Connection:
     """Get thread-local database connection"""
@@ -200,10 +219,24 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)
     """)
 
-    # Migration: add default_folder_id to users
+    # Migration: add default_folder_id and is_admin to users
     user_columns = [row[1] for row in db.execute("PRAGMA table_info(users)").fetchall()]
+
+    # Check if any user migrations are needed
+    pending_user_migrations = []
+    if "default_folder_id" not in user_columns:
+        pending_user_migrations.append("default_folder_id")
+    if "is_admin" not in user_columns:
+        pending_user_migrations.append("is_admin")
+
+    # Create backup before migrations
+    if pending_user_migrations:
+        _backup_before_migration()
+
     if "default_folder_id" not in user_columns:
         db.execute("ALTER TABLE users ADD COLUMN default_folder_id TEXT")
+    if "is_admin" not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
 
     # Migration: add folder_id, user_id, cover_photo_id to albums
     album_columns = [row[1] for row in db.execute("PRAGMA table_info(albums)").fetchall()]
@@ -381,6 +414,27 @@ def get_user_by_id(user_id: int):
         "SELECT * FROM users WHERE id = ?",
         (user_id,)
     ).fetchone()
+
+
+def is_user_admin(user_id: int) -> bool:
+    """Check if user is an admin."""
+    db = get_db()
+    result = db.execute(
+        "SELECT is_admin FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+    return bool(result and result["is_admin"])
+
+
+def set_user_admin(user_id: int, is_admin: bool) -> bool:
+    """Set user admin status. Returns True if user exists."""
+    db = get_db()
+    result = db.execute(
+        "UPDATE users SET is_admin = ? WHERE id = ?",
+        (1 if is_admin else 0, user_id)
+    )
+    db.commit()
+    return result.rowcount > 0
 
 
 def search_users(query: str, exclude_user_id: int = None, limit: int = 10) -> list:
