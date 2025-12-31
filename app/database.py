@@ -205,12 +205,14 @@ def init_db():
     if "default_folder_id" not in user_columns:
         db.execute("ALTER TABLE users ADD COLUMN default_folder_id TEXT")
 
-    # Migration: add folder_id and user_id to albums
+    # Migration: add folder_id, user_id, cover_photo_id to albums
     album_columns = [row[1] for row in db.execute("PRAGMA table_info(albums)").fetchall()]
     if "folder_id" not in album_columns:
         db.execute("ALTER TABLE albums ADD COLUMN folder_id TEXT")
     if "user_id" not in album_columns:
         db.execute("ALTER TABLE albums ADD COLUMN user_id INTEGER")
+    if "cover_photo_id" not in album_columns:
+        db.execute("ALTER TABLE albums ADD COLUMN cover_photo_id TEXT")
 
     # Migration: add folder_id and user_id to photos
     if "folder_id" not in photo_columns:
@@ -969,3 +971,192 @@ def get_folder_contents(folder_id: str, user_id: int) -> dict:
         "albums": [dict(a) for a in albums],
         "photos": [dict(p) for p in photos]
     }
+
+
+# === Album Management ===
+
+def can_edit_album(album_id: str, user_id: int) -> bool:
+    """Check if user can edit album (owner or folder editor).
+
+    Rules:
+    - Album owner can always edit
+    - Folder owner can edit any album in their folder
+    - Folder editor can edit albums they created
+    """
+    db = get_db()
+    album = db.execute(
+        "SELECT folder_id, user_id FROM albums WHERE id = ?",
+        (album_id,)
+    ).fetchone()
+
+    if not album:
+        return False
+
+    # Album owner can always edit
+    if album["user_id"] == user_id:
+        return True
+
+    # Check folder permissions
+    if album["folder_id"]:
+        folder = db.execute("SELECT user_id FROM folders WHERE id = ?", (album["folder_id"],)).fetchone()
+        if folder and folder["user_id"] == user_id:
+            # Folder owner can edit anything
+            return True
+
+    return False
+
+
+def get_album(album_id: str) -> dict | None:
+    """Get album by ID with cover photo info"""
+    db = get_db()
+    album = db.execute("""
+        SELECT a.*,
+               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+               COALESCE(a.cover_photo_id,
+                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+               ) as effective_cover_photo_id
+        FROM albums a
+        WHERE a.id = ?
+    """, (album_id,)).fetchone()
+
+    return dict(album) if album else None
+
+
+def set_album_cover(album_id: str, photo_id: str | None) -> bool:
+    """Set cover photo for album. Pass None to reset to default (first photo)."""
+    db = get_db()
+
+    # Verify photo belongs to album if setting a cover
+    if photo_id:
+        photo = db.execute(
+            "SELECT id FROM photos WHERE id = ? AND album_id = ?",
+            (photo_id, album_id)
+        ).fetchone()
+        if not photo:
+            return False
+
+    db.execute("UPDATE albums SET cover_photo_id = ? WHERE id = ?", (photo_id, album_id))
+    db.commit()
+    return True
+
+
+def add_photos_to_album(album_id: str, photo_ids: list[str]) -> int:
+    """Add photos to album. Returns count of photos added."""
+    db = get_db()
+
+    # Get album info
+    album = db.execute("SELECT folder_id FROM albums WHERE id = ?", (album_id,)).fetchone()
+    if not album:
+        return 0
+
+    # Get current max position in album
+    max_pos = db.execute(
+        "SELECT COALESCE(MAX(position), -1) as max_pos FROM photos WHERE album_id = ?",
+        (album_id,)
+    ).fetchone()["max_pos"]
+
+    added = 0
+    for photo_id in photo_ids:
+        # Verify photo exists and is in same folder and not already in an album
+        photo = db.execute(
+            "SELECT id FROM photos WHERE id = ? AND folder_id = ? AND album_id IS NULL",
+            (photo_id, album["folder_id"])
+        ).fetchone()
+
+        if photo:
+            max_pos += 1
+            db.execute(
+                "UPDATE photos SET album_id = ?, position = ? WHERE id = ?",
+                (album_id, max_pos, photo_id)
+            )
+            added += 1
+
+    db.commit()
+    return added
+
+
+def remove_photos_from_album(album_id: str, photo_ids: list[str]) -> int:
+    """Remove photos from album. Photos stay in folder. Returns count removed."""
+    db = get_db()
+
+    # Get album to check cover photo
+    album = db.execute("SELECT cover_photo_id FROM albums WHERE id = ?", (album_id,)).fetchone()
+    if not album:
+        return 0
+
+    removed = 0
+    reset_cover = False
+
+    for photo_id in photo_ids:
+        result = db.execute(
+            "UPDATE photos SET album_id = NULL, position = 0 WHERE id = ? AND album_id = ?",
+            (photo_id, album_id)
+        )
+        if result.rowcount > 0:
+            removed += 1
+            # Check if we removed the cover photo
+            if album["cover_photo_id"] == photo_id:
+                reset_cover = True
+
+    # Reset cover photo if it was removed
+    if reset_cover:
+        db.execute("UPDATE albums SET cover_photo_id = NULL WHERE id = ?", (album_id,))
+
+    db.commit()
+    return removed
+
+
+def reorder_album_photos(album_id: str, photo_ids: list[str]) -> bool:
+    """Reorder photos in album. photo_ids should be in desired order."""
+    db = get_db()
+
+    # Verify all photos belong to album
+    placeholders = ",".join("?" * len(photo_ids))
+    existing = db.execute(f"""
+        SELECT id FROM photos WHERE album_id = ? AND id IN ({placeholders})
+    """, [album_id] + photo_ids).fetchall()
+
+    if len(existing) != len(photo_ids):
+        return False
+
+    # Update positions
+    for position, photo_id in enumerate(photo_ids):
+        db.execute(
+            "UPDATE photos SET position = ? WHERE id = ? AND album_id = ?",
+            (position, photo_id, album_id)
+        )
+
+    db.commit()
+    return True
+
+
+def get_available_photos_for_album(album_id: str) -> list:
+    """Get photos from same folder that can be added to album (not in any album)."""
+    db = get_db()
+
+    # Get album's folder
+    album = db.execute("SELECT folder_id FROM albums WHERE id = ?", (album_id,)).fetchone()
+    if not album or not album["folder_id"]:
+        return []
+
+    photos = db.execute("""
+        SELECT id, filename, original_name, media_type, taken_at, uploaded_at
+        FROM photos
+        WHERE folder_id = ? AND album_id IS NULL
+        ORDER BY uploaded_at DESC
+    """, (album["folder_id"],)).fetchall()
+
+    return [dict(p) for p in photos]
+
+
+def get_album_photos(album_id: str) -> list:
+    """Get all photos in album ordered by position."""
+    db = get_db()
+    photos = db.execute("""
+        SELECT id, filename, original_name, media_type, position, taken_at, uploaded_at
+        FROM photos
+        WHERE album_id = ?
+        ORDER BY position, id
+    """, (album_id,)).fetchall()
+
+    return [dict(p) for p in photos]
