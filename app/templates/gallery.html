@@ -28,6 +28,7 @@
             <div class="lightbox-actions">
                 <a id="lightbox-download" class="btn btn-small" download>Download</a>
                 <button id="lightbox-edit-tags" class="btn btn-small btn-secondary" onclick="openTagEditor()">Edit Tags</button>
+                <button id="lightbox-edit-album" class="btn btn-small btn-secondary hidden" onclick="openAlbumEditor()">Edit Album</button>
             </div>
         </div>
     </div>
@@ -84,6 +85,81 @@
         <div class="tag-editor-footer">
             <button class="btn btn-secondary" onclick="closeTagEditor()">Cancel</button>
             <button id="save-tags-btn" class="btn" onclick="saveTagChanges()">Save Changes</button>
+        </div>
+    </div>
+
+    <!-- Album Editor Side Panel -->
+    <div id="album-editor-panel" class="album-editor-panel">
+        <div class="album-editor-header">
+            <h3>Edit Album</h3>
+            <button class="album-editor-close" onclick="closeAlbumEditor()">&times;</button>
+        </div>
+
+        <div class="album-editor-body">
+            <!-- Cover photo selection -->
+            <div class="album-editor-section">
+                <label>Cover Photo</label>
+                <div id="album-cover-grid" class="album-cover-grid">
+                    <!-- Cover photo options will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Current photos (draggable) -->
+            <div class="album-editor-section">
+                <label>Photos <span id="album-photo-count">(0)</span></label>
+                <div id="album-photos-list" class="album-photos-list">
+                    <!-- Draggable photo items will be loaded here -->
+                </div>
+            </div>
+
+            <!-- Add photos button -->
+            <div class="album-editor-section">
+                <button id="open-add-photos-btn" class="btn btn-secondary btn-block" onclick="openAddPhotosModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    Add Photos
+                </button>
+            </div>
+        </div>
+
+        <div class="album-editor-footer">
+            <button class="btn btn-secondary" onclick="closeAlbumEditor()">Close</button>
+        </div>
+    </div>
+
+    <!-- Add Photos Modal -->
+    <div id="add-photos-modal" class="add-photos-modal hidden">
+        <div class="add-photos-modal-content">
+            <div class="add-photos-modal-header">
+                <h3>Add Photos to Album</h3>
+                <button class="modal-close" onclick="closeAddPhotosModal()">&times;</button>
+            </div>
+            <div class="add-photos-modal-body">
+                <div class="photo-carousel">
+                    <button class="carousel-nav carousel-prev" onclick="carouselNavigate(-1)">&#8249;</button>
+                    <div class="carousel-main">
+                        <img id="carousel-image" src="" alt="">
+                        <div class="carousel-select-indicator hidden" id="carousel-select-indicator">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                    <button class="carousel-nav carousel-next" onclick="carouselNavigate(1)">&#8250;</button>
+                </div>
+                <div class="carousel-counter" id="carousel-counter">0 / 0</div>
+                <div class="carousel-thumbnails" id="carousel-thumbnails">
+                    <!-- Thumbnail strip -->
+                </div>
+                <div class="selected-count" id="selected-photos-count">0 selected</div>
+            </div>
+            <div class="add-photos-modal-footer">
+                <button class="btn btn-secondary" onclick="closeAddPhotosModal()">Cancel</button>
+                <button class="btn" id="carousel-toggle-btn" onclick="toggleCurrentPhoto()">Select</button>
+                <button class="btn" id="confirm-add-btn" onclick="confirmAddPhotos()" disabled>Add Selected</button>
+            </div>
         </div>
     </div>
 </div>
@@ -797,10 +873,20 @@
                         loadPhoto(targetId);
                     });
                 });
+
+                // Update album editor button visibility
+                if (window.setCurrentAlbumInfo) {
+                    window.setCurrentAlbumInfo(photo.album.id, photo.album.can_edit);
+                }
             } else {
                 currentAlbumPhotos = [];
                 currentAlbumIndex = -1;
                 lightboxAlbumIndicator.classList.add('hidden');
+
+                // Hide album editor button
+                if (window.setCurrentAlbumInfo) {
+                    window.setCurrentAlbumInfo(null, false);
+                }
             }
 
             // Update URL without reload (preserve folder_id from URL)
@@ -1227,6 +1313,455 @@
             e.preventDefault();
             e.stopPropagation();
             closeTagEditor();
+        }
+    });
+})();
+
+// ============ Album Editor ============
+(function() {
+    const albumEditorPanel = document.getElementById('album-editor-panel');
+    const lightbox = document.getElementById('lightbox');
+    const editAlbumBtn = document.getElementById('lightbox-edit-album');
+    const albumCoverGrid = document.getElementById('album-cover-grid');
+    const albumPhotosList = document.getElementById('album-photos-list');
+    const albumPhotoCount = document.getElementById('album-photo-count');
+
+    // Add photos modal elements
+    const addPhotosModal = document.getElementById('add-photos-modal');
+    const carouselImage = document.getElementById('carousel-image');
+    const carouselCounter = document.getElementById('carousel-counter');
+    const carouselThumbnails = document.getElementById('carousel-thumbnails');
+    const carouselSelectIndicator = document.getElementById('carousel-select-indicator');
+    const selectedPhotosCount = document.getElementById('selected-photos-count');
+    const carouselToggleBtn = document.getElementById('carousel-toggle-btn');
+    const confirmAddBtn = document.getElementById('confirm-add-btn');
+    const openAddPhotosBtn = document.getElementById('open-add-photos-btn');
+
+    // Album editor state
+    let currentAlbumId = null;
+    let albumPhotos = []; // Current photos in order
+    let coverPhotoId = null;
+    let availablePhotos = [];
+    let selectedToAdd = new Set();
+    let canEdit = false;
+    let hasChanges = false;
+
+    // Carousel state
+    let carouselIndex = 0;
+
+    // Drag state
+    let draggedItem = null;
+    let draggedIndex = -1;
+
+    // Expose album info for lightbox
+    window.setCurrentAlbumInfo = function(albumId, canEditAlbum) {
+        currentAlbumId = albumId;
+        canEdit = canEditAlbum;
+        if (albumId && canEditAlbum) {
+            editAlbumBtn.classList.remove('hidden');
+        } else {
+            editAlbumBtn.classList.add('hidden');
+        }
+    };
+
+    // Open album editor
+    window.openAlbumEditor = async function() {
+        if (!currentAlbumId || !canEdit) return;
+
+        try {
+            // Load album data
+            const albumResp = await fetch(`/api/albums/${currentAlbumId}`);
+            const album = await albumResp.json();
+
+            albumPhotos = album.photos.map(p => ({
+                id: p.id,
+                filename: p.filename,
+                media_type: p.media_type
+            }));
+            coverPhotoId = album.cover_photo_id || album.effective_cover_photo_id;
+
+            // Load available photos
+            const availResp = await fetch(`/api/albums/${currentAlbumId}/available-photos`);
+            const availData = await availResp.json();
+            availablePhotos = availData.photos || [];
+            selectedToAdd.clear();
+            hasChanges = false;
+
+            renderCoverGrid();
+            renderPhotosList();
+            updateOpenAddPhotosBtn();
+
+            albumEditorPanel.classList.add('open');
+            lightbox.classList.add('panel-open');
+        } catch (e) {
+            console.error('Failed to load album:', e);
+        }
+    };
+
+    // Close album editor
+    window.closeAlbumEditor = function() {
+        albumEditorPanel.classList.remove('open');
+        lightbox.classList.remove('panel-open');
+
+        // Refresh gallery and lightbox if changes were made
+        if (hasChanges) {
+            updateGalleryAlbumCover();
+            if (window.reloadCurrentPhoto) {
+                window.reloadCurrentPhoto();
+            }
+        }
+
+        currentAlbumId = null;
+        albumPhotos = [];
+        coverPhotoId = null;
+        availablePhotos = [];
+        selectedToAdd.clear();
+        hasChanges = false;
+    };
+
+    // Update gallery album cover without full page reload
+    function updateGalleryAlbumCover() {
+        const albumItem = document.querySelector(`.gallery-item[data-album-id="${currentAlbumId}"]`);
+        if (albumItem && coverPhotoId) {
+            const img = albumItem.querySelector('img');
+            if (img) {
+                img.src = `/thumbnails/${coverPhotoId}.jpg`;
+            }
+        }
+    }
+
+    // Update add photos button state
+    function updateOpenAddPhotosBtn() {
+        if (availablePhotos.length === 0) {
+            openAddPhotosBtn.disabled = true;
+            openAddPhotosBtn.textContent = 'No photos to add';
+        } else {
+            openAddPhotosBtn.disabled = false;
+            openAddPhotosBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add Photos (${availablePhotos.length} available)
+            `;
+        }
+    }
+
+    // Render cover photo grid
+    function renderCoverGrid() {
+        if (albumPhotos.length === 0) {
+            albumCoverGrid.innerHTML = '<div class="empty-state">No photos</div>';
+            return;
+        }
+
+        albumCoverGrid.innerHTML = albumPhotos.map(photo => `
+            <div class="album-cover-option ${photo.id === coverPhotoId ? 'selected' : ''}"
+                 data-photo-id="${photo.id}"
+                 onclick="selectCoverPhoto('${photo.id}')">
+                <img src="/thumbnails/${photo.id}.jpg" alt="">
+            </div>
+        `).join('');
+    }
+
+    // Select cover photo
+    window.selectCoverPhoto = async function(photoId) {
+        if (photoId === coverPhotoId) return;
+
+        try {
+            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/cover`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photo_id: photoId })
+            });
+
+            if (resp.ok) {
+                coverPhotoId = photoId;
+                hasChanges = true;
+                renderCoverGrid();
+            }
+        } catch (e) {
+            console.error('Failed to set cover:', e);
+        }
+    };
+
+    // Render photos list (sortable)
+    function renderPhotosList() {
+        albumPhotoCount.textContent = `(${albumPhotos.length})`;
+
+        if (albumPhotos.length === 0) {
+            albumPhotosList.innerHTML = '<div class="empty-state">No photos in album</div>';
+            return;
+        }
+
+        albumPhotosList.innerHTML = albumPhotos.map((photo, index) => `
+            <div class="album-photo-item" data-photo-id="${photo.id}" data-index="${index}" draggable="true">
+                <div class="drag-handle">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="8" y1="6" x2="16" y2="6"/>
+                        <line x1="8" y1="12" x2="16" y2="12"/>
+                        <line x1="8" y1="18" x2="16" y2="18"/>
+                    </svg>
+                </div>
+                <img class="photo-thumb" src="/thumbnails/${photo.id}.jpg" alt="">
+                <span class="photo-info">${index + 1}</span>
+                <button class="remove-btn" onclick="removePhotoFromAlbum('${photo.id}')" title="Remove from album">&times;</button>
+            </div>
+        `).join('');
+
+        setupDragDrop();
+    }
+
+    // Setup drag and drop
+    function setupDragDrop() {
+        const items = albumPhotosList.querySelectorAll('.album-photo-item');
+
+        items.forEach((item, index) => {
+            item.addEventListener('dragstart', (e) => {
+                draggedItem = item;
+                draggedIndex = index;
+                item.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                items.forEach(i => i.classList.remove('drag-over'));
+                draggedItem = null;
+                draggedIndex = -1;
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                if (draggedItem && draggedItem !== item) {
+                    item.classList.add('drag-over');
+                }
+            });
+
+            item.addEventListener('dragleave', () => {
+                item.classList.remove('drag-over');
+            });
+
+            item.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                item.classList.remove('drag-over');
+
+                if (!draggedItem || draggedItem === item) return;
+
+                const targetIndex = parseInt(item.dataset.index);
+
+                // Reorder array
+                const [moved] = albumPhotos.splice(draggedIndex, 1);
+                albumPhotos.splice(targetIndex, 0, moved);
+
+                // Save new order to server
+                const photoIds = albumPhotos.map(p => p.id);
+                try {
+                    await csrfFetch(`/api/albums/${currentAlbumId}/reorder`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ photo_ids: photoIds })
+                    });
+                    hasChanges = true;
+                } catch (e) {
+                    console.error('Failed to reorder:', e);
+                }
+
+                renderPhotosList();
+                renderCoverGrid();
+            });
+        });
+    }
+
+    // Remove photo from album
+    window.removePhotoFromAlbum = async function(photoId) {
+        try {
+            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/photos`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photo_ids: [photoId] })
+            });
+
+            if (resp.ok) {
+                hasChanges = true;
+
+                // Remove from local state
+                albumPhotos = albumPhotos.filter(p => p.id !== photoId);
+
+                // Add to available photos
+                availablePhotos.unshift({ id: photoId });
+
+                // Reset cover if removed
+                if (coverPhotoId === photoId) {
+                    coverPhotoId = albumPhotos.length > 0 ? albumPhotos[0].id : null;
+                }
+
+                renderPhotosList();
+                renderCoverGrid();
+                updateOpenAddPhotosBtn();
+            }
+        } catch (e) {
+            console.error('Failed to remove photo:', e);
+        }
+    };
+
+    // ========== Add Photos Modal / Carousel ==========
+
+    // Open add photos modal
+    window.openAddPhotosModal = function() {
+        if (availablePhotos.length === 0) return;
+
+        selectedToAdd.clear();
+        carouselIndex = 0;
+        renderCarousel();
+        addPhotosModal.classList.remove('hidden');
+    };
+
+    // Close add photos modal
+    window.closeAddPhotosModal = function() {
+        addPhotosModal.classList.add('hidden');
+        selectedToAdd.clear();
+    };
+
+    // Render carousel
+    function renderCarousel() {
+        if (availablePhotos.length === 0) return;
+
+        const photo = availablePhotos[carouselIndex];
+        carouselImage.src = `/thumbnails/${photo.id}.jpg`;
+        carouselCounter.textContent = `${carouselIndex + 1} / ${availablePhotos.length}`;
+
+        // Update select indicator
+        const isSelected = selectedToAdd.has(photo.id);
+        carouselSelectIndicator.classList.toggle('hidden', !isSelected);
+        carouselToggleBtn.textContent = isSelected ? 'Deselect' : 'Select';
+        carouselToggleBtn.classList.toggle('btn-secondary', isSelected);
+
+        // Render thumbnails
+        carouselThumbnails.innerHTML = availablePhotos.map((p, i) => `
+            <div class="carousel-thumb ${i === carouselIndex ? 'active' : ''} ${selectedToAdd.has(p.id) ? 'selected' : ''}"
+                 data-index="${i}"
+                 onclick="goToCarouselIndex(${i})">
+                <img src="/thumbnails/${p.id}.jpg" alt="">
+            </div>
+        `).join('');
+
+        // Update selected count
+        selectedPhotosCount.textContent = selectedToAdd.size > 0
+            ? `${selectedToAdd.size} selected`
+            : 'None selected';
+
+        // Update confirm button
+        confirmAddBtn.disabled = selectedToAdd.size === 0;
+        confirmAddBtn.textContent = selectedToAdd.size > 0
+            ? `Add ${selectedToAdd.size} Photo${selectedToAdd.size > 1 ? 's' : ''}`
+            : 'Add Selected';
+
+        // Scroll active thumbnail into view
+        const activeThumb = carouselThumbnails.querySelector('.active');
+        if (activeThumb) {
+            activeThumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+        }
+    }
+
+    // Navigate carousel
+    window.carouselNavigate = function(direction) {
+        const newIndex = carouselIndex + direction;
+        if (newIndex >= 0 && newIndex < availablePhotos.length) {
+            carouselIndex = newIndex;
+            renderCarousel();
+        }
+    };
+
+    // Go to specific carousel index
+    window.goToCarouselIndex = function(index) {
+        carouselIndex = index;
+        renderCarousel();
+    };
+
+    // Toggle current photo selection
+    window.toggleCurrentPhoto = function() {
+        const photo = availablePhotos[carouselIndex];
+        if (!photo) return;
+
+        if (selectedToAdd.has(photo.id)) {
+            selectedToAdd.delete(photo.id);
+        } else {
+            selectedToAdd.add(photo.id);
+        }
+
+        renderCarousel();
+    };
+
+    // Confirm adding selected photos
+    window.confirmAddPhotos = async function() {
+        if (selectedToAdd.size === 0) return;
+
+        const photoIds = Array.from(selectedToAdd);
+
+        try {
+            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/photos`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photo_ids: photoIds })
+            });
+
+            if (resp.ok) {
+                hasChanges = true;
+
+                // Add to album photos
+                for (const id of photoIds) {
+                    const photo = availablePhotos.find(p => p.id === id);
+                    if (photo) {
+                        albumPhotos.push({ id: photo.id, filename: photo.filename || `${photo.id}.jpg` });
+                    }
+                }
+
+                // Remove from available
+                availablePhotos = availablePhotos.filter(p => !selectedToAdd.has(p.id));
+                selectedToAdd.clear();
+
+                // Close modal and update editor
+                closeAddPhotosModal();
+                renderPhotosList();
+                renderCoverGrid();
+                updateOpenAddPhotosBtn();
+            }
+        } catch (e) {
+            console.error('Failed to add photos:', e);
+        }
+    };
+
+    // Keyboard navigation in carousel
+    document.addEventListener('keydown', (e) => {
+        if (addPhotosModal.classList.contains('hidden')) return;
+
+        switch (e.key) {
+            case 'ArrowLeft':
+                e.preventDefault();
+                carouselNavigate(-1);
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                carouselNavigate(1);
+                break;
+            case ' ':
+            case 'Enter':
+                e.preventDefault();
+                toggleCurrentPhoto();
+                break;
+            case 'Escape':
+                e.preventDefault();
+                closeAddPhotosModal();
+                break;
+        }
+    });
+
+    // Handle ESC key in album editor
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && albumEditorPanel.classList.contains('open') && addPhotosModal.classList.contains('hidden')) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeAlbumEditor();
         }
     });
 })();
