@@ -3,7 +3,7 @@ import secrets
 import threading
 from pathlib import Path
 
-from passlib.hash import bcrypt
+import bcrypt
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "gallery.db"
@@ -16,8 +16,8 @@ def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     Kept for backward compatibility with existing code.
     Returns (hash, empty_string) tuple for API compatibility.
     """
-    hashed = bcrypt.hash(password)
-    return hashed, ""
+    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    return hashed.decode('utf-8'), ""
 
 
 def verify_password(password: str, hashed: str, salt: str = None) -> bool:
@@ -27,7 +27,7 @@ def verify_password(password: str, hashed: str, salt: str = None) -> bool:
     """
     # Check if this is a bcrypt hash (starts with $2b$)
     if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
-        return bcrypt.verify(password, hashed)
+        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
     # Legacy SHA-256 verification for old passwords
     import hashlib
