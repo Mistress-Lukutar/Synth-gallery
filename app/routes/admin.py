@@ -10,6 +10,10 @@ from ..services.backup import (
     create_backup, list_backups, get_backup_path,
     restore_backup, delete_backup
 )
+from ..services.thumbnail import (
+    cleanup_orphaned_thumbnails, regenerate_missing_thumbnails,
+    get_thumbnail_stats
+)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
@@ -109,3 +113,51 @@ def delete_backup_endpoint(request: Request, filename: str):
         raise HTTPException(status_code=404, detail="Backup not found")
 
     return {"status": "ok"}
+
+
+# === Maintenance Page ===
+
+@router.get("/admin/maintenance")
+def maintenance_page(request: Request):
+    """Maintenance tasks page - thumbnail management."""
+    user = require_admin(request)
+
+    stats = get_thumbnail_stats()
+
+    return templates.TemplateResponse(
+        "admin_maintenance.html",
+        {
+            "request": request,
+            "user": user,
+            "stats": stats,
+            "csrf_token": get_csrf_token(request)
+        }
+    )
+
+
+# === Thumbnail Management API ===
+
+@router.get("/api/admin/thumbnails/stats")
+def thumbnail_stats_endpoint(request: Request):
+    """Get thumbnail statistics."""
+    require_admin(request)
+
+    return get_thumbnail_stats()
+
+
+@router.post("/api/admin/thumbnails/cleanup")
+def cleanup_thumbnails_endpoint(request: Request):
+    """Remove orphaned thumbnails (thumbnails without photos in database)."""
+    require_admin(request)
+
+    result = cleanup_orphaned_thumbnails()
+    return {"status": "ok", **result}
+
+
+@router.post("/api/admin/thumbnails/regenerate")
+def regenerate_thumbnails_endpoint(request: Request):
+    """Regenerate all missing thumbnails."""
+    require_admin(request)
+
+    result = regenerate_missing_thumbnails()
+    return {"status": "ok", **result}
