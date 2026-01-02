@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bulk regeneration of all missing thumbnails
   - Cleanup of orphaned thumbnails (thumbnails without photos)
 - New service module: `services/thumbnail.py`
+- Mobile-friendly lightbox navigation:
+  - Swipe left/right to navigate between photos with slide animations
+  - Swipe up/down to close lightbox
+  - Navigation arrows hidden on mobile (replaced by swipes)
 
 ## [0.6.0] - 2025-12-31
 
