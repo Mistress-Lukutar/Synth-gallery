@@ -27,6 +27,22 @@
             align-items: center;
             gap: 0.75rem;
         }
+        .admin-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .admin-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .admin-nav a:hover {
+            color: var(--text);
+        }
+        .admin-nav a.active {
+            color: var(--accent);
+        }
         .back-link {
             color: var(--text-muted);
             text-decoration: none;
@@ -114,7 +130,12 @@
                 </svg>
                 Database Backups
             </h1>
-            <a href="/" class="back-link">&larr; Back to Gallery</a>
+            <nav class="admin-nav">
+                <a href="/admin/backups" class="active">Backups</a>
+                <a href="/admin/maintenance">Maintenance</a>
+                <span style="color: var(--border);">|</span>
+                <a href="/" class="back-link">&larr; Gallery</a>
+            </nav>
         </header>
 
         <div id="status-message" class="status-message"></div>
