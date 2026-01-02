@@ -204,7 +204,10 @@ def get_upload(request: Request, filename: str):
 
 @router.get("/thumbnails/{filename}")
 def get_thumbnail(request: Request, filename: str):
-    """Serves thumbnail (protected by auth + folder access)."""
+    """Serves thumbnail (protected by auth + folder access).
+
+    If thumbnail is missing but original file exists, regenerates it on-the-fly.
+    """
     user = require_user(request)
 
     # Validate path to prevent directory traversal
@@ -212,13 +215,16 @@ def get_thumbnail(request: Request, filename: str):
     if not file_path.is_relative_to(THUMBNAILS_DIR):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    if not file_path.exists():
-        raise HTTPException(status_code=404)
-
     # Get photo_id from filename (remove .jpg extension)
     photo_id = Path(filename).stem
     if not can_access_photo(photo_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    # If thumbnail missing, try to regenerate from original
+    if not file_path.exists():
+        from ..services.thumbnail import regenerate_thumbnail
+        if not regenerate_thumbnail(photo_id):
+            raise HTTPException(status_code=404)
 
     return FileResponse(file_path)
 
