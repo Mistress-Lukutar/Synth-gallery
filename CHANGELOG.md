@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Thumbnail management system:
+  - Auto-regeneration of missing thumbnails on access (no more 404 errors)
+  - Admin maintenance page (`/admin/maintenance`) with thumbnail statistics
+  - Bulk regeneration of all missing thumbnails
+  - Cleanup of orphaned thumbnails (thumbnails without photos)
+- New service module: `services/thumbnail.py`
+
 ## [0.6.0] - 2025-12-31
 
 ### Added
