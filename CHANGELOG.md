@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-01-03
+
 ### Added
 - Thumbnail management system:
   - Auto-regeneration of missing thumbnails on access (no more 404 errors)
@@ -18,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Swipe left/right to navigate between photos with slide animations
   - Swipe up/down to close lightbox
   - Navigation arrows hidden on mobile (replaced by swipes)
+
+### Fixed
+- Mobile: Folder picker (sidebar) now closes when tapping outside or swiping left (#7)
+- Mobile: Pinch-to-zoom gestures no longer conflict with swipe navigation in lightbox (#7)
 
 ## [0.6.0] - 2025-12-31
 
@@ -129,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.6.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.3.0...v0.4.0
