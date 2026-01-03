@@ -304,6 +304,33 @@ def init_db():
         )
     """)
 
+    # User settings (global user preferences like default folder)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id INTEGER PRIMARY KEY,
+            default_folder_id TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (default_folder_id) REFERENCES folders(id) ON DELETE SET NULL
+        )
+    """)
+
+    # Migration: move default_folder_id from users to user_settings
+    if "default_folder_id" in user_columns:
+        # Check if migration needed (user_settings is empty but users have default_folder_id)
+        existing_settings = db.execute("SELECT COUNT(*) as cnt FROM user_settings").fetchone()["cnt"]
+        users_with_default = db.execute(
+            "SELECT id, default_folder_id FROM users WHERE default_folder_id IS NOT NULL"
+        ).fetchall()
+
+        if existing_settings == 0 and len(users_with_default) > 0:
+            _backup_before_migration()
+            for user_row in users_with_default:
+                db.execute(
+                    "INSERT OR REPLACE INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
+                    (user_row["id"], user_row["default_folder_id"])
+                )
+            db.commit()
+
     db.execute("""
         CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)
     """)
@@ -692,7 +719,10 @@ def create_default_folder(user_id: int) -> str:
     """Create default folder for user and set it as default"""
     db = get_db()
     folder_id = create_folder("My Gallery", user_id, None)
-    db.execute("UPDATE users SET default_folder_id = ? WHERE id = ?", (folder_id, user_id))
+    db.execute(
+        "INSERT OR REPLACE INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
+        (user_id, folder_id)
+    )
     db.commit()
     return folder_id
 
@@ -700,23 +730,39 @@ def create_default_folder(user_id: int) -> str:
 def get_user_default_folder(user_id: int) -> str:
     """Get user's default folder ID, create if doesn't exist"""
     db = get_db()
-    user = db.execute("SELECT default_folder_id FROM users WHERE id = ?", (user_id,)).fetchone()
+    settings = db.execute(
+        "SELECT default_folder_id FROM user_settings WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
 
-    if user and user["default_folder_id"]:
-        # Verify folder still exists
-        folder = get_folder(user["default_folder_id"])
-        if folder:
-            return user["default_folder_id"]
+    if settings and settings["default_folder_id"]:
+        # Verify folder still exists and user has access
+        folder = get_folder(settings["default_folder_id"])
+        if folder and can_access_folder(settings["default_folder_id"], user_id):
+            return settings["default_folder_id"]
 
     # Create default folder if missing
     return create_default_folder(user_id)
 
 
-def set_user_default_folder(user_id: int, folder_id: str):
-    """Set user's default folder"""
+def set_user_default_folder(user_id: int, folder_id: str) -> bool:
+    """Set user's default folder. Returns True if successful."""
     db = get_db()
-    db.execute("UPDATE users SET default_folder_id = ? WHERE id = ?", (folder_id, user_id))
+
+    # Verify folder exists and user has access
+    folder = get_folder(folder_id)
+    if not folder:
+        return False
+
+    if not can_access_folder(folder_id, user_id):
+        return False
+
+    db.execute(
+        "INSERT OR REPLACE INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
+        (user_id, folder_id)
+    )
     db.commit()
+    return True
 
 
 # === Folder Permissions ===

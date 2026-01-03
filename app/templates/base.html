@@ -166,6 +166,12 @@
                 </select>
             </div>
 
+            <div id="default-folder-section" class="form-group hidden">
+                <button type="button" id="set-default-folder-btn" class="btn btn-secondary btn-block">
+                    Set as default folder
+                </button>
+            </div>
+
             <div class="modal-actions">
                 <button type="button" id="folder-cancel-btn" class="btn btn-secondary">Cancel</button>
                 <button type="button" id="folder-submit-btn" class="btn">Create</button>
@@ -686,6 +692,7 @@
         // === Sidebar and Folder Management ===
         let folderTree = [];
         let editingFolderId = null;
+        let userDefaultFolderId = null;
 
         // Sidebar elements
         const sidebar = document.getElementById('sidebar');
@@ -702,6 +709,8 @@
         const folderCancelBtn = document.getElementById('folder-cancel-btn');
         const folderSubmitBtn = document.getElementById('folder-submit-btn');
         const folderModalClose = folderModal.querySelector('.close');
+        const defaultFolderSection = document.getElementById('default-folder-section');
+        const setDefaultFolderBtn = document.getElementById('set-default-folder-btn');
 
         // Mobile sidebar toggle
         sidebarToggle.onclick = () => {
@@ -759,6 +768,17 @@
                 updateParentSelect();
             } catch (err) {
                 console.error('Failed to load folders:', err);
+            }
+        }
+
+        // Load user's default folder
+        async function loadDefaultFolder() {
+            try {
+                const resp = await fetch('/api/folders/user/default');
+                const data = await resp.json();
+                userDefaultFolderId = data.default_folder_id;
+            } catch (err) {
+                console.error('Failed to load default folder:', err);
             }
         }
 
@@ -909,6 +929,8 @@
             folderNameInput.value = '';
             folderParentSelect.value = currentFolderId || '';
             updateParentSelect();
+            // Hide default folder section when creating
+            defaultFolderSection.classList.add('hidden');
             folderModal.classList.remove('hidden');
             folderNameInput.focus();
         }
@@ -923,6 +945,18 @@
             folderNameInput.value = folder.name;
             folderParentSelect.value = folder.parent_id || '';
             updateParentSelect();
+
+            // Show default folder section and update button state
+            defaultFolderSection.classList.remove('hidden');
+            const isCurrentDefault = userDefaultFolderId === folderId;
+            if (isCurrentDefault) {
+                setDefaultFolderBtn.textContent = 'This is your default folder';
+                setDefaultFolderBtn.disabled = true;
+            } else {
+                setDefaultFolderBtn.textContent = 'Set as default folder';
+                setDefaultFolderBtn.disabled = false;
+            }
+
             folderModal.classList.remove('hidden');
             folderNameInput.focus();
         }
@@ -970,6 +1004,27 @@
             } catch (err) {
                 console.error('Folder operation failed:', err);
                 alert('Operation failed');
+            }
+        };
+
+        // Set folder as default
+        setDefaultFolderBtn.onclick = async () => {
+            if (!editingFolderId) return;
+
+            setDefaultFolderBtn.disabled = true;
+            setDefaultFolderBtn.textContent = 'Setting...';
+
+            try {
+                await csrfFetch(`/api/folders/${editingFolderId}/set-default`, {
+                    method: 'PUT'
+                });
+                userDefaultFolderId = editingFolderId;
+                setDefaultFolderBtn.textContent = 'This is your default folder';
+            } catch (err) {
+                console.error('Failed to set default folder:', err);
+                setDefaultFolderBtn.textContent = 'Set as default folder';
+                setDefaultFolderBtn.disabled = false;
+                alert('Failed to set default folder');
             }
         };
 
@@ -1195,7 +1250,10 @@
         }
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', loadFolderTree);
+        document.addEventListener('DOMContentLoaded', () => {
+            loadFolderTree();
+            loadDefaultFolder();
+        });
     </script>
 
     {% block scripts %}{% endblock %}
