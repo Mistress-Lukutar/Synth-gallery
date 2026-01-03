@@ -15,7 +15,9 @@ from ..database import (
     can_access_album, can_edit_folder, can_delete_photo, can_delete_album,
     get_folder_sort_preference, can_edit_album, set_album_cover,
     add_photos_to_album, remove_photos_from_album, reorder_album_photos,
-    get_available_photos_for_album, get_album_photos, get_album
+    get_available_photos_for_album, get_album_photos, get_album,
+    move_photo_to_folder, move_album_to_folder,
+    move_photos_to_folder, move_albums_to_folder
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import create_thumbnail, create_video_thumbnail, get_media_type
@@ -766,3 +768,178 @@ def set_album_cover_endpoint(album_id: str, data: AlbumCoverInput, request: Requ
         raise HTTPException(status_code=400, detail="Photo not in album")
 
     return {"status": "ok"}
+
+
+# === Move Operations ===
+
+class MoveInput(BaseModel):
+    folder_id: str
+
+
+class BatchMoveInput(BaseModel):
+    photo_ids: list[str] = []
+    album_ids: list[str] = []
+    folder_id: str
+
+
+@router.put("/api/photos/{photo_id}/move")
+def move_photo_endpoint(photo_id: str, data: MoveInput, request: Request):
+    """Move a standalone photo to another folder.
+
+    Only works for photos not in albums.
+    Requires edit permission on destination folder.
+    """
+    user = require_user(request)
+
+    db = get_db()
+
+    # Get photo info
+    photo = db.execute(
+        "SELECT folder_id, album_id, user_id FROM photos WHERE id = ?",
+        (photo_id,)
+    ).fetchone()
+
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    if photo["album_id"]:
+        raise HTTPException(status_code=400, detail="Cannot move photo in album. Move the album instead.")
+
+    # Check source folder access
+    if photo["folder_id"] and not can_access_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Check destination folder edit permission
+    if not can_edit_folder(data.folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot move to this folder")
+
+    # Check if moving to same folder
+    if photo["folder_id"] == data.folder_id:
+        return {"status": "ok", "message": "Photo already in this folder"}
+
+    # Move photo
+    success = move_photo_to_folder(photo_id, data.folder_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to move photo")
+
+    return {"status": "ok"}
+
+
+@router.put("/api/albums/{album_id}/move")
+def move_album_endpoint(album_id: str, data: MoveInput, request: Request):
+    """Move an album and all its photos to another folder.
+
+    Requires edit permission on destination folder.
+    """
+    user = require_user(request)
+
+    db = get_db()
+
+    # Get album info
+    album = db.execute(
+        "SELECT folder_id, user_id FROM albums WHERE id = ?",
+        (album_id,)
+    ).fetchone()
+
+    if not album:
+        raise HTTPException(status_code=404, detail="Album not found")
+
+    # Check source album access
+    if not can_access_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Check destination folder edit permission
+    if not can_edit_folder(data.folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot move to this folder")
+
+    # Check if moving to same folder
+    if album["folder_id"] == data.folder_id:
+        return {"status": "ok", "message": "Album already in this folder"}
+
+    # Move album
+    success = move_album_to_folder(album_id, data.folder_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to move album")
+
+    return {"status": "ok"}
+
+
+@router.put("/api/items/move")
+def batch_move_items(data: BatchMoveInput, request: Request):
+    """Move multiple photos and albums to another folder.
+
+    Only moves standalone photos (not in albums).
+    """
+    user = require_user(request)
+
+    # Check destination folder edit permission
+    if not can_edit_folder(data.folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot move to this folder")
+
+    db = get_db()
+    moved_photos = 0
+    moved_albums = 0
+    skipped_photos = 0
+    skipped_albums = 0
+
+    # Move photos
+    for photo_id in data.photo_ids:
+        photo = db.execute(
+            "SELECT folder_id, album_id FROM photos WHERE id = ?",
+            (photo_id,)
+        ).fetchone()
+
+        if not photo:
+            skipped_photos += 1
+            continue
+
+        if photo["album_id"]:
+            skipped_photos += 1
+            continue
+
+        # Check access to source
+        if not can_access_photo(photo_id, user["id"]):
+            skipped_photos += 1
+            continue
+
+        # Skip if already in target folder
+        if photo["folder_id"] == data.folder_id:
+            continue
+
+        if move_photo_to_folder(photo_id, data.folder_id):
+            moved_photos += 1
+        else:
+            skipped_photos += 1
+
+    # Move albums
+    for album_id in data.album_ids:
+        album = db.execute(
+            "SELECT folder_id FROM albums WHERE id = ?",
+            (album_id,)
+        ).fetchone()
+
+        if not album:
+            skipped_albums += 1
+            continue
+
+        # Check access to source album
+        if not can_access_album(album_id, user["id"]):
+            skipped_albums += 1
+            continue
+
+        # Skip if already in target folder
+        if album["folder_id"] == data.folder_id:
+            continue
+
+        if move_album_to_folder(album_id, data.folder_id):
+            moved_albums += 1
+        else:
+            skipped_albums += 1
+
+    return {
+        "status": "ok",
+        "moved_photos": moved_photos,
+        "moved_albums": moved_albums,
+        "skipped_photos": skipped_photos,
+        "skipped_albums": skipped_albums
+    }
