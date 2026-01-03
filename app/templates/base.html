@@ -714,6 +714,42 @@
             sidebarOverlay.classList.remove('visible');
         };
 
+        // Close sidebar when clicking outside of it
+        document.addEventListener('click', (e) => {
+            if (!sidebar.classList.contains('open')) return;
+
+            // Don't close if clicking on sidebar itself or toggle button
+            if (e.target.closest('#sidebar') || e.target.closest('#sidebar-toggle')) {
+                return;
+            }
+
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('visible');
+        });
+
+        // Mobile swipe to close sidebar
+        let sidebarTouchStartX = 0;
+        let sidebarTouchStartY = 0;
+        const sidebarSwipeThreshold = 50;
+
+        sidebar.addEventListener('touchstart', (e) => {
+            sidebarTouchStartX = e.changedTouches[0].screenX;
+            sidebarTouchStartY = e.changedTouches[0].screenY;
+        }, { passive: true });
+
+        sidebar.addEventListener('touchend', (e) => {
+            const touchEndX = e.changedTouches[0].screenX;
+            const touchEndY = e.changedTouches[0].screenY;
+            const deltaX = touchEndX - sidebarTouchStartX;
+            const deltaY = Math.abs(touchEndY - sidebarTouchStartY);
+
+            // Swipe left to close (sidebar is on the left side)
+            if (deltaX < -sidebarSwipeThreshold && deltaY < sidebarSwipeThreshold) {
+                sidebar.classList.remove('open');
+                sidebarOverlay.classList.remove('visible');
+            }
+        }, { passive: true });
+
         // Load folder tree
         async function loadFolderTree() {
             try {

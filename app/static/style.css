@@ -2390,23 +2390,70 @@ main {
     font-size: 0.85rem;
 }
 
+/* Lightbox swipe animations */
+@keyframes slideOutLeft {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(-100%); opacity: 0; }
+}
+
+@keyframes slideOutRight {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(100%); opacity: 0; }
+}
+
+@keyframes slideInLeft {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(-100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideOutUp {
+    from { transform: translateY(0); opacity: 1; }
+    to { transform: translateY(-50%); opacity: 0; }
+}
+
+@keyframes slideOutDown {
+    from { transform: translateY(0); opacity: 1; }
+    to { transform: translateY(50%); opacity: 0; }
+}
+
+.lightbox-media.slide-out-left {
+    animation: slideOutLeft 0.25s ease-out forwards;
+}
+
+.lightbox-media.slide-out-right {
+    animation: slideOutRight 0.25s ease-out forwards;
+}
+
+.lightbox-media.slide-in-left {
+    animation: slideInLeft 0.25s ease-out forwards;
+}
+
+.lightbox-media.slide-in-right {
+    animation: slideInRight 0.25s ease-out forwards;
+}
+
+.lightbox-media.slide-out-up {
+    animation: slideOutUp 0.2s ease-out forwards;
+}
+
+.lightbox-media.slide-out-down {
+    animation: slideOutDown 0.2s ease-out forwards;
+}
+
 /* Responsive lightbox */
 @media (max-width: 768px) {
     .lightbox-content {
         padding: 3rem 1rem;
     }
 
+    /* Hide navigation arrows on mobile - use swipe instead */
     .lightbox-nav {
-        padding: 0.5rem 1rem;
-        font-size: 2rem;
-    }
-
-    .lightbox-prev {
-        left: 0.5rem;
-    }
-
-    .lightbox-next {
-        right: 0.5rem;
+        display: none;
     }
 
     .lightbox-info {
