@@ -258,6 +258,35 @@ def get_sort_preference(request: Request, folder_id: str):
     return {"sort_by": sort_by}
 
 
+@router.put("/{folder_id}/set-default")
+def set_default_folder_route(request: Request, folder_id: str):
+    """Set folder as user's default folder (opens on login)."""
+    user = require_user(request)
+
+    # Check user has access to folder
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    from ..database import set_user_default_folder
+    success = set_user_default_folder(user["id"], folder_id)
+
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to set default folder")
+
+    return {"status": "ok"}
+
+
+@router.get("/user/default")
+def get_default_folder_route(request: Request):
+    """Get user's default folder ID."""
+    user = require_user(request)
+
+    from ..database import get_user_default_folder
+    default_folder_id = get_user_default_folder(user["id"])
+
+    return {"default_folder_id": default_folder_id}
+
+
 # User search for sharing (separate router prefix)
 users_router = APIRouter(prefix="/api/users", tags=["users"])
 
