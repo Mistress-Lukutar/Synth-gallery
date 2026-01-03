@@ -857,10 +857,14 @@
                     </button>
                 </div>` : '';
 
+            // Determine if user can edit this folder (owner or editor)
+            const canEdit = permission === 'owner' || permission === 'editor';
+
             return `
                 <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
                     <div class="folder-item ${folderClass} ${isActive ? 'active' : ''}"
                          data-folder-id="${folder.id}"
+                         data-can-edit="${canEdit}"
                          onclick="navigateToFolder('${folder.id}')">
                         ${folderIcon}
                         <span class="folder-name">${escapeHtml(folder.name)}</span>

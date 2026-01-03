@@ -1214,3 +1214,127 @@ def get_album_photos(album_id: str) -> list:
     """, (album_id,)).fetchall()
 
     return [dict(p) for p in photos]
+
+
+# === Move Operations ===
+
+def move_photo_to_folder(photo_id: str, target_folder_id: str) -> bool:
+    """Move a standalone photo to another folder.
+
+    Only works for photos not in albums (album_id IS NULL).
+    Returns True if successful.
+    """
+    db = get_db()
+
+    # Verify photo exists and is not in an album
+    photo = db.execute(
+        "SELECT id, album_id FROM photos WHERE id = ?",
+        (photo_id,)
+    ).fetchone()
+
+    if not photo:
+        return False
+
+    if photo["album_id"]:
+        # Photo is in an album, cannot move independently
+        return False
+
+    # Update folder_id
+    db.execute(
+        "UPDATE photos SET folder_id = ? WHERE id = ?",
+        (target_folder_id, photo_id)
+    )
+    db.commit()
+    return True
+
+
+def move_album_to_folder(album_id: str, target_folder_id: str) -> bool:
+    """Move an album and all its photos to another folder.
+
+    Returns True if successful.
+    """
+    db = get_db()
+
+    # Verify album exists
+    album = db.execute(
+        "SELECT id FROM albums WHERE id = ?",
+        (album_id,)
+    ).fetchone()
+
+    if not album:
+        return False
+
+    # Update album folder_id
+    db.execute(
+        "UPDATE albums SET folder_id = ? WHERE id = ?",
+        (target_folder_id, album_id)
+    )
+
+    # Update all photos in the album
+    db.execute(
+        "UPDATE photos SET folder_id = ? WHERE album_id = ?",
+        (target_folder_id, album_id)
+    )
+
+    db.commit()
+    return True
+
+
+def move_photos_to_folder(photo_ids: list[str], target_folder_id: str) -> int:
+    """Move multiple standalone photos to another folder.
+
+    Only moves photos not in albums.
+    Returns count of photos moved.
+    """
+    db = get_db()
+    moved = 0
+
+    for photo_id in photo_ids:
+        # Verify photo exists and is not in an album
+        photo = db.execute(
+            "SELECT id, album_id FROM photos WHERE id = ?",
+            (photo_id,)
+        ).fetchone()
+
+        if photo and not photo["album_id"]:
+            db.execute(
+                "UPDATE photos SET folder_id = ? WHERE id = ?",
+                (target_folder_id, photo_id)
+            )
+            moved += 1
+
+    db.commit()
+    return moved
+
+
+def move_albums_to_folder(album_ids: list[str], target_folder_id: str) -> int:
+    """Move multiple albums and their photos to another folder.
+
+    Returns count of albums moved.
+    """
+    db = get_db()
+    moved = 0
+
+    for album_id in album_ids:
+        # Verify album exists
+        album = db.execute(
+            "SELECT id FROM albums WHERE id = ?",
+            (album_id,)
+        ).fetchone()
+
+        if album:
+            # Update album folder_id
+            db.execute(
+                "UPDATE albums SET folder_id = ? WHERE id = ?",
+                (target_folder_id, album_id)
+            )
+
+            # Update all photos in the album
+            db.execute(
+                "UPDATE photos SET folder_id = ? WHERE album_id = ?",
+                (target_folder_id, album_id)
+            )
+            moved += 1
+
+    db.commit()
+    return moved

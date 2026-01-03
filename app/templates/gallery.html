@@ -259,9 +259,12 @@
 {% block scripts %}
 <script>
 (function() {
-    // State
+    // State - export to window for drag-and-drop
     const selectedPhotos = new Set();
     const selectedAlbums = new Set();
+    window.selectedPhotos = selectedPhotos;
+    window.selectedAlbums = selectedAlbums;
+
     let allTags = [];
     let allItems = []; // Store all gallery items for masonry
 
@@ -324,6 +327,9 @@
 
         // Get visible items
         const visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
+
+        // Also update allItems reference for drag-and-drop
+        window.allItems = allItems;
 
         // Clear gallery
         gallery.innerHTML = '';
@@ -398,6 +404,9 @@
     function saveNavigationOrder(order) {
         sessionStorage.setItem('galleryNavOrder', JSON.stringify(order));
     }
+
+    // Export rebuildMasonry for drag-and-drop
+    window.rebuildMasonry = rebuildMasonry;
 
     // Rebuild on resize
     let resizeTimeout;
@@ -1808,6 +1817,359 @@
             closeAlbumEditor();
         }
     });
+})();
+
+// ============ Drag and Drop to Move Photos ============
+(function() {
+    const gallery = document.getElementById('gallery');
+    const sidebar = document.getElementById('sidebar');
+    const folderTree = document.getElementById('folder-tree');
+
+    if (!gallery || !sidebar) return;
+
+    // Current folder ID from URL
+    const currentFolderId = new URLSearchParams(window.location.search).get('folder_id');
+
+    // Drag state
+    let draggedItems = []; // [{type: 'photo'|'album', id: string}]
+    let dragGhost = null;
+
+    // Get selected items or single item
+    function getDragItems(element) {
+        const selectedPhotos = window.selectedPhotos || new Set();
+        const selectedAlbums = window.selectedAlbums || new Set();
+
+        // If item is selected, drag all selected items
+        const photoId = element.dataset.photoId;
+        const albumId = element.dataset.albumId;
+        const itemType = element.dataset.itemType;
+
+        if ((photoId && selectedPhotos.has(photoId)) || (albumId && selectedAlbums.has(albumId))) {
+            const items = [];
+            selectedPhotos.forEach(id => items.push({ type: 'photo', id }));
+            selectedAlbums.forEach(id => items.push({ type: 'album', id }));
+            return items;
+        }
+
+        // Otherwise, drag only this item
+        if (itemType === 'photo' && photoId) {
+            return [{ type: 'photo', id: photoId }];
+        } else if (itemType === 'album' && albumId) {
+            return [{ type: 'album', id: albumId }];
+        }
+
+        return [];
+    }
+
+    // Create custom drag ghost
+    function createDragGhost(element, count) {
+        const ghost = document.createElement('div');
+        ghost.className = 'drag-ghost';
+
+        const img = element.querySelector('img');
+        if (img) {
+            const imgClone = img.cloneNode(true);
+            ghost.appendChild(imgClone);
+        }
+
+        if (count > 1) {
+            const badge = document.createElement('div');
+            badge.className = 'drag-count-badge';
+            badge.textContent = count;
+            ghost.appendChild(badge);
+        }
+
+        document.body.appendChild(ghost);
+        return ghost;
+    }
+
+    // Update ghost position
+    function updateGhostPosition(e) {
+        if (dragGhost) {
+            dragGhost.style.left = (e.clientX + 10) + 'px';
+            dragGhost.style.top = (e.clientY + 10) + 'px';
+        }
+    }
+
+    // Remove drag ghost
+    function removeDragGhost() {
+        if (dragGhost) {
+            dragGhost.remove();
+            dragGhost = null;
+        }
+    }
+
+    // Make gallery items draggable
+    function setupGalleryDraggables() {
+        const items = gallery.querySelectorAll('.gallery-item[data-item-type="photo"], .gallery-item[data-item-type="album"]');
+
+        items.forEach(item => {
+            // Skip folders - they can't be dragged
+            if (item.dataset.itemType === 'folder') return;
+
+            // Skip if already set up (prevent duplicate listeners)
+            if (item.dataset.dragSetup === 'true') return;
+            item.dataset.dragSetup = 'true';
+
+            item.setAttribute('draggable', 'true');
+
+            item.addEventListener('dragstart', (e) => {
+                draggedItems = getDragItems(item);
+                if (draggedItems.length === 0) {
+                    e.preventDefault();
+                    return;
+                }
+
+                item.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', JSON.stringify(draggedItems));
+
+                // Hide default browser drag image by using an off-screen element
+                const emptyEl = document.createElement('div');
+                emptyEl.style.position = 'absolute';
+                emptyEl.style.top = '-1000px';
+                emptyEl.style.left = '-1000px';
+                emptyEl.style.width = '1px';
+                emptyEl.style.height = '1px';
+                emptyEl.style.opacity = '0.01';
+                document.body.appendChild(emptyEl);
+                e.dataTransfer.setDragImage(emptyEl, 0, 0);
+                // Remove element after drag starts
+                setTimeout(() => emptyEl.remove(), 0);
+
+                // Create custom ghost
+                dragGhost = createDragGhost(item, draggedItems.length);
+                updateGhostPosition(e);
+
+                // Highlight sidebar
+                sidebar.classList.add('drag-active');
+            });
+
+            item.addEventListener('drag', (e) => {
+                updateGhostPosition(e);
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                removeDragGhost();
+                sidebar.classList.remove('drag-active');
+                clearDropTargets();
+                draggedItems = [];
+            });
+        });
+    }
+
+    // Clear all drop target classes
+    function clearDropTargets() {
+        document.querySelectorAll('.drop-target, .drop-blocked').forEach(el => {
+            el.classList.remove('drop-target', 'drop-blocked', 'drop-success');
+        });
+    }
+
+    // Check if folder is a valid drop target
+    function isValidDropTarget(folderId) {
+        // Can't drop on current folder
+        if (folderId === currentFolderId) return false;
+
+        // Check permission (stored in data attribute)
+        const folderItem = document.querySelector(`.folder-item[data-folder-id="${folderId}"]`);
+        if (!folderItem) return false;
+
+        const canEdit = folderItem.dataset.canEdit === 'true';
+        return canEdit;
+    }
+
+    // Setup folder drop zones (sidebar)
+    function setupFolderDropZones() {
+        const folderItems = document.querySelectorAll('.folder-item[data-folder-id]');
+
+        folderItems.forEach(folderItem => {
+            // Skip if already set up
+            if (folderItem.dataset.dropSetup === 'true') return;
+            folderItem.dataset.dropSetup = 'true';
+
+            const folderId = folderItem.dataset.folderId;
+
+            folderItem.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                if (draggedItems.length === 0) return;
+
+                if (isValidDropTarget(folderId)) {
+                    e.dataTransfer.dropEffect = 'move';
+                    folderItem.classList.add('drop-target');
+                    folderItem.classList.remove('drop-blocked');
+                } else {
+                    e.dataTransfer.dropEffect = 'none';
+                    folderItem.classList.add('drop-blocked');
+                    folderItem.classList.remove('drop-target');
+                }
+            });
+
+            folderItem.addEventListener('dragleave', (e) => {
+                // Only clear if actually leaving (not entering child)
+                if (!folderItem.contains(e.relatedTarget)) {
+                    folderItem.classList.remove('drop-target', 'drop-blocked');
+                }
+            });
+
+            folderItem.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                folderItem.classList.remove('drop-target', 'drop-blocked');
+
+                if (draggedItems.length === 0 || !isValidDropTarget(folderId)) return;
+
+                // Move items
+                await moveItemsToFolder(draggedItems, folderId);
+
+                // Success animation
+                folderItem.classList.add('drop-success');
+                setTimeout(() => folderItem.classList.remove('drop-success'), 400);
+            });
+        });
+
+        // Also setup subfolder cards in gallery
+        const folderCards = gallery.querySelectorAll('.gallery-item.folder-item-card[data-folder-id]');
+
+        folderCards.forEach(card => {
+            // Skip if already set up
+            if (card.dataset.dropSetup === 'true') return;
+            card.dataset.dropSetup = 'true';
+
+            const folderId = card.dataset.folderId;
+
+            card.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                if (draggedItems.length === 0) return;
+
+                // Subfolder in gallery - always allow (we're in parent with edit access)
+                e.dataTransfer.dropEffect = 'move';
+                card.classList.add('drop-target');
+            });
+
+            card.addEventListener('dragleave', (e) => {
+                if (!card.contains(e.relatedTarget)) {
+                    card.classList.remove('drop-target');
+                }
+            });
+
+            card.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                card.classList.remove('drop-target');
+
+                if (draggedItems.length === 0) return;
+
+                await moveItemsToFolder(draggedItems, folderId);
+
+                // Success animation
+                card.classList.add('drop-success');
+                setTimeout(() => card.classList.remove('drop-success'), 400);
+            });
+        });
+    }
+
+    // Move items to folder
+    async function moveItemsToFolder(items, targetFolderId) {
+        const photoIds = items.filter(i => i.type === 'photo').map(i => i.id);
+        const albumIds = items.filter(i => i.type === 'album').map(i => i.id);
+
+        try {
+            const resp = await csrfFetch('/api/items/move', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    photo_ids: photoIds,
+                    album_ids: albumIds,
+                    folder_id: targetFolderId
+                })
+            });
+
+            const data = await resp.json();
+
+            if (data.status === 'ok') {
+                const totalMoved = data.moved_photos + data.moved_albums;
+                if (totalMoved > 0) {
+                    // Remove moved items from DOM
+                    items.forEach(item => {
+                        const selector = item.type === 'photo'
+                            ? `.gallery-item[data-photo-id="${item.id}"]`
+                            : `.gallery-item[data-album-id="${item.id}"]`;
+                        const el = document.querySelector(selector);
+                        if (el) el.remove();
+                    });
+
+                    // Clear selection
+                    if (window.selectedPhotos) window.selectedPhotos.clear();
+                    if (window.selectedAlbums) window.selectedAlbums.clear();
+
+                    // Update selection UI
+                    const selectionMenu = document.getElementById('selection-menu');
+                    if (selectionMenu) selectionMenu.classList.add('hidden');
+
+                    // Rebuild masonry if available
+                    if (window.rebuildMasonry) window.rebuildMasonry();
+
+                    // Update folder counts in sidebar
+                    updateFolderCounts();
+                }
+            }
+        } catch (e) {
+            console.error('Failed to move items:', e);
+            alert('Failed to move items. Please try again.');
+        }
+    }
+
+    // Update folder counts after move
+    async function updateFolderCounts() {
+        try {
+            const resp = await fetch('/api/folders');
+            const folders = await resp.json();
+
+            folders.forEach(folder => {
+                const countEl = document.querySelector(`.folder-item[data-folder-id="${folder.id}"] .folder-count`);
+                if (countEl && folder.photo_count !== undefined) {
+                    countEl.textContent = folder.photo_count;
+                }
+            });
+        } catch (e) {
+            console.error('Failed to update folder counts:', e);
+        }
+    }
+
+    // Initialize when DOM is ready
+    function init() {
+        setupGalleryDraggables();
+        setupFolderDropZones();
+
+        // Re-setup after masonry rebuild
+        const originalRebuildMasonry = window.rebuildMasonry;
+        if (originalRebuildMasonry) {
+            window.rebuildMasonry = function() {
+                originalRebuildMasonry();
+                setupGalleryDraggables();
+                setupFolderDropZones();
+            };
+        }
+    }
+
+    // Wait for folder tree to be loaded before setup
+    const observer = new MutationObserver((mutations, obs) => {
+        if (folderTree && folderTree.children.length > 0) {
+            obs.disconnect();
+            init();
+        }
+    });
+
+    if (folderTree) {
+        observer.observe(folderTree, { childList: true });
+        // Also init if folder tree is already loaded
+        if (folderTree.children.length > 0) {
+            observer.disconnect();
+            init();
+        }
+    }
+
+    // Fallback init
+    setTimeout(init, 500);
 })();
 </script>
 {% endblock %}
