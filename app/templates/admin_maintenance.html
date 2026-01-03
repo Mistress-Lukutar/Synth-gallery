@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Maintenance - Synth Admin</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .admin-layout {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .admin-header h1 {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .admin-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .admin-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .admin-nav a:hover {
+            color: var(--text);
+        }
+        .admin-nav a.active {
+            color: var(--accent);
+        }
+        .back-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .back-link:hover {
+            color: var(--text);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .stat-label {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .stat-card.healthy .stat-value { color: #22c55e; }
+        .stat-card.warning .stat-value { color: #f59e0b; }
+        .stat-card.error .stat-value { color: #ef4444; }
+        .section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .section h2 {
+            font-size: 1.125rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .section p {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+        }
+        .section-actions {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+        .result-message {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .result-message.success { color: #22c55e; }
+        .result-message.error { color: #ef4444; }
+        .status-message {
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .status-message.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+        .status-message.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-layout">
+        <header class="admin-header">
+            <h1>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                </svg>
+                Maintenance
+            </h1>
+            <nav class="admin-nav">
+                <a href="/admin/backups">Backups</a>
+                <a href="/admin/maintenance" class="active">Maintenance</a>
+                <span style="color: var(--border);">|</span>
+                <a href="/" class="back-link">&larr; Gallery</a>
+            </nav>
+        </header>
+
+        <div id="status-message" class="status-message"></div>
+
+        <div class="stats-grid">
+            <div class="stat-card healthy">
+                <div class="stat-value">{{ stats.healthy }}</div>
+                <div class="stat-label">Healthy Photos</div>
+            </div>
+            <div class="stat-card {% if stats.missing_thumbnails > 0 %}warning{% endif %}">
+                <div class="stat-value">{{ stats.missing_thumbnails }}</div>
+                <div class="stat-label">Missing Thumbnails</div>
+            </div>
+            <div class="stat-card {% if stats.orphaned_thumbnails > 0 %}warning{% endif %}">
+                <div class="stat-value">{{ stats.orphaned_thumbnails }}</div>
+                <div class="stat-label">Orphaned Thumbnails</div>
+            </div>
+            <div class="stat-card {% if stats.missing_originals > 0 %}error{% endif %}">
+                <div class="stat-value">{{ stats.missing_originals }}</div>
+                <div class="stat-label">Missing Originals</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>
+                    <path d="M22 12A10 10 0 0 0 12 2v10z"/>
+                </svg>
+                Regenerate Missing Thumbnails
+            </h2>
+            <p>
+                Recreate thumbnails for photos that are missing them. This happens automatically
+                when viewing photos, but you can regenerate all at once here.
+                {% if stats.missing_thumbnails > 0 %}
+                <strong>{{ stats.missing_thumbnails }} thumbnails need regeneration.</strong>
+                {% endif %}
+            </p>
+            <div class="section-actions">
+                <button id="regenerate-btn" class="btn" {% if stats.missing_thumbnails == 0 %}disabled{% endif %}>
+                    Regenerate All
+                </button>
+                <span id="regenerate-result" class="result-message"></span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+                Clean Up Orphaned Thumbnails
+            </h2>
+            <p>
+                Remove thumbnail files that no longer have corresponding photos in the database.
+                This can happen if photos were deleted but thumbnails remained.
+                {% if stats.orphaned_thumbnails > 0 %}
+                <strong>{{ stats.orphaned_thumbnails }} orphaned thumbnails ({{ (stats.orphaned_size / 1024 / 1024) | round(2) }} MB) can be cleaned up.</strong>
+                {% endif %}
+            </p>
+            <div class="section-actions">
+                <button id="cleanup-btn" class="btn btn-secondary" {% if stats.orphaned_thumbnails == 0 %}disabled{% endif %}>
+                    Clean Up
+                </button>
+                <span id="cleanup-result" class="result-message"></span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                Storage Info
+            </h2>
+            <p>
+                Total thumbnail storage: <strong>{{ (stats.total_thumbnail_size / 1024 / 1024) | round(2) }} MB</strong>
+                for {{ stats.total_photos }} photos.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        function getCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
+
+        async function csrfFetch(url, options = {}) {
+            const headers = options.headers || {};
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
+                headers['X-CSRF-Token'] = getCsrfToken();
+            }
+            return fetch(url, { ...options, headers });
+        }
+
+        function showStatus(message, isError = false) {
+            const el = document.getElementById('status-message');
+            el.textContent = message;
+            el.className = 'status-message ' + (isError ? 'error' : 'success');
+            setTimeout(() => { el.className = 'status-message'; }, 5000);
+        }
+
+        document.getElementById('regenerate-btn').addEventListener('click', async function() {
+            const btn = this;
+            const result = document.getElementById('regenerate-result');
+            btn.disabled = true;
+            btn.textContent = 'Regenerating...';
+            result.textContent = '';
+
+            try {
+                const resp = await csrfFetch('/api/admin/thumbnails/regenerate', { method: 'POST' });
+                if (!resp.ok) throw new Error('Failed to regenerate');
+
+                const data = await resp.json();
+                result.className = 'result-message success';
+                result.textContent = `Regenerated ${data.regenerated}, failed ${data.failed}, skipped ${data.skipped_no_original} (no original)`;
+
+                setTimeout(() => location.reload(), 2000);
+            } catch (err) {
+                result.className = 'result-message error';
+                result.textContent = 'Error: ' + err.message;
+                btn.disabled = false;
+                btn.textContent = 'Regenerate All';
+            }
+        });
+
+        document.getElementById('cleanup-btn').addEventListener('click', async function() {
+            const btn = this;
+            const result = document.getElementById('cleanup-result');
+            btn.disabled = true;
+            btn.textContent = 'Cleaning...';
+            result.textContent = '';
+
+            try {
+                const resp = await csrfFetch('/api/admin/thumbnails/cleanup', { method: 'POST' });
+                if (!resp.ok) throw new Error('Failed to clean up');
+
+                const data = await resp.json();
+                const freedMB = (data.freed_bytes / 1024 / 1024).toFixed(2);
+                result.className = 'result-message success';
+                result.textContent = `Deleted ${data.deleted} orphaned thumbnails, freed ${freedMB} MB`;
+
+                setTimeout(() => location.reload(), 2000);
+            } catch (err) {
+                result.className = 'result-message error';
+                result.textContent = 'Error: ' + err.message;
+                btn.disabled = false;
+                btn.textContent = 'Clean Up';
+            }
+        });
+    </script>
+</body>
+</html>
