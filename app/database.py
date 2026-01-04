@@ -336,6 +336,20 @@ def init_db():
     if "collapsed_folders" not in settings_columns:
         db.execute("ALTER TABLE user_settings ADD COLUMN collapsed_folders TEXT DEFAULT '[]'")
 
+    # Migration: add encryption fields to user_settings
+    if "encrypted_dek" not in settings_columns:
+        _backup_before_migration()
+        db.execute("ALTER TABLE user_settings ADD COLUMN encrypted_dek BLOB")
+    if "dek_salt" not in settings_columns:
+        db.execute("ALTER TABLE user_settings ADD COLUMN dek_salt BLOB")
+    if "encryption_version" not in settings_columns:
+        db.execute("ALTER TABLE user_settings ADD COLUMN encryption_version INTEGER DEFAULT 1")
+
+    # Migration: add is_encrypted to photos
+    photo_columns = [row[1] for row in db.execute("PRAGMA table_info(photos)").fetchall()]
+    if "is_encrypted" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+
     db.execute("""
         CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)
     """)
@@ -1449,3 +1463,94 @@ def move_albums_to_folder(album_ids: list[str], target_folder_id: str) -> int:
 
     db.commit()
     return moved
+
+
+# === Encryption Key Management ===
+
+def get_user_encryption_keys(user_id: int) -> dict | None:
+    """Get encryption metadata for user."""
+    db = get_db()
+    result = db.execute("""
+        SELECT encrypted_dek, dek_salt, encryption_version
+        FROM user_settings WHERE user_id = ?
+    """, (user_id,)).fetchone()
+
+    if result and result["encrypted_dek"]:
+        return {
+            "encrypted_dek": result["encrypted_dek"],
+            "dek_salt": result["dek_salt"],
+            "encryption_version": result["encryption_version"]
+        }
+    return None
+
+
+def set_user_encryption_keys(user_id: int, encrypted_dek: bytes, dek_salt: bytes) -> bool:
+    """Store encrypted DEK for user."""
+    db = get_db()
+
+    # Check if user has settings row
+    existing = db.execute(
+        "SELECT user_id FROM user_settings WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if existing:
+        db.execute("""
+            UPDATE user_settings
+            SET encrypted_dek = ?, dek_salt = ?, encryption_version = 1
+            WHERE user_id = ?
+        """, (encrypted_dek, dek_salt, user_id))
+    else:
+        db.execute("""
+            INSERT INTO user_settings (user_id, encrypted_dek, dek_salt, encryption_version)
+            VALUES (?, ?, ?, 1)
+        """, (user_id, encrypted_dek, dek_salt))
+
+    db.commit()
+    return True
+
+
+def mark_photo_encrypted(photo_id: str) -> bool:
+    """Mark photo as encrypted."""
+    db = get_db()
+    db.execute("UPDATE photos SET is_encrypted = 1 WHERE id = ?", (photo_id,))
+    db.commit()
+    return True
+
+
+def mark_photo_decrypted(photo_id: str) -> bool:
+    """Mark photo as not encrypted (for migration rollback)."""
+    db = get_db()
+    db.execute("UPDATE photos SET is_encrypted = 0 WHERE id = ?", (photo_id,))
+    db.commit()
+    return True
+
+
+def get_user_unencrypted_photos(user_id: int) -> list:
+    """Get all unencrypted photos for a user (for migration)."""
+    db = get_db()
+    photos = db.execute("""
+        SELECT id, filename FROM photos
+        WHERE user_id = ? AND is_encrypted = 0
+    """, (user_id,)).fetchall()
+    return [dict(p) for p in photos]
+
+
+def get_photo_by_id(photo_id: str) -> dict | None:
+    """Get photo by ID with encryption status."""
+    db = get_db()
+    photo = db.execute(
+        "SELECT * FROM photos WHERE id = ?",
+        (photo_id,)
+    ).fetchone()
+    return dict(photo) if photo else None
+
+
+def get_photo_owner_id(photo_id: str) -> int | None:
+    """Get owner user_id for a photo (for shared folder decryption)."""
+    db = get_db()
+    photo = db.execute(
+        "SELECT user_id FROM photos WHERE id = ?",
+        (photo_id,)
+    ).fetchone()
+    return photo["user_id"] if photo else None
