@@ -693,6 +693,7 @@
         let folderTree = [];
         let editingFolderId = null;
         let userDefaultFolderId = null;
+        let collapsedFolders = new Set();
 
         // Sidebar elements
         const sidebar = document.getElementById('sidebar');
@@ -782,6 +783,52 @@
             }
         }
 
+        // Load user's collapsed folders
+        async function loadCollapsedFolders() {
+            try {
+                const resp = await fetch('/api/folders/user/collapsed');
+                const data = await resp.json();
+                collapsedFolders = new Set(data.collapsed_folders || []);
+            } catch (err) {
+                console.error('Failed to load collapsed folders:', err);
+            }
+        }
+
+        // Toggle folder collapse state
+        async function toggleFolderCollapse(folderId, event) {
+            event.stopPropagation();
+
+            // Optimistic update
+            const wasCollapsed = collapsedFolders.has(folderId);
+            if (wasCollapsed) {
+                collapsedFolders.delete(folderId);
+            } else {
+                collapsedFolders.add(folderId);
+            }
+            renderFolderTree();
+
+            // Persist to server
+            try {
+                await csrfFetch(`/api/folders/${folderId}/toggle-collapse`, {
+                    method: 'POST'
+                });
+            } catch (err) {
+                console.error('Failed to toggle folder collapse:', err);
+                // Revert on error
+                if (wasCollapsed) {
+                    collapsedFolders.add(folderId);
+                } else {
+                    collapsedFolders.delete(folderId);
+                }
+                renderFolderTree();
+            }
+        }
+
+        // Check if folder has children
+        function folderHasChildren(folderId) {
+            return folderTree.some(f => f.parent_id === folderId);
+        }
+
         // Render folder tree recursively
         function renderFolderTree() {
             const myFolders = folderTree.filter(f => f.permission === 'owner');
@@ -809,6 +856,11 @@
         }
 
         function buildTreeHTML(parentId, level, folders = folderTree) {
+            // If parent is collapsed, don't render children
+            if (parentId && collapsedFolders.has(parentId)) {
+                return '';
+            }
+
             const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner');
             if (children.length === 0) return '';
 
@@ -880,8 +932,24 @@
             // Determine if user can edit this folder (owner or editor)
             const canEdit = permission === 'owner' || permission === 'editor';
 
+            // Check if folder has children and collapse state
+            const hasChildren = folderHasChildren(folder.id);
+            const isCollapsed = collapsedFolders.has(folder.id);
+
+            // Expand/collapse arrow for folders with children
+            const expandArrow = hasChildren ? `
+                <button class="folder-expand-btn ${isCollapsed ? 'collapsed' : ''}"
+                        onclick="toggleFolderCollapse('${folder.id}', event)"
+                        title="${isCollapsed ? 'Expand' : 'Collapse'}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+            ` : '<span class="folder-expand-placeholder"></span>';
+
             return `
                 <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
+                    ${expandArrow}
                     <div class="folder-item ${folderClass} ${isActive ? 'active' : ''}"
                          data-folder-id="${folder.id}"
                          data-can-edit="${canEdit}"
@@ -1250,7 +1318,9 @@
         }
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Load collapsed state first, then folder tree
+            await loadCollapsedFolders();
             loadFolderTree();
             loadDefaultFolder();
         });
