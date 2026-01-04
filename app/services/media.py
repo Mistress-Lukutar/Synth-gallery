@@ -1,4 +1,7 @@
 """Media processing services (thumbnails, image handling)."""
+import os
+import tempfile
+from io import BytesIO
 from pathlib import Path
 
 import cv2
@@ -39,3 +42,42 @@ def get_media_type(content_type: str) -> str:
     if content_type in ALLOWED_VIDEO_TYPES:
         return "video"
     return "image"
+
+
+def create_thumbnail_bytes(image_data: bytes, size: tuple[int, int] = (400, 400)) -> bytes:
+    """Create thumbnail from image bytes, return JPEG bytes."""
+    with Image.open(BytesIO(image_data)) as img:
+        img.thumbnail(size, Image.Resampling.LANCZOS)
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+
+        output = BytesIO()
+        img.save(output, "JPEG", quality=85)
+        return output.getvalue()
+
+
+def create_video_thumbnail_bytes(video_data: bytes, size: tuple[int, int] = (400, 400)) -> bytes:
+    """Create thumbnail from video bytes, return JPEG bytes."""
+    # Write to temp file (OpenCV needs file path)
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+        tmp.write(video_data)
+        tmp_path = tmp.name
+
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        try:
+            ret, frame = cap.read()
+            if not ret:
+                raise ValueError("Could not read video frame")
+
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(frame_rgb)
+            img.thumbnail(size, Image.Resampling.LANCZOS)
+
+            output = BytesIO()
+            img.save(output, "JPEG", quality=85)
+            return output.getvalue()
+        finally:
+            cap.release()
+    finally:
+        os.unlink(tmp_path)
