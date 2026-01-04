@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-01-04
+
+### Added
+- Drag-and-drop to move photos and albums between folders
+  - Visual drop zones on folder items in sidebar
+  - Works with both individual photos and albums
+- Default folder selection in user settings
+  - Set preferred folder for new uploads
+  - Persisted per-user in database
+- Collapsible folders in sidebar tree
+  - Expand/collapse toggle for folders with children
+  - Collapse state persisted per-user
+  - New API endpoints: `/user/collapsed`, `/{folder_id}/toggle-collapse`
+
 ## [0.6.2] - 2026-01-03
 
 ### Fixed
@@ -141,6 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.7.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.5.0...v0.6.0
