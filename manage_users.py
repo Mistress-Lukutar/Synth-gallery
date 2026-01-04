@@ -11,6 +11,7 @@ Usage:
     python manage_users.py rename <username> <new_display_name>
     python manage_users.py admin <username>       - grant admin rights
     python manage_users.py unadmin <username>     - revoke admin rights
+    python manage_users.py encrypt-files <username> <password>  - encrypt user's files
 """
 
 import sys
@@ -28,8 +29,14 @@ from app.database import (
     update_user_password,
     update_user_display_name,
     set_user_admin,
-    is_user_admin
+    is_user_admin,
+    verify_password,
+    get_user_encryption_keys,
+    set_user_encryption_keys,
+    get_user_unencrypted_photos,
+    mark_photo_encrypted
 )
+from app.config import UPLOADS_DIR, THUMBNAILS_DIR
 
 
 def print_usage():
@@ -179,6 +186,94 @@ def cmd_unadmin(args):
     return 0
 
 
+def cmd_encrypt_files(args):
+    """Encrypt all unencrypted files for a user."""
+    if len(args) < 2:
+        print("Error: encrypt-files requires <username> <password>")
+        print("Note: Password is needed to derive encryption key")
+        return 1
+
+    username, password = args[0], args[1]
+
+    user = get_user_by_username(username)
+    if not user:
+        print(f"Error: User '{username}' not found")
+        return 1
+
+    # Verify password
+    if not verify_password(password, user["password_hash"], user["password_salt"] or ""):
+        print("Error: Invalid password")
+        return 1
+
+    from app.services.encryption import EncryptionService
+
+    # Get or create DEK
+    enc_keys = get_user_encryption_keys(user["id"])
+    if enc_keys:
+        # Decrypt existing DEK
+        kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
+        try:
+            dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
+        except Exception:
+            print("Error: Could not decrypt existing key. Password may be incorrect.")
+            return 1
+    else:
+        # Generate new DEK
+        print("Generating new encryption key for user...")
+        dek = EncryptionService.generate_dek()
+        salt = EncryptionService.generate_salt()
+        kek = EncryptionService.derive_kek(password, salt)
+        encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
+        set_user_encryption_keys(user["id"], encrypted_dek, salt)
+
+    # Get unencrypted photos
+    photos = get_user_unencrypted_photos(user["id"])
+
+    if not photos:
+        print("No unencrypted files found for this user")
+        return 0
+
+    print(f"Found {len(photos)} unencrypted files")
+    confirm = input("Proceed with encryption? [y/N]: ")
+    if confirm.lower() != 'y':
+        print("Cancelled")
+        return 0
+
+    encrypted = 0
+    failed = 0
+
+    for photo in photos:
+        try:
+            # Encrypt original
+            orig_path = UPLOADS_DIR / photo["filename"]
+            if orig_path.exists():
+                with open(orig_path, "rb") as f:
+                    data = f.read()
+                encrypted_data = EncryptionService.encrypt_file(data, dek)
+                with open(orig_path, "wb") as f:
+                    f.write(encrypted_data)
+
+            # Encrypt thumbnail
+            thumb_path = THUMBNAILS_DIR / f"{photo['id']}.jpg"
+            if thumb_path.exists():
+                with open(thumb_path, "rb") as f:
+                    data = f.read()
+                encrypted_data = EncryptionService.encrypt_file(data, dek)
+                with open(thumb_path, "wb") as f:
+                    f.write(encrypted_data)
+
+            mark_photo_encrypted(photo["id"])
+            encrypted += 1
+            print(f"  Encrypted: {photo['id']}")
+
+        except Exception as e:
+            failed += 1
+            print(f"  Failed: {photo['id']} - {e}")
+
+    print(f"\nComplete: {encrypted} encrypted, {failed} failed")
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
         print_usage()
@@ -198,6 +293,7 @@ def main():
         'rename': cmd_rename,
         'admin': cmd_admin,
         'unadmin': cmd_unadmin,
+        'encrypt-files': cmd_encrypt_files,
         'help': lambda _: (print_usage(), 0)[1],
     }
 

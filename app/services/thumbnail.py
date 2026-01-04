@@ -3,17 +3,25 @@ from pathlib import Path
 
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 from ..database import get_db
-from .media import create_thumbnail, create_video_thumbnail
+from .media import (
+    create_thumbnail, create_video_thumbnail,
+    create_thumbnail_bytes, create_video_thumbnail_bytes
+)
+from .encryption import EncryptionService, dek_cache
 
 
-def regenerate_thumbnail(photo_id: str) -> bool:
+def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     """Regenerate thumbnail for a single photo.
+
+    Args:
+        photo_id: The photo ID
+        user_id: Optional user ID to get DEK from cache (for encrypted files)
 
     Returns True if thumbnail was successfully regenerated, False otherwise.
     """
     db = get_db()
     photo = db.execute(
-        "SELECT filename, media_type FROM photos WHERE id = ?",
+        "SELECT filename, media_type, is_encrypted, user_id FROM photos WHERE id = ?",
         (photo_id,)
     ).fetchone()
 
@@ -25,8 +33,42 @@ def regenerate_thumbnail(photo_id: str) -> bool:
     if not original_path.exists():
         return False
 
-    # Generate thumbnail
     thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+
+    # Handle encrypted files
+    if photo["is_encrypted"]:
+        # Try to get DEK from cache - check requesting user first, then owner
+        dek = None
+        if user_id:
+            dek = dek_cache.get(user_id)
+        if not dek:
+            dek = dek_cache.get(photo["user_id"])
+
+        if not dek:
+            # Cannot regenerate without DEK
+            return False
+
+        try:
+            # Read and decrypt original
+            with open(original_path, "rb") as f:
+                encrypted_data = f.read()
+            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+
+            # Create thumbnail from decrypted bytes
+            if photo["media_type"] == "video":
+                thumb_bytes = create_video_thumbnail_bytes(decrypted_data)
+            else:
+                thumb_bytes = create_thumbnail_bytes(decrypted_data)
+
+            # Encrypt and save thumbnail
+            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+            with open(thumb_path, "wb") as f:
+                f.write(encrypted_thumb)
+            return True
+        except Exception:
+            return False
+
+    # Unencrypted file - use original path-based functions
     try:
         if photo["media_type"] == "video":
             create_video_thumbnail(original_path, thumb_path)
@@ -83,16 +125,19 @@ def cleanup_orphaned_thumbnails() -> dict:
 def regenerate_missing_thumbnails() -> dict:
     """Regenerate all missing thumbnails.
 
+    Note: Encrypted files without DEK in cache will be skipped.
+
     Returns dict with regeneration statistics.
     """
     db = get_db()
 
     # Get all photos
-    photos = db.execute("SELECT id, filename, media_type FROM photos").fetchall()
+    photos = db.execute("SELECT id, filename, media_type, is_encrypted, user_id FROM photos").fetchall()
 
     regenerated = 0
     failed = 0
     skipped = 0  # Original file missing
+    skipped_encrypted = 0  # Encrypted but no DEK available
     already_exists = 0
 
     for photo in photos:
@@ -107,19 +152,48 @@ def regenerate_missing_thumbnails() -> dict:
             skipped += 1
             continue
 
-        try:
-            if photo["media_type"] == "video":
-                create_video_thumbnail(original_path, thumb_path)
-            else:
-                create_thumbnail(original_path, thumb_path)
-            regenerated += 1
-        except Exception:
-            failed += 1
+        # Handle encrypted files
+        if photo["is_encrypted"]:
+            dek = dek_cache.get(photo["user_id"])
+            if not dek:
+                skipped_encrypted += 1
+                continue
+
+            try:
+                # Read and decrypt original
+                with open(original_path, "rb") as f:
+                    encrypted_data = f.read()
+                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+
+                # Create thumbnail from decrypted bytes
+                if photo["media_type"] == "video":
+                    thumb_bytes = create_video_thumbnail_bytes(decrypted_data)
+                else:
+                    thumb_bytes = create_thumbnail_bytes(decrypted_data)
+
+                # Encrypt and save thumbnail
+                encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+                with open(thumb_path, "wb") as f:
+                    f.write(encrypted_thumb)
+                regenerated += 1
+            except Exception:
+                failed += 1
+        else:
+            # Unencrypted file
+            try:
+                if photo["media_type"] == "video":
+                    create_video_thumbnail(original_path, thumb_path)
+                else:
+                    create_thumbnail(original_path, thumb_path)
+                regenerated += 1
+            except Exception:
+                failed += 1
 
     return {
         "regenerated": regenerated,
         "failed": failed,
         "skipped_no_original": skipped,
+        "skipped_encrypted": skipped_encrypted,
         "already_exists": already_exists,
         "total": len(photos)
     }

@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-01-05
+
+### Added
+- Per-user media encryption (Closes #4)
+  - AES-256-GCM encryption for uploaded files and thumbnails
+  - Encryption key derived from user password (PBKDF2-SHA256, 600k iterations)
+  - Automatic encryption on upload for logged-in users
+  - Transparent decryption when serving files
+  - Shared folder support: files decrypted via owner's key when owner is online
+  - CLI command for migrating existing files: `python manage_users.py encrypt-files <username> <password>`
+  - New dependency: `cryptography>=42.0.0`
+
+### Security
+- Files at rest are now encrypted per-user
+- Admin/filesystem access cannot reveal uploaded content
+- Password loss = data loss (no recovery mechanism)
 
 ## [0.7.0] - 2026-01-04
 
@@ -155,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.8.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.0...v0.6.1

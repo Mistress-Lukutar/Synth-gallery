@@ -2,10 +2,11 @@
 import shutil
 import uuid
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import APIRouter, Request, UploadFile, HTTPException, Form
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from ..config import BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES
@@ -17,11 +18,16 @@ from ..database import (
     add_photos_to_album, remove_photos_from_album, reorder_album_photos,
     get_available_photos_for_album, get_album_photos, get_album,
     move_photo_to_folder, move_album_to_folder,
-    move_photos_to_folder, move_albums_to_folder
+    move_photos_to_folder, move_albums_to_folder,
+    get_photo_by_id, mark_photo_encrypted
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
-from ..services.media import create_thumbnail, create_video_thumbnail, get_media_type
+from ..services.media import (
+    create_thumbnail, create_video_thumbnail, get_media_type,
+    create_thumbnail_bytes, create_video_thumbnail_bytes
+)
 from ..services.metadata import extract_taken_date
+from ..services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
@@ -201,6 +207,36 @@ def get_upload(request: Request, filename: str):
     if not can_access_photo(photo_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Check if file is encrypted
+    photo = get_photo_by_id(photo_id)
+    if photo and photo["is_encrypted"]:
+        # Always use owner's DEK - file is encrypted with owner's key
+        owner_id = photo.get("user_id")
+        dek = dek_cache.get(owner_id) if owner_id else None
+
+        if not dek:
+            raise HTTPException(status_code=403, detail="Encryption key not available. Owner must be online.")
+
+        # Read and decrypt
+        with open(file_path, "rb") as f:
+            encrypted_data = f.read()
+
+        try:
+            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Decryption failed")
+
+        # Determine content type from extension
+        ext = Path(filename).suffix.lower()
+        content_types = {
+            ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+            ".mp4": "video/mp4", ".webm": "video/webm"
+        }
+        content_type = content_types.get(ext, "application/octet-stream")
+
+        return Response(content=decrypted_data, media_type=content_type)
+
     return FileResponse(file_path)
 
 
@@ -225,8 +261,29 @@ def get_thumbnail(request: Request, filename: str):
     # If thumbnail missing, try to regenerate from original
     if not file_path.exists():
         from ..services.thumbnail import regenerate_thumbnail
-        if not regenerate_thumbnail(photo_id):
+        if not regenerate_thumbnail(photo_id, user["id"]):
             raise HTTPException(status_code=404)
+
+    # Check if file is encrypted
+    photo = get_photo_by_id(photo_id)
+    if photo and photo["is_encrypted"]:
+        # Always use owner's DEK - file is encrypted with owner's key
+        owner_id = photo.get("user_id")
+        dek = dek_cache.get(owner_id) if owner_id else None
+
+        if not dek:
+            raise HTTPException(status_code=403, detail="Encryption key not available. Owner must be online.")
+
+        # Read and decrypt
+        with open(file_path, "rb") as f:
+            encrypted_data = f.read()
+
+        try:
+            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Decryption failed")
+
+        return Response(content=decrypted_data, media_type="image/jpeg")
 
     return FileResponse(file_path)
 
@@ -257,32 +314,59 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     ext = Path(file.filename).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
     filename = f"{photo_id}{ext}"
 
-    # Save original
-    file_path = UPLOADS_DIR / filename
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+    # Get user's DEK for encryption
+    dek = dek_cache.get(user["id"])
+    is_encrypted = dek is not None
 
-    # Create thumbnail
+    # Read file content into memory for processing
+    file_content = await file.read()
+
+    # Extract taken date from metadata before encryption
+    # Need to write temp file for metadata extraction
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(file_content)
+        tmp_path = Path(tmp.name)
+
+    try:
+        taken_at = extract_taken_date(tmp_path)
+        if taken_at is None:
+            taken_at = datetime.now()
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    # Create thumbnail from bytes
     thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
     try:
         if media_type == "video":
-            create_video_thumbnail(file_path, thumb_path)
+            thumb_bytes = create_video_thumbnail_bytes(file_content)
         else:
-            create_thumbnail(file_path, thumb_path)
+            thumb_bytes = create_thumbnail_bytes(file_content)
     except Exception as e:
-        file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Processing error: {e}")
 
-    # Extract taken date from metadata, fallback to current time
-    taken_at = extract_taken_date(file_path)
-    if taken_at is None:
-        taken_at = datetime.now()
+    # Encrypt and save files if DEK available
+    file_path = UPLOADS_DIR / filename
+    if is_encrypted:
+        encrypted_content = EncryptionService.encrypt_file(file_content, dek)
+        encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+
+        with open(file_path, "wb") as f:
+            f.write(encrypted_content)
+        with open(thumb_path, "wb") as f:
+            f.write(encrypted_thumb)
+    else:
+        # Save unencrypted (fallback for users without DEK)
+        with open(file_path, "wb") as f:
+            f.write(file_content)
+        with open(thumb_path, "wb") as f:
+            f.write(thumb_bytes)
 
     # Save to database with folder and user
     db = get_db()
     db.execute(
-        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at)
+        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
     )
     db.commit()
 
@@ -292,6 +376,8 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
 @router.post("/upload-album")
 async def upload_album(request: Request, files: list[UploadFile], folder_id: str = Form(None)):
     """Upload multiple photos/videos as an album to specified folder."""
+    import tempfile
+
     user = require_user(request)
 
     if not folder_id:
@@ -303,6 +389,10 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
 
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Album requires at least 2 items")
+
+    # Get user's DEK for encryption
+    dek = dek_cache.get(user["id"])
+    is_encrypted = dek is not None
 
     # Create album with folder and user
     album_id = str(uuid.uuid4())
@@ -319,31 +409,50 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
         ext = Path(file.filename).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
         filename = f"{photo_id}{ext}"
 
-        # Save original
-        file_path = UPLOADS_DIR / filename
-        with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        # Read file content
+        file_content = await file.read()
+
+        # Extract metadata from temp file
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(file_content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            taken_at = extract_taken_date(tmp_path)
+            if taken_at is None:
+                taken_at = datetime.now()
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         # Create thumbnail
         thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
         try:
             if media_type == "video":
-                create_video_thumbnail(file_path, thumb_path)
+                thumb_bytes = create_video_thumbnail_bytes(file_content)
             else:
-                create_thumbnail(file_path, thumb_path)
+                thumb_bytes = create_thumbnail_bytes(file_content)
         except Exception:
-            file_path.unlink(missing_ok=True)
             continue
 
-        # Extract taken date from metadata, fallback to current time
-        taken_at = extract_taken_date(file_path)
-        if taken_at is None:
-            taken_at = datetime.now()
+        # Save files (encrypted if DEK available)
+        file_path = UPLOADS_DIR / filename
+        if is_encrypted:
+            encrypted_content = EncryptionService.encrypt_file(file_content, dek)
+            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+            with open(file_path, "wb") as f:
+                f.write(encrypted_content)
+            with open(thumb_path, "wb") as f:
+                f.write(encrypted_thumb)
+        else:
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+            with open(thumb_path, "wb") as f:
+                f.write(thumb_bytes)
 
         # Save to database with album, folder and user reference
         db.execute(
-            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"], taken_at)
+            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
         )
         uploaded_photos.append({"id": photo_id, "filename": filename, "media_type": media_type})
 
@@ -376,6 +485,7 @@ async def upload_bulk(
         folder_id: Target folder ID
     """
     import json
+    import tempfile
 
     user = require_user(request)
 
@@ -394,6 +504,10 @@ async def upload_bulk(
 
     if len(files) != len(file_paths):
         raise HTTPException(status_code=400, detail="Files and paths count mismatch")
+
+    # Get user's DEK for encryption
+    dek = dek_cache.get(user["id"])
+    is_encrypted = dek is not None
 
     # Group files by their parent folder
     # Root level files go to '__root__'
@@ -423,47 +537,78 @@ async def upload_bulk(
     }
     albums_created = []
 
-    # Process root level files as individual photos
-    for file, path in groups.pop('__root__', []):
+    # Helper function to process a single file with encryption
+    async def process_file(file, original_name, album_id=None, position=0):
         if file.content_type not in ALLOWED_MEDIA_TYPES:
-            summary["failed"] += 1
-            continue
+            return None
 
         media_type = get_media_type(file.content_type)
         photo_id = str(uuid.uuid4())
-        # Get just the filename without path
-        original_name = Path(file.filename).name
         ext = Path(original_name).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
         filename = f"{photo_id}{ext}"
 
-        # Save original
-        file_path = UPLOADS_DIR / filename
-        with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+        # Read file content
+        file_content = await file.read()
+
+        # Extract metadata from temp file
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(file_content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            taken_at = extract_taken_date(tmp_path)
+            if taken_at is None:
+                taken_at = datetime.now()
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
         # Create thumbnail
         thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
         try:
             if media_type == "video":
-                create_video_thumbnail(file_path, thumb_path)
+                thumb_bytes = create_video_thumbnail_bytes(file_content)
             else:
-                create_thumbnail(file_path, thumb_path)
+                thumb_bytes = create_thumbnail_bytes(file_content)
         except Exception:
-            file_path.unlink(missing_ok=True)
-            summary["failed"] += 1
-            continue
+            return None
 
-        # Extract taken date from metadata, fallback to current time
-        taken_at = extract_taken_date(file_path)
-        if taken_at is None:
-            taken_at = datetime.now()
+        # Save files (encrypted if DEK available)
+        file_path = UPLOADS_DIR / filename
+        if is_encrypted:
+            encrypted_content = EncryptionService.encrypt_file(file_content, dek)
+            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+            with open(file_path, "wb") as f:
+                f.write(encrypted_content)
+            with open(thumb_path, "wb") as f:
+                f.write(encrypted_thumb)
+        else:
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+            with open(thumb_path, "wb") as f:
+                f.write(thumb_bytes)
 
         # Save to database
-        db.execute(
-            "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (photo_id, filename, original_name, media_type, folder_id, user["id"], taken_at)
-        )
-        summary["individual_photos"] += 1
+        if album_id:
+            db.execute(
+                "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (photo_id, filename, original_name, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
+            )
+        else:
+            db.execute(
+                "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (photo_id, filename, original_name, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
+            )
+
+        return photo_id
+
+    # Process root level files as individual photos
+    for file, path in groups.pop('__root__', []):
+        original_name = Path(file.filename).name
+        result = await process_file(file, original_name)
+        if result:
+            summary["individual_photos"] += 1
+        else:
+            summary["failed"] += 1
 
     # Process each subfolder as an album
     for album_name, album_files in groups.items():
@@ -475,46 +620,13 @@ async def upload_bulk(
 
         photos_uploaded = 0
         for position, (file, path) in enumerate(album_files):
-            if file.content_type not in ALLOWED_MEDIA_TYPES:
-                summary["failed"] += 1
-                continue
-
-            media_type = get_media_type(file.content_type)
-            photo_id = str(uuid.uuid4())
-            # Get just the filename without path
             original_name = Path(file.filename).name
-            ext = Path(original_name).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
-            filename = f"{photo_id}{ext}"
-
-            # Save original
-            file_path = UPLOADS_DIR / filename
-            with open(file_path, "wb") as f:
-                shutil.copyfileobj(file.file, f)
-
-            # Create thumbnail
-            thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-            try:
-                if media_type == "video":
-                    create_video_thumbnail(file_path, thumb_path)
-                else:
-                    create_thumbnail(file_path, thumb_path)
-            except Exception:
-                file_path.unlink(missing_ok=True)
+            result = await process_file(file, original_name, album_id, position)
+            if result:
+                photos_uploaded += 1
+                summary["photos_in_albums"] += 1
+            else:
                 summary["failed"] += 1
-                continue
-
-            # Extract taken date from metadata, fallback to current time
-            taken_at = extract_taken_date(file_path)
-            if taken_at is None:
-                taken_at = datetime.now()
-
-            # Save to database with album reference
-            db.execute(
-                "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (photo_id, filename, original_name, album_id, position, media_type, folder_id, user["id"], taken_at)
-            )
-            photos_uploaded += 1
-            summary["photos_in_albums"] += 1
 
         if photos_uploaded > 0:
             summary["albums_created"] += 1
