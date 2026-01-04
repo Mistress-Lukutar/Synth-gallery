@@ -287,6 +287,28 @@ def get_default_folder_route(request: Request):
     return {"default_folder_id": default_folder_id}
 
 
+@router.get("/user/collapsed")
+def get_collapsed_folders_route(request: Request):
+    """Get list of collapsed folder IDs for current user."""
+    user = require_user(request)
+
+    from ..database import get_collapsed_folders
+    collapsed = get_collapsed_folders(user["id"])
+
+    return {"collapsed_folders": collapsed}
+
+
+@router.post("/{folder_id}/toggle-collapse")
+def toggle_collapse_route(request: Request, folder_id: str):
+    """Toggle folder collapsed state. Returns new state."""
+    user = require_user(request)
+
+    from ..database import toggle_folder_collapsed
+    is_collapsed = toggle_folder_collapsed(user["id"], folder_id)
+
+    return {"collapsed": is_collapsed}
+
+
 # User search for sharing (separate router prefix)
 users_router = APIRouter(prefix="/api/users", tags=["users"])
 

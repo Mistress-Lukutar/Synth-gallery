@@ -8,7 +8,9 @@
       "Bash(python -m py_compile:*)",
       "Bash(python -c:*)",
       "Bash(git tag:*)",
-      "Bash(gh release create:*)"
+      "Bash(gh release create:*)",
+      "Bash(gh issue view:*)",
+      "Bash(git add:*)"
     ]
   }
 }

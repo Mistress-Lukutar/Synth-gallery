@@ -1557,6 +1557,51 @@ main {
     margin-bottom: 2px;
 }
 
+/* Expand/collapse button for folders with children */
+.folder-expand-btn {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    margin-right: 2px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 4px;
+    transition: background 0.15s, transform 0.15s;
+}
+
+.folder-expand-btn:hover {
+    background: var(--bg);
+}
+
+.folder-expand-btn svg {
+    width: 14px;
+    height: 14px;
+    stroke: var(--text-muted);
+    transition: stroke 0.15s, transform 0.2s;
+}
+
+.folder-expand-btn:hover svg {
+    stroke: var(--text);
+}
+
+/* Collapsed state - arrow points right */
+.folder-expand-btn.collapsed svg {
+    transform: rotate(-90deg);
+}
+
+/* Placeholder for folders without children (keeps alignment) */
+.folder-expand-placeholder {
+    width: 20px;
+    height: 20px;
+    margin-right: 2px;
+    flex-shrink: 0;
+}
+
 .folder-item {
     display: flex;
     align-items: center;
