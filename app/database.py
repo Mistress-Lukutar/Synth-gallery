@@ -331,6 +331,11 @@ def init_db():
                 )
             db.commit()
 
+    # Migration: add collapsed_folders to user_settings
+    settings_columns = [row[1] for row in db.execute("PRAGMA table_info(user_settings)").fetchall()]
+    if "collapsed_folders" not in settings_columns:
+        db.execute("ALTER TABLE user_settings ADD COLUMN collapsed_folders TEXT DEFAULT '[]'")
+
     db.execute("""
         CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)
     """)
@@ -763,6 +768,66 @@ def set_user_default_folder(user_id: int, folder_id: str) -> bool:
     )
     db.commit()
     return True
+
+
+def get_collapsed_folders(user_id: int) -> list[str]:
+    """Get list of collapsed folder IDs for a user."""
+    import json
+    db = get_db()
+    settings = db.execute(
+        "SELECT collapsed_folders FROM user_settings WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if settings and settings["collapsed_folders"]:
+        try:
+            return json.loads(settings["collapsed_folders"])
+        except json.JSONDecodeError:
+            return []
+    return []
+
+
+def set_collapsed_folders(user_id: int, folder_ids: list[str]) -> bool:
+    """Set list of collapsed folder IDs for a user."""
+    import json
+    db = get_db()
+
+    collapsed_json = json.dumps(folder_ids)
+
+    # Check if user has settings row
+    existing = db.execute(
+        "SELECT user_id FROM user_settings WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            "UPDATE user_settings SET collapsed_folders = ? WHERE user_id = ?",
+            (collapsed_json, user_id)
+        )
+    else:
+        db.execute(
+            "INSERT INTO user_settings (user_id, collapsed_folders) VALUES (?, ?)",
+            (user_id, collapsed_json)
+        )
+
+    db.commit()
+    return True
+
+
+def toggle_folder_collapsed(user_id: int, folder_id: str) -> bool:
+    """Toggle folder collapsed state. Returns new collapsed state."""
+    collapsed = get_collapsed_folders(user_id)
+
+    if folder_id in collapsed:
+        collapsed.remove(folder_id)
+        is_collapsed = False
+    else:
+        collapsed.append(folder_id)
+        is_collapsed = True
+
+    set_collapsed_folders(user_id, collapsed)
+    return is_collapsed
 
 
 # === Folder Permissions ===
