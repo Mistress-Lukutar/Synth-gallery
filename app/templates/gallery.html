@@ -280,6 +280,9 @@
 
     // ============ Masonry Layout ============
     const MIN_COLUMN_WIDTH = 280;
+    let masonryBuilt = false;
+    let lastColumnCount = 0;
+    let lastZoom = window.devicePixelRatio || 1;
 
     function getColumnCount() {
         const width = gallery.clientWidth;
@@ -304,7 +307,7 @@
 
         const onImageLoad = () => {
             loadedCount++;
-            if (loadedCount >= totalImages) {
+            if (loadedCount >= totalImages && !masonryBuilt) {
                 rebuildMasonry();
             }
         };
@@ -318,18 +321,30 @@
             }
         });
 
-        // Fallback: build anyway after timeout
-        setTimeout(rebuildMasonry, 500);
+        // Fallback: build only if not yet built
+        setTimeout(() => {
+            if (!masonryBuilt) {
+                rebuildMasonry();
+            }
+        }, 500);
     }
 
-    function rebuildMasonry() {
+    function rebuildMasonry(forceRebuild = false) {
         const columnCount = getColumnCount();
+
+        // Skip rebuild if column count hasn't changed (unless forced or first build)
+        if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
+            return;
+        }
 
         // Get visible items
         const visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
 
         // Also update allItems reference for drag-and-drop
         window.allItems = allItems;
+
+        // Save scroll position before DOM manipulation
+        const scrollY = window.scrollY;
 
         // Clear gallery
         gallery.innerHTML = '';
@@ -338,12 +353,18 @@
         if (visibleItems.length === 0 && allItems.length > 0) {
             gallery.innerHTML = '<div class="empty-state"><p>No matches found</p></div>';
             saveNavigationOrder([]);
+            masonryBuilt = true;
+            lastColumnCount = columnCount;
+            requestAnimationFrame(() => window.scrollTo(0, scrollY));
             return;
         }
 
         if (visibleItems.length === 0) {
             gallery.innerHTML = '<div class="empty-state"><p>No photos yet</p><p>Click "Upload" or drag & drop to add your first photos</p></div>';
             saveNavigationOrder([]);
+            masonryBuilt = true;
+            lastColumnCount = columnCount;
+            requestAnimationFrame(() => window.scrollTo(0, scrollY));
             return;
         }
 
@@ -399,6 +420,15 @@
             id: p.item.dataset.photoId || p.item.dataset.albumId
         }));
         saveNavigationOrder(navOrder);
+
+        // Mark as built and save column count
+        masonryBuilt = true;
+        lastColumnCount = columnCount;
+
+        // Restore scroll position after DOM rebuild
+        requestAnimationFrame(() => {
+            window.scrollTo(0, scrollY);
+        });
     }
 
     function saveNavigationOrder(order) {
@@ -408,12 +438,57 @@
     // Export rebuildMasonry for drag-and-drop
     window.rebuildMasonry = rebuildMasonry;
 
-    // Rebuild on resize
+    // Rebuild on resize (check if column count actually changes)
     let resizeTimeout;
     window.addEventListener('resize', () => {
         clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(rebuildMasonry, 100);
+        resizeTimeout = setTimeout(() => {
+            const newColumnCount = getColumnCount();
+            if (newColumnCount !== lastColumnCount) {
+                rebuildMasonry(true);
+            }
+        }, 100);
     });
+
+    // Detect zoom changes (Ctrl+/Ctrl- or pinch zoom)
+    // Zoom doesn't trigger resize in most browsers, so we poll for changes
+    function checkZoom() {
+        const currentZoom = window.devicePixelRatio || 1;
+        if (Math.abs(currentZoom - lastZoom) > 0.01) {
+            lastZoom = currentZoom;
+            const newColumnCount = getColumnCount();
+            if (newColumnCount !== lastColumnCount) {
+                rebuildMasonry(true);
+            }
+        }
+    }
+
+    // Check zoom periodically (every 500ms when page is visible)
+    let zoomCheckInterval;
+    function startZoomCheck() {
+        if (!zoomCheckInterval) {
+            zoomCheckInterval = setInterval(checkZoom, 500);
+        }
+    }
+    function stopZoomCheck() {
+        if (zoomCheckInterval) {
+            clearInterval(zoomCheckInterval);
+            zoomCheckInterval = null;
+        }
+    }
+
+    // Only check zoom when page is visible
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopZoomCheck();
+        } else {
+            startZoomCheck();
+            checkZoom(); // Check immediately when becoming visible
+        }
+    });
+
+    // Start zoom checking
+    startZoomCheck();
 
     // Initialize masonry
     if (document.readyState === 'complete') {
@@ -698,8 +773,8 @@
                 }
             });
 
-            // Rebuild masonry with filtered items
-            rebuildMasonry();
+            // Rebuild masonry with filtered items (force rebuild since visible items changed)
+            rebuildMasonry(true);
 
             // Update selection UI
             updateSelectionUI();
@@ -2105,8 +2180,8 @@
                     const selectionMenu = document.getElementById('selection-menu');
                     if (selectionMenu) selectionMenu.classList.add('hidden');
 
-                    // Rebuild masonry if available
-                    if (window.rebuildMasonry) window.rebuildMasonry();
+                    // Rebuild masonry if available (force rebuild since items were moved)
+                    if (window.rebuildMasonry) window.rebuildMasonry(true);
 
                     // Update folder counts in sidebar
                     updateFolderCounts();
