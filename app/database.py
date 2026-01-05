@@ -683,7 +683,18 @@ def get_folder_tree(user_id: int) -> list:
     db = get_db()
     folders = db.execute("""
         SELECT f.*, u.display_name as owner_name,
-               (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count,
+               (
+                   SELECT COUNT(*) FROM photos p
+                   WHERE p.folder_id IN (
+                       WITH RECURSIVE subfolder_tree AS (
+                           SELECT id FROM folders WHERE id = f.id
+                           UNION ALL
+                           SELECT child.id FROM folders child
+                           JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                       )
+                       SELECT id FROM subfolder_tree
+                   )
+               ) as photo_count,
                CASE
                    WHEN f.user_id = ? THEN 'owner'
                    ELSE (SELECT permission FROM folder_permissions WHERE folder_id = f.id AND user_id = ?)
