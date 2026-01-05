@@ -189,11 +189,21 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     media_items.sort(key=lambda x: x["sort_date"] or "", reverse=True)
     items.extend(media_items)
 
+    # Prepare subfolders list for separate display
+    subfolders_list = [{
+        "id": folder["id"],
+        "name": folder["name"],
+        "photo_count": folder["photo_count"],
+        "user_id": folder["user_id"],
+        "is_own": folder["user_id"] == user["id"]
+    } for folder in subfolders]
+
     return templates.TemplateResponse(
         "gallery.html",
         {
             "request": request,
             "items": items,
+            "subfolders": subfolders_list,
             "photos": photos,
             "albums": albums,
             "user": user,
