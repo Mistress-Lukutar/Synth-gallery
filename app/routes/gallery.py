@@ -78,10 +78,21 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     if sort is None or sort not in ("uploaded", "taken"):
         sort = get_folder_sort_preference(user["id"], folder_id)
 
-    # Get subfolders of current folder with photo count
+    # Get subfolders of current folder with photo count (including subfolders recursively)
     subfolders = db.execute("""
         SELECT f.*,
-               (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+               (
+                   SELECT COUNT(*) FROM photos p
+                   WHERE p.folder_id IN (
+                       WITH RECURSIVE subfolder_tree AS (
+                           SELECT id FROM folders WHERE id = f.id
+                           UNION ALL
+                           SELECT child.id FROM folders child
+                           JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                       )
+                       SELECT id FROM subfolder_tree
+                   )
+               ) as photo_count
         FROM folders f
         WHERE f.parent_id = ? AND (
             f.user_id = ?
