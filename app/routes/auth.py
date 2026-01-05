@@ -18,10 +18,30 @@ templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 @router.get("/login")
 def login_page(request: Request, error: str = None):
     """Show login page."""
-    # If already logged in, redirect to gallery
+    # If already logged in, check if we can auto-redirect
     session_id = request.cookies.get(SESSION_COOKIE)
-    if session_id and get_session(session_id):
-        return RedirectResponse(url="/", status_code=302)
+    if session_id:
+        session = get_session(session_id)
+        if session:
+            user_id = session["user_id"]
+            enc_keys = get_user_encryption_keys(user_id)
+
+            # If user has encryption but DEK not in cache, need password re-entry
+            # This happens after server restart or when DEK cache expires
+            if enc_keys and not dek_cache.get(user_id):
+                # Show login page with info message
+                return templates.TemplateResponse(
+                    "login.html",
+                    {
+                        "request": request,
+                        "error": "Session restored. Please enter password to decrypt your files.",
+                        "username": session["username"],
+                        "csrf_token": get_csrf_token(request)
+                    }
+                )
+
+            # DEK is in cache or user has no encryption, safe to redirect
+            return RedirectResponse(url="/", status_code=302)
 
     return templates.TemplateResponse(
         "login.html",

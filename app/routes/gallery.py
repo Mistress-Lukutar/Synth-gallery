@@ -19,7 +19,7 @@ from ..database import (
     get_available_photos_for_album, get_album_photos, get_album,
     move_photo_to_folder, move_album_to_folder,
     move_photos_to_folder, move_albums_to_folder,
-    get_photo_by_id, mark_photo_encrypted
+    get_photo_by_id, mark_photo_encrypted, get_user_encryption_keys
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import (
@@ -45,6 +45,13 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     user = get_current_user(request)
 
     if not user:
+        return RedirectResponse(url="/login", status_code=302)
+
+    # Check if user has encryption but DEK is not in cache
+    # This happens after server restart or when DEK cache expires
+    enc_keys = get_user_encryption_keys(user["id"])
+    if enc_keys and not dek_cache.get(user["id"]):
+        # Redirect to login to re-enter password for DEK decryption
         return RedirectResponse(url="/login", status_code=302)
 
     # Get folder tree for sidebar
