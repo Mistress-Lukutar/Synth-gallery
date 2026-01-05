@@ -182,21 +182,28 @@
 </div>
 {% endif %}
 
+<!-- Subfolders section (separate from gallery grid) -->
+{% if subfolders %}
+<div class="subfolders-section">
+    <div class="subfolders-grid">
+        {% for folder in subfolders %}
+        <a href="/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}">
+            <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span class="subfolder-name">{{ folder.name }}</span>
+            <span class="subfolder-count">{{ folder.photo_count }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="gallery" id="gallery">
     {% if items %}
         {% for item in items %}
             {% if item.type == 'folder' %}
-            <!-- Subfolder card -->
-            <div class="gallery-item folder-item-card"
-                 data-folder-id="{{ item.id }}"
-                 data-item-type="folder"
-                 onclick="window.location.href='/?folder_id={{ item.id }}'">
-                <svg class="folder-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                </svg>
-                <span class="folder-card-name">{{ item.name }}</span>
-                <span class="folder-card-count">{{ item.photo_count }}</span>
-            </div>
+            <!-- Skip folders - they are displayed above -->
             {% elif item.type == 'album' %}
             <div class="gallery-item album-item" data-album-id="{{ item.id }}" data-item-type="album">
                 <div class="gallery-link" onclick="openAlbum('{{ item.id }}')">

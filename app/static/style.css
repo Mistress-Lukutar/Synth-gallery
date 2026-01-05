@@ -3162,3 +3162,79 @@ main {
         cursor: pointer;
     }
 }
+
+/* Subfolders tiles section */
+.subfolders-section {
+    margin-bottom: 1.5rem;
+}
+
+.subfolders-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.subfolder-tile {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
+    transition: all 0.15s ease;
+    min-width: 0;
+    max-width: 280px;
+}
+
+.subfolder-tile:hover {
+    background: var(--bg);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+}
+
+.subfolder-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    stroke: var(--text-secondary);
+}
+
+.subfolder-tile:hover .subfolder-icon {
+    stroke: var(--accent);
+}
+
+.subfolder-name {
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.subfolder-count {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+    .subfolders-grid {
+        gap: 0.5rem;
+    }
+
+    .subfolder-tile {
+        padding: 0.5rem 0.75rem;
+        max-width: 100%;
+        flex: 1 1 calc(50% - 0.25rem);
+    }
+
+    .subfolder-name {
+        font-size: 0.8rem;
+    }
+}
