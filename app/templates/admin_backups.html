@@ -117,6 +117,28 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
             color: #ef4444;
         }
+        .backup-in-progress {
+            border-color: rgba(234, 179, 8, 0.3);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(234, 179, 8, 0.3);
+            border-top-color: #eab308;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-left: 0.5rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -336,8 +358,27 @@
 
         document.getElementById('create-full-backup-btn').addEventListener('click', async () => {
             const btn = document.getElementById('create-full-backup-btn');
+            const list = document.getElementById('full-backup-list');
             btn.disabled = true;
-            btn.textContent = 'Creating full backup...';
+            btn.textContent = 'Creating...';
+
+            // Add "in progress" item to the list
+            const progressItem = document.createElement('div');
+            progressItem.className = 'backup-item full-backup-item backup-in-progress';
+            progressItem.innerHTML = `
+                <div class="backup-info">
+                    <div class="backup-name">Creating backup...</div>
+                    <div class="backup-meta">
+                        <span class="backup-reason" style="background: rgba(234, 179, 8, 0.2); color: #eab308;">in progress</span>
+                        <span class="spinner"></span>
+                    </div>
+                </div>
+            `;
+
+            // Remove empty state if present, add progress item at top
+            const emptyState = list.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+            list.insertBefore(progressItem, list.firstChild);
 
             try {
                 const resp = await csrfFetch('/api/admin/full-backup', { method: 'POST' });
@@ -348,9 +389,10 @@
 
                 const data = await resp.json();
                 showStatus(`Full backup created: ${data.filename} (${data.size}, ${data.stats.total_files} files)`);
-                setTimeout(() => location.reload(), 1500);
+                setTimeout(() => location.reload(), 1000);
             } catch (err) {
                 showStatus('Failed to create full backup: ' + err.message, true);
+                progressItem.remove();
                 btn.disabled = false;
                 btn.innerHTML = `
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
@@ -359,6 +401,15 @@
                     </svg>
                     Create Full Backup
                 `;
+                // Restore empty state if no backups
+                if (list.querySelectorAll('.backup-item').length === 0) {
+                    list.innerHTML = `
+                        <div class="empty-state">
+                            <p>No full backups yet</p>
+                            <p>Full backups include the database and all encrypted media files</p>
+                        </div>
+                    `;
+                }
             }
         });
 
