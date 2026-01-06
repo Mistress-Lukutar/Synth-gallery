@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Full backup system for encrypted content (Closes #9)
-  - Creates ZIP archive with database and all media files (uploads + thumbnails)
+  - Creates ZIP archive with database and original media files (thumbnails auto-regenerate)
   - SHA-256 checksums for integrity verification
   - Manifest with metadata (version, stats, user list)
   - Admin UI at `/admin/backups` for creating, verifying, downloading, and restoring backups
