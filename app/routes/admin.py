@@ -1,14 +1,17 @@
 """Admin routes - backup management and admin-only features."""
+from pathlib import Path
+
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from ..config import BASE_DIR
+from ..config import BASE_DIR, BACKUP_PATH
 from ..database import is_user_admin
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.backup import (
     create_backup, list_backups, get_backup_path,
-    restore_backup, delete_backup
+    restore_backup, delete_backup,
+    FullBackupService, backup_scheduler
 )
 from ..services.thumbnail import (
     cleanup_orphaned_thumbnails, regenerate_missing_thumbnails,
@@ -40,14 +43,19 @@ def backups_page(request: Request):
     """Backup management page."""
     user = require_admin(request)
 
-    backups = list_backups()
+    db_backups = list_backups()
+    full_backups = FullBackupService.list_full_backups()
+    scheduler_status = backup_scheduler.status
 
     return templates.TemplateResponse(
         "admin_backups.html",
         {
             "request": request,
             "user": user,
-            "backups": backups,
+            "backups": db_backups,
+            "full_backups": full_backups,
+            "scheduler_status": scheduler_status,
+            "backup_path": str(BACKUP_PATH),
             "csrf_token": get_csrf_token(request)
         }
     )
@@ -111,6 +119,112 @@ def delete_backup_endpoint(request: Request, filename: str):
     success = delete_backup(filename)
     if not success:
         raise HTTPException(status_code=404, detail="Backup not found")
+
+    return {"status": "ok"}
+
+
+# === Full Backup API (Database + Media) ===
+
+@router.post("/api/admin/full-backup")
+def create_full_backup_endpoint(request: Request):
+    """Create a full backup of database and all media files."""
+    require_admin(request)
+
+    result = FullBackupService.create_full_backup()
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "Backup failed"))
+
+    return {
+        "status": "ok",
+        "filename": result["filename"],
+        "size": result["size_human"],
+        "stats": result["stats"]
+    }
+
+
+@router.get("/api/admin/full-backups")
+def list_full_backups_endpoint(request: Request):
+    """List all full backups."""
+    require_admin(request)
+
+    return {
+        "backups": FullBackupService.list_full_backups(),
+        "scheduler": backup_scheduler.status
+    }
+
+
+@router.get("/api/admin/full-backup/{filename}/download")
+def download_full_backup(request: Request, filename: str):
+    """Download a full backup file."""
+    require_admin(request)
+
+    # Validate filename to prevent path traversal
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    backup_path = BACKUP_PATH / filename
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    return FileResponse(
+        backup_path,
+        media_type="application/zip",
+        filename=filename
+    )
+
+
+@router.get("/api/admin/full-backup/{filename}/verify")
+def verify_full_backup_endpoint(request: Request, filename: str):
+    """Verify a full backup's integrity."""
+    require_admin(request)
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    backup_path = BACKUP_PATH / filename
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    result = FullBackupService.verify_full_backup(backup_path)
+    return result
+
+
+@router.post("/api/admin/full-backup/{filename}/restore")
+def restore_full_backup_endpoint(request: Request, filename: str):
+    """Restore from a full backup."""
+    require_admin(request)
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    backup_path = BACKUP_PATH / filename
+    if not backup_path.exists():
+        raise HTTPException(status_code=404, detail="Backup not found")
+
+    result = FullBackupService.restore_full_backup(backup_path)
+    if not result["success"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "Restore failed"))
+
+    return {
+        "status": "ok",
+        "restored_files": result["restored_files"],
+        "message": "Backup restored. Please restart the application."
+    }
+
+
+@router.delete("/api/admin/full-backup/{filename}")
+def delete_full_backup_endpoint(request: Request, filename: str):
+    """Delete a full backup file."""
+    require_admin(request)
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    backup_path = BACKUP_PATH / filename
+    result = FullBackupService.delete_full_backup(backup_path)
+
+    if not result["success"]:
+        raise HTTPException(status_code=404, detail=result.get("error", "Delete failed"))
 
     return {"status": "ok"}
 
