@@ -7,6 +7,8 @@ venv/
 # Data
 uploads/
 thumbnails/
+backups/
+.claude/
 *.db
 
 # IDE

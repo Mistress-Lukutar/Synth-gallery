@@ -22,6 +22,11 @@ uvicorn app.main:app --reload --port 8000
 **Environment variables:**
 ```bash
 SYNTH_AI_API_KEY=your-secret-key  # Required for AI service API
+
+# WebAuthn configuration (for hardware key auth)
+WEBAUTHN_RP_NAME=Synth Gallery    # Display name shown during registration
+# Multiple origins (comma-separated) - RP ID is auto-detected from request
+WEBAUTHN_ORIGINS=http://localhost:8000,http://localhost:8008,https://example.com
 ```
 
 Access at http://localhost:8000
@@ -40,9 +45,11 @@ app/
 │   ├── gallery.py       # /, /uploads, /thumbnails, /upload, /upload-album
 │   ├── folders.py       # /api/folders/*, /api/users/search
 │   ├── tags.py          # /api/tag-*, /api/photos/{id}/tag, /api/photos/search
-│   └── api.py           # /api/ai/* (AI service endpoints, API key protected)
+│   ├── api.py           # /api/ai/* (AI service endpoints, API key protected)
+│   └── webauthn.py      # /api/webauthn/*, /settings (hardware key auth)
 ├── services/
-│   └── media.py         # Thumbnail creation for images and videos
+│   ├── media.py         # Thumbnail creation for images and videos
+│   └── webauthn.py      # WebAuthn/FIDO2 registration and authentication
 ├── templates/           # Jinja2 templates (base.html, gallery.html, login.html)
 └── static/              # CSS styling (dark theme)
 ```
@@ -65,11 +72,16 @@ app/
 | `/api/photos/{id}/tag` | POST/DELETE | Session+CSRF | Tag management |
 | `/api/ai/photos/untagged` | GET | API Key | List untagged photos |
 | `/api/ai/photos/{id}/tags` | POST | API Key | Set tags from AI service |
+| `/settings` | GET | Session | User settings page |
+| `/api/webauthn/register/*` | GET/POST | Session | Hardware key registration |
+| `/api/webauthn/authenticate/*` | GET/POST | Public | Hardware key login |
+| `/api/webauthn/credentials` | GET/DELETE/PATCH | Session | Manage registered keys |
 
 ### Security
 
-- **Authentication**: Session-based with HTTP-only cookies
+- **Authentication**: Session-based with HTTP-only cookies, or WebAuthn hardware keys
 - **Password hashing**: bcrypt via passlib (supports legacy SHA-256 migration)
+- **WebAuthn/FIDO2**: Hardware key support for passwordless login (YubiKey, etc.)
 - **CSRF protection**: Token in meta tag + X-CSRF-Token header for mutating requests
 - **AI API**: Separate `/api/ai/*` endpoints protected by X-API-Key header
 
@@ -77,6 +89,7 @@ app/
 
 - **users**: id, username, password_hash, password_salt, display_name, default_folder_id
 - **sessions**: id, user_id, created_at, expires_at
+- **webauthn_credentials**: id, user_id, credential_id, public_key, sign_count, name, created_at, encrypted_dek
 - **folders**: id, name, parent_id, user_id
 - **folder_permissions**: id, folder_id, user_id, permission (viewer/editor), granted_by
 - **albums**: id, name, folder_id, user_id, created_at
@@ -116,3 +129,16 @@ python manage_users.py add <username> <password> <display_name>
 python manage_users.py delete <username>
 python manage_users.py passwd <username> <new_password>
 ```
+
+## Hardware Key Authentication
+
+WebAuthn/FIDO2 support allows users to login with hardware security keys (YubiKey, etc.):
+
+1. User logs in with password, goes to `/settings`
+2. Registers hardware key with a name (e.g., "YubiKey 5")
+3. On future logins, enters username and clicks "Sign in with Hardware Key"
+4. Browser prompts for key touch, user is authenticated
+
+Keys are linked to the user's encryption key (DEK), so hardware key login also enables file decryption without password entry.
+
+**Note:** Credentials are bound to the domain where they were registered. A key registered on `localhost:8008` will not work on `ggwp.isgood.host`. Register separate keys for each access method if needed.

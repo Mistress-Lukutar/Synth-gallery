@@ -15,6 +15,7 @@ from .routes.folders import router as folders_router, users_router
 from .routes.tags import router as tags_router
 from .routes.api import router as api_router
 from .routes.admin import router as admin_router
+from .routes.webauthn import router as webauthn_router, settings_router
 
 
 @asynccontextmanager
@@ -44,3 +45,5 @@ app.include_router(users_router)
 app.include_router(tags_router)
 app.include_router(api_router)
 app.include_router(admin_router)
+app.include_router(webauthn_router)
+app.include_router(settings_router)

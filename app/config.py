@@ -30,3 +30,13 @@ AI_API_KEY = os.environ.get("SYNTH_AI_API_KEY", None)
 CSRF_TOKEN_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
 CSRF_COOKIE_NAME = "synth_csrf"
+
+# WebAuthn configuration
+WEBAUTHN_RP_ID = os.environ.get("WEBAUTHN_RP_ID", "localhost")
+WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
+# Multiple origins supported (comma-separated in env var)
+_webauthn_origins = os.environ.get(
+    "WEBAUTHN_ORIGINS",
+    "http://localhost:8000,http://localhost:8008,http://10.8.1.12:8008,https://ggwp.isgood.host"
+)
+WEBAUTHN_ORIGINS = [o.strip() for o in _webauthn_origins.split(",") if o.strip()]
