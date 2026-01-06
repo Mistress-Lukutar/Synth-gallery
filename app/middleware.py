@@ -26,6 +26,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # AI endpoints have their own auth via API key
             return await call_next(request)
 
+        # Allow WebAuthn authentication paths (for passwordless login)
+        if path.startswith("/api/webauthn/authenticate/") or path.startswith("/api/webauthn/check/"):
+            return await call_next(request)
+
         # Check session cookie
         session_id = request.cookies.get(SESSION_COOKIE)
         if session_id:
