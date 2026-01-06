@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-01-06
+
+### Fixed
+- Masonry layout visual bugs: scroll position now preserved during resize/zoom
+- Session without DEK causing missing images after server restart
+  - Users with encrypted files now prompted to re-enter password when DEK cache expires
+- Folder photo count now includes photos in all subfolders recursively
+
+### Changed
+- Subfolders displayed as horizontal tiles above gallery instead of in masonry grid
+  - Cleaner visual separation between navigation and content
+  - Responsive design for mobile devices
+
 ## [0.8.0] - 2026-01-05
 
 ### Added
@@ -170,6 +183,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.8.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.1...v0.6.2
