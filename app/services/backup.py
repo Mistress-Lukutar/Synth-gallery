@@ -227,17 +227,11 @@ class FullBackupService:
             # Database
             files_to_backup.append(("gallery.db", db_path))
 
-            # Uploads
+            # Uploads (thumbnails excluded - they auto-regenerate)
             if UPLOADS_DIR.exists():
                 for file in UPLOADS_DIR.iterdir():
                     if file.is_file():
                         files_to_backup.append((f"uploads/{file.name}", file))
-
-            # Thumbnails
-            if THUMBNAILS_DIR.exists():
-                for file in THUMBNAILS_DIR.iterdir():
-                    if file.is_file():
-                        files_to_backup.append((f"thumbnails/{file.name}", file))
 
             total_files = len(files_to_backup)
             total_size = 0
