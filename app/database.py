@@ -344,6 +344,8 @@ def init_db():
         db.execute("ALTER TABLE user_settings ADD COLUMN dek_salt BLOB")
     if "encryption_version" not in settings_columns:
         db.execute("ALTER TABLE user_settings ADD COLUMN encryption_version INTEGER DEFAULT 1")
+    if "recovery_encrypted_dek" not in settings_columns:
+        db.execute("ALTER TABLE user_settings ADD COLUMN recovery_encrypted_dek BLOB")
 
     # Migration: add is_encrypted to photos
     photo_columns = [row[1] for row in db.execute("PRAGMA table_info(photos)").fetchall()]
@@ -1517,6 +1519,50 @@ def set_user_encryption_keys(user_id: int, encrypted_dek: bytes, dek_salt: bytes
             VALUES (?, ?, ?, 1)
         """, (user_id, encrypted_dek, dek_salt))
 
+    db.commit()
+    return True
+
+
+def set_recovery_encrypted_dek(user_id: int, recovery_encrypted_dek: bytes) -> bool:
+    """Store DEK encrypted with recovery key."""
+    db = get_db()
+
+    existing = db.execute(
+        "SELECT 1 FROM user_settings WHERE user_id = ?", (user_id,)
+    ).fetchone()
+
+    if existing:
+        db.execute("""
+            UPDATE user_settings SET recovery_encrypted_dek = ? WHERE user_id = ?
+        """, (recovery_encrypted_dek, user_id))
+    else:
+        db.execute("""
+            INSERT INTO user_settings (user_id, recovery_encrypted_dek)
+            VALUES (?, ?)
+        """, (user_id, recovery_encrypted_dek))
+
+    db.commit()
+    return True
+
+
+def get_recovery_encrypted_dek(user_id: int) -> bytes | None:
+    """Get DEK encrypted with recovery key."""
+    db = get_db()
+    result = db.execute("""
+        SELECT recovery_encrypted_dek FROM user_settings WHERE user_id = ?
+    """, (user_id,)).fetchone()
+
+    if result and result["recovery_encrypted_dek"]:
+        return result["recovery_encrypted_dek"]
+    return None
+
+
+def clear_recovery_key(user_id: int) -> bool:
+    """Remove recovery key (after it's been used or revoked)."""
+    db = get_db()
+    db.execute("""
+        UPDATE user_settings SET recovery_encrypted_dek = NULL WHERE user_id = ?
+    """, (user_id,))
     db.commit()
     return True
 

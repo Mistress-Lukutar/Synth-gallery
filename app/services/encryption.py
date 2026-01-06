@@ -1,5 +1,7 @@
 """Per-user media encryption service using AES-256-GCM."""
+import base64
 import os
+import secrets
 import time
 import threading
 from typing import Optional
@@ -13,6 +15,7 @@ PBKDF2_ITERATIONS = 600_000  # OWASP recommendation
 SALT_SIZE = 32   # 256 bits
 DEK_SIZE = 32    # 256 bits for AES-256
 NONCE_SIZE = 12  # 96 bits for GCM
+RECOVERY_KEY_SIZE = 32  # 256 bits for recovery key
 
 
 class EncryptionService:
@@ -69,6 +72,58 @@ class EncryptionService:
         nonce = encrypted_data[:NONCE_SIZE]
         ciphertext = encrypted_data[NONCE_SIZE:]
         aesgcm = AESGCM(dek)
+        return aesgcm.decrypt(nonce, ciphertext, None)
+
+    # Recovery Key methods
+    @staticmethod
+    def generate_recovery_key() -> tuple[str, bytes]:
+        """
+        Generate a new recovery key.
+
+        Returns:
+            Tuple of (human_readable_key, raw_key_bytes)
+            The human_readable_key is what's shown to the user (base64).
+        """
+        raw_key = secrets.token_bytes(RECOVERY_KEY_SIZE)
+        # Format as base64 for human readability, with dashes for easier reading
+        b64_key = base64.urlsafe_b64encode(raw_key).decode('ascii').rstrip('=')
+        # Split into groups of 8 for readability: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX
+        formatted_key = '-'.join([b64_key[i:i+8] for i in range(0, len(b64_key), 8)])
+        return formatted_key, raw_key
+
+    @staticmethod
+    def parse_recovery_key(formatted_key: str) -> bytes:
+        """
+        Parse a human-readable recovery key back to bytes.
+
+        Args:
+            formatted_key: The key as shown to user (with dashes)
+
+        Returns:
+            Raw key bytes
+        """
+        # Remove dashes and restore base64 padding
+        b64_key = formatted_key.replace('-', '')
+        # Add padding back
+        padding = 4 - len(b64_key) % 4
+        if padding != 4:
+            b64_key += '=' * padding
+        return base64.urlsafe_b64decode(b64_key)
+
+    @staticmethod
+    def encrypt_dek_with_recovery_key(dek: bytes, recovery_key: bytes) -> bytes:
+        """Encrypt DEK with recovery key for backup purposes."""
+        aesgcm = AESGCM(recovery_key)
+        nonce = os.urandom(NONCE_SIZE)
+        ciphertext = aesgcm.encrypt(nonce, dek, None)
+        return nonce + ciphertext
+
+    @staticmethod
+    def decrypt_dek_with_recovery_key(encrypted_dek: bytes, recovery_key: bytes) -> bytes:
+        """Decrypt DEK using recovery key."""
+        nonce = encrypted_dek[:NONCE_SIZE]
+        ciphertext = encrypted_dek[NONCE_SIZE:]
+        aesgcm = AESGCM(recovery_key)
         return aesgcm.decrypt(nonce, ciphertext, None)
 
 

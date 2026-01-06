@@ -30,3 +30,9 @@ AI_API_KEY = os.environ.get("SYNTH_AI_API_KEY", None)
 CSRF_TOKEN_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
 CSRF_COOKIE_NAME = "synth_csrf"
+
+# Backup configuration
+BACKUP_PATH = Path(os.environ.get("BACKUP_PATH", str(BASE_DIR / "backups")))
+BACKUP_PATH.mkdir(exist_ok=True)
+BACKUP_ROTATION_COUNT = int(os.environ.get("BACKUP_ROTATION_COUNT", "5"))
+BACKUP_SCHEDULE = os.environ.get("BACKUP_SCHEDULE", "daily")  # daily, weekly, or disabled

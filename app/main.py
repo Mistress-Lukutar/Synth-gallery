@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import BASE_DIR
 from .database import init_db, cleanup_expired_sessions
 from .middleware import AuthMiddleware, CSRFMiddleware
+from .services.backup import backup_scheduler
 
 # Import routers
 from .routes.auth import router as auth_router
@@ -23,8 +24,10 @@ async def lifespan(app: FastAPI):
     # Startup: runs before the application starts accepting requests
     init_db()
     cleanup_expired_sessions()
+    backup_scheduler.start()
     yield
     # Shutdown: runs when application is stopping (cleanup code goes here)
+    backup_scheduler.stop()
 
 
 app = FastAPI(title="Photo Gallery", lifespan=lifespan)
