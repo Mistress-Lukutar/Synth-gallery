@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-01-06
+
+### Added
+- Full backup system for encrypted content (Closes #9)
+  - Creates ZIP archive with database and all media files (uploads + thumbnails)
+  - SHA-256 checksums for integrity verification
+  - Manifest with metadata (version, stats, user list)
+  - Admin UI at `/admin/backups` for creating, verifying, downloading, and restoring backups
+  - CLI commands: `backup`, `backup-list`, `restore`, `verify`
+- Recovery Key system for password loss recovery
+  - Generate one-time recovery key via CLI: `python manage_users.py recovery-key <username> <password>`
+  - Recover access with: `python manage_users.py recover <username> <recovery_key>`
+  - DEK encrypted with both password-derived KEK and recovery key
+- Automatic backup scheduler
+  - Configurable via `BACKUP_SCHEDULE` env var (daily/weekly/disabled)
+  - Background thread checks hourly and creates backups as needed
+  - Automatic rotation keeps last N backups (`BACKUP_ROTATION_COUNT`)
+- Configurable backup storage path via `BACKUP_PATH` environment variable
+
+### Changed
+- Admin backup page now shows both database-only and full backups
+- Backup service refactored into FullBackupService class
+
 ## [0.8.1] - 2026-01-06
 
 ### Fixed
@@ -183,6 +206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.9.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.6.2...v0.7.0

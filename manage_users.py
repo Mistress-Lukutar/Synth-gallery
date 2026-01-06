@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
 """
-User management CLI for Synth Gallery.
-Run this script to add, modify, or remove users.
+User management and backup CLI for Synth Gallery.
 
 Usage:
-    python manage_users.py add <username> <password> <display_name>
-    python manage_users.py list
-    python manage_users.py delete <username>
-    python manage_users.py passwd <username> <new_password>
-    python manage_users.py rename <username> <new_display_name>
-    python manage_users.py admin <username>       - grant admin rights
-    python manage_users.py unadmin <username>     - revoke admin rights
-    python manage_users.py encrypt-files <username> <password>  - encrypt user's files
+    User management:
+        python manage_users.py add <username> <password> <display_name>
+        python manage_users.py list
+        python manage_users.py delete <username>
+        python manage_users.py passwd <username> <new_password>
+        python manage_users.py rename <username> <new_display_name>
+        python manage_users.py admin <username>       - grant admin rights
+        python manage_users.py unadmin <username>     - revoke admin rights
+        python manage_users.py encrypt-files <username> <password>
+
+    Backup operations:
+        python manage_users.py backup                  - create full backup
+        python manage_users.py backup-list             - list all backups
+        python manage_users.py restore <filename>      - restore from backup
+        python manage_users.py verify <filename>       - verify backup integrity
+
+    Recovery key:
+        python manage_users.py recovery-key <username> <password>  - generate recovery key
+        python manage_users.py recover <username> <recovery_key>   - recover with key
 """
 
 import sys
@@ -19,6 +29,8 @@ import os
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from pathlib import Path
 
 from app.database import (
     init_db,
@@ -34,9 +46,11 @@ from app.database import (
     get_user_encryption_keys,
     set_user_encryption_keys,
     get_user_unencrypted_photos,
-    mark_photo_encrypted
+    mark_photo_encrypted,
+    set_recovery_encrypted_dek,
+    get_recovery_encrypted_dek,
 )
-from app.config import UPLOADS_DIR, THUMBNAILS_DIR
+from app.config import UPLOADS_DIR, THUMBNAILS_DIR, BACKUP_PATH
 
 
 def print_usage():
@@ -274,6 +288,278 @@ def cmd_encrypt_files(args):
     return 0
 
 
+# =============================================================================
+# Backup Commands
+# =============================================================================
+
+def cmd_backup(args):
+    """Create a full backup of database and media files."""
+    from app.services.backup import FullBackupService
+
+    print("Creating full backup...")
+    print(f"Backup path: {BACKUP_PATH}")
+
+    def progress(current, total, message):
+        pct = int(current / total * 100) if total > 0 else 0
+        print(f"\r  [{pct:3d}%] {message}".ljust(60), end="", flush=True)
+
+    result = FullBackupService.create_full_backup(progress_callback=progress)
+    print()  # New line after progress
+
+    if result["success"]:
+        print(f"\nBackup created successfully!")
+        print(f"  File: {result['filename']}")
+        print(f"  Size: {result['size_human']}")
+        print(f"  Files: {result['stats']['total_files']}")
+        print(f"  Users: {', '.join(result['stats']['users'])}")
+        return 0
+    else:
+        print(f"\nBackup failed: {result['error']}")
+        return 1
+
+
+def cmd_backup_list(args):
+    """List all available backups."""
+    from app.services.backup import FullBackupService
+
+    backups = FullBackupService.list_full_backups()
+
+    if not backups:
+        print("No backups found.")
+        print(f"Backup path: {BACKUP_PATH}")
+        return 0
+
+    print(f"{'Filename':<35} {'Size':<12} {'Created':<20} {'Status'}")
+    print("-" * 85)
+
+    for backup in backups:
+        status = "OK" if backup.get("valid") else f"INVALID: {backup.get('error', 'Unknown')}"
+        created = backup.get("created_at", "Unknown")[:19] if backup.get("created_at") else "Unknown"
+        print(f"{backup['filename']:<35} {backup.get('size_human', 'N/A'):<12} {created:<20} {status}")
+
+    return 0
+
+
+def cmd_restore(args):
+    """Restore from a backup file."""
+    from app.services.backup import FullBackupService
+
+    if len(args) < 1:
+        print("Error: restore requires <filename>")
+        print("Use 'backup-list' to see available backups")
+        return 1
+
+    filename = args[0]
+    backup_path = BACKUP_PATH / filename
+
+    if not backup_path.exists():
+        print(f"Error: Backup file not found: {backup_path}")
+        return 1
+
+    # Verify first
+    print(f"Verifying backup: {filename}")
+    verification = FullBackupService.verify_full_backup(backup_path)
+
+    if not verification["valid"]:
+        print(f"Error: Backup verification failed!")
+        if verification.get("errors"):
+            for err in verification["errors"][:5]:
+                print(f"  - {err}")
+        return 1
+
+    print(f"Backup valid: {verification['verified_files']} files verified")
+
+    # Confirm restore
+    confirm = input("\nWARNING: This will overwrite existing data!\nProceed with restore? [y/N]: ")
+    if confirm.lower() != 'y':
+        print("Cancelled")
+        return 0
+
+    def progress(current, total, message):
+        pct = int(current / total * 100) if total > 0 else 0
+        print(f"\r  [{pct:3d}%] {message}".ljust(60), end="", flush=True)
+
+    print("\nRestoring...")
+    result = FullBackupService.restore_full_backup(backup_path, progress_callback=progress)
+    print()
+
+    if result["success"]:
+        print(f"\nRestore completed successfully!")
+        print(f"  Restored files: {result['restored_files']}")
+        print("\nIMPORTANT: Restart the application to apply changes.")
+        return 0
+    else:
+        print(f"\nRestore failed: {result['error']}")
+        return 1
+
+
+def cmd_verify(args):
+    """Verify backup integrity."""
+    from app.services.backup import FullBackupService
+
+    if len(args) < 1:
+        print("Error: verify requires <filename>")
+        return 1
+
+    filename = args[0]
+    backup_path = BACKUP_PATH / filename
+
+    if not backup_path.exists():
+        print(f"Error: Backup file not found: {backup_path}")
+        return 1
+
+    print(f"Verifying backup: {filename}")
+    result = FullBackupService.verify_full_backup(backup_path)
+
+    if result["valid"]:
+        print(f"\nBackup is VALID")
+        print(f"  Verified files: {result['verified_files']}/{result['total_files']}")
+        if result.get("manifest"):
+            manifest = result["manifest"]
+            print(f"  Created: {manifest.get('created_at', 'Unknown')}")
+            print(f"  Version: {manifest.get('synth_gallery_version', 'Unknown')}")
+            if manifest.get("stats"):
+                print(f"  Total size: {manifest['stats'].get('total_size_human', 'Unknown')}")
+        return 0
+    else:
+        print(f"\nBackup is INVALID")
+        print(f"  Error: {result.get('error', 'Unknown')}")
+        if result.get("errors"):
+            print("  Issues found:")
+            for err in result["errors"]:
+                print(f"    - {err}")
+        return 1
+
+
+# =============================================================================
+# Recovery Key Commands
+# =============================================================================
+
+def cmd_recovery_key(args):
+    """Generate a recovery key for a user."""
+    if len(args) < 2:
+        print("Error: recovery-key requires <username> <password>")
+        return 1
+
+    username, password = args[0], args[1]
+
+    user = get_user_by_username(username)
+    if not user:
+        print(f"Error: User '{username}' not found")
+        return 1
+
+    # Verify password
+    if not verify_password(password, user["password_hash"], user["password_salt"] or ""):
+        print("Error: Invalid password")
+        return 1
+
+    from app.services.encryption import EncryptionService
+
+    # Get existing DEK
+    enc_keys = get_user_encryption_keys(user["id"])
+    if not enc_keys:
+        print("Error: User has no encryption keys. Encrypt files first.")
+        return 1
+
+    # Decrypt DEK with password
+    try:
+        kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
+        dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
+    except Exception:
+        print("Error: Could not decrypt encryption key. Password may be incorrect.")
+        return 1
+
+    # Check if recovery key already exists
+    existing_recovery = get_recovery_encrypted_dek(user["id"])
+    if existing_recovery:
+        confirm = input("User already has a recovery key. Generate a new one? [y/N]: ")
+        if confirm.lower() != 'y':
+            print("Cancelled")
+            return 0
+
+    # Generate recovery key and encrypt DEK with it
+    formatted_key, raw_key = EncryptionService.generate_recovery_key()
+    recovery_encrypted_dek = EncryptionService.encrypt_dek_with_recovery_key(dek, raw_key)
+
+    # Store in database
+    set_recovery_encrypted_dek(user["id"], recovery_encrypted_dek)
+
+    print("\n" + "=" * 60)
+    print("RECOVERY KEY GENERATED")
+    print("=" * 60)
+    print(f"\nUser: {username}")
+    print(f"\nRecovery Key:\n")
+    print(f"  {formatted_key}")
+    print("\n" + "-" * 60)
+    print("IMPORTANT:")
+    print("  - Save this key in a secure location!")
+    print("  - This key is shown ONLY ONCE!")
+    print("  - If you lose both your password AND this key,")
+    print("    your encrypted files will be UNRECOVERABLE!")
+    print("=" * 60 + "\n")
+
+    return 0
+
+
+def cmd_recover(args):
+    """Recover user access using recovery key."""
+    if len(args) < 2:
+        print("Error: recover requires <username> <recovery_key>")
+        print("The recovery key can include dashes or be pasted as one string.")
+        return 1
+
+    username = args[0]
+    # Join remaining args in case key was split
+    recovery_key = ''.join(args[1:])
+
+    user = get_user_by_username(username)
+    if not user:
+        print(f"Error: User '{username}' not found")
+        return 1
+
+    from app.services.encryption import EncryptionService
+
+    # Get recovery-encrypted DEK
+    recovery_encrypted_dek = get_recovery_encrypted_dek(user["id"])
+    if not recovery_encrypted_dek:
+        print("Error: No recovery key configured for this user.")
+        return 1
+
+    # Try to decrypt DEK with recovery key
+    try:
+        raw_key = EncryptionService.parse_recovery_key(recovery_key)
+        dek = EncryptionService.decrypt_dek_with_recovery_key(recovery_encrypted_dek, raw_key)
+    except Exception as e:
+        print(f"Error: Invalid recovery key - {e}")
+        return 1
+
+    print("Recovery key valid! DEK recovered successfully.")
+
+    # Ask for new password
+    new_password = input("\nEnter new password: ")
+    if len(new_password) < 4:
+        print("Error: Password must be at least 4 characters")
+        return 1
+
+    confirm_password = input("Confirm new password: ")
+    if new_password != confirm_password:
+        print("Error: Passwords do not match")
+        return 1
+
+    # Re-encrypt DEK with new password
+    salt = EncryptionService.generate_salt()
+    kek = EncryptionService.derive_kek(new_password, salt)
+    encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
+
+    # Update password and encryption keys
+    update_user_password(user["id"], new_password)
+    set_user_encryption_keys(user["id"], encrypted_dek, salt)
+
+    print(f"\nPassword reset successfully for '{username}'!")
+    print("You can now log in with your new password.")
+    return 0
+
+
 def main():
     if len(sys.argv) < 2:
         print_usage()
@@ -286,6 +572,7 @@ def main():
     args = sys.argv[2:]
 
     commands = {
+        # User management
         'add': cmd_add,
         'list': cmd_list,
         'delete': cmd_delete,
@@ -294,6 +581,15 @@ def main():
         'admin': cmd_admin,
         'unadmin': cmd_unadmin,
         'encrypt-files': cmd_encrypt_files,
+        # Backup operations
+        'backup': cmd_backup,
+        'backup-list': cmd_backup_list,
+        'restore': cmd_restore,
+        'verify': cmd_verify,
+        # Recovery key
+        'recovery-key': cmd_recovery_key,
+        'recover': cmd_recover,
+        # Help
         'help': lambda _: (print_usage(), 0)[1],
     }
 

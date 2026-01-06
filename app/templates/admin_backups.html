@@ -171,8 +171,78 @@
                 {% endfor %}
             {% else %}
                 <div class="empty-state">
-                    <p>No backups yet</p>
-                    <p>Click "Create Backup" to create your first backup</p>
+                    <p>No database backups yet</p>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Full Backups Section -->
+        <h2 style="margin-top: 2.5rem; margin-bottom: 1rem; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+            Full Backups (Database + Media)
+        </h2>
+
+        <div class="backup-actions" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+            <button id="create-full-backup-btn" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Create Full Backup
+            </button>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+                Scheduler:
+                {% if scheduler_status.enabled %}
+                    <span style="color: #22c55e;">{{ scheduler_status.schedule }}</span>
+                    {% if scheduler_status.last_backup %}
+                        | Last: {{ scheduler_status.last_backup[:16].replace('T', ' ') }}
+                    {% endif %}
+                {% else %}
+                    <span style="color: var(--text-muted);">disabled</span>
+                {% endif %}
+            </div>
+        </div>
+        <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 1rem;">
+            Path: {{ backup_path }}
+        </div>
+
+        <div id="full-backup-list" class="backup-list">
+            {% if full_backups %}
+                {% for backup in full_backups %}
+                <div class="backup-item full-backup-item" data-name="{{ backup.filename }}">
+                    <div class="backup-info">
+                        <div class="backup-name">{{ backup.filename }}</div>
+                        <div class="backup-meta">
+                            <span>{{ backup.size_human }}</span>
+                            {% if backup.created_at %}
+                            <span>{{ backup.created_at[:19].replace('T', ' ') }}</span>
+                            {% endif %}
+                            {% if backup.valid %}
+                            <span class="backup-reason" style="background: rgba(34, 197, 94, 0.2); color: #22c55e;">valid</span>
+                            {% if backup.stats %}
+                            <span style="color: var(--text-muted);">{{ backup.stats.total_files }} files</span>
+                            {% endif %}
+                            {% else %}
+                            <span class="backup-reason" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">{{ backup.error or 'invalid' }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="backup-item-actions">
+                        <button class="btn btn-small btn-secondary" onclick="verifyFullBackup('{{ backup.filename }}')">Verify</button>
+                        <a href="/api/admin/full-backup/{{ backup.filename }}/download" class="btn btn-small btn-secondary">Download</a>
+                        <button class="btn btn-small btn-secondary" onclick="restoreFullBackup('{{ backup.filename }}')">Restore</button>
+                        <button class="btn btn-small btn-danger" onclick="deleteFullBackup('{{ backup.filename }}')">Delete</button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>No full backups yet</p>
+                    <p>Full backups include the database and all encrypted media files</p>
                 </div>
             {% endif %}
         </div>
@@ -244,17 +314,113 @@
                 const resp = await csrfFetch(`/api/admin/backup/${filename}`, { method: 'DELETE' });
                 if (!resp.ok) throw new Error('Failed to delete backup');
 
-                const item = document.querySelector(`.backup-item[data-name="${filename}"]`);
+                const item = document.querySelector(`.backup-item[data-name="${filename}"]:not(.full-backup-item)`);
                 if (item) item.remove();
 
                 showStatus('Backup deleted');
 
                 // Check if list is now empty
-                if (document.querySelectorAll('.backup-item').length === 0) {
+                if (document.querySelectorAll('#backup-list .backup-item').length === 0) {
                     document.getElementById('backup-list').innerHTML = `
                         <div class="empty-state">
-                            <p>No backups yet</p>
-                            <p>Click "Create Backup" to create your first backup</p>
+                            <p>No database backups yet</p>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                showStatus('Failed to delete: ' + err.message, true);
+            }
+        }
+
+        // === Full Backup Functions ===
+
+        document.getElementById('create-full-backup-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('create-full-backup-btn');
+            btn.disabled = true;
+            btn.textContent = 'Creating full backup...';
+
+            try {
+                const resp = await csrfFetch('/api/admin/full-backup', { method: 'POST' });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to create backup');
+                }
+
+                const data = await resp.json();
+                showStatus(`Full backup created: ${data.filename} (${data.size}, ${data.stats.total_files} files)`);
+                setTimeout(() => location.reload(), 1500);
+            } catch (err) {
+                showStatus('Failed to create full backup: ' + err.message, true);
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Create Full Backup
+                `;
+            }
+        });
+
+        async function verifyFullBackup(filename) {
+            showStatus(`Verifying ${filename}...`);
+
+            try {
+                const resp = await fetch(`/api/admin/full-backup/${filename}/verify`);
+                if (!resp.ok) throw new Error('Verification request failed');
+
+                const data = await resp.json();
+                if (data.valid) {
+                    showStatus(`Backup is VALID: ${data.verified_files}/${data.total_files} files verified`);
+                } else {
+                    showStatus(`Backup is INVALID: ${data.error || data.errors?.join(', ')}`, true);
+                }
+            } catch (err) {
+                showStatus('Verification failed: ' + err.message, true);
+            }
+        }
+
+        async function restoreFullBackup(filename) {
+            if (!confirm(`Restore from "${filename}"?\n\nWARNING: This will overwrite the current database and ALL media files!`)) {
+                return;
+            }
+
+            showStatus(`Restoring from ${filename}...`);
+
+            try {
+                const resp = await csrfFetch(`/api/admin/full-backup/${filename}/restore`, { method: 'POST' });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Restore failed');
+                }
+
+                const data = await resp.json();
+                showStatus(`${data.message} (${data.restored_files} files restored)`);
+                setTimeout(() => location.reload(), 3000);
+            } catch (err) {
+                showStatus('Restore failed: ' + err.message, true);
+            }
+        }
+
+        async function deleteFullBackup(filename) {
+            if (!confirm(`Delete full backup "${filename}"?\n\nThis cannot be undone!`)) {
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`/api/admin/full-backup/${filename}`, { method: 'DELETE' });
+                if (!resp.ok) throw new Error('Failed to delete backup');
+
+                const item = document.querySelector(`.full-backup-item[data-name="${filename}"]`);
+                if (item) item.remove();
+
+                showStatus('Full backup deleted');
+
+                if (document.querySelectorAll('#full-backup-list .backup-item').length === 0) {
+                    document.getElementById('full-backup-list').innerHTML = `
+                        <div class="empty-state">
+                            <p>No full backups yet</p>
+                            <p>Full backups include the database and all encrypted media files</p>
                         </div>
                     `;
                 }

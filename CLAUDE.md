@@ -116,3 +116,30 @@ python manage_users.py add <username> <password> <display_name>
 python manage_users.py delete <username>
 python manage_users.py passwd <username> <new_password>
 ```
+
+## Backup System
+
+Full backups include the database and all encrypted media files:
+```bash
+python manage_users.py backup              # Create full backup
+python manage_users.py backup-list         # List all backups
+python manage_users.py verify <filename>   # Verify backup integrity
+python manage_users.py restore <filename>  # Restore from backup
+```
+
+**Environment variables:**
+- `BACKUP_PATH` - Directory for storing backups (default: `backups/`)
+- `BACKUP_SCHEDULE` - Automatic backup schedule: `daily`, `weekly`, or `disabled`
+- `BACKUP_ROTATION_COUNT` - Number of backups to keep (default: 5)
+
+Admin UI available at `/admin/backups`.
+
+## Recovery Key
+
+Generate a recovery key to recover access if password is lost:
+```bash
+python manage_users.py recovery-key <username> <password>  # Shows one-time key
+python manage_users.py recover <username> <recovery_key>   # Reset password
+```
+
+**Important:** The recovery key is shown only once. Store it securely!
