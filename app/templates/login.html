@@ -104,6 +104,66 @@
             cursor: not-allowed;
         }
 
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 1.5rem 0;
+            gap: 1rem;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .divider span {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .hardware-key-btn {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .hardware-key-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--accent);
+        }
+
+        .hardware-key-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .hardware-key-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .hardware-key-section {
+            display: none;
+        }
+
+        .hardware-key-section.visible {
+            display: block;
+        }
+
         .error-message {
             background: rgba(239, 68, 68, 0.1);
             border: 1px solid rgba(239, 68, 68, 0.3);
@@ -148,7 +208,187 @@
 
                 <button type="submit" class="login-btn">Sign In</button>
             </form>
+
+            <!-- Hardware Key Login Section (shown when user has keys) -->
+            <div id="hardware-key-section" class="hardware-key-section">
+                <div class="divider"><span>or</span></div>
+                <button type="button" id="hardware-key-btn" class="hardware-key-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    Sign in with Hardware Key
+                </button>
+            </div>
         </div>
     </div>
+
+    <script>
+        // Check if username field has a value (for session restore case)
+        const usernameInput = document.getElementById('username');
+        const hardwareKeySection = document.getElementById('hardware-key-section');
+        const hardwareKeyBtn = document.getElementById('hardware-key-btn');
+        let checkTimeout = null;
+        let lastCheckedUsername = '';
+
+        // Check if user has hardware keys when username is entered
+        async function checkHardwareKeys(username) {
+            if (!username || username.length < 2) {
+                hardwareKeySection.classList.remove('visible');
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/api/webauthn/check/${encodeURIComponent(username)}`);
+                const data = await resp.json();
+
+                if (data.has_keys) {
+                    hardwareKeySection.classList.add('visible');
+                    lastCheckedUsername = username;
+                } else {
+                    hardwareKeySection.classList.remove('visible');
+                }
+            } catch (err) {
+                console.error('Failed to check hardware keys:', err);
+                hardwareKeySection.classList.remove('visible');
+            }
+        }
+
+        // Debounced check on username input
+        usernameInput.addEventListener('input', (e) => {
+            clearTimeout(checkTimeout);
+            checkTimeout = setTimeout(() => {
+                checkHardwareKeys(e.target.value.trim());
+            }, 500);
+        });
+
+        // Check on page load if username is pre-filled
+        if (usernameInput.value) {
+            checkHardwareKeys(usernameInput.value.trim());
+        }
+
+        // Hardware key authentication
+        hardwareKeyBtn.addEventListener('click', async () => {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                alert('Please enter your username first');
+                usernameInput.focus();
+                return;
+            }
+
+            hardwareKeyBtn.disabled = true;
+            hardwareKeyBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite;">
+                    <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="32"/>
+                </svg>
+                Waiting for key...
+            `;
+
+            try {
+                // Step 1: Get authentication options
+                const optionsResp = await fetch(`/api/webauthn/authenticate/begin?username=${encodeURIComponent(username)}`);
+                if (!optionsResp.ok) {
+                    const err = await optionsResp.json();
+                    throw new Error(err.detail || 'Failed to get options');
+                }
+                const { options, challenge } = await optionsResp.json();
+
+                // Parse options JSON string
+                const publicKeyOptions = JSON.parse(options);
+
+                // Convert base64url strings to ArrayBuffers
+                publicKeyOptions.challenge = base64urlToBuffer(publicKeyOptions.challenge);
+                if (publicKeyOptions.allowCredentials) {
+                    publicKeyOptions.allowCredentials = publicKeyOptions.allowCredentials.map(cred => ({
+                        ...cred,
+                        id: base64urlToBuffer(cred.id)
+                    }));
+                }
+
+                // Step 2: Get assertion from browser
+                const assertion = await navigator.credentials.get({
+                    publicKey: publicKeyOptions
+                });
+
+                // Step 3: Send assertion to server
+                const assertionData = {
+                    id: bufferToBase64url(assertion.rawId),
+                    rawId: bufferToBase64url(assertion.rawId),
+                    type: assertion.type,
+                    response: {
+                        clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+                        authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+                        signature: bufferToBase64url(assertion.response.signature),
+                        userHandle: assertion.response.userHandle
+                            ? bufferToBase64url(assertion.response.userHandle)
+                            : null
+                    }
+                };
+
+                const verifyResp = await fetch('/api/webauthn/authenticate/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        credential: assertionData,
+                        challenge: challenge
+                    })
+                });
+
+                if (!verifyResp.ok) {
+                    const err = await verifyResp.json();
+                    throw new Error(err.detail || 'Authentication failed');
+                }
+
+                // Success - redirect to gallery
+                window.location.href = '/';
+
+            } catch (err) {
+                console.error('Hardware key auth error:', err);
+                if (err.name === 'NotAllowedError') {
+                    alert('Authentication was cancelled or timed out');
+                } else {
+                    alert('Authentication failed: ' + err.message);
+                }
+                hardwareKeyBtn.disabled = false;
+                hardwareKeyBtn.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    Sign in with Hardware Key
+                `;
+            }
+        });
+
+        // WebAuthn helper functions
+        function base64urlToBuffer(base64url) {
+            let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+            const padding = 4 - base64.length % 4;
+            if (padding !== 4) {
+                base64 += '='.repeat(padding);
+            }
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function bufferToBase64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+    </script>
+
+    <style>
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
 </body>
 </html>
