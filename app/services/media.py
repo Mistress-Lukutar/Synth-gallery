@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 import cv2
-from PIL import Image
+from PIL import Image, ImageOps
 
 from ..config import ALLOWED_VIDEO_TYPES
 
@@ -13,6 +13,8 @@ from ..config import ALLOWED_VIDEO_TYPES
 def create_thumbnail(source_path: Path, thumb_path: Path, size: tuple[int, int] = (400, 400)):
     """Creates image thumbnail."""
     with Image.open(source_path) as img:
+        # Apply EXIF orientation to fix rotated images from cameras/phones
+        img = ImageOps.exif_transpose(img)
         img.thumbnail(size, Image.Resampling.LANCZOS)
         # Convert RGBA/P to RGB for JPEG (no transparency support)
         if img.mode in ("RGBA", "P"):
@@ -47,6 +49,8 @@ def get_media_type(content_type: str) -> str:
 def create_thumbnail_bytes(image_data: bytes, size: tuple[int, int] = (400, 400)) -> bytes:
     """Create thumbnail from image bytes, return JPEG bytes."""
     with Image.open(BytesIO(image_data)) as img:
+        # Apply EXIF orientation to fix rotated images from cameras/phones
+        img = ImageOps.exif_transpose(img)
         img.thumbnail(size, Image.Resampling.LANCZOS)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
