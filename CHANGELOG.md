@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hardware key management in user settings (`/settings`)
   - Encrypted DEK storage per credential for seamless file decryption
   - Login page automatically detects if user has registered keys
+  - Works from any origin/port (RP ID auto-detected from request)
   - New dependency: `webauthn>=2.0.0`
 
 ### Changed
