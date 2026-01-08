@@ -1,20 +1,31 @@
 # Synth
 
-Local gallery for storing and organizing AI-generated images with multi-user support and folder sharing.
+Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support.
 
-## Features
+## Key Features
 
-- **User Authentication** — Session-based auth with bcrypt password hashing
-- **Folder System** — Hierarchical folder structure for organizing content
-- **Sharing & Permissions** — Share folders with other users as Viewer (read-only) or Editor (can upload/delete)
-- **Media Support** — Images (jpg, png, gif, webp) and videos (mp4, webm)
-- **Albums** — Group multiple files into albums
-- **Tag System** — Categories (Subject, Location, Mood, Style, Event, Other) with presets
-- **Tag Search** — Autocomplete search across your accessible content
-- **AI Tags** — Auto-generate tags for photos (simulation mode + external AI service API)
-- **Batch Operations** — Delete or tag multiple items at once
-- **Dark Theme** — Modern dark UI
-- **Security** — CSRF protection, API key authentication for external services
+### Security
+- **End-to-End Encryption** — AES-256-GCM encryption for all uploaded files
+- **Hardware Key Login** — WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
+- **Recovery Keys** — Generate backup keys to recover access if password is lost
+- **Zero-Knowledge** — Server/admin cannot access your files without your password
+
+### Storage & Organization
+- **Folder Hierarchy** — Organize content in nested folders
+- **Albums** — Group related media with drag-and-drop reordering
+- **Sharing** — Share folders with other users (Viewer/Editor permissions)
+- **Tags & Search** — Categorize and find content quickly
+
+### Backup & Recovery
+- **Full Backups** — ZIP archives with database + encrypted files
+- **Automatic Scheduling** — Daily/weekly backups with rotation
+- **Integrity Verification** — SHA-256 checksums for all files
+
+### Media Support
+- Images: JPEG, PNG, GIF, WebP
+- Videos: MP4, WebM
+- Automatic thumbnail generation
+- EXIF/metadata extraction
 
 ## Quick Start
 
@@ -33,195 +44,86 @@ uvicorn app.main:app --reload --port 8000
 
 Open http://localhost:8000
 
-### Environment Variables
+## User Management
 
 ```bash
-SYNTH_AI_API_KEY=your-secret-key  # Required for external AI service API
-```
+# Create user
+python manage_users.py add <username> <password> <display_name>
 
-### User Management
+# Change password (re-encrypts all data)
+python manage_users.py passwd <username> <old_password> <new_password>
 
-Create users via CLI:
+# Generate recovery key
+python manage_users.py recovery-key <username> <password>
 
-```bash
-python manage_users.py add <username> <password> [--display-name "Display Name"]
+# Recover access with recovery key
+python manage_users.py recover <username> <recovery_key>
+
+# List users
 python manage_users.py list
-python manage_users.py delete <username>
-python manage_users.py passwd <username> <new_password>
 ```
 
-## Folder Permissions
+## Backup & Restore
 
-| Role | View | Upload | Delete Content | Manage Sharing | Delete Folder |
-|------|------|--------|----------------|----------------|---------------|
-| Owner | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Editor | ✓ | ✓ | Own content | ✗ | ✗ |
-| Viewer | ✓ | ✗ | ✗ | ✗ | ✗ |
-
-### Visual Folder Indicators
-
-Folders in the sidebar are color-coded:
-
-**My Folders:**
-- Gray (lock icon) — Private, no one else has access
-- Green border (eye icon) — Shared with viewers only
-- Orange border (arrow icon) — Shared with editors
-
-**Shared with me:**
-- Green background — I have viewer access
-- Orange background — I have editor access
-
-## Project Structure
-
-```
-app/
-├── main.py              # FastAPI app entry point
-├── config.py            # Constants, paths, environment variables
-├── middleware.py        # Auth and CSRF middleware
-├── dependencies.py      # Shared dependencies
-├── database.py          # SQLite schema, queries, access control
-├── routes/
-│   ├── auth.py          # Login/logout
-│   ├── gallery.py       # Main gallery, uploads
-│   ├── folders.py       # Folder management
-│   ├── tags.py          # Tag management
-│   └── api.py           # External AI service API
-├── services/
-│   └── media.py         # Thumbnail generation
-├── templates/           # Jinja2 templates
-└── static/              # CSS and icons
-
-uploads/                 # Original files (created automatically)
-thumbnails/              # 400x400 previews (created automatically)
-gallery.db               # SQLite database
-manage_users.py          # CLI for user management
-```
-
-## API
-
-### Authentication
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/login` | Public | Login page |
-| POST | `/login` | Public+CSRF | Authenticate user |
-| GET | `/logout` | Session | Logout |
-
-### Folders
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/folders` | Session | List user's folders and shared folders |
-| POST | `/api/folders` | Session+CSRF | Create folder |
-| PUT | `/api/folders/{id}` | Session+CSRF | Update folder |
-| DELETE | `/api/folders/{id}` | Session+CSRF | Delete folder (owner only) |
-
-### Folder Permissions
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/folders/{id}/permissions` | Session | List folder permissions |
-| POST | `/api/folders/{id}/permissions` | Session+CSRF | Add user permission |
-| PUT | `/api/folders/{id}/permissions/{user_id}` | Session+CSRF | Update permission |
-| DELETE | `/api/folders/{id}/permissions/{user_id}` | Session+CSRF | Remove permission |
-| GET | `/api/users/search?q=` | Session | Search users for sharing |
-
-### Upload
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | `/upload` | Session+CSRF | Upload single file to folder |
-| POST | `/upload-album` | Session+CSRF | Upload album (2+ files) |
-
-### Tags
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/tag-categories` | Session | List tag categories |
-| GET | `/api/tag-presets` | Session | Preset tags by category |
-| POST | `/api/tag-presets` | Session+CSRF | Add preset tag |
-| POST | `/api/photos/{id}/tag` | Session+CSRF | Add tag to photo |
-| DELETE | `/api/photos/{id}/tag/{tag_id}` | Session+CSRF | Remove tag |
-| POST | `/api/photos/{id}/ai-tags` | Session+CSRF | Generate AI tags (simulation) |
-
-### Search and Batch Operations
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/tags/all` | Session | All tags (for autocomplete) |
-| GET | `/api/photos/search?tags=` | Session | Search by tags (space-separated) |
-| POST | `/api/photos/batch-delete` | Session+CSRF | Batch delete |
-| POST | `/api/photos/batch-ai-tags` | Session+CSRF | Batch AI tag generation |
-
-### External AI Service API
-
-These endpoints are for external AI services and require API key authentication:
-
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/ai/photos/untagged` | API Key | Photos without tags (limit 10) |
-| POST | `/api/ai/photos/{id}/tags` | API Key | Set tags (array of strings) |
-| GET | `/api/ai/stats` | API Key | Tagging statistics |
-
-**Usage:**
 ```bash
-# Set API key
-export SYNTH_AI_API_KEY=your-secret-key
+# Create full backup
+python manage_users.py backup
 
-# Get untagged photos
-curl -H "X-API-Key: $SYNTH_AI_API_KEY" http://localhost:8000/api/ai/photos/untagged
+# List backups
+python manage_users.py backup-list
 
-# Set tags for a photo
-curl -X POST \
-  -H "X-API-Key: $SYNTH_AI_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '["portrait", "outdoor", "happy"]' \
-  http://localhost:8000/api/ai/photos/{photo_id}/tags
+# Verify backup integrity
+python manage_users.py verify <filename>
+
+# Restore from backup
+python manage_users.py restore <filename>
 ```
 
-## Security
+Admin UI available at `/admin/backups`
 
-- **Authentication**: Session-based with HTTP-only cookies (7 days expiry)
-- **Password Hashing**: bcrypt via passlib (auto-migrates legacy SHA-256 hashes)
-- **CSRF Protection**: Token validation for all mutating requests
-- **Path Traversal Prevention**: File path validation for uploads/thumbnails
-- **API Key**: Separate authentication for external AI service endpoints
+## Hardware Key Setup
 
-## Database Schema
+1. Log in with your password
+2. Go to Settings (gear icon)
+3. Add a hardware key (YubiKey, etc.)
+4. Future logins: enter username → click "Sign in with Hardware Key"
 
-**users** — user accounts
-- id, username, password_hash, password_salt, display_name, default_folder_id, created_at
+Note: Keys are bound to the domain where registered. Register separate keys for each access method (localhost, VPN, public domain).
 
-**sessions** — login sessions
-- id, user_id, created_at, expires_at
+## Environment Variables
 
-**folders** — folder hierarchy
-- id, name, user_id, parent_id, created_at
+```bash
+# AI service API key (optional)
+SYNTH_AI_API_KEY=your-secret-key
 
-**folder_permissions** — sharing permissions
-- id, folder_id, user_id, permission (viewer/editor), granted_by, granted_at
+# WebAuthn display name
+WEBAUTHN_RP_NAME=Synth Gallery
 
-**photos** — uploaded files
-- id, filename, original_name, uploaded_at, ai_processed, album_id, position, media_type, folder_id, user_id
+# Backup settings
+BACKUP_PATH=/path/to/backups
+BACKUP_SCHEDULE=daily          # daily, weekly, or disabled
+BACKUP_ROTATION_COUNT=5        # number of backups to keep
+```
 
-**albums** — photo albums
-- id, name, created_at, folder_id, user_id
+## Security Model
 
-**tags** — photo tags
-- id, photo_id, tag, category_id, confidence
-
-**tag_categories** — tag categories
-- id, name, color
-
-**tag_presets** — preset tag library
-- id, name, category_id
+| Layer | Protection |
+|-------|------------|
+| Files at rest | AES-256-GCM per-user encryption |
+| Password | bcrypt + PBKDF2-SHA256 key derivation |
+| Sessions | HTTP-only cookies, 7-day expiry |
+| API | CSRF tokens, API key auth for external services |
+| Login | Password or WebAuthn hardware keys |
 
 ## Tech Stack
 
-- Python 3.11
-- FastAPI
+- Python 3.11 / FastAPI
 - SQLite
-- Jinja2
-- Pillow (image processing)
-- OpenCV (video thumbnails)
-- Passlib + bcrypt (password hashing)
+- Jinja2 templates
+- Pillow / OpenCV (media processing)
+- cryptography (AES-256-GCM)
+- py_webauthn (FIDO2)
+
+## License
+
+MIT
