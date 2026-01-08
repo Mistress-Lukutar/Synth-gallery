@@ -23,10 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Background thread checks hourly and creates backups as needed
   - Automatic rotation keeps last N backups (`BACKUP_ROTATION_COUNT`)
 - Configurable backup storage path via `BACKUP_PATH` environment variable
+- Hardware key authentication (WebAuthn/FIDO2) for passwordless login (#10)
+  - Support for YubiKey and other FIDO2 security keys
+  - Alternative to password-based authentication
+  - Hardware key management in user settings (`/settings`)
+  - Encrypted DEK storage per credential for seamless file decryption
+  - Login page automatically detects if user has registered keys
+  - Works from any origin/port (RP ID auto-detected from request)
+  - New dependency: `webauthn>=2.0.0`
 
 ### Changed
 - Admin backup page now shows both database-only and full backups
 - Backup service refactored into FullBackupService class
+- User settings page added (`/settings`) accessible from header
+- Settings gear icon added to user menu in navigation
 
 ## [0.8.1] - 2026-01-06
 

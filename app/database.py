@@ -96,6 +96,21 @@ def init_db():
         )
     """)
 
+    # WebAuthn credentials for hardware key authentication
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS webauthn_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            credential_id BLOB NOT NULL UNIQUE,
+            public_key BLOB NOT NULL,
+            sign_count INTEGER DEFAULT 0,
+            name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            encrypted_dek BLOB,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+
     # Folders table for organizing content
     db.execute("""
         CREATE TABLE IF NOT EXISTS folders (
@@ -1611,3 +1626,107 @@ def get_photo_owner_id(photo_id: str) -> int | None:
         (photo_id,)
     ).fetchone()
     return photo["user_id"] if photo else None
+
+
+# =============================================================================
+# WebAuthn Credentials
+# =============================================================================
+
+def add_webauthn_credential(
+    user_id: int,
+    credential_id: bytes,
+    public_key: bytes,
+    name: str,
+    encrypted_dek: bytes | None = None
+) -> int:
+    """Add a new WebAuthn credential for a user."""
+    db = get_db()
+    cursor = db.execute("""
+        INSERT INTO webauthn_credentials (user_id, credential_id, public_key, name, encrypted_dek)
+        VALUES (?, ?, ?, ?, ?)
+    """, (user_id, credential_id, public_key, name, encrypted_dek))
+    db.commit()
+    return cursor.lastrowid
+
+
+def get_webauthn_credentials(user_id: int) -> list[dict]:
+    """Get all WebAuthn credentials for a user."""
+    db = get_db()
+    credentials = db.execute("""
+        SELECT id, credential_id, public_key, sign_count, name, created_at, encrypted_dek
+        FROM webauthn_credentials WHERE user_id = ?
+        ORDER BY created_at DESC
+    """, (user_id,)).fetchall()
+    return [dict(c) for c in credentials]
+
+
+def get_webauthn_credential_by_id(credential_id: bytes) -> dict | None:
+    """Get a WebAuthn credential by its credential_id."""
+    db = get_db()
+    credential = db.execute("""
+        SELECT wc.*, u.username, u.id as user_id
+        FROM webauthn_credentials wc
+        JOIN users u ON wc.user_id = u.id
+        WHERE wc.credential_id = ?
+    """, (credential_id,)).fetchone()
+    return dict(credential) if credential else None
+
+
+def get_user_credential_ids(user_id: int) -> list[bytes]:
+    """Get all credential IDs for a user (for WebAuthn allowCredentials)."""
+    db = get_db()
+    credentials = db.execute("""
+        SELECT credential_id FROM webauthn_credentials WHERE user_id = ?
+    """, (user_id,)).fetchall()
+    return [c["credential_id"] for c in credentials]
+
+
+def update_webauthn_sign_count(credential_id: bytes, new_sign_count: int) -> bool:
+    """Update sign count after successful authentication."""
+    db = get_db()
+    db.execute("""
+        UPDATE webauthn_credentials SET sign_count = ? WHERE credential_id = ?
+    """, (new_sign_count, credential_id))
+    db.commit()
+    return True
+
+
+def delete_webauthn_credential(credential_db_id: int, user_id: int) -> bool:
+    """Delete a WebAuthn credential by its database ID."""
+    db = get_db()
+    result = db.execute("""
+        DELETE FROM webauthn_credentials WHERE id = ? AND user_id = ?
+    """, (credential_db_id, user_id))
+    db.commit()
+    return result.rowcount > 0
+
+
+def rename_webauthn_credential(credential_db_id: int, user_id: int, new_name: str) -> bool:
+    """Rename a WebAuthn credential."""
+    db = get_db()
+    result = db.execute("""
+        UPDATE webauthn_credentials SET name = ? WHERE id = ? AND user_id = ?
+    """, (new_name, credential_db_id, user_id))
+    db.commit()
+    return result.rowcount > 0
+
+
+def user_has_webauthn_credentials(user_id: int) -> bool:
+    """Check if user has any registered WebAuthn credentials."""
+    db = get_db()
+    result = db.execute("""
+        SELECT 1 FROM webauthn_credentials WHERE user_id = ? LIMIT 1
+    """, (user_id,)).fetchone()
+    return result is not None
+
+
+def get_all_credential_ids_for_username(username: str) -> list[bytes]:
+    """Get all credential IDs for a username (for passwordless login)."""
+    db = get_db()
+    credentials = db.execute("""
+        SELECT wc.credential_id
+        FROM webauthn_credentials wc
+        JOIN users u ON wc.user_id = u.id
+        WHERE u.username = ?
+    """, (username,)).fetchall()
+    return [c["credential_id"] for c in credentials]

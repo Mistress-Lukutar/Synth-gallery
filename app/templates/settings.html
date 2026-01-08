@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Settings - Synth</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .settings-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .settings-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .settings-header a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .settings-header a:hover {
+            color: var(--text);
+        }
+
+        .settings-header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .settings-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .settings-section h2 {
+            margin: 0 0 1rem 0;
+            font-size: 1.1rem;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .settings-section h2 svg {
+            width: 20px;
+            height: 20px;
+            stroke: var(--accent);
+        }
+
+        .settings-section p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin: 0 0 1rem 0;
+        }
+
+        .credentials-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .credential-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .credential-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .credential-name {
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .credential-date {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .credential-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .credential-actions button {
+            padding: 0.4rem 0.6rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .credential-actions button:hover {
+            background: var(--bg-secondary);
+            color: var(--text);
+        }
+
+        .credential-actions .btn-delete:hover {
+            border-color: #ef4444;
+            color: #ef4444;
+        }
+
+        .no-credentials {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .add-key-section {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .add-key-form {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .add-key-form input {
+            flex: 1;
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .add-key-form input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .status-badge.has-dek {
+            background: rgba(34, 197, 94, 0.1);
+            color: #22c55e;
+        }
+
+        .status-badge.no-dek {
+            background: rgba(234, 179, 8, 0.1);
+            color: #eab308;
+        }
+
+        /* Loading state */
+        .loading-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Rename modal */
+        .rename-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .rename-modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .rename-modal h3 {
+            margin: 0 0 1rem 0;
+        }
+
+        .rename-modal input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .rename-modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <div class="settings-header">
+            <a href="/" title="Back to Gallery">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </a>
+            <h1>Settings</h1>
+        </div>
+
+        <!-- User Info Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+                Account
+            </h2>
+            <p>Logged in as <strong>{{ user.display_name }}</strong> (@{{ user.username }})</p>
+        </div>
+
+        <!-- Hardware Keys Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Hardware Security Keys
+            </h2>
+            <p>Use hardware keys like YubiKey for passwordless login. Keys are linked to your encrypted files.</p>
+
+            <div id="credentials-list" class="credentials-list">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <div class="add-key-section">
+                <div class="add-key-form">
+                    <input type="text" id="key-name-input" placeholder="Key name (e.g., YubiKey 5)" maxlength="50">
+                    <button id="add-key-btn" class="btn">Add Key</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename Modal -->
+    <div id="rename-modal" class="rename-modal hidden">
+        <div class="rename-modal-content">
+            <h3>Rename Key</h3>
+            <input type="text" id="rename-input" placeholder="New name" maxlength="50">
+            <div class="rename-modal-actions">
+                <button id="rename-cancel-btn" class="btn btn-secondary">Cancel</button>
+                <button id="rename-save-btn" class="btn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CSRF helper
+        function getCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta) return meta.getAttribute('content');
+            const match = document.cookie.match(/synth_csrf=([^;]+)/);
+            return match ? match[1] : '';
+        }
+
+        async function csrfFetch(url, options = {}) {
+            const csrfToken = getCsrfToken();
+            const headers = options.headers || {};
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
+                headers['X-CSRF-Token'] = csrfToken;
+            }
+            return fetch(url, { ...options, headers });
+        }
+
+        // State
+        let credentials = [];
+        let renamingCredentialId = null;
+
+        // Elements
+        const credentialsList = document.getElementById('credentials-list');
+        const keyNameInput = document.getElementById('key-name-input');
+        const addKeyBtn = document.getElementById('add-key-btn');
+        const renameModal = document.getElementById('rename-modal');
+        const renameInput = document.getElementById('rename-input');
+        const renameCancelBtn = document.getElementById('rename-cancel-btn');
+        const renameSaveBtn = document.getElementById('rename-save-btn');
+
+        // Load credentials
+        async function loadCredentials() {
+            try {
+                const resp = await fetch('/api/webauthn/credentials');
+                credentials = await resp.json();
+                renderCredentials();
+            } catch (err) {
+                console.error('Failed to load credentials:', err);
+                credentialsList.innerHTML = '<p class="no-credentials">Failed to load keys</p>';
+            }
+        }
+
+        // Render credentials list
+        function renderCredentials() {
+            if (credentials.length === 0) {
+                credentialsList.innerHTML = '<p class="no-credentials">No hardware keys registered</p>';
+                return;
+            }
+
+            credentialsList.innerHTML = credentials.map(cred => `
+                <div class="credential-item" data-id="${cred.id}">
+                    <div class="credential-info">
+                        <span class="credential-name">${escapeHtml(cred.name)}</span>
+                        <span class="credential-date">Added ${formatDate(cred.created_at)}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        ${cred.has_dek
+                            ? '<span class="status-badge has-dek">Encryption linked</span>'
+                            : '<span class="status-badge no-dek">No encryption</span>'
+                        }
+                        <div class="credential-actions">
+                            <button onclick="openRenameModal(${cred.id}, '${escapeHtml(cred.name)}')" title="Rename">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                            </button>
+                            <button class="btn-delete" onclick="deleteCredential(${cred.id})" title="Delete">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"/>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        // Add new key
+        addKeyBtn.addEventListener('click', async () => {
+            const keyName = keyNameInput.value.trim() || 'Security Key';
+
+            addKeyBtn.disabled = true;
+            addKeyBtn.innerHTML = '<span class="loading-spinner"></span>';
+
+            try {
+                // Step 1: Get registration options
+                const optionsResp = await fetch('/api/webauthn/register/begin');
+                if (!optionsResp.ok) {
+                    throw new Error('Failed to get registration options');
+                }
+                const { options, challenge } = await optionsResp.json();
+
+                // Parse options JSON string
+                const publicKeyOptions = JSON.parse(options);
+
+                // Convert base64url strings to ArrayBuffers
+                publicKeyOptions.challenge = base64urlToBuffer(publicKeyOptions.challenge);
+                publicKeyOptions.user.id = base64urlToBuffer(publicKeyOptions.user.id);
+                if (publicKeyOptions.excludeCredentials) {
+                    publicKeyOptions.excludeCredentials = publicKeyOptions.excludeCredentials.map(cred => ({
+                        ...cred,
+                        id: base64urlToBuffer(cred.id)
+                    }));
+                }
+
+                // Step 2: Create credential with browser API
+                const credential = await navigator.credentials.create({
+                    publicKey: publicKeyOptions
+                });
+
+                // Step 3: Send credential to server
+                const credentialData = {
+                    id: bufferToBase64url(credential.rawId),
+                    rawId: bufferToBase64url(credential.rawId),
+                    type: credential.type,
+                    response: {
+                        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+                        attestationObject: bufferToBase64url(credential.response.attestationObject)
+                    }
+                };
+
+                const verifyResp = await csrfFetch('/api/webauthn/register/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        credential: credentialData,
+                        challenge: challenge,
+                        name: keyName
+                    })
+                });
+
+                if (!verifyResp.ok) {
+                    const err = await verifyResp.json();
+                    throw new Error(err.detail || 'Registration failed');
+                }
+
+                keyNameInput.value = '';
+                await loadCredentials();
+
+            } catch (err) {
+                console.error('Registration error:', err);
+                if (err.name === 'NotAllowedError') {
+                    alert('Registration was cancelled or timed out');
+                } else {
+                    alert('Failed to register key: ' + err.message);
+                }
+            } finally {
+                addKeyBtn.disabled = false;
+                addKeyBtn.textContent = 'Add Key';
+            }
+        });
+
+        // Delete credential
+        async function deleteCredential(id) {
+            if (!confirm('Delete this hardware key? You will not be able to use it for login anymore.')) {
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`/api/webauthn/credentials/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (!resp.ok) {
+                    throw new Error('Failed to delete');
+                }
+
+                await loadCredentials();
+            } catch (err) {
+                console.error('Delete error:', err);
+                alert('Failed to delete key');
+            }
+        }
+
+        // Rename modal
+        function openRenameModal(id, currentName) {
+            renamingCredentialId = id;
+            renameInput.value = currentName;
+            renameModal.classList.remove('hidden');
+            renameInput.focus();
+        }
+
+        renameCancelBtn.addEventListener('click', () => {
+            renameModal.classList.add('hidden');
+            renamingCredentialId = null;
+        });
+
+        renameModal.addEventListener('click', (e) => {
+            if (e.target === renameModal) {
+                renameModal.classList.add('hidden');
+                renamingCredentialId = null;
+            }
+        });
+
+        renameSaveBtn.addEventListener('click', async () => {
+            const newName = renameInput.value.trim();
+            if (!newName) {
+                alert('Name cannot be empty');
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`/api/webauthn/credentials/${renamingCredentialId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+
+                if (!resp.ok) {
+                    throw new Error('Failed to rename');
+                }
+
+                renameModal.classList.add('hidden');
+                renamingCredentialId = null;
+                await loadCredentials();
+            } catch (err) {
+                console.error('Rename error:', err);
+                alert('Failed to rename key');
+            }
+        });
+
+        // Helper functions for WebAuthn
+        function base64urlToBuffer(base64url) {
+            // Add padding if needed
+            let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+            const padding = 4 - base64.length % 4;
+            if (padding !== 4) {
+                base64 += '='.repeat(padding);
+            }
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function bufferToBase64url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+        }
+
+        // Initialize
+        loadCredentials();
+    </script>
+</body>
+</html>
