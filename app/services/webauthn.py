@@ -19,7 +19,7 @@ from webauthn.helpers.structs import (
 )
 from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
-from ..config import WEBAUTHN_RP_ID, WEBAUTHN_RP_NAME, WEBAUTHN_ORIGINS
+from ..config import WEBAUTHN_RP_NAME
 
 
 def get_rp_id_from_origin(origin: str) -> str:

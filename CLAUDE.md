@@ -25,8 +25,6 @@ SYNTH_AI_API_KEY=your-secret-key  # Required for AI service API
 
 # WebAuthn configuration (for hardware key auth)
 WEBAUTHN_RP_NAME=Synth Gallery    # Display name shown during registration
-# Multiple origins (comma-separated) - RP ID is auto-detected from request
-WEBAUTHN_ORIGINS=http://localhost:8000,http://localhost:8008,https://example.com
 ```
 
 Access at http://localhost:8000
