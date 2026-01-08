@@ -125,7 +125,7 @@ Use the CLI tool to manage users:
 python manage_users.py list
 python manage_users.py add <username> <password> <display_name>
 python manage_users.py delete <username>
-python manage_users.py passwd <username> <new_password>
+python manage_users.py passwd <username> <old_password> <new_password>
 ```
 
 ## Backup System
