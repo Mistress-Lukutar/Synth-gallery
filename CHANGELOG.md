@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Works from any origin/port (RP ID auto-detected from request)
   - New dependency: `webauthn>=2.0.0`
 
+### Fixed
+- Password change now properly re-encrypts DEK with new password
+  - Previously changing password broke file decryption
+  - CLI syntax changed: `passwd <username> <old_password> <new_password>`
+
 ### Changed
 - Admin backup page now shows both database-only and full backups
 - Backup service refactored into FullBackupService class

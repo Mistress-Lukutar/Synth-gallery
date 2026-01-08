@@ -121,11 +121,11 @@ def cmd_delete(args):
 
 
 def cmd_passwd(args):
-    if len(args) < 2:
-        print("Error: passwd requires <username> <new_password>")
+    if len(args) < 3:
+        print("Error: passwd requires <username> <old_password> <new_password>")
         return 1
 
-    username, new_password = args[0], args[1]
+    username, old_password, new_password = args[0], args[1], args[2]
 
     if len(new_password) < 4:
         print("Error: Password must be at least 4 characters")
@@ -136,8 +136,36 @@ def cmd_passwd(args):
         print(f"Error: User '{username}' not found")
         return 1
 
-    update_user_password(user['id'], new_password)
-    print(f"Password updated for '{username}'")
+    # Verify old password
+    if not verify_password(old_password, user["password_hash"], user["password_salt"] if "password_salt" in user.keys() else None):
+        print("Error: Old password is incorrect")
+        return 1
+
+    # Check if user has encryption keys
+    enc_keys = get_user_encryption_keys(user["id"])
+    if enc_keys:
+        from app.services.encryption import EncryptionService
+        # Decrypt DEK with old password
+        old_kek = EncryptionService.derive_kek(old_password, enc_keys["dek_salt"])
+        try:
+            dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], old_kek)
+        except Exception as e:
+            print(f"Error: Failed to decrypt encryption key: {e}")
+            return 1
+
+        # Re-encrypt DEK with new password
+        new_salt = EncryptionService.generate_salt()
+        new_kek = EncryptionService.derive_kek(new_password, new_salt)
+        new_encrypted_dek = EncryptionService.encrypt_dek(dek, new_kek)
+
+        # Update password and encryption keys
+        update_user_password(user['id'], new_password)
+        set_user_encryption_keys(user["id"], new_encrypted_dek, new_salt)
+        print(f"Password and encryption keys updated for '{username}'")
+    else:
+        # No encryption - just update password
+        update_user_password(user['id'], new_password)
+        print(f"Password updated for '{username}'")
     return 0
 
 
