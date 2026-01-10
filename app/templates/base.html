@@ -720,28 +720,43 @@
         const setDefaultFolderBtn = document.getElementById('set-default-folder-btn');
 
         // Mobile sidebar toggle
+        function openSidebar() {
+            sidebar.classList.add('open');
+            sidebarOverlay.classList.remove('hidden');
+            sidebarOverlay.classList.add('visible');
+        }
+
+        function closeSidebar() {
+            sidebar.classList.remove('open');
+            sidebarOverlay.classList.remove('visible');
+            sidebarOverlay.classList.add('hidden');
+        }
+
         sidebarToggle.onclick = () => {
-            sidebar.classList.toggle('open');
-            sidebarOverlay.classList.toggle('visible');
-        };
-
-        sidebarOverlay.onclick = () => {
-            sidebar.classList.remove('open');
-            sidebarOverlay.classList.remove('visible');
-        };
-
-        // Close sidebar when clicking outside of it
-        document.addEventListener('click', (e) => {
-            if (!sidebar.classList.contains('open')) return;
-
-            // Don't close if clicking on sidebar itself or toggle button
-            if (e.target.closest('#sidebar') || e.target.closest('#sidebar-toggle')) {
-                return;
+            if (sidebar.classList.contains('open')) {
+                closeSidebar();
+            } else {
+                openSidebar();
             }
+        };
 
-            sidebar.classList.remove('open');
-            sidebarOverlay.classList.remove('visible');
-        });
+        // Clicking/touching overlay closes sidebar and blocks other interactions
+        sidebarOverlay.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSidebar();
+        };
+
+        sidebarOverlay.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, { passive: false });
+
+        sidebarOverlay.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeSidebar();
+        }, { passive: false });
 
         // Mobile swipe to close sidebar
         let sidebarTouchStartX = 0;
@@ -761,8 +776,7 @@
 
             // Swipe left to close (sidebar is on the left side)
             if (deltaX < -sidebarSwipeThreshold && deltaY < sidebarSwipeThreshold) {
-                sidebar.classList.remove('open');
-                sidebarOverlay.classList.remove('visible');
+                closeSidebar();
             }
         }, { passive: true });
 

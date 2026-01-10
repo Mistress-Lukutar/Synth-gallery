@@ -1454,6 +1454,7 @@ main {
 
     header {
         padding: 1rem;
+        position: static;
     }
 
     .nav-arrow {
@@ -1760,10 +1761,12 @@ main {
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
     z-index: 140;
+    touch-action: none;
 }
 
 .sidebar-overlay.visible {
     display: block;
+    cursor: pointer;
 }
 
 /* Folder modal */
@@ -1962,6 +1965,11 @@ main {
     .main-content {
         width: 100%;
         margin-left: 0;
+    }
+
+    /* Header scrolls with page on mobile */
+    header {
+        position: static;
     }
 
     .folder-header {
