@@ -367,6 +367,12 @@ def init_db():
     if "is_encrypted" not in photo_columns:
         db.execute("ALTER TABLE photos ADD COLUMN is_encrypted INTEGER DEFAULT 0")
 
+    # Migration: add thumbnail dimensions to photos (for instant placeholder rendering)
+    if "thumb_width" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN thumb_width INTEGER")
+    if "thumb_height" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN thumb_height INTEGER")
+
     db.execute("""
         CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)
     """)
@@ -1626,6 +1632,17 @@ def get_photo_owner_id(photo_id: str) -> int | None:
         (photo_id,)
     ).fetchone()
     return photo["user_id"] if photo else None
+
+
+def update_photo_thumbnail_dimensions(photo_id: str, width: int, height: int) -> bool:
+    """Update thumbnail dimensions for a photo."""
+    db = get_db()
+    result = db.execute(
+        "UPDATE photos SET thumb_width = ?, thumb_height = ? WHERE id = ?",
+        (width, height, photo_id)
+    )
+    db.commit()
+    return result.rowcount > 0
 
 
 # =============================================================================
