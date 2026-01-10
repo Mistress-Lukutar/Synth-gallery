@@ -56,9 +56,9 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
 
             # Create thumbnail from decrypted bytes
             if photo["media_type"] == "video":
-                thumb_bytes = create_video_thumbnail_bytes(decrypted_data)
+                thumb_bytes, _, _ = create_video_thumbnail_bytes(decrypted_data)
             else:
-                thumb_bytes = create_thumbnail_bytes(decrypted_data)
+                thumb_bytes, _, _ = create_thumbnail_bytes(decrypted_data)
 
             # Encrypt and save thumbnail
             encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
@@ -167,9 +167,9 @@ def regenerate_missing_thumbnails() -> dict:
 
                 # Create thumbnail from decrypted bytes
                 if photo["media_type"] == "video":
-                    thumb_bytes = create_video_thumbnail_bytes(decrypted_data)
+                    thumb_bytes, _, _ = create_video_thumbnail_bytes(decrypted_data)
                 else:
-                    thumb_bytes = create_thumbnail_bytes(decrypted_data)
+                    thumb_bytes, _, _ = create_thumbnail_bytes(decrypted_data)
 
                 # Encrypt and save thumbnail
                 encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
