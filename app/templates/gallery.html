@@ -957,7 +957,7 @@
                 const fullUrl = `/uploads/${photo.filename}`;
 
                 lightboxMedia.innerHTML = `
-                    <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image lightbox-loading">`;
+                    <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image">`;
 
                 // Preload full image in background
                 const fullImg = new Image();
@@ -966,7 +966,6 @@
                     // Only swap if still viewing the same photo
                     if (currentImg && currentPhotoId === photo.id) {
                         currentImg.src = fullUrl;
-                        currentImg.classList.remove('lightbox-loading');
                     }
                 };
                 fullImg.src = fullUrl;
