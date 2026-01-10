@@ -1239,6 +1239,8 @@
 
         setTimeout(() => {
             lightboxMedia.classList.remove(slideOutClass);
+            // Clear old content before loading new to prevent flash
+            lightboxMedia.innerHTML = '';
             // Navigate and slide in new
             navigateLightbox(direction);
             lightboxMedia.classList.add(slideInClass);
