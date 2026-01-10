@@ -2354,6 +2354,12 @@ main {
     max-height: 100%;
     object-fit: contain;
     border-radius: 4px;
+    transition: filter 0.3s ease;
+}
+
+/* Thumbnail shown while full image loads */
+.lightbox-image.lightbox-loading {
+    filter: blur(2px);
 }
 
 .lightbox-video {

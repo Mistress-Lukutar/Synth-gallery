@@ -952,8 +952,24 @@
                         Your browser does not support video.
                     </video>`;
             } else {
+                // Progressive loading: show thumbnail first, then load full image
+                const thumbUrl = `/thumbnails/${photo.id}.jpg`;
+                const fullUrl = `/uploads/${photo.filename}`;
+
                 lightboxMedia.innerHTML = `
-                    <img src="/uploads/${photo.filename}" alt="${photo.original_name}" class="lightbox-image">`;
+                    <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image lightbox-loading">`;
+
+                // Preload full image in background
+                const fullImg = new Image();
+                fullImg.onload = () => {
+                    const currentImg = lightboxMedia.querySelector('.lightbox-image');
+                    // Only swap if still viewing the same photo
+                    if (currentImg && currentPhotoId === photo.id) {
+                        currentImg.src = fullUrl;
+                        currentImg.classList.remove('lightbox-loading');
+                    }
+                };
+                fullImg.src = fullUrl;
             }
 
             // Update tags
