@@ -772,10 +772,24 @@ def create_default_folder(user_id: int) -> str:
     """Create default folder for user and set it as default"""
     db = get_db()
     folder_id = create_folder("My Gallery", user_id, None)
-    db.execute(
-        "INSERT OR REPLACE INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
-        (user_id, folder_id)
-    )
+
+    # Check if user has settings row (avoid INSERT OR REPLACE which wipes encryption keys)
+    existing = db.execute(
+        "SELECT user_id FROM user_settings WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            "UPDATE user_settings SET default_folder_id = ? WHERE user_id = ?",
+            (folder_id, user_id)
+        )
+    else:
+        db.execute(
+            "INSERT INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
+            (user_id, folder_id)
+        )
+
     db.commit()
     return folder_id
 
@@ -810,10 +824,23 @@ def set_user_default_folder(user_id: int, folder_id: str) -> bool:
     if not can_access_folder(folder_id, user_id):
         return False
 
-    db.execute(
-        "INSERT OR REPLACE INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
-        (user_id, folder_id)
-    )
+    # Check if user has settings row (avoid INSERT OR REPLACE which wipes encryption keys)
+    existing = db.execute(
+        "SELECT user_id FROM user_settings WHERE user_id = ?",
+        (user_id,)
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            "UPDATE user_settings SET default_folder_id = ? WHERE user_id = ?",
+            (folder_id, user_id)
+        )
+    else:
+        db.execute(
+            "INSERT INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
+            (user_id, folder_id)
+        )
+
     db.commit()
     return True
 
