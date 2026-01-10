@@ -19,7 +19,8 @@ from ..database import (
     get_available_photos_for_album, get_album_photos, get_album,
     move_photo_to_folder, move_album_to_folder,
     move_photos_to_folder, move_albums_to_folder,
-    get_photo_by_id, mark_photo_encrypted, get_user_encryption_keys
+    get_photo_by_id, mark_photo_encrypted, get_user_encryption_keys,
+    update_photo_thumbnail_dimensions
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import (
@@ -111,7 +112,13 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
                    COALESCE(a.cover_photo_id,
                        (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
                    ) as effective_cover_photo_id,
-                   (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date
+                   (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date,
+                   (SELECT thumb_width FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_width,
+                   (SELECT thumb_height FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_height
             FROM albums a
             WHERE a.folder_id = ?
             ORDER BY latest_date DESC
@@ -123,7 +130,13 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
                    COALESCE(a.cover_photo_id,
                        (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
                    ) as effective_cover_photo_id,
-                   a.created_at as latest_date
+                   a.created_at as latest_date,
+                   (SELECT thumb_width FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_width,
+                   (SELECT thumb_height FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_height
             FROM albums a
             WHERE a.folder_id = ?
             ORDER BY a.created_at DESC
@@ -170,7 +183,9 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             "created_at": album["created_at"],
             "photo_count": album["photo_count"],
             "cover_photo_id": album["effective_cover_photo_id"],
-            "sort_date": album["latest_date"]
+            "sort_date": album["latest_date"],
+            "thumb_width": album["cover_thumb_width"],
+            "thumb_height": album["cover_thumb_height"]
         })
 
     for photo in photos:
@@ -182,7 +197,9 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             "uploaded_at": photo["uploaded_at"],
             "taken_at": photo["taken_at"],
             "media_type": photo["media_type"] or "image",
-            "sort_date": photo["sort_date"]
+            "sort_date": photo["sort_date"],
+            "thumb_width": photo["thumb_width"],
+            "thumb_height": photo["thumb_height"]
         })
 
     # Sort media items by sort_date (descending), None values go to end
@@ -367,9 +384,9 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
     try:
         if media_type == "video":
-            thumb_bytes = create_video_thumbnail_bytes(file_content)
+            thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
         else:
-            thumb_bytes = create_thumbnail_bytes(file_content)
+            thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Processing error: {e}")
 
@@ -393,8 +410,8 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     # Save to database with folder and user
     db = get_db()
     db.execute(
-        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
+        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
     )
     db.commit()
 
@@ -456,9 +473,9 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
         thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
         try:
             if media_type == "video":
-                thumb_bytes = create_video_thumbnail_bytes(file_content)
+                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
             else:
-                thumb_bytes = create_thumbnail_bytes(file_content)
+                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
         except Exception:
             continue
 
@@ -479,8 +496,8 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
 
         # Save to database with album, folder and user reference
         db.execute(
-            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
+            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
         )
         uploaded_photos.append({"id": photo_id, "filename": filename, "media_type": media_type})
 
@@ -594,9 +611,9 @@ async def upload_bulk(
         thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
         try:
             if media_type == "video":
-                thumb_bytes = create_video_thumbnail_bytes(file_content)
+                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
             else:
-                thumb_bytes = create_thumbnail_bytes(file_content)
+                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
         except Exception:
             return None
 
@@ -618,13 +635,13 @@ async def upload_bulk(
         # Save to database
         if album_id:
             db.execute(
-                "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (photo_id, filename, original_name, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
+                "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (photo_id, filename, original_name, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
             )
         else:
             db.execute(
-                "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (photo_id, filename, original_name, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0)
+                "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (photo_id, filename, original_name, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
             )
 
         return photo_id
@@ -731,6 +748,31 @@ def get_photo_data(photo_id: str, request: Request):
         "tags": [{"id": t["id"], "tag": t["tag"], "color": t["color"] or "#6b7280"} for t in tags],
         "album": album_info
     }
+
+
+@router.put("/api/photos/{photo_id}/dimensions")
+async def update_dimensions(photo_id: str, request: Request):
+    """Update thumbnail dimensions for a photo (used for legacy photos without dimensions)."""
+    user = require_user(request)
+
+    # Check access
+    if not can_access_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Parse request body
+    try:
+        body = await request.json()
+        width = int(body.get("width", 0))
+        height = int(body.get("height", 0))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid request body")
+
+    # Validate dimensions
+    if width < 1 or height < 1 or width > 1000 or height > 1000:
+        raise HTTPException(status_code=400, detail="Invalid dimensions")
+
+    update_photo_thumbnail_dimensions(photo_id, width, height)
+    return {"status": "ok"}
 
 
 @router.get("/api/albums/{album_id}")

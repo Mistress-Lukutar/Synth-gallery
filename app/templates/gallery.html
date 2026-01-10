@@ -199,18 +199,28 @@
 </div>
 {% endif %}
 
-<div class="gallery" id="gallery">
+<div class="gallery" id="gallery" style="opacity: 0; transition: opacity 0.15s;">
     {% if items %}
         {% for item in items %}
             {% if item.type == 'folder' %}
             <!-- Skip folders - they are displayed above -->
             {% elif item.type == 'album' %}
-            <div class="gallery-item album-item" data-album-id="{{ item.id }}" data-item-type="album">
-                <div class="gallery-link" onclick="openAlbum('{{ item.id }}')">
+            <div class="gallery-item album-item" data-album-id="{{ item.id }}" data-item-type="album"
+                 {% if item.cover_photo_id %}data-cover-photo-id="{{ item.cover_photo_id }}"{% endif %}
+                 {% if item.thumb_width and item.thumb_height %}
+                 data-thumb-width="{{ item.thumb_width }}" data-thumb-height="{{ item.thumb_height }}"
+                 {% endif %}>
+                <div class="gallery-link" onclick="openAlbum('{{ item.id }}')"
+                     {% if item.thumb_width and item.thumb_height %}
+                     style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
+                     {% endif %}>
                     {% if item.cover_photo_id %}
+                    <div class="gallery-placeholder"></div>
                     <img src="/thumbnails/{{ item.cover_photo_id }}.jpg"
                          alt="{{ item.name }}"
-                         loading="lazy">
+                         loading="lazy"
+                         onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                         style="opacity: 0;">
                     {% else %}
                     <div class="album-placeholder">
                         <span>Empty Album</span>
@@ -233,11 +243,20 @@
                 </div>
             </div>
             {% else %}
-            <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo" data-media-type="{{ item.media_type or 'image' }}">
-                <div class="gallery-link" onclick="openPhoto('{{ item.id }}')">
+            <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo" data-media-type="{{ item.media_type or 'image' }}"
+                 {% if item.thumb_width and item.thumb_height %}
+                 data-thumb-width="{{ item.thumb_width }}" data-thumb-height="{{ item.thumb_height }}"
+                 {% endif %}>
+                <div class="gallery-link" onclick="openPhoto('{{ item.id }}')"
+                     {% if item.thumb_width and item.thumb_height %}
+                     style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
+                     {% endif %}>
+                    <div class="gallery-placeholder"></div>
                     <img src="/thumbnails/{{ item.id }}.jpg"
                          alt="{{ item.original_name }}"
-                         loading="lazy">
+                         loading="lazy"
+                         onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                         style="opacity: 0;">
                     {% if item.media_type == 'video' %}
                     <div class="video-badge">
                         <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -289,7 +308,7 @@
     const MIN_COLUMN_WIDTH = 280;
     let masonryBuilt = false;
     let lastColumnCount = 0;
-    let lastZoom = window.devicePixelRatio || 1;
+    let lastGalleryWidth = 0;
 
     function getColumnCount() {
         const width = gallery.clientWidth;
@@ -297,47 +316,100 @@
     }
 
     function initMasonry() {
-        // Collect all items on first run
-        if (allItems.length === 0) {
-            allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
-        }
+        // Collect all items FIRST before any async operations
+        allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
 
-        // Wait for images to load, then build masonry
-        const images = gallery.querySelectorAll('img');
-        let loadedCount = 0;
-        const totalImages = images.length;
+        // Wait for layout to be ready before building masonry
+        // This ensures gallery.clientWidth has correct value
+        requestAnimationFrame(() => {
+            rebuildMasonry(true); // Force rebuild on init
+            // Process photos without stored dimensions (legacy photos)
+            processPendingDimensions();
+        });
+    }
 
-        if (totalImages === 0) {
-            rebuildMasonry();
-            return;
-        }
+    // Save thumbnail dimensions for legacy photos/albums without stored dimensions
+    function processPendingDimensions() {
+        const itemsWithoutDimensions = allItems.filter(item => {
+            if (item.dataset.thumbWidth) return false; // Already has dimensions
+            // Photos without dimensions
+            if (item.dataset.itemType === 'photo') return true;
+            // Albums with cover photo but no dimensions
+            if (item.dataset.itemType === 'album' && item.dataset.coverPhotoId) return true;
+            return false;
+        });
 
-        const onImageLoad = () => {
-            loadedCount++;
-            if (loadedCount >= totalImages && !masonryBuilt) {
-                rebuildMasonry();
+        if (itemsWithoutDimensions.length === 0) return;
+
+        let pendingCount = itemsWithoutDimensions.length;
+        let needsRebuild = false;
+
+        const checkRebuild = () => {
+            pendingCount--;
+            if (pendingCount <= 0 && needsRebuild) {
+                // All dimensions collected, rebuild masonry once
+                rebuildMasonry(true);
             }
         };
 
-        images.forEach(img => {
-            if (img.complete) {
-                onImageLoad();
+        itemsWithoutDimensions.forEach(item => {
+            const img = item.querySelector('img');
+            if (!img) {
+                checkRebuild();
+                return;
+            }
+
+            const isAlbum = item.dataset.itemType === 'album';
+            const photoId = isAlbum ? item.dataset.coverPhotoId : item.dataset.photoId;
+
+            const saveAndUpdate = () => {
+                if (img.naturalWidth && img.naturalHeight) {
+                    // Save to data-attributes for masonry
+                    item.dataset.thumbWidth = img.naturalWidth;
+                    item.dataset.thumbHeight = img.naturalHeight;
+
+                    // Update aspect-ratio on gallery-link
+                    const link = item.querySelector('.gallery-link');
+                    if (link) {
+                        link.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+                    }
+
+                    // Send to server (fire-and-forget)
+                    // For albums, save dimensions to the cover photo
+                    saveDimensionsToServer(photoId, img.naturalWidth, img.naturalHeight);
+                    needsRebuild = true;
+                }
+                checkRebuild();
+            };
+
+            if (img.complete && img.naturalWidth) {
+                saveAndUpdate();
             } else {
-                img.addEventListener('load', onImageLoad);
-                img.addEventListener('error', onImageLoad);
+                img.addEventListener('load', saveAndUpdate, { once: true });
+                img.addEventListener('error', checkRebuild, { once: true });
             }
         });
+    }
 
-        // Fallback: build only if not yet built
-        setTimeout(() => {
-            if (!masonryBuilt) {
-                rebuildMasonry();
-            }
-        }, 500);
+    async function saveDimensionsToServer(photoId, width, height) {
+        try {
+            await csrfFetch(`/api/photos/${photoId}/dimensions`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ width, height })
+            });
+        } catch (e) {
+            console.warn('Failed to save dimensions for', photoId, e);
+        }
     }
 
     function rebuildMasonry(forceRebuild = false) {
-        const columnCount = getColumnCount();
+        // Get gallery width (gallery has width: 100% in CSS)
+        const galleryWidth = gallery.clientWidth || 800;
+
+        // Calculate columns: minimum 1, based on available width
+        const columnCount = Math.max(1, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
+        const columnWidth = galleryWidth / columnCount;
 
         // Skip rebuild if column count hasn't changed (unless forced or first build)
         if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
@@ -362,6 +434,8 @@
             saveNavigationOrder([]);
             masonryBuilt = true;
             lastColumnCount = columnCount;
+            lastGalleryWidth = galleryWidth;
+            gallery.style.opacity = '1';
             requestAnimationFrame(() => window.scrollTo(0, scrollY));
             return;
         }
@@ -371,6 +445,8 @@
             saveNavigationOrder([]);
             masonryBuilt = true;
             lastColumnCount = columnCount;
+            lastGalleryWidth = galleryWidth;
+            gallery.style.opacity = '1';
             requestAnimationFrame(() => window.scrollTo(0, scrollY));
             return;
         }
@@ -407,11 +483,23 @@
 
             columns[shortestIndex].appendChild(item);
 
-            // Update height estimate
-            const img = item.querySelector('img');
-            const itemHeight = img && img.naturalHeight && img.naturalWidth
-                ? (img.naturalHeight / img.naturalWidth) * (gallery.clientWidth / columnCount)
-                : 300;
+            // Update height estimate using data-attributes (preferred) or fallback
+            const thumbW = parseInt(item.dataset.thumbWidth) || 0;
+            const thumbH = parseInt(item.dataset.thumbHeight) || 0;
+
+            let itemHeight;
+            if (thumbW > 0 && thumbH > 0) {
+                // Use stored dimensions
+                itemHeight = (thumbH / thumbW) * columnWidth;
+            } else {
+                // Fallback for legacy photos - use square placeholder or loaded image
+                const img = item.querySelector('img');
+                if (img && img.naturalHeight && img.naturalWidth) {
+                    itemHeight = (img.naturalHeight / img.naturalWidth) * columnWidth;
+                } else {
+                    itemHeight = columnWidth; // Square fallback
+                }
+            }
             columnHeights[shortestIndex] += itemHeight + 16; // 16 = gap
         });
 
@@ -428,9 +516,13 @@
         }));
         saveNavigationOrder(navOrder);
 
-        // Mark as built and save column count
+        // Mark as built and save column count and width
         masonryBuilt = true;
         lastColumnCount = columnCount;
+        lastGalleryWidth = galleryWidth;
+
+        // Show gallery after masonry is built
+        gallery.style.opacity = '1';
 
         // Restore scroll position after DOM rebuild
         requestAnimationFrame(() => {
@@ -445,64 +537,29 @@
     // Export rebuildMasonry for drag-and-drop
     window.rebuildMasonry = rebuildMasonry;
 
-    // Rebuild on resize (check if column count actually changes)
-    let resizeTimeout;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-            const newColumnCount = getColumnCount();
-            if (newColumnCount !== lastColumnCount) {
-                rebuildMasonry(true);
-            }
-        }, 100);
+    // Use ResizeObserver to detect gallery width changes
+    // This handles: window resize, sidebar loading, zoom changes, etc.
+    let resizeObserverTimeout;
+    const resizeObserver = new ResizeObserver((entries) => {
+        const newWidth = entries[0]?.contentRect.width || 0;
+        if (newWidth === 0) return; // Gallery not visible
+
+        // Debounce rapid resize events, then always rebuild
+        // rebuildMasonry will skip if column count unchanged
+        clearTimeout(resizeObserverTimeout);
+        resizeObserverTimeout = setTimeout(() => rebuildMasonry(true), 50);
     });
 
-    // Detect zoom changes (Ctrl+/Ctrl- or pinch zoom)
-    // Zoom doesn't trigger resize in most browsers, so we poll for changes
-    function checkZoom() {
-        const currentZoom = window.devicePixelRatio || 1;
-        if (Math.abs(currentZoom - lastZoom) > 0.01) {
-            lastZoom = currentZoom;
-            const newColumnCount = getColumnCount();
-            if (newColumnCount !== lastColumnCount) {
-                rebuildMasonry(true);
-            }
-        }
-    }
+    // Start observing gallery
+    resizeObserver.observe(gallery);
 
-    // Check zoom periodically (every 500ms when page is visible)
-    let zoomCheckInterval;
-    function startZoomCheck() {
-        if (!zoomCheckInterval) {
-            zoomCheckInterval = setInterval(checkZoom, 500);
-        }
-    }
-    function stopZoomCheck() {
-        if (zoomCheckInterval) {
-            clearInterval(zoomCheckInterval);
-            zoomCheckInterval = null;
-        }
-    }
+    // Initialize masonry immediately (script is at end of body, DOM is ready)
+    initMasonry();
 
-    // Only check zoom when page is visible
-    document.addEventListener('visibilitychange', () => {
-        if (document.hidden) {
-            stopZoomCheck();
-        } else {
-            startZoomCheck();
-            checkZoom(); // Check immediately when becoming visible
-        }
+    // Safety: rebuild once more after full page load (catches late sidebar/font loading)
+    window.addEventListener('load', () => {
+        setTimeout(() => rebuildMasonry(true), 100);
     });
-
-    // Start zoom checking
-    startZoomCheck();
-
-    // Initialize masonry
-    if (document.readyState === 'complete') {
-        initMasonry();
-    } else {
-        window.addEventListener('load', initMasonry);
-    }
 
     // Load all tags for autocomplete
     async function loadAllTags() {
