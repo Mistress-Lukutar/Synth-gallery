@@ -766,13 +766,34 @@
             }
         }, { passive: true });
 
-        // Load folder tree
+        // Load folder tree (with cache for instant display)
         async function loadFolderTree() {
+            // Show cached version immediately if available
+            const cached = sessionStorage.getItem('folderTreeCache');
+            if (cached) {
+                try {
+                    folderTree = JSON.parse(cached);
+                    renderFolderTree();
+                    updateParentSelect();
+                } catch (e) {
+                    // Invalid cache, ignore
+                }
+            }
+
+            // Fetch fresh data
             try {
                 const resp = await fetch('/api/folders');
-                folderTree = await resp.json();
-                renderFolderTree();
-                updateParentSelect();
+                const freshData = await resp.json();
+
+                // Update cache
+                sessionStorage.setItem('folderTreeCache', JSON.stringify(freshData));
+
+                // Only re-render if data changed
+                if (JSON.stringify(freshData) !== JSON.stringify(folderTree)) {
+                    folderTree = freshData;
+                    renderFolderTree();
+                    updateParentSelect();
+                }
             } catch (err) {
                 console.error('Failed to load folders:', err);
             }
@@ -789,15 +810,36 @@
             }
         }
 
-        // Load user's collapsed folders
+        // Load user's collapsed folders (with cache)
         async function loadCollapsedFolders() {
+            // Show cached version immediately if available
+            const cached = sessionStorage.getItem('collapsedFoldersCache');
+            if (cached) {
+                try {
+                    collapsedFolders = new Set(JSON.parse(cached));
+                } catch (e) {
+                    // Invalid cache, ignore
+                }
+            }
+
+            // Fetch fresh data
             try {
                 const resp = await fetch('/api/folders/user/collapsed');
                 const data = await resp.json();
-                collapsedFolders = new Set(data.collapsed_folders || []);
+                const freshCollapsed = data.collapsed_folders || [];
+
+                // Update cache
+                sessionStorage.setItem('collapsedFoldersCache', JSON.stringify(freshCollapsed));
+
+                collapsedFolders = new Set(freshCollapsed);
             } catch (err) {
                 console.error('Failed to load collapsed folders:', err);
             }
+        }
+
+        // Update collapsed folders cache
+        function updateCollapsedCache() {
+            sessionStorage.setItem('collapsedFoldersCache', JSON.stringify([...collapsedFolders]));
         }
 
         // Toggle folder collapse state
@@ -812,6 +854,7 @@
                 collapsedFolders.add(folderId);
             }
             renderFolderTree();
+            updateCollapsedCache();
 
             // Persist to server
             try {
@@ -827,6 +870,7 @@
                     collapsedFolders.delete(folderId);
                 }
                 renderFolderTree();
+                updateCollapsedCache();
             }
         }
 
@@ -1324,9 +1368,26 @@
         }
 
         // Initialize
-        document.addEventListener('DOMContentLoaded', async () => {
-            // Load collapsed state first, then folder tree
-            await loadCollapsedFolders();
+        document.addEventListener('DOMContentLoaded', () => {
+            // Load from cache immediately for instant display
+            const cachedCollapsed = sessionStorage.getItem('collapsedFoldersCache');
+            if (cachedCollapsed) {
+                try {
+                    collapsedFolders = new Set(JSON.parse(cachedCollapsed));
+                } catch (e) {}
+            }
+
+            const cachedTree = sessionStorage.getItem('folderTreeCache');
+            if (cachedTree) {
+                try {
+                    folderTree = JSON.parse(cachedTree);
+                    renderFolderTree();
+                    updateParentSelect();
+                } catch (e) {}
+            }
+
+            // Fetch fresh data in background (will update if changed)
+            loadCollapsedFolders();
             loadFolderTree();
             loadDefaultFolder();
         });
