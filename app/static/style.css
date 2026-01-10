@@ -326,19 +326,6 @@ main {
     right: 0;
     bottom: 0;
     background: var(--bg-secondary);
-    background: linear-gradient(
-        135deg,
-        var(--bg-secondary) 0%,
-        color-mix(in srgb, var(--bg-secondary) 80%, var(--border)) 50%,
-        var(--bg-secondary) 100%
-    );
-    background-size: 200% 200%;
-    animation: shimmer 1.5s ease-in-out infinite;
-}
-
-@keyframes shimmer {
-    0% { background-position: 200% 200%; }
-    100% { background-position: 0% 0%; }
 }
 
 .gallery-item img {
