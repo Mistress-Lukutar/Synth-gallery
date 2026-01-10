@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-01-10
+
+### Fixed
+- **Critical**: Encryption key loss when changing default folder
+  - `INSERT OR REPLACE` was wiping `encrypted_dek` and `dek_salt` columns
+  - Now uses proper `UPDATE` for existing rows
+- Thumbnail regeneration failing due to tuple unpacking mismatch
+  - `create_thumbnail_bytes()` returns `(bytes, width, height)` but code expected only `bytes`
+  - Fixes auto-regeneration and admin maintenance panel
+- Progressive image loading in lightbox
+  - Shows cached thumbnail immediately, loads full image in background
+  - Images fill available space regardless of resolution
+- Removed CPU-intensive pulse animation from gallery placeholders
+- Album indicator no longer flickers when navigating within album
+- Mobile swipe animation no longer briefly shows previous image
+
 ## [0.8.3] - 2026-01-10
 
 ### Added
