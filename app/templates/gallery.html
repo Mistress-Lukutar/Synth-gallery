@@ -934,9 +934,6 @@
 
     // Load and display photo
     async function loadPhoto(photoId) {
-        // Always hide album indicator first, will be shown if photo is in album
-        lightboxAlbumIndicator.classList.add('hidden');
-
         try {
             const resp = await fetch(`/api/photos/${photoId}`);
             if (!resp.ok) {
