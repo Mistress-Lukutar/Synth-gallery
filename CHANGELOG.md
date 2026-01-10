@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-01-10
+
+### Added
+- Instant gallery loading with aspect-ratio placeholders
+  - Thumbnail dimensions stored in database for immediate layout
+  - CSS shimmer animation while images load
+  - Legacy photos migrate dimensions on first view
+- Sidebar folder tree caching for instant display on navigation
+  - Cached in sessionStorage, updates in background if changed
+
+### Fixed
+- Thumbnail orientation for images with EXIF rotation data
+- Gallery layout width calculation (proper calc instead of flex)
+- ResizeObserver for responsive masonry layout on zoom/resize
+- Mobile sidebar overlay now properly blocks interactions behind it
+
+### Changed
+- Header scrolls with page on mobile (not sticky)
+- Improved mobile experience with proper overlay touch handling
+
 ## [0.8.2] - 2026-01-08
 
 ### Added
