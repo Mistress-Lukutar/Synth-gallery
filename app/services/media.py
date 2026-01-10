@@ -46,8 +46,8 @@ def get_media_type(content_type: str) -> str:
     return "image"
 
 
-def create_thumbnail_bytes(image_data: bytes, size: tuple[int, int] = (400, 400)) -> bytes:
-    """Create thumbnail from image bytes, return JPEG bytes."""
+def create_thumbnail_bytes(image_data: bytes, size: tuple[int, int] = (400, 400)) -> tuple[bytes, int, int]:
+    """Create thumbnail from image bytes, return (JPEG bytes, width, height)."""
     with Image.open(BytesIO(image_data)) as img:
         # Apply EXIF orientation to fix rotated images from cameras/phones
         img = ImageOps.exif_transpose(img)
@@ -55,13 +55,14 @@ def create_thumbnail_bytes(image_data: bytes, size: tuple[int, int] = (400, 400)
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
 
+        thumb_width, thumb_height = img.size
         output = BytesIO()
         img.save(output, "JPEG", quality=85)
-        return output.getvalue()
+        return output.getvalue(), thumb_width, thumb_height
 
 
-def create_video_thumbnail_bytes(video_data: bytes, size: tuple[int, int] = (400, 400)) -> bytes:
-    """Create thumbnail from video bytes, return JPEG bytes."""
+def create_video_thumbnail_bytes(video_data: bytes, size: tuple[int, int] = (400, 400)) -> tuple[bytes, int, int]:
+    """Create thumbnail from video bytes, return (JPEG bytes, width, height)."""
     # Write to temp file (OpenCV needs file path)
     with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
         tmp.write(video_data)
@@ -78,9 +79,10 @@ def create_video_thumbnail_bytes(video_data: bytes, size: tuple[int, int] = (400
             img = Image.fromarray(frame_rgb)
             img.thumbnail(size, Image.Resampling.LANCZOS)
 
+            thumb_width, thumb_height = img.size
             output = BytesIO()
             img.save(output, "JPEG", quality=85)
-            return output.getvalue()
+            return output.getvalue(), thumb_width, thumb_height
         finally:
             cap.release()
     finally:
