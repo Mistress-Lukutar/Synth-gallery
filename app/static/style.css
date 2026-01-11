@@ -3141,198 +3141,59 @@ main {
     }
 }
 
-/* ============ Drag and Drop Styles ============ */
+/* ============ Folder Picker Modal ============ */
 
-/* Draggable gallery items */
-.gallery-item[draggable="true"] {
-    cursor: grab;
+.folder-picker-content {
+    max-width: 400px;
 }
 
-.gallery-item[draggable="true"]:active {
-    cursor: grabbing;
+.folder-picker-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 1rem 0;
 }
 
-/* Item being dragged */
-.gallery-item.dragging {
+.folder-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.folder-picker-item:hover {
+    background: var(--bg);
+}
+
+.folder-picker-item.disabled {
     opacity: 0.5;
-    transform: scale(0.95);
-    cursor: grabbing;
-}
-
-/* Drag ghost/preview */
-.drag-ghost {
-    position: fixed;
-    pointer-events: none;
-    z-index: 10000;
-    opacity: 0.9;
-    transform: rotate(-2deg);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    border-radius: 8px;
-    overflow: hidden;
-    max-width: 150px;
-    max-height: 150px;
-}
-
-.drag-ghost img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-/* Multi-select drag badge */
-.drag-count-badge {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    background: var(--accent);
-    color: white;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.25rem 0.5rem;
-    border-radius: 12px;
-    min-width: 24px;
-    text-align: center;
-}
-
-/* Folder drop target styles */
-.folder-item.drop-target {
-    background: rgba(59, 130, 246, 0.15);
-    outline: 2px dashed var(--accent);
-    outline-offset: -2px;
-}
-
-.folder-item.drop-target .folder-icon {
-    stroke: var(--accent);
-    transform: scale(1.1);
-    transition: transform 0.15s ease;
-}
-
-/* Folder drop not allowed */
-.folder-item.drop-blocked {
-    background: rgba(239, 68, 68, 0.1);
-    outline: 2px dashed #ef4444;
-    outline-offset: -2px;
     cursor: not-allowed;
 }
 
-.folder-item.drop-blocked .folder-icon {
-    stroke: #ef4444;
+.folder-picker-item.disabled:hover {
+    background: transparent;
 }
 
-/* Gallery folder card as drop target */
-.gallery-item.folder-item-card.drop-target {
-    border-color: var(--accent);
-    border-style: solid;
-    background: rgba(59, 130, 246, 0.1);
-    transform: scale(1.03);
-}
-
-.gallery-item.folder-item-card.drop-target .folder-card-icon {
-    stroke: var(--accent);
-}
-
-/* Feedback when dragging over sidebar */
-.sidebar.drag-active {
-    background: rgba(59, 130, 246, 0.02);
-}
-
-.sidebar.drag-active .folder-tree {
-    border: 2px dashed var(--accent);
-    border-radius: 8px;
-    margin: 0.25rem;
-    padding: 0.25rem;
-}
-
-/* Cannot drop on album items */
-.gallery-item.album-item.drop-blocked {
-    outline: 2px dashed #ef4444;
-    outline-offset: -2px;
-    opacity: 0.6;
-}
-
-/* Visual cue that item can be moved */
-.gallery-item:not(.folder-item-card):not(.album-item)::before {
-    content: '';
-    position: absolute;
-    top: 8px;
-    right: 8px;
+.folder-picker-icon {
     width: 20px;
     height: 20px;
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: 4px;
-    opacity: 0;
-    transition: opacity 0.2s;
-    z-index: 5;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    stroke: var(--text-muted);
+    flex-shrink: 0;
 }
 
-.gallery-item:not(.folder-item-card):not(.album-item):hover::before {
-    opacity: 0;
+.folder-picker-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* Move indicator on hover */
-.gallery-item.movable:hover .move-handle {
-    opacity: 1;
-}
-
-.move-handle {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 24px;
-    height: 24px;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.2s;
-    z-index: 12;
-    cursor: grab;
-}
-
-.move-handle svg {
-    width: 14px;
-    height: 14px;
-    color: white;
-}
-
-.move-handle:hover {
-    background: rgba(0, 0, 0, 0.7);
-}
-
-/* Drop success animation */
-@keyframes dropSuccess {
-    0% {
-        transform: scale(1);
-        background: rgba(59, 130, 246, 0.2);
-    }
-    50% {
-        transform: scale(1.05);
-        background: rgba(16, 185, 129, 0.3);
-    }
-    100% {
-        transform: scale(1);
-        background: transparent;
-    }
-}
-
-.folder-item.drop-success {
-    animation: dropSuccess 0.4s ease;
-}
-
-/* Mobile: disable drag visual cues */
-@media (max-width: 768px) {
-    .move-handle {
-        display: none;
-    }
-
-    .gallery-item[draggable="true"] {
-        cursor: pointer;
-    }
+.folder-picker-current {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
 }
 
 /* Subfolders tiles section */
