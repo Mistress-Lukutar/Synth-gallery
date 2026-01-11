@@ -1128,6 +1128,201 @@ def batch_move_items(data: BatchMoveInput, request: Request):
     }
 
 
+@router.post("/api/items/copy")
+def batch_copy_items(data: BatchMoveInput, request: Request):
+    """Copy multiple photos and albums to another folder.
+
+    Creates copies of photos with new IDs and filenames.
+    Only copies standalone photos (not in albums).
+    Albums are copied with all their photos.
+    """
+    user = require_user(request)
+
+    # Check destination folder edit permission
+    if not can_edit_folder(data.folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Cannot copy to this folder")
+
+    db = get_db()
+    copied_photos = 0
+    copied_albums = 0
+    skipped_photos = 0
+    skipped_albums = 0
+
+    # Copy photos
+    for photo_id in data.photo_ids:
+        photo = db.execute(
+            """SELECT filename, original_name, media_type, album_id, taken_at,
+                      is_encrypted, thumb_width, thumb_height
+               FROM photos WHERE id = ?""",
+            (photo_id,)
+        ).fetchone()
+
+        if not photo:
+            skipped_photos += 1
+            continue
+
+        # Skip photos in albums - they will be copied with the album
+        if photo["album_id"]:
+            skipped_photos += 1
+            continue
+
+        # Check access to source
+        if not can_access_photo(photo_id, user["id"]):
+            skipped_photos += 1
+            continue
+
+        # Create new photo copy
+        new_photo_id = str(uuid.uuid4())
+        old_filename = photo["filename"]
+        ext = Path(old_filename).suffix
+        new_filename = f"{new_photo_id}{ext}"
+
+        # Copy files
+        old_upload = UPLOADS_DIR / old_filename
+        new_upload = UPLOADS_DIR / new_filename
+        old_thumb = THUMBNAILS_DIR / f"{Path(old_filename).stem}.jpg"
+        new_thumb = THUMBNAILS_DIR / f"{new_photo_id}.jpg"
+
+        try:
+            if old_upload.exists():
+                shutil.copy2(old_upload, new_upload)
+            if old_thumb.exists():
+                shutil.copy2(old_thumb, new_thumb)
+
+            # Insert new photo record
+            db.execute(
+                """INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id,
+                                       taken_at, is_encrypted, thumb_width, thumb_height)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (new_photo_id, new_filename, photo["original_name"], photo["media_type"],
+                 data.folder_id, user["id"], photo["taken_at"], photo["is_encrypted"],
+                 photo["thumb_width"], photo["thumb_height"])
+            )
+
+            # Copy tags
+            tags = db.execute(
+                "SELECT tag, category_id, confidence FROM tags WHERE photo_id = ?",
+                (photo_id,)
+            ).fetchall()
+            for tag in tags:
+                db.execute(
+                    "INSERT INTO tags (photo_id, tag, category_id, confidence) VALUES (?, ?, ?, ?)",
+                    (new_photo_id, tag["tag"], tag["category_id"], tag["confidence"])
+                )
+
+            copied_photos += 1
+        except Exception as e:
+            # Clean up on failure
+            if new_upload.exists():
+                new_upload.unlink()
+            if new_thumb.exists():
+                new_thumb.unlink()
+            skipped_photos += 1
+            continue
+
+    # Copy albums
+    for album_id in data.album_ids:
+        album = db.execute(
+            "SELECT name, cover_photo_id FROM albums WHERE id = ?",
+            (album_id,)
+        ).fetchone()
+
+        if not album:
+            skipped_albums += 1
+            continue
+
+        # Check access to source album
+        if not can_access_album(album_id, user["id"]):
+            skipped_albums += 1
+            continue
+
+        # Get album photos
+        album_photos = db.execute(
+            """SELECT id, filename, original_name, media_type, position, taken_at,
+                      is_encrypted, thumb_width, thumb_height
+               FROM photos WHERE album_id = ? ORDER BY position""",
+            (album_id,)
+        ).fetchall()
+
+        if not album_photos:
+            skipped_albums += 1
+            continue
+
+        # Create new album
+        new_album_id = str(uuid.uuid4())
+        db.execute(
+            "INSERT INTO albums (id, name, folder_id, user_id) VALUES (?, ?, ?, ?)",
+            (new_album_id, album["name"], data.folder_id, user["id"])
+        )
+
+        # Copy album photos
+        new_cover_id = None
+        for photo in album_photos:
+            new_photo_id = str(uuid.uuid4())
+            old_filename = photo["filename"]
+            ext = Path(old_filename).suffix
+            new_filename = f"{new_photo_id}{ext}"
+
+            old_upload = UPLOADS_DIR / old_filename
+            new_upload = UPLOADS_DIR / new_filename
+            old_thumb = THUMBNAILS_DIR / f"{Path(old_filename).stem}.jpg"
+            new_thumb = THUMBNAILS_DIR / f"{new_photo_id}.jpg"
+
+            try:
+                if old_upload.exists():
+                    shutil.copy2(old_upload, new_upload)
+                if old_thumb.exists():
+                    shutil.copy2(old_thumb, new_thumb)
+
+                db.execute(
+                    """INSERT INTO photos (id, filename, original_name, album_id, position,
+                                           media_type, folder_id, user_id, taken_at, is_encrypted,
+                                           thumb_width, thumb_height)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (new_photo_id, new_filename, photo["original_name"], new_album_id,
+                     photo["position"], photo["media_type"], data.folder_id, user["id"],
+                     photo["taken_at"], photo["is_encrypted"], photo["thumb_width"],
+                     photo["thumb_height"])
+                )
+
+                # Copy tags
+                tags = db.execute(
+                    "SELECT tag, category_id, confidence FROM tags WHERE photo_id = ?",
+                    (photo["id"],)
+                ).fetchall()
+                for tag in tags:
+                    db.execute(
+                        "INSERT INTO tags (photo_id, tag, category_id, confidence) VALUES (?, ?, ?, ?)",
+                        (new_photo_id, tag["tag"], tag["category_id"], tag["confidence"])
+                    )
+
+                # Track new cover photo
+                if photo["id"] == album["cover_photo_id"]:
+                    new_cover_id = new_photo_id
+
+            except Exception:
+                continue
+
+        # Set album cover
+        if new_cover_id:
+            db.execute(
+                "UPDATE albums SET cover_photo_id = ? WHERE id = ?",
+                (new_cover_id, new_album_id)
+            )
+
+        copied_albums += 1
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "copied_photos": copied_photos,
+        "copied_albums": copied_albums,
+        "skipped_photos": skipped_photos,
+        "skipped_albums": skipped_albums
+    }
+
+
 # === Download Operations ===
 
 class BatchDownloadInput(BaseModel):
