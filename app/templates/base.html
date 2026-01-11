@@ -671,6 +671,7 @@
     <script>
         // === Sidebar and Folder Management ===
         let folderTree = [];
+        window.folderTree = folderTree; // Export for other scripts
         let editingFolderId = null;
         let userDefaultFolderId = null;
         let collapsedFolders = new Set();
@@ -760,6 +761,7 @@
             if (cached) {
                 try {
                     folderTree = JSON.parse(cached);
+                    window.folderTree = folderTree;
                     renderFolderTree();
                     updateParentSelect();
                 } catch (e) {
@@ -778,6 +780,7 @@
                 // Only re-render if data changed
                 if (JSON.stringify(freshData) !== JSON.stringify(folderTree)) {
                     folderTree = freshData;
+                    window.folderTree = folderTree;
                     renderFolderTree();
                     updateParentSelect();
                 }
@@ -1416,6 +1419,7 @@
             if (cachedTree) {
                 try {
                     folderTree = JSON.parse(cachedTree);
+                    window.folderTree = folderTree;
                     renderFolderTree();
                     updateParentSelect();
                 } catch (e) {}
