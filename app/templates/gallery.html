@@ -25,10 +25,19 @@
                 <div class="lightbox-dates" id="lightbox-dates"></div>
                 <div class="lightbox-tags" id="lightbox-tags"></div>
             </div>
-            <div class="lightbox-actions">
-                <a id="lightbox-download" class="btn btn-small" download>Download</a>
-                <button id="lightbox-edit-tags" class="btn btn-small btn-secondary" onclick="openTagEditor()">Edit Tags</button>
-                <button id="lightbox-edit-album" class="btn btn-small btn-secondary hidden" onclick="openAlbumEditor()">Edit Album</button>
+            <div class="lightbox-edit-buttons">
+                <button id="lightbox-edit-tags" class="lightbox-edit-btn" onclick="openTagEditor()" title="Edit Tags">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                        <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="lightbox-edit-album" class="lightbox-edit-btn hidden" onclick="openAlbumEditor()" title="Edit Album">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                        <path d="m15 5 4 4"/>
+                    </svg>
+                </button>
             </div>
         </div>
     </div>
@@ -167,17 +176,87 @@
 <!-- Folder header -->
 {% if current_folder %}
 <div class="folder-header">
-    <h2>{{ current_folder.name }}</h2>
-    <div class="folder-header-actions">
-        {% if current_folder.user_id == user.id %}
-        <button class="btn-share" onclick="openShareModal('{{ current_folder.id }}')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-            </svg>
-            Share
-        </button>
-        {% endif %}
+    <div class="folder-header-left">
+        <h2>{{ current_folder.name }}</h2>
+        <!-- Folder action buttons -->
+        <div class="folder-actions">
+            <button id="folder-upload-btn" class="folder-action-btn" title="Upload">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+            </button>
+            <div class="sort-dropdown">
+                <button id="sort-btn" class="folder-action-btn" title="Sort by">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                        <path d="M7 4v16M7 4l-4 4M7 4l4 4"/>
+                        <path d="M17 20V4M17 20l-4-4M17 20l4-4"/>
+                    </svg>
+                </button>
+                <div id="sort-menu" class="sort-menu hidden">
+                    <button class="sort-option{% if sort == 'taken' %} active{% endif %}" data-sort="taken">Capture date</button>
+                    <button class="sort-option{% if sort == 'uploaded' %} active{% endif %}" data-sort="uploaded">Upload date</button>
+                </div>
+            </div>
+            {% if current_folder.user_id == user.id %}
+            <button class="folder-action-btn" onclick="openShareModal('{{ current_folder.id }}')" title="Share">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+            </button>
+            {% endif %}
+        </div>
+        <!-- Selection Menu (hidden by default) -->
+        <div id="selection-menu" class="selection-menu hidden">
+            <span id="selection-count">0</span>
+            <button id="select-all-btn" class="selection-action-btn" title="Select All">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18">
+                    <rect x="5" y="5" width="14" height="14" rx="2" stroke-width="2.5"/>
+                    <rect x="2" y="2" width="14" height="14" rx="2" stroke-dasharray="3 2" stroke-width="1.5"/>
+                </svg>
+            </button>
+            <button id="deselect-all-btn" class="selection-action-btn" title="Deselect All">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                </svg>
+            </button>
+            <button id="download-selected-btn" class="selection-action-btn" title="Download">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </button>
+            <button id="ai-selected-btn" class="selection-action-btn" title="Generate AI Tags">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+            </button>
+            <button id="delete-selected-btn" class="selection-action-btn selection-action-btn--danger" title="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    <div class="folder-header-right">
+        <!-- Download progress (hidden by default) -->
+        <div id="download-progress" class="download-progress hidden">
+            <div class="download-progress-bar">
+                <div id="download-progress-fill" class="download-progress-fill"></div>
+            </div>
+            <span id="download-progress-text">Preparing...</span>
+        </div>
+        <!-- Tag Search -->
+        <div class="search-container">
+            <input type="text" id="tag-search-input" placeholder="Search..." autocomplete="off">
+            <div id="tag-suggestions" class="suggestions hidden"></div>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -589,7 +668,7 @@
         const count = selectedPhotos.size + selectedAlbums.size;
         if (count > 0) {
             selectionMenu.classList.remove('hidden');
-            selectionCount.textContent = count + ' selected';
+            selectionCount.textContent = count;
         } else {
             selectionMenu.classList.add('hidden');
         }
@@ -681,13 +760,110 @@
         }
     });
 
+    // Download selected
+    document.getElementById('download-selected-btn').addEventListener('click', async () => {
+        if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
+
+        const btn = document.getElementById('download-selected-btn');
+        const progressContainer = document.getElementById('download-progress');
+        const progressFill = document.getElementById('download-progress-fill');
+        const progressText = document.getElementById('download-progress-text');
+
+        btn.disabled = true;
+        progressContainer.classList.remove('hidden');
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Preparing...';
+
+        try {
+            const resp = await fetch('/api/photos/batch-download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken()
+                },
+                body: JSON.stringify({
+                    photo_ids: Array.from(selectedPhotos),
+                    album_ids: Array.from(selectedAlbums)
+                })
+            });
+
+            if (!resp.ok) {
+                throw new Error('Download failed');
+            }
+
+            // Get content length for progress
+            const contentLength = resp.headers.get('Content-Length');
+            const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+            // Get filename from Content-Disposition header
+            const disposition = resp.headers.get('Content-Disposition');
+            let filename = 'download';
+            if (disposition) {
+                const match = disposition.match(/filename="(.+)"/);
+                if (match) filename = match[1];
+            }
+
+            // Read response with progress
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let received = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                chunks.push(value);
+                received += value.length;
+
+                if (total > 0) {
+                    const percent = Math.round((received / total) * 100);
+                    progressFill.style.width = percent + '%';
+                    progressText.textContent = `${percent}%`;
+                } else {
+                    // Unknown size - show received amount
+                    const mb = (received / 1024 / 1024).toFixed(1);
+                    progressText.textContent = `${mb} MB`;
+                    // Animate progress bar indeterminate-style
+                    progressFill.style.width = '50%';
+                }
+            }
+
+            progressFill.style.width = '100%';
+            progressText.textContent = 'Done';
+
+            // Create blob and download
+            const blob = new Blob(chunks);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Hide progress after short delay
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+            }, 1000);
+
+        } catch (e) {
+            console.error('Download failed:', e);
+            progressText.textContent = 'Error';
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+            }, 2000);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
     // AI tags for selected
     document.getElementById('ai-selected-btn').addEventListener('click', async () => {
         if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
         const btn = document.getElementById('ai-selected-btn');
         btn.disabled = true;
-        btn.textContent = 'Processing...';
 
         try {
             const resp = await csrfFetch('/api/photos/batch-ai-tags', {
@@ -710,7 +886,21 @@
             alert('Failed to generate AI tags');
         } finally {
             btn.disabled = false;
-            btn.textContent = 'AI Tags';
+        }
+    });
+
+    // Escape to deselect all
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && (selectedPhotos.size > 0 || selectedAlbums.size > 0)) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            // Don't deselect if lightbox or modals are open
+            const lightbox = document.getElementById('lightbox');
+            if (lightbox && !lightbox.classList.contains('hidden')) return;
+
+            e.preventDefault();
+            selectedPhotos.clear();
+            selectedAlbums.clear();
+            updateSelectionUI();
         }
     });
 
@@ -854,7 +1044,6 @@
     const lightboxMedia = document.getElementById('lightbox-media');
     const lightboxTags = document.getElementById('lightbox-tags');
     const lightboxDates = document.getElementById('lightbox-dates');
-    const lightboxDownload = document.getElementById('lightbox-download');
     const lightboxAlbumIndicator = document.getElementById('lightbox-album-indicator');
     const lightboxAlbumBars = document.getElementById('lightbox-album-bars');
     const lightboxAlbumText = document.getElementById('lightbox-album-text');
@@ -994,10 +1183,6 @@
                 datesHtml += `<span class="date-item" title="Upload date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> ${uploadedDate}</span>`;
             }
             lightboxDates.innerHTML = datesHtml;
-
-            // Update download link
-            lightboxDownload.href = `/uploads/${photo.filename}`;
-            lightboxDownload.download = photo.original_name;
 
             // Update album indicator
             if (photo.album) {

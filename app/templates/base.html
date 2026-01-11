@@ -12,6 +12,9 @@
     <div class="app-layout">
         <!-- Sidebar -->
         <aside id="sidebar" class="sidebar">
+            <div class="sidebar-logo">
+                <a href="/" class="logo"><img src="/static/favicon.svg" alt="" class="logo-icon">Synth</a>
+            </div>
             <div class="sidebar-header">
                 <h3>Folders</h3>
                 <button id="create-folder-btn" class="btn btn-small" title="Create folder">+</button>
@@ -19,6 +22,17 @@
             <div class="folder-tree" id="folder-tree">
                 <!-- Folder tree rendered by JS -->
             </div>
+            {% if user %}
+            <div class="sidebar-user">
+                <span class="user-name">{{ user.display_name }}</span>
+                <a href="/settings" class="sidebar-settings-btn" title="Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </a>
+            </div>
+            {% endif %}
         </aside>
 
         <!-- Main content area -->
@@ -31,47 +45,8 @@
                         </svg>
                     </button>
 
-                    <a href="/" class="logo"><img src="/static/favicon.svg" alt="" class="logo-icon">Synth</a>
-
                     {% block header_controls %}
-                    <!-- Tag Search -->
-                    <div class="search-container">
-                        <input type="text" id="tag-search-input" placeholder="Search by tags..." autocomplete="off">
-                        <div id="tag-suggestions" class="suggestions hidden"></div>
-                    </div>
-
-                    <!-- Sort Selector -->
-                    <div class="sort-container">
-                        <select id="sort-select" class="sort-select" title="Sort photos by">
-                            <option value="uploaded" {% if sort == 'uploaded' %}selected{% endif %}>Upload date</option>
-                            <option value="taken" {% if sort == 'taken' %}selected{% endif %}>Capture date</option>
-                        </select>
-                    </div>
-
-                    <!-- Selection Menu (hidden by default) -->
-                    <div id="selection-menu" class="selection-menu hidden">
-                        <span id="selection-count">0 selected</span>
-                        <button id="select-all-btn" class="btn btn-small btn-secondary">Select All</button>
-                        <button id="deselect-all-btn" class="btn btn-small btn-secondary">Deselect</button>
-                        <button id="ai-selected-btn" class="btn btn-small">AI Tags</button>
-                        <button id="delete-selected-btn" class="btn btn-small btn-danger">Delete</button>
-                    </div>
                     {% endblock %}
-
-                    <button id="upload-btn" class="btn">Upload</button>
-
-                    {% if user %}
-                    <div class="user-menu">
-                        <span class="user-name">{{ user.display_name }}</span>
-                        <a href="/settings" class="btn btn-secondary btn-small" title="Settings">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="12" cy="12" r="3"/>
-                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                            </svg>
-                        </a>
-                        <a href="/logout" class="btn btn-secondary btn-small">Logout</a>
-                    </div>
-                    {% endif %}
                 </nav>
             </header>
 
@@ -255,7 +230,6 @@
     <script>
         // Upload modal elements
         const modal = document.getElementById('upload-modal');
-        const uploadBtn = document.getElementById('upload-btn');
         const closeBtn = modal.querySelector('.close');
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
@@ -281,7 +255,10 @@
         let folderFiles = []; // Store files with their relative paths for folder mode
 
         // Open/close modal
-        uploadBtn.onclick = () => modal.classList.remove('hidden');
+        const folderUploadBtn = document.getElementById('folder-upload-btn');
+        if (folderUploadBtn) {
+            folderUploadBtn.onclick = () => modal.classList.remove('hidden');
+        }
         closeBtn.onclick = () => closeModal();
         cancelBtn.onclick = () => closeModal();
         modal.onclick = (e) => {
@@ -293,6 +270,14 @@
             modal.classList.add('hidden');
             resetUploadForm();
         }
+
+        // Close upload modal on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                e.preventDefault();
+                closeModal();
+            }
+        });
 
         function resetUploadForm() {
             fileInput.value = '';
@@ -1201,6 +1186,15 @@
             selectedUserId = null;
         }
 
+        // Close share modal on Escape
+        document.addEventListener('keydown', (e) => {
+            const shareModal = document.getElementById('share-modal');
+            if (e.key === 'Escape' && shareModal && !shareModal.classList.contains('hidden')) {
+                e.preventDefault();
+                closeShareModal();
+            }
+        });
+
         async function loadPermissions() {
             if (!shareModalFolderId) return;
 
@@ -1355,29 +1349,50 @@
             }
         }
 
-        // Sort selector handler
-        const sortSelect = document.getElementById('sort-select');
-        if (sortSelect) {
-            sortSelect.addEventListener('change', async function() {
-                const sortBy = this.value;
+        // Sort dropdown handler
+        const sortBtn = document.getElementById('sort-btn');
+        const sortMenu = document.getElementById('sort-menu');
 
-                // Save preference via API
-                if (currentFolderId) {
-                    try {
-                        await csrfFetch(`/api/folders/${currentFolderId}/sort`, {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sort_by: sortBy })
-                        });
-                    } catch (e) {
-                        console.error('Failed to save sort preference:', e);
+        if (sortBtn && sortMenu) {
+            // Toggle menu on button click
+            sortBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                sortMenu.classList.toggle('hidden');
+            });
+
+            // Handle option selection
+            sortMenu.querySelectorAll('.sort-option').forEach(option => {
+                option.addEventListener('click', async function() {
+                    const sortBy = this.dataset.sort;
+
+                    // Update active state
+                    sortMenu.querySelectorAll('.sort-option').forEach(o => o.classList.remove('active'));
+                    this.classList.add('active');
+                    sortMenu.classList.add('hidden');
+
+                    // Save preference via API
+                    if (currentFolderId) {
+                        try {
+                            await csrfFetch(`/api/folders/${currentFolderId}/sort`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ sort_by: sortBy })
+                            });
+                        } catch (e) {
+                            console.error('Failed to save sort preference:', e);
+                        }
                     }
-                }
 
-                // Reload page with new sort (will be read from saved preference)
-                const url = new URL(window.location);
-                url.searchParams.delete('sort'); // Remove sort param, use saved preference
-                window.location.href = url.toString();
+                    // Reload page with new sort
+                    const url = new URL(window.location);
+                    url.searchParams.delete('sort');
+                    window.location.href = url.toString();
+                });
+            });
+
+            // Close menu when clicking outside
+            document.addEventListener('click', () => {
+                sortMenu.classList.add('hidden');
             });
         }
 

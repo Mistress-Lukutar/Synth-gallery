@@ -55,40 +55,32 @@ body {
 
 /* Header */
 header {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
-    padding: 1rem 2rem;
-    position: sticky;
-    top: 0;
-    z-index: 100;
+    display: none;
+}
+
+/* Show header only on mobile for sidebar toggle */
+@media (max-width: 768px) {
+    header {
+        display: block;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border);
+        padding: 0.75rem 1rem;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
 }
 
 nav {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    max-width: 1400px;
-    margin: 0 auto;
     gap: 1rem;
-}
-
-/* User Menu */
-.user-menu {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.user-name {
-    color: var(--text-muted);
-    font-size: 0.9rem;
 }
 
 /* Tag Search */
 .search-container {
-    flex: 1;
-    max-width: 400px;
     position: relative;
+    min-width: 200px;
 }
 
 #tag-search-input {
@@ -180,11 +172,7 @@ nav {
 .selection-menu {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.8rem;
-    background: var(--bg);
-    border: 1px solid var(--accent);
-    border-radius: 8px;
+    gap: 0.25rem;
 }
 
 .selection-menu.hidden {
@@ -193,20 +181,117 @@ nav {
 
 #selection-count {
     font-size: 0.85rem;
-    color: var(--accent);
-    font-weight: 500;
+    color: var(--text);
+    font-weight: 600;
     white-space: nowrap;
+    min-width: 1.5rem;
+    text-align: center;
+    margin-right: 0.25rem;
 }
 
-.btn-danger {
-    background: #dc2626;
+/* Selection action buttons */
+.selection-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 0.15s ease;
+    opacity: 0.5;
 }
 
-.btn-danger:hover {
-    background: #b91c1c;
+.selection-action-btn:hover {
+    opacity: 1;
 }
 
-/* Sort Selector */
+.selection-action-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: var(--text);
+}
+
+.selection-action-btn--danger svg {
+    stroke: #ef4444;
+}
+
+.selection-action-btn--danger:hover svg {
+    stroke: #dc2626;
+}
+
+/* Legacy icon buttons */
+.btn-icon {
+    padding: 0.4rem !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.btn.btn-danger {
+    background: #dc2626 !important;
+}
+
+.btn.btn-danger:hover {
+    background: #b91c1c !important;
+}
+
+.btn.btn-danger svg {
+    stroke: #fff;
+}
+
+/* Sort Dropdown */
+.sort-dropdown {
+    position: relative;
+}
+
+.sort-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 0.25rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    z-index: 100;
+    min-width: 120px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.sort-menu.hidden {
+    display: none;
+}
+
+.sort-option {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.sort-option:hover {
+    background: var(--border);
+}
+
+.sort-option.active {
+    color: var(--accent);
+}
+
+/* Legacy sort-select (kept for compatibility) */
 .sort-container {
     display: flex;
     align-items: center;
@@ -1461,17 +1546,21 @@ main {
 
     /* Mobile selection menu */
     .selection-menu {
-        padding: 0.3rem 0.5rem;
-        gap: 0.3rem;
+        gap: 0.15rem;
     }
 
-    .selection-menu .btn-small {
-        padding: 0.3rem 0.5rem;
-        font-size: 0.75rem;
+    .selection-action-btn {
+        padding: 0.3rem;
+    }
+
+    .selection-action-btn svg {
+        width: 18px;
+        height: 18px;
     }
 
     #selection-count {
         font-size: 0.75rem;
+        min-width: 1.25rem;
     }
 
     /* Smaller select indicator on mobile */
@@ -1552,6 +1641,26 @@ main {
     transition: transform 0.3s ease;
 }
 
+.sidebar-logo {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-logo .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+}
+
+.sidebar-logo .logo-icon {
+    width: 24px;
+    height: 24px;
+}
+
 .sidebar-header {
     display: flex;
     justify-content: space-between;
@@ -1570,6 +1679,36 @@ main {
     flex: 1;
     overflow-y: auto;
     padding: 0.5rem;
+}
+
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+}
+
+.sidebar-user .user-name {
+    font-size: 0.9rem;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.sidebar-settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+
+.sidebar-settings-btn:hover {
+    color: var(--text);
+    background: var(--bg);
 }
 
 /* Folder items */
@@ -1851,17 +1990,92 @@ main {
     align-items: center;
     margin-bottom: 1rem;
     padding: 0 0.5rem;
+    gap: 1rem;
 }
 
-.folder-header h2 {
-    font-size: 1.25rem;
+.folder-header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-shrink: 0;
+}
+
+.folder-header-left h2 {
+    font-size: 1.5rem;
     font-weight: 600;
+    margin: 0;
+    line-height: 1;
 }
 
-.folder-header-actions {
+/* Folder action buttons (upload, sort, share) */
+.folder-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.folder-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 0.15s ease;
+    opacity: 0.5;
+}
+
+.folder-action-btn:hover {
+    opacity: 1;
+}
+
+.folder-action-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: var(--text);
+}
+
+.folder-header-right {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+/* Download progress */
+.download-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 150px;
+}
+
+.download-progress.hidden {
+    display: none;
+}
+
+.download-progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    min-width: 80px;
+}
+
+.download-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    width: 0%;
+    transition: width 0.2s ease;
+}
+
+.download-progress-text {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .access-select {
@@ -1960,9 +2174,17 @@ main {
     }
 
     .folder-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.75rem;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .folder-header-left {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .download-progress {
+        min-width: 120px;
     }
 
     .folder-breadcrumbs {
@@ -2119,25 +2341,6 @@ main {
     font-style: italic;
     text-align: center;
     padding: 1rem;
-}
-
-/* Share button */
-.btn-share {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 0.9rem;
-}
-
-.btn-share:hover {
-    background: var(--bg);
-    border-color: var(--accent);
 }
 
 /* Sidebar folder sections */
@@ -2406,9 +2609,8 @@ main {
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
     padding: 2rem;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: flex-end;
-    gap: 1rem;
 }
 
 .lightbox-meta {
@@ -2454,15 +2656,37 @@ main {
     opacity: 0.7;
 }
 
-.lightbox-actions {
+.lightbox-edit-buttons {
     display: flex;
-    gap: 0.5rem;
-    flex-shrink: 0;
+    gap: 0.4rem;
+    margin-left: 0.75rem;
 }
 
-.lightbox-actions .btn-small {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.85rem;
+.lightbox-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.lightbox-edit-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.lightbox-edit-btn.hidden {
+    display: none;
+}
+
+.lightbox-edit-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* Lightbox swipe animations */

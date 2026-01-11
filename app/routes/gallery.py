@@ -1,6 +1,7 @@
 """Gallery routes - main page, uploads, photo/album views."""
 import shutil
 import uuid
+import zipfile
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -1125,3 +1126,179 @@ def batch_move_items(data: BatchMoveInput, request: Request):
         "skipped_photos": skipped_photos,
         "skipped_albums": skipped_albums
     }
+
+
+# === Download Operations ===
+
+class BatchDownloadInput(BaseModel):
+    photo_ids: list[str] = []
+    album_ids: list[str] = []
+
+
+@router.post("/api/photos/batch-download")
+async def batch_download(data: BatchDownloadInput, request: Request):
+    """Download multiple photos and albums as a ZIP file.
+
+    If only one photo is selected, downloads it directly.
+    If multiple photos/albums are selected, creates a ZIP with:
+    - Root folder named with current date (YYYY-MM-DD)
+    - Individual photos in root
+    - Albums in subfolders named by album name
+    """
+    user = require_user(request)
+    db = get_db()
+
+    # Collect all files to download
+    files_to_download = []  # List of (archive_path, file_path, is_encrypted, owner_id)
+
+    # Get current date for folder name
+    date_folder = datetime.now().strftime("%Y-%m-%d")
+
+    # Process individual photos
+    for photo_id in data.photo_ids:
+        if not can_access_photo(photo_id, user["id"]):
+            continue
+
+        photo = db.execute(
+            "SELECT id, filename, original_name, is_encrypted, user_id FROM photos WHERE id = ?",
+            (photo_id,)
+        ).fetchone()
+
+        if photo:
+            file_path = UPLOADS_DIR / photo["filename"]
+            if file_path.exists():
+                archive_path = f"{date_folder}/{photo['original_name']}"
+                files_to_download.append((
+                    archive_path,
+                    file_path,
+                    photo["is_encrypted"],
+                    photo["user_id"]
+                ))
+
+    # Process albums
+    for album_id in data.album_ids:
+        if not can_access_album(album_id, user["id"]):
+            continue
+
+        album = db.execute(
+            "SELECT id, name FROM albums WHERE id = ?",
+            (album_id,)
+        ).fetchone()
+
+        if album:
+            album_name = album["name"] or f"album_{album_id[:8]}"
+            # Sanitize album name for filesystem
+            album_name = "".join(c for c in album_name if c.isalnum() or c in (' ', '-', '_')).strip()
+            if not album_name:
+                album_name = f"album_{album_id[:8]}"
+
+            photos = db.execute(
+                "SELECT id, filename, original_name, is_encrypted, user_id FROM photos WHERE album_id = ? ORDER BY position, id",
+                (album_id,)
+            ).fetchall()
+
+            for photo in photos:
+                file_path = UPLOADS_DIR / photo["filename"]
+                if file_path.exists():
+                    archive_path = f"{date_folder}/{album_name}/{photo['original_name']}"
+                    files_to_download.append((
+                        archive_path,
+                        file_path,
+                        photo["is_encrypted"],
+                        photo["user_id"]
+                    ))
+
+    if not files_to_download:
+        raise HTTPException(status_code=404, detail="No files to download")
+
+    # If only one file, download directly
+    if len(files_to_download) == 1:
+        archive_path, file_path, is_encrypted, owner_id = files_to_download[0]
+        original_name = Path(archive_path).name
+
+        if is_encrypted:
+            dek = dek_cache.get(owner_id)
+            if not dek:
+                raise HTTPException(status_code=403, detail="Encryption key not available")
+
+            with open(file_path, "rb") as f:
+                encrypted_data = f.read()
+
+            try:
+                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+            except Exception:
+                raise HTTPException(status_code=500, detail="Decryption failed")
+
+            # Determine content type
+            ext = file_path.suffix.lower()
+            content_types = {
+                ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+                ".mp4": "video/mp4", ".webm": "video/webm"
+            }
+            content_type = content_types.get(ext, "application/octet-stream")
+
+            return Response(
+                content=decrypted_data,
+                media_type=content_type,
+                headers={"Content-Disposition": f'attachment; filename="{original_name}"'}
+            )
+        else:
+            return FileResponse(
+                file_path,
+                filename=original_name,
+                media_type="application/octet-stream"
+            )
+
+    # Multiple files - create ZIP (no compression for speed)
+    zip_buffer = BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_STORED) as zf:
+        # Track used names to avoid duplicates
+        used_names = {}
+
+        for archive_path, file_path, is_encrypted, owner_id in files_to_download:
+            # Handle duplicate filenames
+            if archive_path in used_names:
+                used_names[archive_path] += 1
+                path_parts = archive_path.rsplit('.', 1)
+                if len(path_parts) == 2:
+                    archive_path = f"{path_parts[0]}_{used_names[archive_path]}.{path_parts[1]}"
+                else:
+                    archive_path = f"{archive_path}_{used_names[archive_path]}"
+            else:
+                used_names[archive_path] = 0
+
+            if is_encrypted:
+                dek = dek_cache.get(owner_id)
+                if not dek:
+                    continue  # Skip files we can't decrypt
+
+                with open(file_path, "rb") as f:
+                    encrypted_data = f.read()
+
+                try:
+                    file_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                except Exception:
+                    continue  # Skip files that fail to decrypt
+            else:
+                with open(file_path, "rb") as f:
+                    file_data = f.read()
+
+            zf.writestr(archive_path, file_data)
+
+    # Get ZIP size and reset buffer
+    zip_size = zip_buffer.tell()
+    zip_buffer.seek(0)
+
+    # Generate ZIP filename
+    zip_filename = f"synth_gallery_{date_folder}.zip"
+
+    return Response(
+        content=zip_buffer.read(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{zip_filename}"',
+            "Content-Length": str(zip_size)
+        }
+    )
