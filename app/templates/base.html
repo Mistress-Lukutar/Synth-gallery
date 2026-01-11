@@ -15,10 +15,6 @@
             <div class="sidebar-logo">
                 <a href="/" class="logo"><img src="/static/favicon.svg" alt="" class="logo-icon">Synth</a>
             </div>
-            <div class="sidebar-header">
-                <h3>Folders</h3>
-                <button id="create-folder-btn" class="btn btn-small" title="Create folder">+</button>
-            </div>
             <div class="folder-tree" id="folder-tree">
                 <!-- Folder tree rendered by JS -->
             </div>
@@ -37,19 +33,6 @@
 
         <!-- Main content area -->
         <div class="main-content">
-            <header>
-                <nav>
-                    <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle folders">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M3 12h18M3 6h18M3 18h18"/>
-                        </svg>
-                    </button>
-
-                    {% block header_controls %}
-                    {% endblock %}
-                </nav>
-            </header>
-
             <main>
                 {% block content %}{% endblock %}
             </main>
@@ -150,6 +133,12 @@
             <div id="default-folder-section" class="form-group hidden">
                 <button type="button" id="set-default-folder-btn" class="btn btn-secondary btn-block">
                     Set as default folder
+                </button>
+            </div>
+
+            <div id="delete-folder-section" class="form-group hidden">
+                <button type="button" id="delete-folder-btn" class="btn btn-danger btn-block">
+                    Delete folder
                 </button>
             </div>
 
@@ -691,7 +680,6 @@
         const sidebarToggle = document.getElementById('sidebar-toggle');
         const sidebarOverlay = document.getElementById('sidebar-overlay');
         const folderTreeContainer = document.getElementById('folder-tree');
-        const createFolderBtn = document.getElementById('create-folder-btn');
 
         // Folder modal elements
         const folderModal = document.getElementById('folder-modal');
@@ -886,12 +874,26 @@
             let html = '';
 
             // My Folders section
+            html += '<div class="folder-section">';
+            html += '<div class="folder-section-header">My Folders</div>';
             if (myFolders.length > 0) {
-                html += '<div class="folder-section">';
-                html += '<div class="folder-section-header">My Folders</div>';
                 html += buildTreeHTML(null, 0, myFolders);
-                html += '</div>';
             }
+            // Add folder button at the end
+            html += `
+                <div class="folder-item-wrapper">
+                    <span class="folder-expand-placeholder"></span>
+                    <div class="folder-item add-folder-item" onclick="openCreateFolder()">
+                        <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            <line x1="12" y1="11" x2="12" y2="17"/>
+                            <line x1="9" y1="14" x2="15" y2="14"/>
+                        </svg>
+                        <span class="folder-name">add folder</span>
+                    </div>
+                </div>
+            `;
+            html += '</div>';
 
             // Shared with me section
             if (sharedFolders.length > 0) {
@@ -901,7 +903,7 @@
                 html += '</div>';
             }
 
-            folderTreeContainer.innerHTML = html || '<div class="no-folders">No folders yet</div>';
+            folderTreeContainer.innerHTML = html;
         }
 
         function buildTreeHTML(parentId, level, folders = folderTree) {
@@ -968,16 +970,6 @@
 
             const ownerInfo = !isOwn && folder.owner_name ? `<span class="folder-owner">${escapeHtml(folder.owner_name)}</span>` : '';
 
-            const actionsHtml = isOwn ? `
-                <div class="folder-actions-inline">
-                    <button class="folder-action-btn" onclick="event.stopPropagation(); openEditFolder('${folder.id}')" title="Edit">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button class="folder-action-btn" onclick="event.stopPropagation(); deleteFolder('${folder.id}')" title="Delete">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                    </button>
-                </div>` : '';
-
             // Determine if user can edit this folder (owner or editor)
             const canEdit = permission === 'owner' || permission === 'editor';
 
@@ -1008,7 +1000,6 @@
                         ${ownerInfo}
                         <span class="folder-count">${photoCount}</span>
                     </div>
-                    ${actionsHtml}
                 </div>
             `;
         }
@@ -1038,6 +1029,10 @@
             });
         }
 
+        // Folder modal elements for delete
+        const deleteFolderSection = document.getElementById('delete-folder-section');
+        const deleteFolderBtn = document.getElementById('delete-folder-btn');
+
         // Folder modal functions
         function openCreateFolder() {
             editingFolderId = null;
@@ -1046,8 +1041,9 @@
             folderNameInput.value = '';
             folderParentSelect.value = currentFolderId || '';
             updateParentSelect();
-            // Hide default folder section when creating
+            // Hide sections only shown when editing
             defaultFolderSection.classList.add('hidden');
+            deleteFolderSection.classList.add('hidden');
             folderModal.classList.remove('hidden');
             folderNameInput.focus();
         }
@@ -1074,6 +1070,9 @@
                 setDefaultFolderBtn.disabled = false;
             }
 
+            // Show delete folder section
+            deleteFolderSection.classList.remove('hidden');
+
             folderModal.classList.remove('hidden');
             folderNameInput.focus();
         }
@@ -1083,7 +1082,6 @@
             editingFolderId = null;
         }
 
-        createFolderBtn.onclick = openCreateFolder;
         folderCancelBtn.onclick = closeFolderModal;
         folderModalClose.onclick = closeFolderModal;
         folderModal.onclick = (e) => {
@@ -1154,6 +1152,7 @@
 
             try {
                 await csrfFetch(`/api/folders/${folderId}`, { method: 'DELETE' });
+                closeFolderModal();
                 if (folderId === currentFolderId) {
                     // Navigate to parent or root
                     window.location.href = folder.parent_id ? `/?folder_id=${folder.parent_id}` : '/';
@@ -1165,6 +1164,13 @@
                 alert('Delete failed');
             }
         }
+
+        // Delete folder button in modal
+        deleteFolderBtn.onclick = () => {
+            if (editingFolderId) {
+                deleteFolder(editingFolderId);
+            }
+        };
 
         // === Share Modal ===
         let shareModalFolderId = null;
