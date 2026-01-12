@@ -821,7 +821,13 @@
                 // Update cache
                 sessionStorage.setItem('collapsedFoldersCache', JSON.stringify(freshCollapsed));
 
-                collapsedFolders = new Set(freshCollapsed);
+                // Only re-render if data changed
+                const oldCollapsed = [...collapsedFolders].sort().join(',');
+                const newCollapsed = [...freshCollapsed].sort().join(',');
+                if (oldCollapsed !== newCollapsed) {
+                    collapsedFolders = new Set(freshCollapsed);
+                    renderFolderTree();
+                }
             } catch (err) {
                 console.error('Failed to load collapsed folders:', err);
             }
