@@ -185,6 +185,7 @@
         <h2>{{ current_folder.name }}</h2>
         <!-- Folder action buttons -->
         <div class="folder-actions">
+            {% if current_folder.permission in ['owner', 'editor'] %}
             <button id="folder-upload-btn" class="folder-action-btn" title="Upload">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -192,6 +193,7 @@
                     <line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
             </button>
+            {% endif %}
             <div class="sort-dropdown">
                 <button id="sort-btn" class="folder-action-btn" title="Sort by">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
@@ -241,6 +243,7 @@
                     <line x1="12" y1="15" x2="12" y2="3"/>
                 </svg>
             </button>
+            {% if current_folder.permission in ['owner', 'editor'] %}
             <button id="move-selected-btn" class="selection-action-btn" title="Move to folder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
@@ -248,12 +251,14 @@
                     <polyline points="9 14 12 11 15 14"/>
                 </svg>
             </button>
+            {% endif %}
             <button id="copy-selected-btn" class="selection-action-btn" title="Copy to folder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                     <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                     <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                 </svg>
             </button>
+            {% if current_folder.permission in ['owner', 'editor'] %}
             <button id="ai-selected-btn" class="selection-action-btn" title="Generate AI Tags">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
@@ -266,6 +271,7 @@
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                 </svg>
             </button>
+            {% endif %}
         </div>
     </div>
     <div class="folder-header-right">
@@ -759,7 +765,8 @@
     });
 
     // Delete selected
-    document.getElementById('delete-selected-btn').addEventListener('click', async () => {
+    const deleteBtn = document.getElementById('delete-selected-btn');
+    if (deleteBtn) deleteBtn.addEventListener('click', async () => {
         if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
         const count = selectedPhotos.size + selectedAlbums.size;
@@ -883,11 +890,11 @@
     });
 
     // AI tags for selected
-    document.getElementById('ai-selected-btn').addEventListener('click', async () => {
+    const aiBtn = document.getElementById('ai-selected-btn');
+    if (aiBtn) aiBtn.addEventListener('click', async () => {
         if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
-        const btn = document.getElementById('ai-selected-btn');
-        btn.disabled = true;
+        aiBtn.disabled = true;
 
         try {
             const resp = await csrfFetch('/api/photos/batch-ai-tags', {
@@ -909,7 +916,7 @@
             console.error('AI tagging failed:', e);
             alert('Failed to generate AI tags');
         } finally {
-            btn.disabled = false;
+            aiBtn.disabled = false;
         }
     });
 
@@ -2187,7 +2194,8 @@
     const moveBtn = document.getElementById('move-selected-btn');
     const copyBtn = document.getElementById('copy-selected-btn');
 
-    if (!moveBtn || !copyBtn) return;
+    // Need at least copy button to proceed (move is optional for viewers)
+    if (!copyBtn) return;
 
     let pendingAction = null; // 'move' or 'copy'
 
@@ -2364,7 +2372,7 @@
     }
 
     // Event listeners
-    moveBtn.addEventListener('click', () => openFolderPicker('move'));
+    if (moveBtn) moveBtn.addEventListener('click', () => openFolderPicker('move'));
     copyBtn.addEventListener('click', () => openFolderPicker('copy'));
     pickerClose.addEventListener('click', closeFolderPicker);
     pickerCancel.addEventListener('click', closeFolderPicker);
