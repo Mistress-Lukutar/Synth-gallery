@@ -21,7 +21,7 @@ from ..database import (
     move_photo_to_folder, move_album_to_folder,
     move_photos_to_folder, move_albums_to_folder,
     get_photo_by_id, mark_photo_encrypted, get_user_encryption_keys,
-    update_photo_thumbnail_dimensions
+    update_photo_thumbnail_dimensions, get_user_permission
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import (
@@ -70,6 +70,8 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
         current_folder = get_folder(folder_id)
         if current_folder:
             current_folder = dict(current_folder)
+            # Add user's permission level for this folder
+            current_folder["permission"] = get_user_permission(folder_id, user["id"])
             breadcrumbs = get_folder_breadcrumbs(folder_id)
     else:
         # Redirect to default folder
@@ -988,9 +990,9 @@ def move_photo_endpoint(photo_id: str, data: MoveInput, request: Request):
     if photo["album_id"]:
         raise HTTPException(status_code=400, detail="Cannot move photo in album. Move the album instead.")
 
-    # Check source folder access
-    if photo["folder_id"] and not can_access_photo(photo_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Check source folder permission - need edit/delete rights to move
+    if not can_delete_photo(photo_id, user["id"]):
+        raise HTTPException(status_code=403, detail="No permission to move this photo")
 
     # Check destination folder edit permission
     if not can_edit_folder(data.folder_id, user["id"]):
@@ -1027,9 +1029,9 @@ def move_album_endpoint(album_id: str, data: MoveInput, request: Request):
     if not album:
         raise HTTPException(status_code=404, detail="Album not found")
 
-    # Check source album access
-    if not can_access_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Check source album permission - need edit/delete rights to move
+    if not can_delete_album(album_id, user["id"]):
+        raise HTTPException(status_code=403, detail="No permission to move this album")
 
     # Check destination folder edit permission
     if not can_edit_folder(data.folder_id, user["id"]):
@@ -1080,8 +1082,8 @@ def batch_move_items(data: BatchMoveInput, request: Request):
             skipped_photos += 1
             continue
 
-        # Check access to source
-        if not can_access_photo(photo_id, user["id"]):
+        # Check edit/delete permission on source - need rights to move
+        if not can_delete_photo(photo_id, user["id"]):
             skipped_photos += 1
             continue
 
@@ -1105,8 +1107,8 @@ def batch_move_items(data: BatchMoveInput, request: Request):
             skipped_albums += 1
             continue
 
-        # Check access to source album
-        if not can_access_album(album_id, user["id"]):
+        # Check edit/delete permission on source album - need rights to move
+        if not can_delete_album(album_id, user["id"]):
             skipped_albums += 1
             continue
 
@@ -1128,6 +1130,46 @@ def batch_move_items(data: BatchMoveInput, request: Request):
     }
 
 
+def _copy_and_reencrypt_file(
+    old_path: Path,
+    new_path: Path,
+    is_encrypted: bool,
+    source_owner_id: int,
+    dest_owner_id: int
+) -> bool:
+    """Copy file, re-encrypting if needed when owner changes.
+
+    Returns True if successful, False if failed (e.g., DEK not available).
+    """
+    if not old_path.exists():
+        return False
+
+    # If not encrypted or same owner - just copy
+    if not is_encrypted or source_owner_id == dest_owner_id:
+        shutil.copy2(old_path, new_path)
+        return True
+
+    # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
+    source_dek = dek_cache.get(source_owner_id)
+    dest_dek = dek_cache.get(dest_owner_id)
+
+    if not source_dek or not dest_dek:
+        # Cannot re-encrypt without both DEKs
+        return False
+
+    # Read and decrypt
+    encrypted_data = old_path.read_bytes()
+    try:
+        plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
+    except Exception:
+        return False
+
+    # Re-encrypt with destination owner's key
+    new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
+    new_path.write_bytes(new_encrypted)
+    return True
+
+
 @router.post("/api/items/copy")
 def batch_copy_items(data: BatchMoveInput, request: Request):
     """Copy multiple photos and albums to another folder.
@@ -1135,6 +1177,7 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
     Creates copies of photos with new IDs and filenames.
     Only copies standalone photos (not in albums).
     Albums are copied with all their photos.
+    If copying encrypted files from another user, re-encrypts with your key.
     """
     user = require_user(request)
 
@@ -1148,11 +1191,14 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
     skipped_photos = 0
     skipped_albums = 0
 
+    # Get current user's DEK for encryption
+    user_dek = dek_cache.get(user["id"])
+
     # Copy photos
     for photo_id in data.photo_ids:
         photo = db.execute(
             """SELECT filename, original_name, media_type, album_id, taken_at,
-                      is_encrypted, thumb_width, thumb_height
+                      is_encrypted, thumb_width, thumb_height, user_id
                FROM photos WHERE id = ?""",
             (photo_id,)
         ).fetchone()
@@ -1171,31 +1217,50 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
             skipped_photos += 1
             continue
 
+        source_owner_id = photo["user_id"]
+        is_encrypted = photo["is_encrypted"]
+
+        # If encrypted and different owner, check if we can re-encrypt
+        if is_encrypted and source_owner_id != user["id"]:
+            source_dek = dek_cache.get(source_owner_id) if source_owner_id else None
+            if not source_dek or not user_dek:
+                # Cannot copy encrypted file without DEKs
+                skipped_photos += 1
+                continue
+
         # Create new photo copy
         new_photo_id = str(uuid.uuid4())
         old_filename = photo["filename"]
         ext = Path(old_filename).suffix
         new_filename = f"{new_photo_id}{ext}"
 
-        # Copy files
+        # Copy files with re-encryption if needed
         old_upload = UPLOADS_DIR / old_filename
         new_upload = UPLOADS_DIR / new_filename
         old_thumb = THUMBNAILS_DIR / f"{Path(old_filename).stem}.jpg"
         new_thumb = THUMBNAILS_DIR / f"{new_photo_id}.jpg"
 
         try:
-            if old_upload.exists():
-                shutil.copy2(old_upload, new_upload)
-            if old_thumb.exists():
-                shutil.copy2(old_thumb, new_thumb)
+            # Copy main file (re-encrypt if needed)
+            if not _copy_and_reencrypt_file(
+                old_upload, new_upload, is_encrypted, source_owner_id, user["id"]
+            ):
+                skipped_photos += 1
+                continue
 
-            # Insert new photo record
+            # Copy thumbnail (also encrypted if main file is)
+            if old_thumb.exists():
+                _copy_and_reencrypt_file(
+                    old_thumb, new_thumb, is_encrypted, source_owner_id, user["id"]
+                )
+
+            # Insert new photo record (now owned by current user, still encrypted)
             db.execute(
                 """INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id,
                                        taken_at, is_encrypted, thumb_width, thumb_height)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (new_photo_id, new_filename, photo["original_name"], photo["media_type"],
-                 data.folder_id, user["id"], photo["taken_at"], photo["is_encrypted"],
+                 data.folder_id, user["id"], photo["taken_at"], is_encrypted,
                  photo["thumb_width"], photo["thumb_height"])
             )
 
@@ -1211,7 +1276,7 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                 )
 
             copied_photos += 1
-        except Exception as e:
+        except Exception:
             # Clean up on failure
             if new_upload.exists():
                 new_upload.unlink()
@@ -1223,7 +1288,7 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
     # Copy albums
     for album_id in data.album_ids:
         album = db.execute(
-            "SELECT name, cover_photo_id FROM albums WHERE id = ?",
+            "SELECT name, cover_photo_id, user_id FROM albums WHERE id = ?",
             (album_id,)
         ).fetchone()
 
@@ -1236,10 +1301,10 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
             skipped_albums += 1
             continue
 
-        # Get album photos
+        # Get album photos with user_id
         album_photos = db.execute(
             """SELECT id, filename, original_name, media_type, position, taken_at,
-                      is_encrypted, thumb_width, thumb_height
+                      is_encrypted, thumb_width, thumb_height, user_id
                FROM photos WHERE album_id = ? ORDER BY position""",
             (album_id,)
         ).fetchall()
@@ -1247,6 +1312,16 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
         if not album_photos:
             skipped_albums += 1
             continue
+
+        # Check if any encrypted photos need re-encryption and DEK is missing
+        album_source_owner = album["user_id"]
+        has_encrypted = any(p["is_encrypted"] for p in album_photos)
+        if has_encrypted and album_source_owner != user["id"]:
+            source_dek = dek_cache.get(album_source_owner) if album_source_owner else None
+            if not source_dek or not user_dek:
+                # Cannot copy album with encrypted files without DEKs
+                skipped_albums += 1
+                continue
 
         # Create new album
         new_album_id = str(uuid.uuid4())
@@ -1268,11 +1343,21 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
             old_thumb = THUMBNAILS_DIR / f"{Path(old_filename).stem}.jpg"
             new_thumb = THUMBNAILS_DIR / f"{new_photo_id}.jpg"
 
+            source_owner_id = photo["user_id"]
+            is_encrypted = photo["is_encrypted"]
+
             try:
-                if old_upload.exists():
-                    shutil.copy2(old_upload, new_upload)
+                # Copy main file (re-encrypt if needed)
+                if not _copy_and_reencrypt_file(
+                    old_upload, new_upload, is_encrypted, source_owner_id, user["id"]
+                ):
+                    continue
+
+                # Copy thumbnail
                 if old_thumb.exists():
-                    shutil.copy2(old_thumb, new_thumb)
+                    _copy_and_reencrypt_file(
+                        old_thumb, new_thumb, is_encrypted, source_owner_id, user["id"]
+                    )
 
                 db.execute(
                     """INSERT INTO photos (id, filename, original_name, album_id, position,
@@ -1281,7 +1366,7 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (new_photo_id, new_filename, photo["original_name"], new_album_id,
                      photo["position"], photo["media_type"], data.folder_id, user["id"],
-                     photo["taken_at"], photo["is_encrypted"], photo["thumb_width"],
+                     photo["taken_at"], is_encrypted, photo["thumb_width"],
                      photo["thumb_height"])
                 )
 
