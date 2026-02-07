@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Settings - Synth</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
     <style>
         .settings-container {
             max-width: 800px;
@@ -247,7 +247,7 @@
 <body>
     <div class="settings-container">
         <div class="settings-header">
-            <a href="/" title="Back to Gallery">
+            <a href="{{ base_url }}/" title="Back to Gallery">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M19 12H5M12 19l-7-7 7-7"/>
                 </svg>
@@ -265,7 +265,7 @@
                 Account
             </h2>
             <p>Logged in as <strong>{{ user.display_name }}</strong> (@{{ user.username }})</p>
-            <a href="/logout" class="btn btn-secondary">
+            <a href="{{ base_url }}/logout" class="btn btn-secondary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
                     <polyline points="16 17 21 12 16 7"/>
@@ -345,7 +345,7 @@
         // Load credentials
         async function loadCredentials() {
             try {
-                const resp = await fetch('/api/webauthn/credentials');
+                const resp = await fetch('{{ base_url }}/api/webauthn/credentials');
                 credentials = await resp.json();
                 renderCredentials();
             } catch (err) {
@@ -411,7 +411,7 @@
 
             try {
                 // Step 1: Get registration options
-                const optionsResp = await fetch('/api/webauthn/register/begin');
+                const optionsResp = await fetch('{{ base_url }}/api/webauthn/register/begin');
                 if (!optionsResp.ok) {
                     throw new Error('Failed to get registration options');
                 }
@@ -446,7 +446,7 @@
                     }
                 };
 
-                const verifyResp = await csrfFetch('/api/webauthn/register/complete', {
+                const verifyResp = await csrfFetch('{{ base_url }}/api/webauthn/register/complete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -484,7 +484,7 @@
             }
 
             try {
-                const resp = await csrfFetch(`/api/webauthn/credentials/${id}`, {
+                const resp = await csrfFetch(`{{ base_url }}/api/webauthn/credentials/${id}`, {
                     method: 'DELETE'
                 });
 

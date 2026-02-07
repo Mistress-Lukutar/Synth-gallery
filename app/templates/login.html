@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Synth</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
     <style>
         .login-container {
             min-height: 100vh;
@@ -179,8 +179,8 @@
     <div class="login-container">
         <div class="login-box">
             <div class="login-header">
-                <a href="/" class="logo">
-                    <img src="/static/favicon.svg" alt="" class="logo-icon">
+                <a href="{{ base_url }}/" class="logo">
+                    <img src="{{ base_url }}/static/favicon.svg" alt="" class="logo-icon">
                     Synth
                 </a>
                 <p>Sign in to access the gallery</p>
@@ -190,7 +190,7 @@
             <div class="error-message">{{ error }}</div>
             {% endif %}
 
-            <form method="POST" action="/login">
+            <form method="POST" action="{{ base_url }}/login">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group">
                     <label for="username">Username</label>
@@ -239,7 +239,7 @@
             }
 
             try {
-                const resp = await fetch(`/api/webauthn/check/${encodeURIComponent(username)}`);
+                const resp = await fetch(`{{ base_url }}/api/webauthn/check/${encodeURIComponent(username)}`);
                 const data = await resp.json();
 
                 if (data.has_keys) {
@@ -286,7 +286,7 @@
 
             try {
                 // Step 1: Get authentication options
-                const optionsResp = await fetch(`/api/webauthn/authenticate/begin?username=${encodeURIComponent(username)}`);
+                const optionsResp = await fetch(`{{ base_url }}/api/webauthn/authenticate/begin?username=${encodeURIComponent(username)}`);
                 if (!optionsResp.ok) {
                     const err = await optionsResp.json();
                     throw new Error(err.detail || 'Failed to get options');
@@ -325,7 +325,7 @@
                     }
                 };
 
-                const verifyResp = await fetch('/api/webauthn/authenticate/complete', {
+                const verifyResp = await fetch('{{ base_url }}/api/webauthn/authenticate/complete', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -340,7 +340,7 @@
                 }
 
                 // Success - redirect to gallery
-                window.location.href = '/';
+                window.location.href = '{{ base_url }}/';
 
             } catch (err) {
                 console.error('Hardware key auth error:', err);

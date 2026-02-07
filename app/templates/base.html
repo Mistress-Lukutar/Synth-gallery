@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}Synth{% endblock %}</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
 </head>
 <body>
     <div class="app-layout">
         <!-- Sidebar -->
         <aside id="sidebar" class="sidebar">
             <div class="sidebar-logo">
-                <a href="/" class="logo"><img src="/static/favicon.svg" alt="" class="logo-icon">Synth</a>
+                <a href="{{ base_url }}/" class="logo"><img src="{{ base_url }}/static/favicon.svg" alt="" class="logo-icon">Synth</a>
             </div>
             <div class="folder-tree" id="folder-tree">
                 <!-- Folder tree rendered by JS -->
@@ -21,7 +21,7 @@
             {% if user %}
             <div class="sidebar-user">
                 <span class="user-name">{{ user.display_name }}</span>
-                <a href="/settings" class="sidebar-settings-btn" title="Settings">
+                <a href="{{ base_url }}/settings" class="sidebar-settings-btn" title="Settings">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"/>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -559,7 +559,7 @@
                     formData.append('folder_id', currentFolderId);
 
                     progressFill.style.width = '50%';
-                    const resp = await csrfFetch('/upload-bulk', { method: 'POST', body: formData });
+                    const resp = await csrfFetch('{{ base_url }}/upload-bulk', { method: 'POST', body: formData });
 
                     if (!resp.ok) {
                         const err = await resp.json();
@@ -603,7 +603,7 @@
                             formData.append('files', file);
                         }
                         formData.append('folder_id', currentFolderId);
-                        const resp = await csrfFetch('/upload-album', { method: 'POST', body: formData });
+                        const resp = await csrfFetch('{{ base_url }}/upload-album', { method: 'POST', body: formData });
                         if (!resp.ok) {
                             const err = await resp.json();
                             throw new Error(err.detail || 'Upload failed');
@@ -619,7 +619,7 @@
                             const formData = new FormData();
                             formData.append('file', files[i]);
                             formData.append('folder_id', currentFolderId);
-                            const resp = await csrfFetch('/upload', { method: 'POST', body: formData });
+                            const resp = await csrfFetch('{{ base_url }}/upload', { method: 'POST', body: formData });
                             if (!resp.ok) {
                                 const err = await resp.json();
                                 throw new Error(err.detail || 'Upload failed');
@@ -632,7 +632,7 @@
                     // Apply AI tags if requested
                     if (useAiTags && uploadedIds.length > 0) {
                         progressText.textContent = 'Generating AI tags...';
-                        await csrfFetch('/api/photos/batch-ai-tags', {
+                        await csrfFetch('{{ base_url }}/api/photos/batch-ai-tags', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ photo_ids: uploadedIds })
@@ -644,7 +644,7 @@
                         progressText.textContent = 'Applying tags...';
                         for (const photoId of uploadedIds) {
                             for (const tag of manualTags) {
-                                await csrfFetch(`/api/photos/${photoId}/tag`, {
+                                await csrfFetch(`{{ base_url }}/api/photos/${photoId}/tag`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ tag: tag, category_id: 6 })
@@ -771,7 +771,7 @@
 
             // Fetch fresh data
             try {
-                const resp = await fetch('/api/folders');
+                const resp = await fetch('{{ base_url }}/api/folders');
                 const freshData = await resp.json();
 
                 // Update cache
@@ -792,7 +792,7 @@
         // Load user's default folder
         async function loadDefaultFolder() {
             try {
-                const resp = await fetch('/api/folders/user/default');
+                const resp = await fetch('{{ base_url }}/api/folders/user/default');
                 const data = await resp.json();
                 userDefaultFolderId = data.default_folder_id;
             } catch (err) {
@@ -814,7 +814,7 @@
 
             // Fetch fresh data
             try {
-                const resp = await fetch('/api/folders/user/collapsed');
+                const resp = await fetch('{{ base_url }}/api/folders/user/collapsed');
                 const data = await resp.json();
                 const freshCollapsed = data.collapsed_folders || [];
 
@@ -854,7 +854,7 @@
 
             // Persist to server
             try {
-                await csrfFetch(`/api/folders/${folderId}/toggle-collapse`, {
+                await csrfFetch(`{{ base_url }}/api/folders/${folderId}/toggle-collapse`, {
                     method: 'POST'
                 });
             } catch (err) {
@@ -1020,7 +1020,7 @@
         }
 
         function navigateToFolder(folderId) {
-            window.location.href = `/?folder_id=${folderId}`;
+            window.location.href = `{{ base_url }}/?folder_id=${folderId}`;
         }
 
         // Update parent folder select options
@@ -1110,14 +1110,14 @@
             try {
                 if (editingFolderId) {
                     // Update existing folder
-                    await csrfFetch(`/api/folders/${editingFolderId}`, {
+                    await csrfFetch(`{{ base_url }}/api/folders/${editingFolderId}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name })
                     });
                 } else {
                     // Create new folder
-                    await csrfFetch('/api/folders', {
+                    await csrfFetch('{{ base_url }}/api/folders', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ name, parent_id: parentId })
@@ -1139,7 +1139,7 @@
             setDefaultFolderBtn.textContent = 'Setting...';
 
             try {
-                await csrfFetch(`/api/folders/${editingFolderId}/set-default`, {
+                await csrfFetch(`{{ base_url }}/api/folders/${editingFolderId}/set-default`, {
                     method: 'PUT'
                 });
                 userDefaultFolderId = editingFolderId;
@@ -1160,11 +1160,11 @@
             if (!confirm(`Delete folder "${folder.name}" and all its contents?`)) return;
 
             try {
-                await csrfFetch(`/api/folders/${folderId}`, { method: 'DELETE' });
+                await csrfFetch(`{{ base_url }}/api/folders/${folderId}`, { method: 'DELETE' });
                 closeFolderModal();
                 if (folderId === currentFolderId) {
                     // Navigate to parent or root
-                    window.location.href = folder.parent_id ? `/?folder_id=${folder.parent_id}` : '/';
+                    window.location.href = folder.parent_id ? `{{ base_url }}/?folder_id=${folder.parent_id}` : '{{ base_url }}/';
                 } else {
                     loadFolderTree();
                 }
@@ -1214,7 +1214,7 @@
             if (!shareModalFolderId) return;
 
             try {
-                const resp = await fetch(`/api/folders/${shareModalFolderId}/permissions`);
+                const resp = await fetch(`{{ base_url }}/api/folders/${shareModalFolderId}/permissions`);
                 const data = await resp.json();
                 renderPermissions(data.permissions || []);
             } catch (err) {
@@ -1276,7 +1276,7 @@
 
         async function searchUsers(query) {
             try {
-                const resp = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
+                const resp = await fetch(`{{ base_url }}/api/users/search?q=${encodeURIComponent(query)}`);
                 const data = await resp.json();
                 renderSearchResults(data.users || []);
             } catch (err) {
@@ -1319,7 +1319,7 @@
             const permission = document.getElementById('permission-level-select').value;
 
             try {
-                await csrfFetch(`/api/folders/${shareModalFolderId}/permissions`, {
+                await csrfFetch(`{{ base_url }}/api/folders/${shareModalFolderId}/permissions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ user_id: selectedUserId, permission })
@@ -1337,7 +1337,7 @@
             if (!shareModalFolderId) return;
 
             try {
-                await csrfFetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
+                await csrfFetch(`{{ base_url }}/api/folders/${shareModalFolderId}/permissions/${userId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ permission })
@@ -1354,7 +1354,7 @@
             if (!confirm('Remove access for this user?')) return;
 
             try {
-                await csrfFetch(`/api/folders/${shareModalFolderId}/permissions/${userId}`, {
+                await csrfFetch(`{{ base_url }}/api/folders/${shareModalFolderId}/permissions/${userId}`, {
                     method: 'DELETE'
                 });
                 loadPermissions();
@@ -1388,7 +1388,7 @@
                     // Save preference via API
                     if (currentFolderId) {
                         try {
-                            await csrfFetch(`/api/folders/${currentFolderId}/sort`, {
+                            await csrfFetch(`{{ base_url }}/api/folders/${currentFolderId}/sort`, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ sort_by: sortBy })

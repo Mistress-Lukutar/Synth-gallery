@@ -164,7 +164,7 @@
 <div class="folder-breadcrumbs">
     {% for crumb in breadcrumbs %}
         {% if not loop.last %}
-        <a href="/?folder_id={{ crumb.id }}">{{ crumb.name }}</a>
+        <a href="{{ base_url }}/?folder_id={{ crumb.id }}">{{ crumb.name }}</a>
         <span>/</span>
         {% else %}
         <span class="current">{{ crumb.name }}</span>
@@ -296,7 +296,7 @@
 <div class="subfolders-section">
     <div class="subfolders-grid">
         {% for folder in subfolders %}
-        <a href="/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}">
+        <a href="{{ base_url }}/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}">
             <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
@@ -325,7 +325,7 @@
                      {% endif %}>
                     {% if item.cover_photo_id %}
                     <div class="gallery-placeholder"></div>
-                    <img src="/thumbnails/{{ item.cover_photo_id }}.jpg"
+                    <img src="{{ base_url }}/thumbnails/{{ item.cover_photo_id }}.jpg"
                          alt="{{ item.name }}"
                          loading="lazy"
                          onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
@@ -361,7 +361,7 @@
                      style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
                      {% endif %}>
                     <div class="gallery-placeholder"></div>
-                    <img src="/thumbnails/{{ item.id }}.jpg"
+                    <img src="{{ base_url }}/thumbnails/{{ item.id }}.jpg"
                          alt="{{ item.original_name }}"
                          loading="lazy"
                          onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
@@ -502,7 +502,7 @@
 
     async function saveDimensionsToServer(photoId, width, height) {
         try {
-            await csrfFetch(`/api/photos/${photoId}/dimensions`, {
+            await csrfFetch(`{{ base_url }}/api/photos/${photoId}/dimensions`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ width, height })
@@ -673,7 +673,7 @@
     // Load all tags for autocomplete
     async function loadAllTags() {
         try {
-            const resp = await fetch('/api/tags/all');
+            const resp = await fetch('{{ base_url }}/api/tags/all');
             allTags = await resp.json();
         } catch (e) {
             console.error('Failed to load tags:', e);
@@ -773,7 +773,7 @@
         if (!confirm(`Delete ${count} item(s)? This cannot be undone.`)) return;
 
         try {
-            const resp = await csrfFetch('/api/photos/batch-delete', {
+            const resp = await csrfFetch('{{ base_url }}/api/photos/batch-delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -806,7 +806,7 @@
         progressText.textContent = 'Preparing...';
 
         try {
-            const resp = await fetch('/api/photos/batch-download', {
+            const resp = await fetch('{{ base_url }}/api/photos/batch-download', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -897,7 +897,7 @@
         aiBtn.disabled = true;
 
         try {
-            const resp = await csrfFetch('/api/photos/batch-ai-tags', {
+            const resp = await csrfFetch('{{ base_url }}/api/photos/batch-ai-tags', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1022,7 +1022,7 @@
             }
             window.history.replaceState({}, '', url);
 
-            const resp = await fetch(`/api/photos/search?tags=${encodeURIComponent(query)}`);
+            const resp = await fetch(`{{ base_url }}/api/photos/search?tags=${encodeURIComponent(query)}`);
             const results = await resp.json();
 
             // Separate matching IDs by type
@@ -1132,7 +1132,7 @@
         loadNavOrder();
 
         try {
-            const resp = await fetch(`/api/albums/${albumId}`);
+            const resp = await fetch(`{{ base_url }}/api/albums/${albumId}`);
             if (!resp.ok) return;
             const album = await resp.json();
 
@@ -1155,7 +1155,7 @@
     // Load and display photo
     async function loadPhoto(photoId) {
         try {
-            const resp = await fetch(`/api/photos/${photoId}`);
+            const resp = await fetch(`{{ base_url }}/api/photos/${photoId}`);
             if (!resp.ok) {
                 console.error('Failed to load photo');
                 return;
@@ -1165,13 +1165,13 @@
             // Update media
             if (photo.media_type === 'video') {
                 lightboxMedia.innerHTML = `
-                    <video src="/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
+                    <video src="{{ base_url }}/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
                         Your browser does not support video.
                     </video>`;
             } else {
                 // Progressive loading: show thumbnail first, then load full image
-                const thumbUrl = `/thumbnails/${photo.id}.jpg`;
-                const fullUrl = `/uploads/${photo.filename}`;
+                const thumbUrl = `{{ base_url }}/thumbnails/${photo.id}.jpg`;
+                const fullUrl = `{{ base_url }}/uploads/${photo.filename}`;
 
                 lightboxMedia.innerHTML = `
                     <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image">`;
@@ -1508,7 +1508,7 @@
         currentEditingPhotoId = window.currentLightboxPhotoId;
 
         // Get current tags from lightbox
-        const resp = await fetch(`/api/photos/${currentEditingPhotoId}`);
+        const resp = await fetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}`);
         const photo = await resp.json();
 
         originalTags = photo.tags.map(t => ({
@@ -1540,14 +1540,14 @@
 
     // Load tag categories
     async function loadCategories() {
-        const response = await fetch('/api/tag-categories');
+        const response = await fetch('{{ base_url }}/api/tag-categories');
         categories = await response.json();
         renderCategoryButtons();
     }
 
     // Load tag presets
     async function loadTagPresets(search = "") {
-        const response = await fetch(`/api/tag-presets?search=${encodeURIComponent(search)}`);
+        const response = await fetch(`{{ base_url }}/api/tag-presets?search=${encodeURIComponent(search)}`);
         const data = await response.json();
         renderPresets(data);
         return data;
@@ -1671,11 +1671,11 @@
         );
 
         for (const tag of toRemove) {
-            await csrfFetch(`/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
+            await csrfFetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
         }
 
         for (const tag of toAdd) {
-            await csrfFetch(`/api/photos/${currentEditingPhotoId}/tag`, {
+            await csrfFetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}/tag`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
@@ -1702,7 +1702,7 @@
             return;
         }
 
-        await csrfFetch('/api/tag-presets', {
+        await csrfFetch('{{ base_url }}/api/tag-presets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
@@ -1730,7 +1730,7 @@
         btn.innerHTML = 'Analyzing...';
 
         try {
-            const response = await csrfFetch(`/api/photos/${currentEditingPhotoId}/ai-tags`, {
+            const response = await csrfFetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}/ai-tags`, {
                 method: 'POST'
             });
             const data = await response.json();
@@ -1841,7 +1841,7 @@
 
         try {
             // Load album data
-            const albumResp = await fetch(`/api/albums/${currentAlbumId}`);
+            const albumResp = await fetch(`{{ base_url }}/api/albums/${currentAlbumId}`);
             const album = await albumResp.json();
 
             albumPhotos = album.photos.map(p => ({
@@ -1852,7 +1852,7 @@
             coverPhotoId = album.cover_photo_id || album.effective_cover_photo_id;
 
             // Load available photos
-            const availResp = await fetch(`/api/albums/${currentAlbumId}/available-photos`);
+            const availResp = await fetch(`{{ base_url }}/api/albums/${currentAlbumId}/available-photos`);
             const availData = await availResp.json();
             availablePhotos = availData.photos || [];
             selectedToAdd.clear();
@@ -1916,7 +1916,7 @@
             <div class="album-cover-option ${photo.id === coverPhotoId ? 'selected' : ''}"
                  data-photo-id="${photo.id}"
                  onclick="selectCoverPhoto('${photo.id}')">
-                <img src="/thumbnails/${photo.id}.jpg" alt="">
+                <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" alt="">
             </div>
         `).join('');
     }
@@ -1926,7 +1926,7 @@
         if (photoId === coverPhotoId) return;
 
         try {
-            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/cover`, {
+            const resp = await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/cover`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_id: photoId })
@@ -1960,7 +1960,7 @@
                         <line x1="8" y1="18" x2="16" y2="18"/>
                     </svg>
                 </div>
-                <img class="photo-thumb" src="/thumbnails/${photo.id}.jpg" alt="">
+                <img class="photo-thumb" src="{{ base_url }}/thumbnails/${photo.id}.jpg" alt="">
                 <span class="photo-info">${index + 1}</span>
                 <button class="remove-btn" onclick="removePhotoFromAlbum('${photo.id}')" title="Remove from album">&times;</button>
             </div>
@@ -2014,7 +2014,7 @@
                 // Save new order to server
                 const photoIds = albumPhotos.map(p => p.id);
                 try {
-                    await csrfFetch(`/api/albums/${currentAlbumId}/reorder`, {
+                    await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/reorder`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ photo_ids: photoIds })
@@ -2033,7 +2033,7 @@
     // Remove photo from album
     window.removePhotoFromAlbum = async function(photoId) {
         try {
-            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/photos`, {
+            const resp = await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/photos`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_ids: [photoId] })
@@ -2090,7 +2090,7 @@
             <div class="available-photo-item ${selectedToAdd.has(p.id) ? 'selected' : ''}"
                  data-photo-id="${p.id}"
                  onclick="togglePhotoSelection('${p.id}')">
-                <img src="/thumbnails/${p.id}.jpg" alt="">
+                <img src="{{ base_url }}/thumbnails/${p.id}.jpg" alt="">
                 <div class="photo-check-indicator">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                         <polyline points="20 6 9 17 4 12"></polyline>
@@ -2138,7 +2138,7 @@
         const photoIds = Array.from(selectedToAdd);
 
         try {
-            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/photos`, {
+            const resp = await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/photos`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_ids: photoIds })
@@ -2302,7 +2302,7 @@
         }
 
         try {
-            const endpoint = pendingAction === 'move' ? '/api/items/move' : '/api/items/copy';
+            const endpoint = pendingAction === 'move' ? '{{ base_url }}/api/items/move' : '{{ base_url }}/api/items/copy';
             const resp = await csrfFetch(endpoint, {
                 method: pendingAction === 'move' ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2357,7 +2357,7 @@
     // Update folder counts
     async function updateFolderCounts() {
         try {
-            const resp = await fetch('/api/folders');
+            const resp = await fetch('{{ base_url }}/api/folders');
             const folders = await resp.json();
 
             folders.forEach(folder => {

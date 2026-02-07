@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Maintenance - Synth Admin</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
     <style>
         .admin-layout {
             max-width: 800px;
@@ -135,10 +135,10 @@
                 Maintenance
             </h1>
             <nav class="admin-nav">
-                <a href="/admin/backups">Backups</a>
-                <a href="/admin/maintenance" class="active">Maintenance</a>
+                <a href="{{ base_url }}/admin/backups">Backups</a>
+                <a href="{{ base_url }}/admin/maintenance" class="active">Maintenance</a>
                 <span style="color: var(--border);">|</span>
-                <a href="/" class="back-link">&larr; Gallery</a>
+                <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
 
@@ -254,7 +254,7 @@
             result.textContent = '';
 
             try {
-                const resp = await csrfFetch('/api/admin/thumbnails/regenerate', { method: 'POST' });
+                const resp = await csrfFetch('{{ base_url }}/api/admin/thumbnails/regenerate', { method: 'POST' });
                 if (!resp.ok) throw new Error('Failed to regenerate');
 
                 const data = await resp.json();
@@ -278,7 +278,7 @@
             result.textContent = '';
 
             try {
-                const resp = await csrfFetch('/api/admin/thumbnails/cleanup', { method: 'POST' });
+                const resp = await csrfFetch('{{ base_url }}/api/admin/thumbnails/cleanup', { method: 'POST' });
                 if (!resp.ok) throw new Error('Failed to clean up');
 
                 const data = await resp.json();
