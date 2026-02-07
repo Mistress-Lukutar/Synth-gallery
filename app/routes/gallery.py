@@ -8,9 +8,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse, RedirectResponse, Response
+
+from ..config import UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES, ROOT_PATH, BASE_DIR
 from fastapi.templating import Jinja2Templates
 
-from ..config import BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES
+templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
+templates.env.globals["base_url"] = ROOT_PATH
 from ..database import (
     get_db, get_folder, get_folder_tree, get_folder_breadcrumbs,
     get_user_default_folder, can_access_folder, can_access_photo,
@@ -32,7 +35,6 @@ from ..services.metadata import extract_taken_date
 from ..services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
-templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
 
 @router.get("/")
@@ -47,14 +49,14 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     user = get_current_user(request)
 
     if not user:
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
     # Check if user has encryption but DEK is not in cache
     # This happens after server restart or when DEK cache expires
     enc_keys = get_user_encryption_keys(user["id"])
     if enc_keys and not dek_cache.get(user["id"]):
         # Redirect to login to re-enter password for DEK decryption
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
     # Get folder tree for sidebar
     folder_tree = get_folder_tree(user["id"])
@@ -76,7 +78,7 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     else:
         # Redirect to default folder
         default_folder_id = get_user_default_folder(user["id"])
-        return RedirectResponse(url=f"/?folder_id={default_folder_id}", status_code=302)
+        return RedirectResponse(url=f"{ROOT_PATH}/?folder_id={default_folder_id}", status_code=302)
 
     # Get sort preference: use URL param if provided, otherwise use saved preference
     if sort is None or sort not in ("uploaded", "taken"):
@@ -232,7 +234,8 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             "breadcrumbs": breadcrumbs,
             "folder_tree": folder_tree,
             "csrf_token": get_csrf_token(request),
-            "sort": sort
+            "sort": sort,
+            "base_url": ROOT_PATH
         }
     )
 

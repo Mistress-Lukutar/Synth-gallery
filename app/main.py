@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .config import BASE_DIR
+from .config import BASE_DIR, ROOT_PATH
 from .database import init_db, cleanup_expired_sessions
 from .middleware import AuthMiddleware, CSRFMiddleware
 from .services.backup import backup_scheduler
@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     backup_scheduler.stop()
 
 
-app = FastAPI(title="Photo Gallery", lifespan=lifespan)
+app = FastAPI(title="Photo Gallery", lifespan=lifespan, root_path=ROOT_PATH)
 
 # Add middleware (order matters - first added = last executed)
 app.add_middleware(AuthMiddleware)
