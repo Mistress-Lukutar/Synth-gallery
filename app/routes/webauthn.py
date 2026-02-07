@@ -2,10 +2,13 @@
 import base64
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..config import BASE_DIR, SESSION_COOKIE, SESSION_MAX_AGE
+from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
+from fastapi.templating import Jinja2Templates
+
+templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
+templates.env.globals["base_url"] = ROOT_PATH
 from ..database import (
     get_session, create_session,
     get_user_by_id, get_user_by_username,
@@ -22,7 +25,6 @@ from ..dependencies import get_csrf_token
 
 router = APIRouter(prefix="/api/webauthn", tags=["webauthn"])
 settings_router = APIRouter(tags=["settings"])
-templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
 
 def _get_webauthn_params(request: Request) -> tuple[str, str]:
@@ -333,23 +335,24 @@ def settings_page(request: Request):
     session_id = request.cookies.get(SESSION_COOKIE)
     if not session_id:
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
     session = get_session(session_id)
     if not session:
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
     user = get_user_by_id(session["user_id"])
     if not user:
         from fastapi.responses import RedirectResponse
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request,
             "user": dict(user),
-            "csrf_token": get_csrf_token(request)
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH
         }
     )

@@ -3,9 +3,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
+
+from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR
 from fastapi.templating import Jinja2Templates
 
-from ..config import BASE_DIR, BACKUP_PATH
+templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
+templates.env.globals["base_url"] = ROOT_PATH
 from ..database import is_user_admin
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.backup import (
@@ -19,7 +22,6 @@ from ..services.thumbnail import (
 )
 
 router = APIRouter()
-templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
 
 def require_admin(request: Request):
@@ -35,7 +37,7 @@ def require_admin(request: Request):
 @router.get("/admin")
 def admin_index(request: Request):
     """Redirect to backups page."""
-    return RedirectResponse(url="/admin/backups", status_code=302)
+    return RedirectResponse(url=f"{ROOT_PATH}/admin/backups", status_code=302)
 
 
 @router.get("/admin/backups")
@@ -56,7 +58,8 @@ def backups_page(request: Request):
             "full_backups": full_backups,
             "scheduler_status": scheduler_status,
             "backup_path": str(BACKUP_PATH),
-            "csrf_token": get_csrf_token(request)
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH
         }
     )
 
@@ -244,7 +247,8 @@ def maintenance_page(request: Request):
             "request": request,
             "user": user,
             "stats": stats,
-            "csrf_token": get_csrf_token(request)
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH
         }
     )
 
