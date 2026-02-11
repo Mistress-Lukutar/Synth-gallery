@@ -596,8 +596,11 @@
 
         // Get safe_id for a folder
         function getFolderSafeId(folderId) {
+            console.log('[getFolderSafeId] Looking for folder:', folderId);
+            console.log('[getFolderSafeId] folderTree available:', !!folderTree, 'length:', folderTree?.length);
             if (!folderId || !folderTree) return null;
             const folder = folderTree.find(f => f.id === folderId);
+            console.log('[getFolderSafeId] Folder found:', !!folder, 'safe_id:', folder?.safe_id);
             return folder ? folder.safe_id : null;
         }
 
@@ -734,6 +737,10 @@
                         uploadedIds = data.photos.map(p => p.id);
                         progressFill.style.width = '100%';
                     } else {
+                        console.log('[Upload] Starting file upload, targetSafeId:', targetSafeId);
+                        console.log('[Upload] SafeCrypto available:', !!window.SafeCrypto);
+                        console.log('[Upload] SafeCrypto.isUnlocked:', targetSafeId ? SafeCrypto.isUnlocked(targetSafeId) : 'N/A');
+                        
                         for (let i = 0; i < files.length; i++) {
                             progressText.textContent = `Uploading ${i + 1}/${files.length}...`;
                             progressFill.style.width = `${((i + 1) / files.length) * 100}%`;
@@ -742,18 +749,23 @@
                             
                             // If uploading to a safe, encrypt the file first
                             if (targetSafeId) {
+                                console.log(`[Upload] File ${i+1}: Encrypting for safe ${targetSafeId}`);
                                 try {
                                     const encrypted = await encryptFileForSafeUpload(files[i], targetSafeId);
+                                    console.log(`[Upload] File ${i+1}: Encrypted size:`, encrypted.encryptedFile.size);
                                     // Create a new File from the encrypted blob to preserve the name
                                     const encryptedFile = new File([encrypted.encryptedFile], files[i].name, {
                                         type: 'application/octet-stream'
                                     });
                                     formData.append('file', encryptedFile);
                                     formData.append('encrypted_ck', 'safe'); // Marker for safe-encrypted files
+                                    console.log(`[Upload] File ${i+1}: FormData prepared with encrypted_ck marker`);
                                 } catch (encryptErr) {
+                                    console.error(`[Upload] File ${i+1}: Encryption failed:`, encryptErr);
                                     throw new Error(`Encryption failed: ${encryptErr.message}`);
                                 }
                             } else {
+                                console.log(`[Upload] File ${i+1}: Regular upload (no safe)`);
                                 formData.append('file', files[i]);
                             }
                             

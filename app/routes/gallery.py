@@ -394,6 +394,10 @@ async def upload_photo(
         if not is_safe_unlocked_for_user(folder_safe_id, user["id"]):
             raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
         safe_id = folder_safe_id
+        
+        # For safe uploads, client must encrypt the file
+        if not encrypted_ck:
+            raise HTTPException(status_code=400, detail="Client-side encryption required for safe uploads. Please ensure the safe is unlocked in your browser.")
 
     # Check file type
     if file.content_type not in ALLOWED_MEDIA_TYPES:
