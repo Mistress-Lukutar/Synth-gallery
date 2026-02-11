@@ -262,8 +262,34 @@ def get_upload(request: Request, filename: str):
     # Check if file is in a safe (end-to-end encrypted)
     photo = get_photo_by_id(photo_id)
     if photo and photo.get("safe_id"):
-        # For safe files, return encrypted file with header
-        # Client must decrypt using SafeCrypto
+        # For safe files, check if it's legacy server-encrypted or new client-encrypted
+        # Legacy files were encrypted with server's DEK before client-side encryption was implemented
+        owner_id = photo.get("user_id")
+        dek = dek_cache.get(owner_id) if owner_id else None
+        
+        if dek:
+            # Try server-side decryption first (for legacy files)
+            try:
+                with open(file_path, "rb") as f:
+                    encrypted_data = f.read()
+                
+                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                
+                # Success! This is a legacy server-encrypted file
+                ext = Path(filename).suffix.lower()
+                content_types = {
+                    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                    ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+                    ".mp4": "video/mp4", ".webm": "video/webm"
+                }
+                content_type = content_types.get(ext, "application/octet-stream")
+                
+                return Response(content=decrypted_data, media_type=content_type)
+            except Exception:
+                # Decryption failed - this is a new client-encrypted file
+                pass
+        
+        # Return encrypted file with E2E header for client-side decryption
         return FileResponse(
             file_path,
             headers={
@@ -332,8 +358,25 @@ def get_thumbnail(request: Request, filename: str):
     # Check if file is in a safe (end-to-end encrypted)
     photo = get_photo_by_id(photo_id)
     if photo and photo.get("safe_id"):
-        # For safe files, return encrypted thumbnail with header
-        # Client must decrypt using SafeCrypto
+        # For safe files, check if it's legacy server-encrypted or new client-encrypted
+        owner_id = photo.get("user_id")
+        dek = dek_cache.get(owner_id) if owner_id else None
+        
+        if dek:
+            # Try server-side decryption first (for legacy files)
+            try:
+                with open(file_path, "rb") as f:
+                    encrypted_data = f.read()
+                
+                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                
+                # Success! This is a legacy server-encrypted thumbnail
+                return Response(content=decrypted_data, media_type="image/jpeg")
+            except Exception:
+                # Decryption failed - this is a new client-encrypted file
+                pass
+        
+        # Return encrypted thumbnail with E2E header for client-side decryption
         return FileResponse(
             file_path,
             headers={
