@@ -1775,6 +1775,22 @@
                 const resp = await fetch('{{ base_url }}/api/safes');
                 const data = await resp.json();
                 userSafes = data.safes || [];
+                
+                // Sync safe lock status: if server says unlocked but client has no key,
+                // the page was reloaded and key is lost. Mark as locked on server too.
+                for (const safe of userSafes) {
+                    if (safe.is_unlocked && !SafeCrypto.isUnlocked(safe.id)) {
+                        console.log(`[loadSafes] Safe ${safe.id} unlocked on server but no client key - syncing lock status`);
+                        // Lock on server to sync status
+                        try {
+                            await csrfFetch(`{{ base_url }}/api/safes/${safe.id}/lock`, { method: 'POST' });
+                            safe.is_unlocked = false;
+                        } catch (e) {
+                            console.error(`[loadSafes] Failed to sync lock status for safe ${safe.id}:`, e);
+                        }
+                    }
+                }
+                
                 renderFolderTree(); // Re-render to show safes
             } catch (err) {
                 console.error('Failed to load safes:', err);
@@ -2077,9 +2093,6 @@
                 loadSafes();
                 loadFolderTree();
                 
-                // Expand all folders in the unlocked safe so user can see them
-                expandSafeFolders(currentUnlockSafeId);
-                
             } catch (err) {
                 console.error('Unlock failed:', err);
                 alert('Unlock failed: ' + err.message);
@@ -2140,32 +2153,6 @@
             } catch (err) {
                 console.error('Delete safe failed:', err);
                 alert('Failed to delete safe: ' + err.message);
-            }
-        }
-
-        // Expand all folders in a safe (called after unlock)
-        function expandSafeFolders(safeId) {
-            console.log('[expandSafeFolders] Expanding folders for safe:', safeId);
-            
-            // Get all folders in this safe
-            const safeFolders = folderTree.filter(f => f.safe_id === safeId);
-            console.log('[expandSafeFolders] Found folders:', safeFolders.length);
-            
-            // Remove all safe folders from collapsed set
-            let expanded = false;
-            safeFolders.forEach(folder => {
-                if (collapsedFolders.has(folder.id)) {
-                    collapsedFolders.delete(folder.id);
-                    expanded = true;
-                    console.log('[expandSafeFolders] Expanded folder:', folder.id);
-                }
-            });
-            
-            // Re-render if we expanded anything
-            if (expanded) {
-                console.log('[expandSafeFolders] Re-rendering folder tree');
-                saveCollapsedFolders();
-                renderFolderTree();
             }
         }
 
