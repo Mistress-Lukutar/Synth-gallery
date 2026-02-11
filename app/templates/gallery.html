@@ -884,7 +884,15 @@
             });
             const data = await resp.json();
             if (data.status === 'ok') {
-                location.reload();
+                // Refresh via SPA instead of page reload (keeps safes unlocked)
+                selectedPhotos.clear();
+                selectedAlbums.clear();
+                updateSelectionUI();
+                if (window.currentFolderId) {
+                    navigateToFolder(window.currentFolderId, false);
+                } else {
+                    location.reload();
+                }
             }
         } catch (e) {
             console.error('Delete failed:', e);
@@ -2086,9 +2094,13 @@
         albumEditorPanel.classList.remove('open');
         lightbox.classList.remove('panel-open');
 
-        // Reload page if changes were made to refresh gallery
+        // Refresh via SPA if changes were made (keeps safes unlocked)
         if (hasChanges) {
-            window.location.reload();
+            if (window.currentFolderId) {
+                navigateToFolder(window.currentFolderId, false);
+            } else {
+                window.location.reload();
+            }
             return;
         }
 
