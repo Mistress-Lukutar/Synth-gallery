@@ -355,17 +355,26 @@
             <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo" data-media-type="{{ item.media_type or 'image' }}"
                  {% if item.thumb_width and item.thumb_height %}
                  data-thumb-width="{{ item.thumb_width }}" data-thumb-height="{{ item.thumb_height }}"
-                 {% endif %}>
+                 {% endif %}
+                 {% if item.safe_id %}data-safe-id="{{ item.safe_id }}"{% endif %}>
                 <div class="gallery-link" onclick="openPhoto('{{ item.id }}')"
                      {% if item.thumb_width and item.thumb_height %}
                      style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
                      {% endif %}>
                     <div class="gallery-placeholder"></div>
+                    {% if item.safe_id %}
+                    <img data-safe-thumbnail="{{ item.id }}"
+                         data-safe-id="{{ item.safe_id }}"
+                         alt="{{ item.original_name }}"
+                         loading="lazy"
+                         style="opacity: 0;">
+                    {% else %}
                     <img src="{{ base_url }}/thumbnails/{{ item.id }}.jpg"
                          alt="{{ item.original_name }}"
                          loading="lazy"
                          onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                          style="opacity: 0;">
+                    {% endif %}
                     {% if item.media_type == 'video' %}
                     <div class="video-badge">
                         <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -529,7 +538,8 @@
         }
 
         // Sync allItems with window.allItems (for SPA navigation compatibility)
-        if (window.allItems && window.allItems.length > 0) {
+        // Use window.allItems if defined (even if empty), otherwise fall back to local allItems
+        if (window.allItems !== undefined) {
             allItems = window.allItems;
         }
 
@@ -676,6 +686,66 @@
             rebuildMasonry(true);
         }, 100);
     };
+    
+    // Load safe thumbnails client-side (E2E decryption)
+    async function loadSafeThumbnails() {
+        const safeImages = document.querySelectorAll('img[data-safe-thumbnail]');
+        if (safeImages.length === 0) return;
+        
+        for (const img of safeImages) {
+            const photoId = img.dataset.safeThumbnail;
+            const safeId = img.dataset.safeId;
+            
+            if (!photoId || !safeId) continue;
+            
+            // Check if safe is unlocked
+            if (!SafeCrypto.isUnlocked(safeId)) {
+                // Show locked placeholder
+                img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23999" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+                img.style.opacity = '1';
+                if (img.previousElementSibling) {
+                    img.previousElementSibling.style.display = 'none';
+                }
+                continue;
+            }
+            
+            try {
+                // Fetch encrypted thumbnail
+                const resp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/thumbnail`);
+                if (!resp.ok) {
+                    console.warn(`Failed to load thumbnail for ${photoId}:`, resp.status);
+                    continue;
+                }
+                
+                // Decrypt thumbnail
+                const encryptedBlob = await resp.blob();
+                const decryptedBlob = await SafeCrypto.decryptFileFromSafe(encryptedBlob, safeId, 'image/jpeg');
+                
+                // Create object URL
+                const url = URL.createObjectURL(decryptedBlob);
+                img.src = url;
+                
+                // Handle load
+                img.onload = () => {
+                    if (img.previousElementSibling) {
+                        img.previousElementSibling.style.display = 'none';
+                    }
+                    img.style.opacity = '1';
+                    onGalleryImageLoad(img);
+                };
+                
+                img.onerror = () => {
+                    console.error(`Failed to load decrypted thumbnail for ${photoId}`);
+                };
+                
+            } catch (err) {
+                console.error(`Error loading safe thumbnail for ${photoId}:`, err);
+            }
+        }
+    }
+    
+    // Load safe thumbnails on init
+    loadSafeThumbnails();
 
     // Use ResizeObserver to detect gallery width changes
     // This handles: window resize, sidebar loading, zoom changes, etc.
