@@ -427,6 +427,9 @@
     function initMasonry() {
         // Collect all items FIRST before any async operations
         allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        
+        // Export to window for SPA navigation compatibility
+        window.allItems = allItems;
 
         // Wait for layout to be ready before building masonry
         // This ensures gallery.clientWidth has correct value
@@ -523,6 +526,11 @@
         // Skip rebuild if column count hasn't changed (unless forced or first build)
         if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
             return;
+        }
+
+        // Sync allItems with window.allItems (for SPA navigation compatibility)
+        if (window.allItems && window.allItems.length > 0) {
+            allItems = window.allItems;
         }
 
         // Get visible items
@@ -645,6 +653,29 @@
 
     // Export rebuildMasonry for drag-and-drop
     window.rebuildMasonry = rebuildMasonry;
+    
+    // Debounced masonry rebuild for image load events (SPA navigation compatibility)
+    let imageLoadDebounceTimer;
+    window.onGalleryImageLoad = function(img) {
+        // Save dimensions to item dataset for masonry calculations
+        const item = img.closest('.gallery-item');
+        if (item && img.naturalWidth && img.naturalHeight) {
+            item.dataset.thumbWidth = img.naturalWidth;
+            item.dataset.thumbHeight = img.naturalHeight;
+            
+            // Update aspect-ratio on gallery-link
+            const link = item.querySelector('.gallery-link');
+            if (link) {
+                link.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+            }
+        }
+        
+        // Debounce masonry rebuild to avoid excessive recalculations
+        clearTimeout(imageLoadDebounceTimer);
+        imageLoadDebounceTimer = setTimeout(() => {
+            rebuildMasonry(true);
+        }, 100);
+    };
 
     // Use ResizeObserver to detect gallery width changes
     // This handles: window resize, sidebar loading, zoom changes, etc.
