@@ -389,6 +389,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
             "name": current_folder["name"],
             "parent_id": current_folder["parent_id"],
             "permission": current_folder["permission"],
+            "user_id": current_folder["user_id"],
             "safe_id": current_folder.get("safe_id")
         },
         "breadcrumbs": [{"id": b["id"], "name": b["name"]} for b in breadcrumbs],

@@ -1065,12 +1065,17 @@
                     const isUnlocked = safe.is_unlocked;
                     const safeFoldersList = safeFolders.filter(f => f.safe_id === safe.id);
                     
-                    // Safe header
+                    // Safe header - click to unlock if locked, click to toggle if unlocked
+                    const safeClickHandler = isUnlocked 
+                        ? `toggleSafeExpand('${safe.id}')`
+                        : `openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}')`;
+                    
                     html += `
                         <div class="folder-item-wrapper">
                             <span class="folder-expand-placeholder"></span>
                             <div class="folder-item safe-item ${isUnlocked ? 'unlocked' : 'locked'}" 
-                                 data-safe-id="${safe.id}">
+                                 data-safe-id="${safe.id}"
+                                 onclick="${safeClickHandler}">
                                 <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     ${isUnlocked ? `
                                         <rect x="5" y="11" width="14" height="10" rx="2"/>
@@ -1083,34 +1088,6 @@
                                 </svg>
                                 <span class="folder-name">${escapeHtml(safe.name)}</span>
                                 <span class="folder-count">${safe.photo_count || 0}</span>
-                                ${isUnlocked ? `
-                                    <button class="safe-action-btn" onclick="event.stopPropagation(); lockSafe('${safe.id}')" title="Lock">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                                            <rect x="5" y="11" width="14" height="10" rx="2"/>
-                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                                        </svg>
-                                    </button>
-                                    <button class="safe-action-btn" onclick="event.stopPropagation(); openCreateFolderInSafe('${safe.id}')" title="Add folder">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                                            <line x1="12" y1="5" x2="12" y2="19"/>
-                                            <line x1="5" y1="12" x2="19" y2="12"/>
-                                        </svg>
-                                    </button>
-                                    <button class="safe-action-btn delete-btn" onclick="event.stopPropagation(); deleteSafe('${safe.id}', '${escapeHtml(safe.name)}')" title="Delete safe">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                                            <polyline points="3 6 5 6 21 6"/>
-                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                                        </svg>
-                                    </button>
-                                ` : `
-                                    <button class="safe-action-btn unlock-btn" onclick="event.stopPropagation(); openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}')" title="Unlock">
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                                            <rect x="5" y="11" width="14" height="10" rx="2"/>
-                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                                            <path d="M12 16l2-2"/>
-                                        </svg>
-                                    </button>
-                                `}
                             </div>
                         </div>
                     `;
@@ -1370,7 +1347,7 @@
         
         // Render folder content in gallery
         function renderFolderContent(data) {
-            console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'photos:', data.photos?.length);
+            console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'items:', data.items?.length);
             
             const gallery = document.getElementById('gallery');
             const breadcrumbs = document.getElementById('folder-breadcrumbs');
@@ -1378,6 +1355,33 @@
             if (!gallery) {
                 console.error('[renderFolderContent] Gallery element not found!');
                 return;
+            }
+            
+            // Update folder header
+            const folderHeader = document.querySelector('.folder-header');
+            if (folderHeader && data.folder) {
+                // Update folder name
+                const folderNameEl = folderHeader.querySelector('h2');
+                if (folderNameEl) {
+                    folderNameEl.textContent = data.folder.name;
+                }
+                
+                // Update upload button visibility based on permission
+                const uploadBtn = folderHeader.querySelector('#folder-upload-btn');
+                if (uploadBtn) {
+                    const canUpload = data.folder.permission === 'owner' || data.folder.permission === 'editor';
+                    uploadBtn.style.display = canUpload ? '' : 'none';
+                }
+                
+                // Update share/edit buttons visibility
+                const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
+                const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
+                if (shareBtn) shareBtn.style.display = data.folder.user_id === '{{ user.id }}' ? '' : 'none';
+                if (editBtn) editBtn.style.display = data.folder.user_id === '{{ user.id }}' ? '' : 'none';
+                
+                // Update share/edit onclick handlers with new folder id
+                if (shareBtn) shareBtn.setAttribute('onclick', `openShareModal('${data.folder.id}')`);
+                if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${data.folder.id}')`);
             }
             
             // Update breadcrumbs
@@ -1479,40 +1483,75 @@
                     `;
                 } else if (item.type === 'photo') {
                     const photo = item.data;
-                    const safeIdAttr = photo.safe_id ? `data-safe-id="${photo.safe_id}"` : '';
+                    const safeId = photo.safe_id;
+                    const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                     const mediaType = photo.media_type || 'image';
                     const hasDims = photo.thumb_width && photo.thumb_height;
                     const dimsAttr = hasDims ? `data-thumb-width="${photo.thumb_width}" data-thumb-height="${photo.thumb_height}"` : '';
                     const aspectStyle = hasDims ? `style="aspect-ratio: ${photo.thumb_width} / ${photo.thumb_height};"` : '';
-                    html += `
-                        <div class="gallery-item" 
-                             data-photo-id="${photo.id}"
-                             data-item-type="photo"
-                             data-media-type="${mediaType}"
-                             ${dimsAttr}
-                             ${safeIdAttr}>
-                            <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
-                                <div class="gallery-placeholder"></div>
-                                <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" 
-                                     alt="${escapeHtml(photo.original_name)}"
-                                     loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
-                                     style="opacity: 0;">
-                                ${mediaType === 'video' ? `
-                                    <div class="video-badge">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                        </svg>
-                                    </div>
-                                ` : ''}
+                    
+                    // For safe photos, use client-side decryption for thumbnails
+                    if (safeId) {
+                        html += `
+                            <div class="gallery-item" 
+                                 data-photo-id="${photo.id}"
+                                 data-item-type="photo"
+                                 data-media-type="${mediaType}"
+                                 ${dimsAttr}
+                                 data-safe-id="${safeId}">
+                                <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
+                                    <div class="gallery-placeholder"></div>
+                                    <img data-safe-thumbnail="${photo.id}"
+                                         data-safe-id="${safeId}"
+                                         alt="${escapeHtml(photo.original_name)}"
+                                         loading="lazy"
+                                         style="opacity: 0;">
+                                    ${mediaType === 'video' ? `
+                                        <div class="video-badge">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                            </svg>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <div class="select-indicator" title="Select">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
                             </div>
-                            <div class="select-indicator" title="Select">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
+                        `;
+                    } else {
+                        html += `
+                            <div class="gallery-item" 
+                                 data-photo-id="${photo.id}"
+                                 data-item-type="photo"
+                                 data-media-type="${mediaType}"
+                                 ${dimsAttr}
+                                 ${safeIdAttr}>
+                                <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
+                                    <div class="gallery-placeholder"></div>
+                                    <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" 
+                                         alt="${escapeHtml(photo.original_name)}"
+                                         loading="lazy"
+                                         onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                                         style="opacity: 0;">
+                                    ${mediaType === 'video' ? `
+                                        <div class="video-badge">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                            </svg>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                                <div class="select-indicator" title="Select">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
                             </div>
-                        </div>
-                    `;
+                        `;
+                    }
                 }
             });
             
@@ -1542,6 +1581,9 @@
             
             // Update allItems for masonry (gallery.html compatibility)
             window.allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+            
+            // Load safe thumbnails (client-side decryption)
+            loadSafeThumbnails();
             
             // Trigger masonry rebuild if function exists (in gallery.html)
             if (typeof window.rebuildMasonry === 'function') {
@@ -1582,6 +1624,61 @@
             } else {
                 // No masonry function, just restore opacity
                 gallery.style.opacity = '1';
+            }
+        }
+        
+        // Load safe thumbnails client-side (E2E decryption)
+        async function loadSafeThumbnails() {
+            const safeImages = document.querySelectorAll('img[data-safe-thumbnail]');
+            if (safeImages.length === 0) return;
+            
+            for (const img of safeImages) {
+                const photoId = img.dataset.safeThumbnail;
+                const safeId = img.dataset.safeId;
+                
+                if (!photoId || !safeId) continue;
+                
+                // Check if safe is unlocked
+                if (!SafeCrypto.isUnlocked(safeId)) {
+                    // Show locked placeholder
+                    img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23999" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+                    img.style.opacity = '1';
+                    img.previousElementSibling.style.display = 'none';
+                    continue;
+                }
+                
+                try {
+                    // Fetch encrypted thumbnail
+                    const resp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/thumbnail`);
+                    if (!resp.ok) {
+                        console.warn(`Failed to load thumbnail for ${photoId}:`, resp.status);
+                        continue;
+                    }
+                    
+                    // Decrypt thumbnail
+                    const encryptedBlob = await resp.blob();
+                    const decryptedBlob = await SafeCrypto.decryptFileFromSafe(encryptedBlob, safeId, 'image/jpeg');
+                    
+                    // Create object URL
+                    const url = URL.createObjectURL(decryptedBlob);
+                    img.src = url;
+                    
+                    // Handle load
+                    img.onload = () => {
+                        img.previousElementSibling.style.display = 'none';
+                        img.style.opacity = '1';
+                        if (window.onGalleryImageLoad) {
+                            window.onGalleryImageLoad(img);
+                        }
+                    };
+                    
+                    img.onerror = () => {
+                        console.error(`Failed to load decrypted thumbnail for ${photoId}`);
+                    };
+                    
+                } catch (err) {
+                    console.error(`Error loading safe thumbnail for ${photoId}:`, err);
+                }
             }
         }
         
@@ -2485,6 +2582,26 @@
             } catch (err) {
                 console.error('Lock failed:', err);
                 alert('Failed to lock safe');
+            }
+        }
+        
+        // Toggle safe expand/collapse when unlocked
+        function toggleSafeExpand(safeId) {
+            const safeItem = document.querySelector(`.folder-item.safe-item[data-safe-id="${safeId}"]`);
+            if (!safeItem) return;
+            
+            const wrapper = safeItem.closest('.folder-item-wrapper');
+            const isExpanded = safeItem.classList.contains('expanded');
+            
+            if (isExpanded) {
+                // Collapse: remove expanded class and hide folders
+                safeItem.classList.remove('expanded');
+                const safeFolders = wrapper.parentElement.querySelectorAll(`[data-in-safe="${safeId}"]`);
+                safeFolders.forEach(f => f.style.display = 'none');
+            } else {
+                // Expand: add expanded class and show folders
+                safeItem.classList.add('expanded');
+                loadSafes(); // Reload to show folders inside safe
             }
         }
 
