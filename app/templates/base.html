@@ -1096,6 +1096,12 @@
                                             <line x1="5" y1="12" x2="19" y2="12"/>
                                         </svg>
                                     </button>
+                                    <button class="safe-action-btn delete-btn" onclick="event.stopPropagation(); deleteSafe('${safe.id}', '${escapeHtml(safe.name)}')" title="Delete safe">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                            <polyline points="3 6 5 6 21 6"/>
+                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                        </svg>
+                                    </button>
                                 ` : `
                                     <button class="safe-action-btn unlock-btn" onclick="event.stopPropagation(); openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}')" title="Unlock">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -2071,6 +2077,9 @@
                 loadSafes();
                 loadFolderTree();
                 
+                // Expand all folders in the unlocked safe so user can see them
+                expandSafeFolders(currentUnlockSafeId);
+                
             } catch (err) {
                 console.error('Unlock failed:', err);
                 alert('Unlock failed: ' + err.message);
@@ -2079,6 +2088,86 @@
                 safeUnlockSubmitBtn.textContent = 'Unlock';
             }
         };
+
+        // Delete safe
+        async function deleteSafe(safeId, safeName) {
+            // Confirm deletion
+            const confirmMsg = `Are you sure you want to delete the safe "${safeName}"?\n\n` +
+                "This will delete:\n" +
+                "- All folders inside the safe\n" +
+                "- All photos inside those folders\n\n" +
+                "This action cannot be undone!";
+            
+            if (!confirm(confirmMsg)) {
+                return;
+            }
+            
+            // Double-check for photos
+            const safeFolders = folderTree.filter(f => f.safe_id === safeId);
+            const totalPhotos = safeFolders.reduce((sum, f) => sum + (f.photo_count || 0), 0);
+            
+            if (totalPhotos > 0) {
+                const photoConfirm = `This safe contains ${totalPhotos} photo(s).\n\n` +
+                    "Are you absolutely sure you want to delete everything?";
+                if (!confirm(photoConfirm)) {
+                    return;
+                }
+            }
+            
+            try {
+                const resp = await csrfFetch(`{{ base_url }}/api/safes/${safeId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to delete safe');
+                }
+                
+                // Clear from local storage
+                SafeCrypto.lockSafe(safeId);
+                
+                // Refresh UI
+                loadSafes();
+                loadFolderTree();
+                
+                // If currently viewing a folder in this safe, redirect to root
+                const currentFolderSafe = getFolderSafeId(currentFolderId);
+                if (currentFolderSafe === safeId) {
+                    window.location.href = '{{ base_url }}/';
+                }
+                
+            } catch (err) {
+                console.error('Delete safe failed:', err);
+                alert('Failed to delete safe: ' + err.message);
+            }
+        }
+
+        // Expand all folders in a safe (called after unlock)
+        function expandSafeFolders(safeId) {
+            console.log('[expandSafeFolders] Expanding folders for safe:', safeId);
+            
+            // Get all folders in this safe
+            const safeFolders = folderTree.filter(f => f.safe_id === safeId);
+            console.log('[expandSafeFolders] Found folders:', safeFolders.length);
+            
+            // Remove all safe folders from collapsed set
+            let expanded = false;
+            safeFolders.forEach(folder => {
+                if (collapsedFolders.has(folder.id)) {
+                    collapsedFolders.delete(folder.id);
+                    expanded = true;
+                    console.log('[expandSafeFolders] Expanded folder:', folder.id);
+                }
+            });
+            
+            // Re-render if we expanded anything
+            if (expanded) {
+                console.log('[expandSafeFolders] Re-rendering folder tree');
+                saveCollapsedFolders();
+                renderFolderTree();
+            }
+        }
 
         // Lock safe
         async function lockSafe(safeId) {
