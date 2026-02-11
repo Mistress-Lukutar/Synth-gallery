@@ -443,14 +443,25 @@ async def upload_photo(
             raise HTTPException(status_code=400, detail="Client-side encryption required for safe uploads. Please ensure the safe is unlocked in your browser.")
 
     # Check file type
-    if file.content_type not in ALLOWED_MEDIA_TYPES:
-        raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
-
-    media_type = get_media_type(file.content_type)
+    # For client-side encrypted uploads (safes), check extension instead of content-type
+    # because encrypted files have content-type 'application/octet-stream'
+    file_ext = Path(file.filename).suffix.lower()
+    
+    if encrypted_ck:
+        # Check file extension for encrypted uploads
+        allowed_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.webm'}
+        if file_ext not in allowed_exts:
+            raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
+        media_type = 'video' if file_ext in {'.mp4', '.webm'} else 'image'
+    else:
+        # Regular upload - check content-type
+        if file.content_type not in ALLOWED_MEDIA_TYPES:
+            raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
+        media_type = get_media_type(file.content_type)
 
     # Generate unique name
     photo_id = str(uuid.uuid4())
-    ext = Path(file.filename).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
+    ext = file_ext or (".mp4" if media_type == "video" else ".jpg")
     filename = f"{photo_id}{ext}"
 
     # Get user's DEK for encryption (for regular folders)
