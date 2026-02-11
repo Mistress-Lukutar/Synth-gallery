@@ -2301,7 +2301,8 @@
 
 // ============ Move/Copy Items to Folder ============
 (function() {
-    const currentFolderId = new URLSearchParams(window.location.search).get('folder_id');
+    // Use global currentFolderId from base.html (SPA navigation compatible)
+    const getCurrentFolderId = () => window.currentFolderId || new URLSearchParams(window.location.search).get('folder_id');
     const moveBtn = document.getElementById('move-selected-btn');
     const copyBtn = document.getElementById('copy-selected-btn');
 
@@ -2363,7 +2364,7 @@
             if (children.length === 0) return '';
 
             return children.map(folder => {
-                const isCurrent = folder.id === currentFolderId;
+                const isCurrent = folder.id === getCurrentFolderId();
                 const disabled = isCurrent && pendingAction === 'move';
                 const indent = level * 20;
                 const html = `
