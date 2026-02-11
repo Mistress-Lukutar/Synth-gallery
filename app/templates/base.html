@@ -807,7 +807,20 @@
                     progressText.textContent = 'Done!';
                 }
 
-                setTimeout(() => location.reload(), 1000);
+                // Close modal and refresh via SPA (no page reload)
+                setTimeout(() => {
+                    closeModal();
+                    resetUploadForm();
+                    isUploading = false;
+                    submitBtn.disabled = false;
+                    cancelBtn.disabled = false;
+                    // Refresh current folder content via SPA
+                    if (window.currentFolderId) {
+                        navigateToFolder(window.currentFolderId, false);
+                    } else {
+                        location.reload();
+                    }
+                }, 500);
 
             } catch (err) {
                 console.error('Upload error:', err);
