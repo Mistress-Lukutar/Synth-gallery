@@ -1190,23 +1190,36 @@
             
             // Client-side decryption
             console.log('[loadSafePhoto] Getting blob...');
-            const encryptedBlob = await encryptedResp.blob();
-            console.log('[loadSafePhoto] Got blob, size:', encryptedBlob.size);
+            const responseBlob = await encryptedResp.blob();
+            console.log('[loadSafePhoto] Got blob, size:', responseBlob.size);
             
             let blobToDisplay;
-            try {
-                // Try to decrypt using SafeCrypto
-                console.log('[loadSafePhoto] Attempting decryption...');
-                blobToDisplay = await SafeCrypto.decryptFileFromSafe(
-                    encryptedBlob,
-                    photo.safe_id,
-                    photo.media_type || 'image/jpeg'
-                );
-                console.log('[loadSafePhoto] Decryption successful');
-            } catch (decryptError) {
-                // Fallback: file might not be encrypted yet (uploaded before E2E)
-                console.warn('[loadSafePhoto] Failed to decrypt, showing raw file:', decryptError);
-                blobToDisplay = encryptedBlob;
+            
+            if (encryptionHeader !== 'e2e') {
+                // Server already decrypted the file (legacy server-encrypted file)
+                console.log('[loadSafePhoto] Server returned decrypted file (legacy)');
+                blobToDisplay = responseBlob;
+            } else {
+                // Need client-side decryption
+                try {
+                    console.log('[loadSafePhoto] Attempting client-side decryption...');
+                    blobToDisplay = await SafeCrypto.decryptFileFromSafe(
+                        responseBlob,
+                        photo.safe_id,
+                        photo.media_type || 'image/jpeg'
+                    );
+                    console.log('[loadSafePhoto] Decryption successful');
+                } catch (decryptError) {
+                    // Fallback: show encrypted blob (will be garbage but user sees something)
+                    console.warn('[loadSafePhoto] Failed to decrypt:', decryptError);
+                    lightboxMedia.innerHTML = `
+                        <div class="safe-error-message">
+                            <p>Failed to decrypt photo</p>
+                            <p class="error-details">${decryptError.message}</p>
+                            <p>The file may be corrupted or encrypted with a different key.</p>
+                        </div>`;
+                    return;
+                }
             }
 
             // Create object URL and display
