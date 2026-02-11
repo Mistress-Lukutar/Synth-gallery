@@ -1200,7 +1200,7 @@
                         ${expandArrow}
                         <div class="folder-item private ${isActive ? 'active' : ''}"
                              data-folder-id="${folder.id}"
-                             onclick="navigateToFolder('${folder.id}')">
+                             onclick="return navigateToFolder('${folder.id}', true, event);">
                             <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                             </svg>
@@ -1300,7 +1300,7 @@
                     <div class="folder-item ${folderClass} ${isActive ? 'active' : ''}"
                          data-folder-id="${folder.id}"
                          data-can-edit="${canEdit}"
-                         onclick="navigateToFolder('${folder.id}')">
+                         onclick="return navigateToFolder('${folder.id}', true, event);">
                         ${folderIcon}
                         <span class="folder-name">${escapeHtml(folder.name)}</span>
                         ${ownerInfo}
@@ -1317,8 +1317,14 @@
         }
 
         // SPA Navigation: Load folder content without page reload
-        async function navigateToFolder(folderId, pushState = true) {
+        async function navigateToFolder(folderId, pushState = true, event = null) {
             console.log('[SPA] Navigating to folder:', folderId);
+            
+            // Prevent default navigation if event provided
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
             
             // Show loading indicator
             const gallery = document.getElementById('gallery');
@@ -1358,6 +1364,8 @@
                 // Fallback to full reload on error
                 window.location.href = `{{ base_url }}/?folder_id=${folderId}`;
             }
+            
+            return false;
         }
         
         // Render folder content in gallery
@@ -1369,13 +1377,13 @@
             
             // Update breadcrumbs
             if (breadcrumbs && data.breadcrumbs && data.breadcrumbs.length > 1) {
-                let html = `<a href="{{ base_url }}/">Home</a>`;
+                let html = `<a href="{{ base_url }}/" onclick="event.preventDefault(); event.stopPropagation(); navigateToDefaultFolder(); return false;">Home</a>`;
                 data.breadcrumbs.forEach((crumb, index) => {
                     const isLast = index === data.breadcrumbs.length - 1;
                     if (isLast) {
                         html += ` <span class="separator">/</span> <span>${escapeHtml(crumb.name)}</span>`;
                     } else {
-                        html += ` <span class="separator">/</span> <a href="{{ base_url }}/?folder_id=${crumb.id}" onclick="event.preventDefault(); navigateToFolder('${crumb.id}');">${escapeHtml(crumb.name)}</a>`;
+                        html += ` <span class="separator">/</span> <a href="{{ base_url }}/?folder_id=${crumb.id}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('${crumb.id}'); return false;">${escapeHtml(crumb.name)}</a>`;
                     }
                 });
                 breadcrumbs.innerHTML = html;
@@ -1389,7 +1397,7 @@
                 html += '<div class="subfolders-grid">';
                 data.subfolders.forEach(folder => {
                     html += `
-                        <div class="folder-card" onclick="navigateToFolder('${folder.id}')">
+                        <div class="folder-card" onclick="return navigateToFolder('${folder.id}', true, event);">
                             <div class="folder-icon-large">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
