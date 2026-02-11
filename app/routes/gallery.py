@@ -288,7 +288,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
         ORDER BY f.name
     """, (folder_id, user["id"], user["id"])).fetchall()
     
-    # Get albums
+    # Get albums with cover photo dimensions for masonry layout
     if sort == "taken":
         albums = db.execute("""
             SELECT a.*,
@@ -296,7 +296,13 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
                    COALESCE(a.cover_photo_id,
                        (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
                    ) as effective_cover_photo_id,
-                   (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date
+                   (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date,
+                   (SELECT thumb_width FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_width,
+                   (SELECT thumb_height FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_height
             FROM albums a
             WHERE a.folder_id = ?
             ORDER BY latest_date DESC
@@ -308,7 +314,13 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
                    COALESCE(a.cover_photo_id,
                        (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
                    ) as effective_cover_photo_id,
-                   a.created_at as latest_date
+                   a.created_at as latest_date,
+                   (SELECT thumb_width FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_width,
+                   (SELECT thumb_height FROM photos WHERE id = COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   )) as cover_thumb_height
             FROM albums a
             WHERE a.folder_id = ?
             ORDER BY a.created_at DESC
@@ -338,8 +350,38 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
     for a in albums:
         album = dict(a)
         album["effective_cover_photo_id"] = a["effective_cover_photo_id"]
+        # Add sort_date for mixed sorting with photos
+        album["sort_date"] = a["latest_date"]
         albums_list.append(album)
-    photos_list = [dict(p) for p in photos]
+    photos_list = []
+    for p in photos:
+        photo = dict(p)
+        # Add sort_date for mixed sorting with albums
+        if sort == "taken":
+            photo["sort_date"] = p["taken_at"] or p["uploaded_at"]
+        else:
+            photo["sort_date"] = p["uploaded_at"]
+        photos_list.append(photo)
+    
+    # Create mixed items list sorted by sort_date (like server-side rendering)
+    # Albums and photos are mixed together and sorted by date
+    mixed_items = []
+    for album in albums_list:
+        mixed_items.append({
+            "type": "album",
+            "id": album["id"],
+            "sort_date": album["sort_date"],
+            "data": album
+        })
+    for photo in photos_list:
+        mixed_items.append({
+            "type": "photo", 
+            "id": photo["id"],
+            "sort_date": photo["sort_date"],
+            "data": photo
+        })
+    # Sort by sort_date descending (newest first)
+    mixed_items.sort(key=lambda x: x["sort_date"] or "", reverse=True)
     
     return {
         "folder": {
@@ -353,6 +395,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
         "subfolders": subfolders_list,
         "albums": albums_list,
         "photos": photos_list,
+        "items": mixed_items,  # Mixed and sorted items for SPA rendering
         "sort": sort
     }
 
