@@ -1376,17 +1376,23 @@
             if (!gallery) return;
             
             // Update breadcrumbs
-            if (breadcrumbs && data.breadcrumbs && data.breadcrumbs.length > 1) {
-                let html = `<a href="{{ base_url }}/" onclick="event.preventDefault(); event.stopPropagation(); navigateToDefaultFolder(); return false;">Home</a>`;
-                data.breadcrumbs.forEach((crumb, index) => {
-                    const isLast = index === data.breadcrumbs.length - 1;
-                    if (isLast) {
-                        html += ` <span class="separator">/</span> <span>${escapeHtml(crumb.name)}</span>`;
-                    } else {
-                        html += ` <span class="separator">/</span> <a href="{{ base_url }}/?folder_id=${crumb.id}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('${crumb.id}'); return false;">${escapeHtml(crumb.name)}</a>`;
-                    }
-                });
-                breadcrumbs.innerHTML = html;
+            if (breadcrumbs) {
+                if (data.breadcrumbs && data.breadcrumbs.length > 0) {
+                    let html = `<a href="{{ base_url }}/" onclick="event.preventDefault(); event.stopPropagation(); navigateToDefaultFolder(); return false;">Home</a>`;
+                    data.breadcrumbs.forEach((crumb, index) => {
+                        const isLast = index === data.breadcrumbs.length - 1;
+                        if (isLast) {
+                            html += ` <span class="separator">/</span> <span>${escapeHtml(crumb.name)}</span>`;
+                        } else {
+                            html += ` <span class="separator">/</span> <a href="{{ base_url }}/?folder_id=${crumb.id}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('${crumb.id}'); return false;">${escapeHtml(crumb.name)}</a>`;
+                        }
+                    });
+                    breadcrumbs.innerHTML = html;
+                    breadcrumbs.style.display = '';
+                } else {
+                    breadcrumbs.innerHTML = '';
+                    breadcrumbs.style.display = 'none';
+                }
             }
             
             // Build gallery HTML
@@ -1480,6 +1486,11 @@
             
             // Store current folder data for later use
             window.currentFolderData = data;
+            
+            // Update allItems for masonry (gallery.html compatibility)
+            if (typeof window.allItems !== 'undefined') {
+                window.allItems = Array.from(gallery.querySelectorAll('.photo-item, .album-card, .folder-card'));
+            }
             
             // Trigger masonry rebuild if function exists (in gallery.html)
             if (typeof window.rebuildMasonry === 'function') {
