@@ -288,8 +288,8 @@
 
         // Get current folder ID from URL
         const urlParams = new URLSearchParams(window.location.search);
-        const currentFolderId = urlParams.get('folder_id');
-        console.log('[DEBUG] Current folder ID:', currentFolderId);
+        window.currentFolderId = urlParams.get('folder_id');
+        console.log('[DEBUG] Current folder ID:', window.currentFolderId);
     </script>
 
     <script>
@@ -627,13 +627,13 @@
         // File upload
         submitBtn.onclick = async () => {
             // Check that we have a valid folder
-            if (!currentFolderId) {
+            if (!window.currentFolderId) {
                 alert('No folder selected. Please navigate to a folder first.');
                 return;
             }
 
             // Check if uploading to a safe
-            const targetSafeId = getFolderSafeId(currentFolderId);
+            const targetSafeId = getFolderSafeId(window.currentFolderId);
             if (targetSafeId && !SafeCrypto.isUnlocked(targetSafeId)) {
                 alert('This folder is in a locked safe. Please unlock the safe first.');
                 return;
@@ -675,7 +675,7 @@
                     });
 
                     formData.append('paths', JSON.stringify(paths));
-                    formData.append('folder_id', currentFolderId);
+                    formData.append('folder_id', window.currentFolderId);
 
                     progressFill.style.width = '50%';
                     const resp = await csrfFetch('{{ base_url }}/upload-bulk', { method: 'POST', body: formData });
@@ -727,7 +727,7 @@
                         for (const file of files) {
                             formData.append('files', file);
                         }
-                        formData.append('folder_id', currentFolderId);
+                        formData.append('folder_id', window.currentFolderId);
                         const resp = await csrfFetch('{{ base_url }}/upload-album', { method: 'POST', body: formData });
                         if (!resp.ok) {
                             const err = await resp.json();
@@ -769,7 +769,7 @@
                                 formData.append('file', files[i]);
                             }
                             
-                            formData.append('folder_id', currentFolderId);
+                            formData.append('folder_id', window.currentFolderId);
                             const resp = await csrfFetch('{{ base_url }}/upload', { method: 'POST', body: formData });
                             if (!resp.ok) {
                                 const err = await resp.json();
@@ -1180,7 +1180,7 @@
             });
             
             return visibleFolders.map(folder => {
-                const isActive = folder.id === currentFolderId;
+                const isActive = folder.id === window.currentFolderId;
                 const hasChildren = folders.some(f => f.parent_id === folder.id);
                 const isCollapsed = collapsedFolders.has(folder.id);
                 const photoCount = folder.photo_count || 0;
@@ -1225,7 +1225,7 @@
         }
 
         function buildFolderItem(folder, level, isOwn) {
-            const isActive = folder.id === currentFolderId;
+            const isActive = folder.id === window.currentFolderId;
             const permission = folder.permission;
             const shareStatus = folder.share_status;
             const photoCount = folder.photo_count || 0;
@@ -1348,7 +1348,7 @@
                 }
                 
                 // Update current state
-                currentFolderId = folderId;
+                window.currentFolderId = folderId;
                 
                 // Update UI
                 renderFolderContent(data);
@@ -1446,9 +1446,11 @@
                 html += '<div class="photos-grid">';
                 data.photos.forEach(photo => {
                     const isEncrypted = photo.is_encrypted || photo.safe_id;
+                    const safeIdAttr = photo.safe_id ? `data-safe-id="${photo.safe_id}"` : '';
                     html += `
                         <div class="photo-item ${isEncrypted ? 'encrypted' : ''}" 
                              data-photo-id="${photo.id}"
+                             ${safeIdAttr}
                              onclick="openPhoto('${photo.id}')">
                             <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" 
                                  alt="${escapeHtml(photo.original_name)}"
@@ -1478,6 +1480,11 @@
             
             // Store current folder data for later use
             window.currentFolderData = data;
+            
+            // Trigger masonry rebuild if function exists (in gallery.html)
+            if (typeof window.rebuildMasonry === 'function') {
+                setTimeout(() => window.rebuildMasonry(true), 0);
+            }
         }
         
         // Update sidebar active state
@@ -1548,7 +1555,7 @@
             folderModalTitle.textContent = 'Create Folder';
             folderSubmitBtn.textContent = 'Create';
             folderNameInput.value = '';
-            folderParentSelect.value = currentFolderId || '';
+            folderParentSelect.value = window.currentFolderId || '';
             updateParentSelect();
             // Hide sections only shown when editing
             defaultFolderSection.classList.add('hidden');
@@ -1662,7 +1669,7 @@
             try {
                 await csrfFetch(`{{ base_url }}/api/folders/${folderId}`, { method: 'DELETE' });
                 closeFolderModal();
-                if (folderId === currentFolderId) {
+                if (folderId === window.currentFolderId) {
                     // Navigate to parent or root
                     window.location.href = folder.parent_id ? `{{ base_url }}/?folder_id=${folder.parent_id}` : '{{ base_url }}/';
                 } else {
@@ -2348,7 +2355,7 @@
                 loadFolderTree();
                 
                 // If currently viewing a folder in this safe, redirect to root
-                const currentFolderSafe = getFolderSafeId(currentFolderId);
+                const currentFolderSafe = getFolderSafeId(window.currentFolderId);
                 if (currentFolderSafe === safeId) {
                     window.location.href = '{{ base_url }}/';
                 }
