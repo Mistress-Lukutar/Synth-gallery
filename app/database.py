@@ -402,6 +402,72 @@ def init_db():
         db.execute("DROP TABLE folders")
         db.execute("ALTER TABLE folders_new RENAME TO folders")
 
+    # ==========================================================================
+    # SAFES - Encrypted vaults with separate keys
+    # ==========================================================================
+    
+    # Safes table - encrypted vaults
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS safes (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- Encrypted DEK for the safe (encrypted with password or WebAuthn key)
+            encrypted_dek BLOB NOT NULL,
+            -- Unlock type: 'password' or 'webauthn'
+            unlock_type TEXT NOT NULL CHECK(unlock_type IN ('password', 'webauthn')),
+            -- For WebAuthn: which credential can unlock this safe
+            credential_id BLOB,
+            -- Salt for password-based key derivation
+            salt BLOB,
+            -- Recovery DEK encrypted with user's master DEK (optional, for recovery)
+            recovery_encrypted_dek BLOB,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Index on user_id for safes
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_safes_user_id ON safes(user_id)
+    """)
+    
+    # Migration: add safe_id to folders
+    if "safe_id" not in folder_columns:
+        db.execute("ALTER TABLE folders ADD COLUMN safe_id TEXT REFERENCES safes(id) ON DELETE SET NULL")
+    
+    # Migration: add safe_id to photos
+    photo_columns = {row[1] for row in db.execute("PRAGMA table_info(photos)").fetchall()}
+    if "safe_id" not in photo_columns:
+        db.execute("ALTER TABLE photos ADD COLUMN safe_id TEXT REFERENCES safes(id) ON DELETE SET NULL")
+    
+    # Migration: add safe_id to albums
+    album_columns = {row[1] for row in db.execute("PRAGMA table_info(albums)").fetchall()}
+    if "safe_id" not in album_columns:
+        db.execute("ALTER TABLE albums ADD COLUMN safe_id TEXT REFERENCES safes(id) ON DELETE SET NULL")
+    
+    # Safe sessions - temporary unlocked safe keys (server-side session cache)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS safe_sessions (
+            id TEXT PRIMARY KEY,
+            safe_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            -- Encrypted DEK for this session (encrypted with session key)
+            encrypted_dek BLOB NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP NOT NULL,
+            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_safe_sessions_safe_id ON safe_sessions(safe_id)
+    """)
+    db.execute("""
+        CREATE INDEX IF NOT EXISTS idx_safe_sessions_user_id ON safe_sessions(user_id)
+    """)
+
     # Insert default categories if not exist
     default_categories = [
         ("Subject", "#3b82f6"),      # Blue - people, animals, objects
@@ -702,8 +768,15 @@ def get_user_folders(user_id: int) -> list:
 
 
 def get_folder_tree(user_id: int) -> list:
-    """Get folder tree for sidebar (user's folders + folders with permissions)"""
+    """Get folder tree for sidebar (user's folders + folders with permissions + safes)"""
     db = get_db()
+    
+    # Cleanup expired safe sessions first
+    cleanup_expired_safe_sessions()
+    
+    # Get unlocked safes for this user
+    unlocked_safes = get_user_unlocked_safes(user_id)
+    
     folders = db.execute("""
         SELECT f.*, u.display_name as owner_name,
                (
@@ -728,13 +801,25 @@ def get_folder_tree(user_id: int) -> list:
                    WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id AND permission = 'editor') THEN 'has_editors'
                    WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id) THEN 'has_viewers'
                    ELSE 'private'
-               END as share_status
+               END as share_status,
+               -- Safe info
+               f.safe_id,
+               s.name as safe_name,
+               s.unlock_type as safe_unlock_type,
+               CASE WHEN f.safe_id IN ({}) THEN 1 ELSE 0 END as safe_is_unlocked
         FROM folders f
         JOIN users u ON f.user_id = u.id
-        WHERE f.user_id = ?
-           OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
-        ORDER BY f.name
-    """, (user_id, user_id, user_id, user_id, user_id)).fetchall()
+        LEFT JOIN safes s ON f.safe_id = s.id
+        WHERE (f.user_id = ? OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?))
+          -- Only show folders in safes if safe is unlocked
+          AND (f.safe_id IS NULL OR f.safe_id IN (SELECT id FROM safes WHERE user_id = ?))
+        ORDER BY 
+            CASE WHEN f.safe_id IS NULL THEN 0 ELSE 1 END,
+            COALESCE(s.name, ''),
+            f.name
+    """.format(','.join(['?'] * len(unlocked_safes)) if unlocked_safes else 'NULL'),
+    (user_id, user_id, user_id) + tuple(unlocked_safes) + (user_id, user_id, user_id)).fetchall()
+    
     return [dict(f) for f in folders]
 
 
@@ -1774,3 +1859,277 @@ def get_all_credential_ids_for_username(username: str) -> list[bytes]:
         WHERE u.username = ?
     """, (username,)).fetchall()
     return [c["credential_id"] for c in credentials]
+
+
+# =============================================================================
+# SAFES - Encrypted vaults with separate authentication
+# =============================================================================
+
+def create_safe(
+    name: str,
+    user_id: int,
+    encrypted_dek: bytes,
+    unlock_type: str,
+    credential_id: bytes = None,
+    salt: bytes = None,
+    recovery_encrypted_dek: bytes = None
+) -> str:
+    """Create a new safe. Returns safe ID."""
+    import uuid
+    db = get_db()
+    safe_id = str(uuid.uuid4())
+    
+    db.execute("""
+        INSERT INTO safes (id, name, user_id, encrypted_dek, unlock_type, 
+                          credential_id, salt, recovery_encrypted_dek)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (safe_id, name.strip(), user_id, encrypted_dek, unlock_type,
+          credential_id, salt, recovery_encrypted_dek))
+    db.commit()
+    return safe_id
+
+
+def get_safe(safe_id: str) -> dict | None:
+    """Get safe by ID."""
+    db = get_db()
+    safe = db.execute("SELECT * FROM safes WHERE id = ?", (safe_id,)).fetchone()
+    return dict(safe) if safe else None
+
+
+def get_user_safes(user_id: int) -> list[dict]:
+    """Get all safes for a user."""
+    db = get_db()
+    safes = db.execute("""
+        SELECT s.*, 
+               (SELECT COUNT(*) FROM folders WHERE safe_id = s.id) as folder_count,
+               (SELECT COUNT(*) FROM photos WHERE safe_id = s.id) as photo_count
+        FROM safes s
+        WHERE s.user_id = ?
+        ORDER BY s.created_at DESC
+    """, (user_id,)).fetchall()
+    return [dict(s) for s in safes]
+
+
+def update_safe(safe_id: str, name: str = None) -> bool:
+    """Update safe name."""
+    db = get_db()
+    if name is not None:
+        db.execute("UPDATE safes SET name = ? WHERE id = ?", (name.strip(), safe_id))
+        db.commit()
+        return True
+    return False
+
+
+def delete_safe(safe_id: str) -> bool:
+    """Delete a safe and all its contents (folders, photos)."""
+    db = get_db()
+    
+    # Get all folders in this safe
+    folders = db.execute("SELECT id FROM folders WHERE safe_id = ?", (safe_id,)).fetchall()
+    
+    # Delete photos in safe
+    db.execute("DELETE FROM photos WHERE safe_id = ?", (safe_id,))
+    
+    # Delete albums in safe
+    db.execute("DELETE FROM albums WHERE safe_id = ?", (safe_id,))
+    
+    # Delete folders in safe
+    db.execute("DELETE FROM folders WHERE safe_id = ?", (safe_id,))
+    
+    # Delete safe sessions
+    db.execute("DELETE FROM safe_sessions WHERE safe_id = ?", (safe_id,))
+    
+    # Delete safe
+    db.execute("DELETE FROM safes WHERE id = ?", (safe_id,))
+    db.commit()
+    return True
+
+
+def get_safe_by_folder_id(folder_id: str) -> dict | None:
+    """Get safe that contains this folder (if any)."""
+    db = get_db()
+    safe = db.execute("""
+        SELECT s.* FROM safes s
+        JOIN folders f ON f.safe_id = s.id
+        WHERE f.id = ?
+    """, (folder_id,)).fetchone()
+    return dict(safe) if safe else None
+
+
+def is_folder_in_safe(folder_id: str) -> bool:
+    """Check if folder is inside a safe."""
+    db = get_db()
+    result = db.execute("""
+        SELECT 1 FROM folders WHERE id = ? AND safe_id IS NOT NULL
+    """, (folder_id,)).fetchone()
+    return result is not None
+
+
+def get_folder_safe_id(folder_id: str) -> str | None:
+    """Get safe_id for a folder (if any)."""
+    db = get_db()
+    result = db.execute(
+        "SELECT safe_id FROM folders WHERE id = ?", (folder_id,)
+    ).fetchone()
+    return result["safe_id"] if result else None
+
+
+# =============================================================================
+# Safe Sessions - Temporary unlocked safe keys
+# =============================================================================
+
+def create_safe_session(safe_id: str, user_id: int, encrypted_dek: bytes, expires_hours: int = 24) -> str:
+    """Create a safe session for unlocked safe access."""
+    db = get_db()
+    session_id = secrets.token_urlsafe(32)
+    db.execute("""
+        INSERT INTO safe_sessions (id, safe_id, user_id, encrypted_dek, expires_at)
+        VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' hours'))
+    """, (session_id, safe_id, user_id, encrypted_dek, expires_hours))
+    db.commit()
+    return session_id
+
+
+def get_safe_session(session_id: str) -> dict | None:
+    """Get valid safe session."""
+    db = get_db()
+    session = db.execute("""
+        SELECT * FROM safe_sessions 
+        WHERE id = ? AND expires_at > datetime('now')
+    """, (session_id,)).fetchone()
+    return dict(session) if session else None
+
+
+def delete_safe_session(session_id: str) -> bool:
+    """Delete a safe session (lock the safe)."""
+    db = get_db()
+    db.execute("DELETE FROM safe_sessions WHERE id = ?", (session_id,))
+    db.commit()
+    return True
+
+
+def cleanup_expired_safe_sessions():
+    """Remove expired safe sessions."""
+    db = get_db()
+    db.execute("DELETE FROM safe_sessions WHERE expires_at <= datetime('now')")
+    db.commit()
+
+
+def get_user_unlocked_safes(user_id: int) -> list[str]:
+    """Get list of safe IDs that are currently unlocked for this user."""
+    db = get_db()
+    sessions = db.execute("""
+        SELECT safe_id FROM safe_sessions 
+        WHERE user_id = ? AND expires_at > datetime('now')
+    """, (user_id,)).fetchall()
+    return [s["safe_id"] for s in sessions]
+
+
+def is_safe_unlocked_for_user(safe_id: str, user_id: int) -> bool:
+    """Check if safe is currently unlocked for user."""
+    db = get_db()
+    result = db.execute("""
+        SELECT 1 FROM safe_sessions 
+        WHERE safe_id = ? AND user_id = ? AND expires_at > datetime('now')
+    """, (safe_id, user_id)).fetchone()
+    return result is not None
+
+
+# =============================================================================
+# Folder operations with safe support
+# =============================================================================
+
+def create_folder_in_safe(name: str, user_id: int, safe_id: str, parent_id: str = None) -> str:
+    """Create a new folder inside a safe."""
+    import uuid
+    db = get_db()
+    folder_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO folders (id, name, parent_id, user_id, safe_id) VALUES (?, ?, ?, ?, ?)",
+        (folder_id, name.strip(), parent_id, user_id, safe_id)
+    )
+    db.commit()
+    return folder_id
+
+
+def get_safe_folders(safe_id: str, user_id: int) -> list[dict]:
+    """Get all folders in a safe."""
+    db = get_db()
+    folders = db.execute("""
+        SELECT f.*, 
+               (SELECT COUNT(*) FROM photos p 
+                WHERE p.folder_id IN (
+                    WITH RECURSIVE folder_tree AS (
+                        SELECT id FROM folders WHERE id = f.id
+                        UNION ALL
+                        SELECT child.id FROM folders child
+                        JOIN folder_tree ON child.parent_id = folder_tree.id
+                    )
+                    SELECT id FROM folder_tree
+                )
+               ) as photo_count
+        FROM folders f
+        WHERE f.safe_id = ? AND f.user_id = ?
+        ORDER BY f.name
+    """, (safe_id, user_id)).fetchall()
+    return [dict(f) for f in folders]
+
+
+def move_folder_to_safe(folder_id: str, safe_id: str) -> bool:
+    """Move a folder into a safe."""
+    db = get_db()
+    db.execute("UPDATE folders SET safe_id = ? WHERE id = ?", (safe_id, folder_id))
+    # Also move all photos in this folder to the safe
+    db.execute("UPDATE photos SET safe_id = ? WHERE folder_id = ?", (safe_id, folder_id))
+    db.commit()
+    return True
+
+
+def get_safe_tree_for_user(user_id: int) -> list[dict]:
+    """Get folder tree including safes for sidebar."""
+    db = get_db()
+    
+    # Get regular folders (not in safes) + folders that are in unlocked safes
+    folders = db.execute("""
+        SELECT f.*, u.display_name as owner_name,
+               CASE 
+                   WHEN f.safe_id IS NULL THEN 'regular'
+                   ELSE 'safe'
+               END as folder_type,
+               f.safe_id,
+               s.name as safe_name,
+               (
+                   SELECT COUNT(*) FROM photos p
+                   WHERE p.folder_id IN (
+                       WITH RECURSIVE subfolder_tree AS (
+                           SELECT id FROM folders WHERE id = f.id
+                           UNION ALL
+                           SELECT child.id FROM folders child
+                           JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                       )
+                       SELECT id FROM subfolder_tree
+                   )
+               ) as photo_count,
+               CASE
+                   WHEN f.user_id = ? THEN 'owner'
+                   ELSE (SELECT permission FROM folder_permissions WHERE folder_id = f.id AND user_id = ?)
+               END as permission,
+               CASE
+                   WHEN f.user_id != ? THEN NULL
+                   WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id AND permission = 'editor') THEN 'has_editors'
+                   WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id) THEN 'has_viewers'
+                   ELSE 'private'
+               END as share_status
+        FROM folders f
+        JOIN users u ON f.user_id = u.id
+        LEFT JOIN safes s ON f.safe_id = s.id
+        WHERE f.user_id = ?
+           OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+           OR f.safe_id IN (SELECT id FROM safes WHERE user_id = ?)
+        ORDER BY 
+            CASE WHEN f.safe_id IS NULL THEN 0 ELSE 1 END,
+            COALESCE(s.name, ''),
+            f.name
+    """, (user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
+    
+    return [dict(f) for f in folders]

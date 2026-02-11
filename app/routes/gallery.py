@@ -24,7 +24,8 @@ from ..database import (
     move_photo_to_folder, move_album_to_folder,
     move_photos_to_folder, move_albums_to_folder,
     get_photo_by_id, mark_photo_encrypted, get_user_encryption_keys,
-    update_photo_thumbnail_dimensions, get_user_permission
+    update_photo_thumbnail_dimensions, get_user_permission,
+    get_folder_safe_id, is_safe_unlocked_for_user
 )
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.media import (
@@ -258,8 +259,21 @@ def get_upload(request: Request, filename: str):
     if not can_access_photo(photo_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Check if file is encrypted
+    # Check if file is in a safe (end-to-end encrypted)
     photo = get_photo_by_id(photo_id)
+    if photo and photo.get("safe_id"):
+        # For safe files, return encrypted file with header
+        # Client must decrypt using SafeCrypto
+        return FileResponse(
+            file_path,
+            headers={
+                "X-Encryption": "e2e",
+                "X-Safe-Id": photo["safe_id"],
+                "X-Photo-Id": photo_id
+            }
+        )
+    
+    # Check if file is encrypted (legacy server-side encryption)
     if photo and photo["is_encrypted"]:
         # Always use owner's DEK - file is encrypted with owner's key
         owner_id = photo.get("user_id")
@@ -315,8 +329,21 @@ def get_thumbnail(request: Request, filename: str):
         if not regenerate_thumbnail(photo_id, user["id"]):
             raise HTTPException(status_code=404)
 
-    # Check if file is encrypted
+    # Check if file is in a safe (end-to-end encrypted)
     photo = get_photo_by_id(photo_id)
+    if photo and photo.get("safe_id"):
+        # For safe files, return encrypted thumbnail with header
+        # Client must decrypt using SafeCrypto
+        return FileResponse(
+            file_path,
+            headers={
+                "X-Encryption": "e2e",
+                "X-Safe-Id": photo["safe_id"],
+                "X-Photo-Id": photo_id
+            }
+        )
+
+    # Check if file is encrypted (legacy server-side encryption)
     if photo and photo["is_encrypted"]:
         # Always use owner's DEK - file is encrypted with owner's key
         owner_id = photo.get("user_id")
@@ -340,7 +367,13 @@ def get_thumbnail(request: Request, filename: str):
 
 
 @router.post("/upload")
-async def upload_photo(request: Request, file: UploadFile = None, folder_id: str = Form(None)):
+async def upload_photo(
+    request: Request, 
+    file: UploadFile = None, 
+    folder_id: str = Form(None),
+    encrypted_ck: str = Form(None),  # For client-side encrypted uploads (safes/envelope)
+    safe_id: str = Form(None)  # If uploading to a safe
+):
     """Upload new photo or video to specified folder."""
     user = require_user(request)
 
@@ -354,6 +387,14 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     if not can_edit_folder(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Cannot upload to this folder")
 
+    # Check if folder is in a safe
+    folder_safe_id = get_folder_safe_id(folder_id)
+    if folder_safe_id:
+        # Verify safe is unlocked
+        if not is_safe_unlocked_for_user(folder_safe_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
+        safe_id = folder_safe_id
+
     # Check file type
     if file.content_type not in ALLOWED_MEDIA_TYPES:
         raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
@@ -365,59 +406,77 @@ async def upload_photo(request: Request, file: UploadFile = None, folder_id: str
     ext = Path(file.filename).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
     filename = f"{photo_id}{ext}"
 
-    # Get user's DEK for encryption
+    # Get user's DEK for encryption (for regular folders)
     dek = dek_cache.get(user["id"])
-    is_encrypted = dek is not None
+    is_encrypted = dek is not None or encrypted_ck is not None or safe_id is not None
 
     # Read file content into memory for processing
     file_content = await file.read()
 
-    # Extract taken date from metadata before encryption
-    # Need to write temp file for metadata extraction
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-        tmp.write(file_content)
-        tmp_path = Path(tmp.name)
+    # For client-side encrypted uploads (envelope encryption / safes), skip thumbnail generation
+    # The client should provide thumbnail separately
+    thumb_w, thumb_h = 0, 0
+    
+    if not encrypted_ck:
+        # Server-side processing only for legacy uploads
+        # Extract taken date from metadata before encryption
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp.write(file_content)
+            tmp_path = Path(tmp.name)
 
-    try:
-        taken_at = extract_taken_date(tmp_path)
-        if taken_at is None:
-            taken_at = datetime.now()
-    finally:
-        tmp_path.unlink(missing_ok=True)
+        try:
+            taken_at = extract_taken_date(tmp_path)
+            if taken_at is None:
+                taken_at = datetime.now()
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
-    # Create thumbnail from bytes
-    thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-    try:
-        if media_type == "video":
-            thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
+        # Create thumbnail from bytes
+        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        try:
+            if media_type == "video":
+                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
+            else:
+                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Processing error: {e}")
+
+        # Encrypt and save files if DEK available
+        file_path = UPLOADS_DIR / filename
+        if is_encrypted and dek:
+            encrypted_content = EncryptionService.encrypt_file(file_content, dek)
+            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+
+            with open(file_path, "wb") as f:
+                f.write(encrypted_content)
+            with open(thumb_path, "wb") as f:
+                f.write(encrypted_thumb)
         else:
-            thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Processing error: {e}")
-
-    # Encrypt and save files if DEK available
-    file_path = UPLOADS_DIR / filename
-    if is_encrypted:
-        encrypted_content = EncryptionService.encrypt_file(file_content, dek)
-        encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-
-        with open(file_path, "wb") as f:
-            f.write(encrypted_content)
-        with open(thumb_path, "wb") as f:
-            f.write(encrypted_thumb)
+            # Save unencrypted (fallback for users without DEK)
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+            with open(thumb_path, "wb") as f:
+                f.write(thumb_bytes)
     else:
-        # Save unencrypted (fallback for users without DEK)
+        # Client-side encrypted upload (envelope encryption)
+        # Save file as-is (already encrypted)
+        file_path = UPLOADS_DIR / filename
         with open(file_path, "wb") as f:
             f.write(file_content)
-        with open(thumb_path, "wb") as f:
-            f.write(thumb_bytes)
+        
+        # Default taken_at for encrypted uploads
+        taken_at = datetime.now()
 
-    # Save to database with folder and user
+    # Save to database with folder, user, and safe_id if applicable
     db = get_db()
     db.execute(
-        "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
+        """INSERT INTO photos 
+           (id, filename, original_name, media_type, folder_id, user_id, taken_at, 
+            is_encrypted, thumb_width, thumb_height, safe_id) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at, 
+         1 if is_encrypted else 0, thumb_w, thumb_h, safe_id)
     )
     db.commit()
 
@@ -437,6 +496,11 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
     # Verify folder edit access (owner or editor)
     if not can_edit_folder(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Cannot upload to this folder")
+
+    # Check if folder is in a safe - albums not supported in safes yet
+    folder_safe_id = get_folder_safe_id(folder_id)
+    if folder_safe_id:
+        raise HTTPException(status_code=400, detail="Albums are not supported in safes. Please upload files individually.")
 
     if len(files) < 2:
         raise HTTPException(status_code=400, detail="Album requires at least 2 items")
@@ -546,6 +610,11 @@ async def upload_bulk(
     # Verify folder edit access (owner or editor)
     if not can_edit_folder(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Cannot upload to this folder")
+
+    # Check if folder is in a safe - bulk upload not supported in safes yet
+    folder_safe_id = get_folder_safe_id(folder_id)
+    if folder_safe_id:
+        raise HTTPException(status_code=400, detail="Bulk upload is not supported in safes. Please upload files individually.")
 
     # Parse paths JSON
     try:
@@ -703,17 +772,33 @@ async def upload_bulk(
 def get_photo_data(photo_id: str, request: Request):
     """Get photo data for lightbox viewer."""
     user = require_user(request)
+    
+    print(f"[DEBUG] get_photo_data: photo_id={photo_id}, user_id={user['id']}")
 
     db = get_db()
-    photo = db.execute(
-        "SELECT * FROM photos WHERE id = ?", (photo_id,)
-    ).fetchone()
+    try:
+        photo = db.execute(
+            "SELECT * FROM photos WHERE id = ?", (photo_id,)
+        ).fetchone()
+    except Exception as e:
+        print(f"[DEBUG] SQL error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
 
     if not photo:
+        print(f"[DEBUG] Photo not found: {photo_id}")
         raise HTTPException(status_code=404, detail="Photo not found")
+    
+    print(f"[DEBUG] Photo found: {photo['id']}, folder_id={photo['folder_id']}, safe_id={photo['safe_id']}")
 
     # Check access
-    if not can_access_photo(photo_id, user["id"]):
+    try:
+        has_access = can_access_photo(photo_id, user["id"])
+        print(f"[DEBUG] Access check: {has_access}")
+    except Exception as e:
+        print(f"[DEBUG] Access check error: {e}")
+        raise HTTPException(status_code=500, detail=f"Access check error: {e}")
+    
+    if not has_access:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Get tags
@@ -752,7 +837,8 @@ def get_photo_data(photo_id: str, request: Request):
         "uploaded_at": photo["uploaded_at"],
         "taken_at": photo["taken_at"],
         "tags": [{"id": t["id"], "tag": t["tag"], "color": t["color"] or "#6b7280"} for t in tags],
-        "album": album_info
+        "album": album_info,
+        "safe_id": photo["safe_id"]
     }
 
 
