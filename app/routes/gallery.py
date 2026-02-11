@@ -241,6 +241,130 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     )
 
 
+@router.get("/api/folders/{folder_id}/content")
+def get_folder_content_api(folder_id: str, request: Request, sort: str = "uploaded"):
+    """Get folder content as JSON for SPA navigation."""
+    user = require_user(request)
+    
+    # Check access
+    if not can_access_folder(folder_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    db = get_db()
+    
+    # Get current folder info
+    current_folder = get_folder(folder_id)
+    if not current_folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    
+    current_folder = dict(current_folder)
+    current_folder["permission"] = get_user_permission(folder_id, user["id"])
+    breadcrumbs = get_folder_breadcrumbs(folder_id)
+    
+    # Get sort preference
+    if sort not in ("uploaded", "taken"):
+        sort = "uploaded"
+    
+    # Get subfolders
+    subfolders = db.execute("""
+        SELECT f.*,
+               (
+                   SELECT COUNT(*) FROM photos p
+                   WHERE p.folder_id IN (
+                       WITH RECURSIVE subfolder_tree AS (
+                           SELECT id FROM folders WHERE id = f.id
+                           UNION ALL
+                           SELECT child.id FROM folders child
+                           JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                       )
+                       SELECT id FROM subfolder_tree
+                   )
+               ) as photo_count
+        FROM folders f
+        WHERE f.parent_id = ? AND (
+            f.user_id = ?
+            OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+        )
+        ORDER BY f.name
+    """, (folder_id, user["id"], user["id"])).fetchall()
+    
+    # Get albums
+    if sort == "taken":
+        albums = db.execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+                   COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   ) as effective_cover_photo_id,
+                   (SELECT MAX(COALESCE(taken_at, uploaded_at)) FROM photos WHERE album_id = a.id) as latest_date
+            FROM albums a
+            WHERE a.folder_id = ?
+            ORDER BY latest_date DESC
+        """, (folder_id,)).fetchall()
+    else:
+        albums = db.execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+                   COALESCE(a.cover_photo_id,
+                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position, id LIMIT 1)
+                   ) as effective_cover_photo_id,
+                   a.created_at as latest_date
+            FROM albums a
+            WHERE a.folder_id = ?
+            ORDER BY a.created_at DESC
+        """, (folder_id,)).fetchall()
+    
+    # Get photos
+    if sort == "taken":
+        photos = db.execute("""
+            SELECT p.*, u.username as uploaded_by
+            FROM photos p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.folder_id = ? AND p.album_id IS NULL
+            ORDER BY COALESCE(p.taken_at, p.uploaded_at) DESC
+        """, (folder_id,)).fetchall()
+    else:
+        photos = db.execute("""
+            SELECT p.*, u.username as uploaded_by
+            FROM photos p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.folder_id = ? AND p.album_id IS NULL
+            ORDER BY p.uploaded_at DESC
+        """, (folder_id,)).fetchall()
+    
+    # Convert to dicts
+    subfolders_list = [dict(f) for f in subfolders]
+    albums_list = []
+    for a in albums:
+        album = dict(a)
+        album["effective_cover_photo_id"] = a["effective_cover_photo_id"]
+        albums_list.append(album)
+    photos_list = [dict(p) for p in photos]
+    
+    return {
+        "folder": {
+            "id": current_folder["id"],
+            "name": current_folder["name"],
+            "parent_id": current_folder["parent_id"],
+            "permission": current_folder["permission"],
+            "safe_id": current_folder.get("safe_id")
+        },
+        "breadcrumbs": [{"id": b["id"], "name": b["name"]} for b in breadcrumbs],
+        "subfolders": subfolders_list,
+        "albums": albums_list,
+        "photos": photos_list,
+        "sort": sort
+    }
+
+
+@router.get("/api/user/default-folder")
+def get_default_folder_api(request: Request):
+    """Get user's default folder ID."""
+    user = require_user(request)
+    folder_id = get_user_default_folder(user["id"])
+    return {"folder_id": folder_id}
+
+
 @router.get("/uploads/{filename}")
 def get_upload(request: Request, filename: str):
     """Serves original photo (protected by auth + folder access)."""
