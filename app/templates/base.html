@@ -13,7 +13,7 @@
         <!-- Sidebar -->
         <aside id="sidebar" class="sidebar">
             <div class="sidebar-logo">
-                <a href="{{ base_url }}/" class="logo"><img src="{{ base_url }}/static/favicon.svg" alt="" class="logo-icon">Synth</a>
+                <a href="{{ base_url }}/" class="logo" onclick="event.preventDefault(); navigateToDefaultFolder();"><img src="{{ base_url }}/static/favicon.svg" alt="" class="logo-icon">Synth</a>
             </div>
             <div class="folder-tree" id="folder-tree">
                 <!-- Folder tree rendered by JS -->
@@ -1316,8 +1316,203 @@
             return div.innerHTML;
         }
 
-        function navigateToFolder(folderId) {
-            window.location.href = `{{ base_url }}/?folder_id=${folderId}`;
+        // SPA Navigation: Load folder content without page reload
+        async function navigateToFolder(folderId, pushState = true) {
+            console.log('[SPA] Navigating to folder:', folderId);
+            
+            // Show loading indicator
+            const gallery = document.getElementById('gallery');
+            if (gallery) {
+                gallery.innerHTML = '<div class="loading-indicator">Loading...</div>';
+            }
+            
+            try {
+                // Fetch folder content
+                const resp = await fetch(`{{ base_url }}/api/folders/${folderId}/content?sort=${currentSort || 'uploaded'}`);
+                if (!resp.ok) {
+                    throw new Error('Failed to load folder');
+                }
+                
+                const data = await resp.json();
+                console.log('[SPA] Loaded folder content:', data);
+                
+                // Update URL without reload
+                if (pushState) {
+                    history.pushState({ folderId: folderId }, '', `{{ base_url }}/?folder_id=${folderId}`);
+                }
+                
+                // Update current state
+                currentFolderId = folderId;
+                
+                // Update UI
+                renderFolderContent(data);
+                
+                // Update sidebar active state
+                updateSidebarActiveState(folderId);
+                
+                // Refresh folder tree to update counts
+                loadFolderTree();
+                
+            } catch (err) {
+                console.error('[SPA] Navigation failed:', err);
+                // Fallback to full reload on error
+                window.location.href = `{{ base_url }}/?folder_id=${folderId}`;
+            }
+        }
+        
+        // Render folder content in gallery
+        function renderFolderContent(data) {
+            const gallery = document.getElementById('gallery');
+            const breadcrumbs = document.getElementById('folder-breadcrumbs');
+            
+            if (!gallery) return;
+            
+            // Update breadcrumbs
+            if (breadcrumbs && data.breadcrumbs && data.breadcrumbs.length > 1) {
+                let html = `<a href="{{ base_url }}/">Home</a>`;
+                data.breadcrumbs.forEach((crumb, index) => {
+                    const isLast = index === data.breadcrumbs.length - 1;
+                    if (isLast) {
+                        html += ` <span class="separator">/</span> <span>${escapeHtml(crumb.name)}</span>`;
+                    } else {
+                        html += ` <span class="separator">/</span> <a href="{{ base_url }}/?folder_id=${crumb.id}" onclick="event.preventDefault(); navigateToFolder('${crumb.id}');">${escapeHtml(crumb.name)}</a>`;
+                    }
+                });
+                breadcrumbs.innerHTML = html;
+            }
+            
+            // Build gallery HTML
+            let html = '';
+            
+            // Add subfolders section
+            if (data.subfolders && data.subfolders.length > 0) {
+                html += '<div class="subfolders-grid">';
+                data.subfolders.forEach(folder => {
+                    html += `
+                        <div class="folder-card" onclick="navigateToFolder('${folder.id}')">
+                            <div class="folder-icon-large">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                </svg>
+                            </div>
+                            <div class="folder-name">${escapeHtml(folder.name)}</div>
+                            <div class="folder-count">${folder.photo_count || 0} items</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            
+            // Add albums section
+            if (data.albums && data.albums.length > 0) {
+                html += '<div class="albums-grid">';
+                data.albums.forEach(album => {
+                    const coverId = album.effective_cover_photo_id || album.cover_photo_id;
+                    html += `
+                        <div class="album-card" onclick="openAlbum('${album.id}')">
+                            ${coverId ? `
+                                <div class="album-cover">
+                                    <img src="{{ base_url }}/thumbnails/${coverId}.jpg" alt="" loading="lazy">
+                                </div>
+                            ` : `
+                                <div class="album-cover-placeholder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5"/>
+                                        <path d="M21 15l-5-5L5 21"/>
+                                    </svg>
+                                </div>
+                            `}
+                            <div class="album-info">
+                                <div class="album-name">${escapeHtml(album.name)}</div>
+                                <div class="album-count">${album.photo_count || 0} photos</div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            
+            // Add photos grid
+            if (data.photos && data.photos.length > 0) {
+                html += '<div class="photos-grid">';
+                data.photos.forEach(photo => {
+                    const isEncrypted = photo.is_encrypted || photo.safe_id;
+                    html += `
+                        <div class="photo-item ${isEncrypted ? 'encrypted' : ''}" 
+                             data-photo-id="${photo.id}"
+                             onclick="openPhoto('${photo.id}')">
+                            <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" 
+                                 alt="${escapeHtml(photo.original_name)}"
+                                 loading="lazy"
+                                 onerror="this.parentElement.classList.add('no-thumbnail')">
+                            ${isEncrypted ? '<span class="encryption-badge">🔒</span>' : ''}
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            
+            // Empty state
+            if (html === '') {
+                html = `
+                    <div class="empty-state">
+                        <p>No photos yet</p>
+                        <p>Click "Upload" or drag & drop to add your first photos</p>
+                    </div>
+                `;
+            }
+            
+            gallery.innerHTML = html;
+            
+            // Update page title
+            document.title = data.folder.name + ' - Synth Gallery';
+            
+            // Store current folder data for later use
+            window.currentFolderData = data;
+        }
+        
+        // Update sidebar active state
+        function updateSidebarActiveState(folderId) {
+            document.querySelectorAll('.folder-item').forEach(item => {
+                item.classList.remove('active');
+                if (item.dataset.folderId === folderId) {
+                    item.classList.add('active');
+                }
+            });
+        }
+        
+        // Handle browser back/forward buttons
+        window.addEventListener('popstate', (event) => {
+            console.log('[SPA] Popstate:', event.state);
+            if (event.state && event.state.folderId) {
+                navigateToFolder(event.state.folderId, false);
+            } else {
+                // Reload page if no state (e.g., initial load)
+                window.location.reload();
+            }
+        });
+        
+        // Track current sort
+        let currentSort = 'uploaded';
+        
+        // Navigate to default folder
+        async function navigateToDefaultFolder() {
+            // Get default folder ID from server
+            try {
+                const resp = await fetch('{{ base_url }}/api/user/default-folder');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.folder_id) {
+                        navigateToFolder(data.folder_id);
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to get default folder:', e);
+            }
+            // Fallback: reload page
+            window.location.href = '{{ base_url }}/';
         }
 
         // Update parent folder select options

@@ -161,10 +161,10 @@
 
 <!-- Breadcrumbs -->
 {% if breadcrumbs and breadcrumbs|length > 1 %}
-<div class="folder-breadcrumbs">
+<div class="folder-breadcrumbs" id="folder-breadcrumbs">
     {% for crumb in breadcrumbs %}
         {% if not loop.last %}
-        <a href="{{ base_url }}/?folder_id={{ crumb.id }}">{{ crumb.name }}</a>
+        <a href="{{ base_url }}/?folder_id={{ crumb.id }}" onclick="event.preventDefault(); navigateToFolder('{{ crumb.id }}');">{{ crumb.name }}</a>
         <span>/</span>
         {% else %}
         <span class="current">{{ crumb.name }}</span>
