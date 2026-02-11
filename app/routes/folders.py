@@ -12,7 +12,9 @@ from ..database import (
     can_access_folder, can_edit_folder,
     add_folder_permission, remove_folder_permission, update_folder_permission,
     get_folder_permissions, search_users,
-    get_folder_sort_preference, set_folder_sort_preference
+    get_folder_sort_preference, set_folder_sort_preference,
+    get_safe, is_safe_unlocked_for_user, create_folder_in_safe,
+    is_folder_in_safe, get_folder_safe_id
 )
 from ..dependencies import require_user
 
@@ -22,6 +24,7 @@ router = APIRouter(prefix="/api/folders", tags=["folders"])
 class FolderCreate(BaseModel):
     name: str
     parent_id: str | None = None
+    safe_id: str | None = None  # If set, folder will be created inside this safe
 
 
 class FolderUpdate(BaseModel):
@@ -50,15 +53,42 @@ def create_new_folder(request: Request, data: FolderCreate):
     """Create a new folder."""
     user = require_user(request)
 
-    # If parent_id specified, verify user owns the parent folder
-    if data.parent_id:
-        parent = get_folder(data.parent_id)
-        if not parent:
-            raise HTTPException(status_code=404, detail="Parent folder not found")
-        if parent["user_id"] != user["id"]:
-            raise HTTPException(status_code=403, detail="Cannot create folder in another user's folder")
+    # If safe_id specified, create folder inside safe
+    if data.safe_id:
+        safe = get_safe(data.safe_id)
+        if not safe:
+            raise HTTPException(status_code=404, detail="Safe not found")
+        if safe["user_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if safe is unlocked
+        if not is_safe_unlocked_for_user(data.safe_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
+        
+        # Validate parent_id if provided (must be in same safe)
+        if data.parent_id:
+            parent = get_folder(data.parent_id)
+            if not parent:
+                raise HTTPException(status_code=404, detail="Parent folder not found")
+            if parent["safe_id"] != data.safe_id:
+                raise HTTPException(status_code=403, detail="Parent folder must be in the same safe")
+        
+        folder_id = create_folder_in_safe(data.name, user["id"], data.safe_id, data.parent_id)
+    else:
+        # Regular folder creation (not in safe)
+        # If parent_id specified, verify user owns the parent folder
+        if data.parent_id:
+            parent = get_folder(data.parent_id)
+            if not parent:
+                raise HTTPException(status_code=404, detail="Parent folder not found")
+            if parent["user_id"] != user["id"]:
+                raise HTTPException(status_code=403, detail="Cannot create folder in another user's folder")
+            # Check parent is not in a safe
+            if parent.get("safe_id"):
+                raise HTTPException(status_code=403, detail="Cannot create subfolder outside of safe")
 
-    folder_id = create_folder(data.name, user["id"], data.parent_id)
+        folder_id = create_folder(data.name, user["id"], data.parent_id)
+    
     folder = get_folder(folder_id)
 
     return {"status": "ok", "folder": dict(folder)}

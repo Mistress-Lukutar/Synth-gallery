@@ -1152,40 +1152,132 @@
         }
     };
 
+    // Load photo from safe (client-side decryption)
+    async function loadSafePhoto(photo) {
+        try {
+            // Check if safe is unlocked
+            if (!SafeCrypto.isUnlocked(photo.safe_id)) {
+                lightboxMedia.innerHTML = `
+                    <div class="safe-locked-message">
+                        <p>🔒 This photo is in a locked safe</p>
+                        <button onclick="openSafeUnlockFromLightbox('${photo.safe_id}')" class="btn">
+                            Unlock Safe
+                        </button>
+                    </div>`;
+                return;
+            }
+
+            // Show loading state
+            lightboxMedia.innerHTML = `<div class="loading-indicator">Decrypting...</div>`;
+
+            // Get encrypted file
+            const encryptedResp = await fetch(`{{ base_url }}/uploads/${photo.filename}`);
+            if (!encryptedResp.ok) {
+                throw new Error('Failed to load encrypted file');
+            }
+
+            // Check if server returned encrypted file
+            const encryptionHeader = encryptedResp.headers.get('X-Encryption');
+            if (encryptionHeader !== 'e2e') {
+                // Server decrypted it (fallback)
+                const blob = await encryptedResp.blob();
+                const url = URL.createObjectURL(blob);
+                lightboxMedia.innerHTML = `<img src="${url}" alt="${photo.original_name}" class="lightbox-image">`;
+                return;
+            }
+
+            // Client-side decryption
+            const encryptedBlob = await encryptedResp.blob();
+            
+            let blobToDisplay;
+            try {
+                // Try to decrypt using SafeCrypto
+                blobToDisplay = await SafeCrypto.decryptFileFromSafe(
+                    encryptedBlob,
+                    photo.safe_id,
+                    photo.media_type || 'image/jpeg'
+                );
+            } catch (decryptError) {
+                // Fallback: file might not be encrypted yet (uploaded before E2E)
+                console.warn('Failed to decrypt, showing raw file:', decryptError);
+                blobToDisplay = encryptedBlob;
+            }
+
+            // Create object URL and display
+            const url = URL.createObjectURL(blobToDisplay);
+            
+            if (photo.media_type === 'video') {
+                lightboxMedia.innerHTML = `
+                    <video src="${url}" controls autoplay loop playsinline class="lightbox-video">
+                        Your browser does not support video.
+                    </video>`;
+            } else {
+                lightboxMedia.innerHTML = `
+                    <img src="${url}" alt="${photo.original_name}" class="lightbox-image">`;
+            }
+        } catch (e) {
+            console.error('Failed to load safe photo:', e);
+            lightboxMedia.innerHTML = `
+                <div class="safe-error-message">
+                    <p>Failed to load photo</p>
+                    <p class="error-details">${e.message}</p>
+                    <button onclick="loadPhoto(photo)" class="btn btn-secondary mt-2">Try Loading Raw</button>
+                </div>`;
+        }
+    }
+
+    // Unlock safe from lightbox
+    window.openSafeUnlockFromLightbox = function(safeId) {
+        // Find safe name
+        const safeItem = document.querySelector(`.folder-item.safe-item[data-safe-id="${safeId}"]`);
+        const safeName = safeItem ? safeItem.querySelector('.folder-name').textContent : 'Safe';
+        
+        // Open unlock modal
+        if (typeof openSafeUnlock === 'function') {
+            openSafeUnlock(safeId, safeName, 'password');
+        }
+    };
+
     // Load and display photo
     async function loadPhoto(photoId) {
         try {
             const resp = await fetch(`{{ base_url }}/api/photos/${photoId}`);
             if (!resp.ok) {
-                console.error('Failed to load photo');
+                console.error('Failed to load photo, status:', resp.status);
                 return;
             }
             const photo = await resp.json();
 
-            // Update media
-            if (photo.media_type === 'video') {
-                lightboxMedia.innerHTML = `
-                    <video src="{{ base_url }}/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
-                        Your browser does not support video.
-                    </video>`;
+            // Check if photo is in a safe
+            if (photo.safe_id && typeof SafeCrypto !== 'undefined') {
+                await loadSafePhoto(photo);
+                // Still update metadata below
             } else {
-                // Progressive loading: show thumbnail first, then load full image
-                const thumbUrl = `{{ base_url }}/thumbnails/${photo.id}.jpg`;
-                const fullUrl = `{{ base_url }}/uploads/${photo.filename}`;
+                // Update media for regular photos
+                if (photo.media_type === 'video') {
+                    lightboxMedia.innerHTML = `
+                        <video src="{{ base_url }}/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
+                            Your browser does not support video.
+                        </video>`;
+                } else {
+                    // Progressive loading: show thumbnail first, then load full image
+                    const thumbUrl = `{{ base_url }}/thumbnails/${photo.id}.jpg`;
+                    const fullUrl = `{{ base_url }}/uploads/${photo.filename}`;
 
-                lightboxMedia.innerHTML = `
-                    <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image">`;
+                    lightboxMedia.innerHTML = `
+                        <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image">`;
 
-                // Preload full image in background
-                const fullImg = new Image();
-                fullImg.onload = () => {
-                    const currentImg = lightboxMedia.querySelector('.lightbox-image');
-                    // Only swap if still viewing the same photo
-                    if (currentImg && currentPhotoId === photo.id) {
-                        currentImg.src = fullUrl;
-                    }
-                };
-                fullImg.src = fullUrl;
+                    // Preload full image in background
+                    const fullImg = new Image();
+                    fullImg.onload = () => {
+                        const currentImg = lightboxMedia.querySelector('.lightbox-image');
+                        // Only swap if still viewing the same photo
+                        if (currentImg && currentPhotoId === photo.id) {
+                            currentImg.src = fullUrl;
+                        }
+                    };
+                    fullImg.src = fullUrl;
+                }
             }
 
             // Update tags

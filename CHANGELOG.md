@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Safes (Encrypted Vaults)** - Folders with independent end-to-end encryption
+  - Each safe has its own encryption key (DEK), separate from user's master key
+  - Password protection (PBKDF2) or hardware key (WebAuthn) unlock
+  - Visual indicator in sidebar (🔒 locked / 🔓 unlocked)
+  - Supports folders and albums inside safe
+  - **True E2E encryption**: Server never sees decrypted content
+    - Files stored encrypted on disk
+    - Server returns encrypted files with `X-Encryption: e2e` header
+    - Client decrypts files in browser using SafeCrypto
+  - No sharing support (owner-only access)
+  - Requires HTTPS or localhost (Web Crypto API)
+  - Fixed base64 encoding issues between client and server
+  - Fixed URL-safe base64 decoding on server (Python's urlsafe_b64decode)
+  - Fixed JavaScript syntax error in gallery.html (broken function structure)
+
 ## [0.8.4] - 2026-01-10
 
 ### Fixed
