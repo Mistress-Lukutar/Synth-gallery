@@ -1370,10 +1370,15 @@
         
         // Render folder content in gallery
         function renderFolderContent(data) {
+            console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'photos:', data.photos?.length);
+            
             const gallery = document.getElementById('gallery');
             const breadcrumbs = document.getElementById('folder-breadcrumbs');
             
-            if (!gallery) return;
+            if (!gallery) {
+                console.error('[renderFolderContent] Gallery element not found!');
+                return;
+            }
             
             // Update breadcrumbs
             if (breadcrumbs) {
