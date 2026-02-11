@@ -603,10 +603,22 @@
 
         // Encrypt file for safe upload
         async function encryptFileForSafeUpload(file, safeId) {
+            console.log('[encryptFileForSafeUpload] Encrypting file for safe:', safeId);
+            console.log('[encryptFileForSafeUpload] File name:', file.name, 'size:', file.size);
+            console.log('[encryptFileForSafeUpload] SafeCrypto.isUnlocked:', SafeCrypto.isUnlocked(safeId));
+            
             if (!SafeCrypto.isUnlocked(safeId)) {
                 throw new Error('Safe is locked. Please unlock it first.');
             }
-            return await SafeCrypto.encryptFileForSafe(file, safeId);
+            
+            try {
+                const result = await SafeCrypto.encryptFileForSafe(file, safeId);
+                console.log('[encryptFileForSafeUpload] Encryption successful, encrypted size:', result.encryptedFile.size);
+                return result;
+            } catch (e) {
+                console.error('[encryptFileForSafeUpload] Encryption failed:', e);
+                throw e;
+            }
         }
 
         // File upload
