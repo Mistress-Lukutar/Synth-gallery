@@ -1154,9 +1154,15 @@
 
     // Load photo from safe (client-side decryption)
     async function loadSafePhoto(photo) {
+        console.log('[loadSafePhoto] Starting for photo:', photo.id, 'safe_id:', photo.safe_id);
         try {
             // Check if safe is unlocked
+            console.log('[loadSafePhoto] Checking if safe is unlocked:', photo.safe_id);
+            console.log('[loadSafePhoto] SafeCrypto.isUnlocked:', SafeCrypto.isUnlocked(photo.safe_id));
+            console.log('[loadSafePhoto] SafeCrypto available:', !!SafeCrypto);
+            
             if (!SafeCrypto.isUnlocked(photo.safe_id)) {
+                console.log('[loadSafePhoto] Safe is locked, showing unlock UI');
                 lightboxMedia.innerHTML = `
                     <div class="safe-locked-message">
                         <p>🔒 This photo is in a locked safe</p>
@@ -1171,35 +1177,35 @@
             lightboxMedia.innerHTML = `<div class="loading-indicator">Decrypting...</div>`;
 
             // Get encrypted file
+            console.log('[loadSafePhoto] Fetching file:', photo.filename);
             const encryptedResp = await fetch(`{{ base_url }}/uploads/${photo.filename}`);
+            console.log('[loadSafePhoto] Fetch response:', encryptedResp.status, encryptedResp.ok);
             if (!encryptedResp.ok) {
                 throw new Error('Failed to load encrypted file');
             }
 
             // Check if server returned encrypted file
             const encryptionHeader = encryptedResp.headers.get('X-Encryption');
-            if (encryptionHeader !== 'e2e') {
-                // Server decrypted it (fallback)
-                const blob = await encryptedResp.blob();
-                const url = URL.createObjectURL(blob);
-                lightboxMedia.innerHTML = `<img src="${url}" alt="${photo.original_name}" class="lightbox-image">`;
-                return;
-            }
-
+            console.log('[loadSafePhoto] X-Encryption header:', encryptionHeader);
+            
             // Client-side decryption
+            console.log('[loadSafePhoto] Getting blob...');
             const encryptedBlob = await encryptedResp.blob();
+            console.log('[loadSafePhoto] Got blob, size:', encryptedBlob.size);
             
             let blobToDisplay;
             try {
                 // Try to decrypt using SafeCrypto
+                console.log('[loadSafePhoto] Attempting decryption...');
                 blobToDisplay = await SafeCrypto.decryptFileFromSafe(
                     encryptedBlob,
                     photo.safe_id,
                     photo.media_type || 'image/jpeg'
                 );
+                console.log('[loadSafePhoto] Decryption successful');
             } catch (decryptError) {
                 // Fallback: file might not be encrypted yet (uploaded before E2E)
-                console.warn('Failed to decrypt, showing raw file:', decryptError);
+                console.warn('[loadSafePhoto] Failed to decrypt, showing raw file:', decryptError);
                 blobToDisplay = encryptedBlob;
             }
 

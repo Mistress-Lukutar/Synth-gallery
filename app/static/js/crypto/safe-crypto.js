@@ -42,9 +42,12 @@ const SafeCrypto = (function() {
         };
     }
     
-    // Check dependencies
+    // Check dependencies (lazy check - DEKManager might load after SafeCrypto)
+    console.log('[SafeCrypto] Checking DEKManager:', typeof DEKManager);
     if (typeof DEKManager === 'undefined') {
-        console.error('DEKManager is required for SafeCrypto');
+        console.warn('[SafeCrypto] DEKManager not available at load time, will check lazily');
+    } else {
+        console.log('[SafeCrypto] DEKManager is available');
     }
     
     // Private storage for safe DEKs
@@ -284,6 +287,10 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Object>} - Unlock result with session data
          */
         async unlockWithPassword(safeId, password, encryptedDEKBase64, saltBase64) {
+            console.log(`[SafeCrypto.unlockWithPassword] Unlocking safe: ${safeId}`);
+            console.log(`[SafeCrypto.unlockWithPassword] Encrypted DEK length:`, encryptedDEKBase64?.length);
+            console.log(`[SafeCrypto.unlockWithPassword] Salt length:`, saltBase64?.length);
+            
             // Validate inputs
             if (!encryptedDEKBase64) {
                 throw new Error('Missing encrypted_dek from server');
@@ -295,26 +302,37 @@ base64Decode(encryptedDEKBase64)
             // Decode data
             const encryptedDEK = base64Decode(encryptedDEKBase64);
             const salt = base64Decode(saltBase64);
+            console.log(`[SafeCrypto.unlockWithPassword] Decoded encrypted DEK bytes:`, encryptedDEK.length);
+            console.log(`[SafeCrypto.unlockWithPassword] Decoded salt bytes:`, salt.length);
             
             // Derive key from password
+            console.log(`[SafeCrypto.unlockWithPassword] Deriving key from password...`);
             const keyFromPassword = await deriveKeyFromPassword(password, salt);
+            console.log(`[SafeCrypto.unlockWithPassword] Key derived successfully`);
             
             // Decrypt Safe DEK
             let safeDEK;
             try {
+                console.log(`[SafeCrypto.unlockWithPassword] Decrypting Safe DEK...`);
                 safeDEK = await decryptDEK(encryptedDEK, keyFromPassword);
+                console.log(`[SafeCrypto.unlockWithPassword] Safe DEK decrypted, type:`, typeof safeDEK);
             } catch (e) {
+                console.error(`[SafeCrypto.unlockWithPassword] Failed to decrypt DEK:`, e);
                 throw new Error('Incorrect password');
             }
             
             // Store in memory
+            console.log(`[SafeCrypto.unlockWithPassword] Storing DEK in memory for safe: ${safeId}`);
             safeDEKs.set(safeId, {
                 dek: safeDEK,
                 unlocked_at: Date.now()
             });
+            console.log(`[SafeCrypto.unlockWithPassword] Current unlocked safes:`, Array.from(safeDEKs.keys()));
             
             // Create session encryption
+            console.log(`[SafeCrypto.unlockWithPassword] Creating session encryption...`);
             const sessionData = await this.encryptDEKForSession(safeDEK);
+            console.log(`[SafeCrypto.unlockWithPassword] Session encryption created`);
             
             return {
                 success: true,
@@ -415,7 +433,14 @@ base64Decode(encryptedDEKBase64)
          * @returns {CryptoKey|null} - Safe DEK or null if locked
          */
         getSafeDEK(safeId) {
+            console.log(`[SafeCrypto.getSafeDEK] Looking for safe: ${safeId}`);
+            console.log(`[SafeCrypto.getSafeDEK] Available safes:`, Array.from(safeDEKs.keys()));
             const entry = safeDEKs.get(safeId);
+            console.log(`[SafeCrypto.getSafeDEK] Entry found:`, entry ? 'yes' : 'no');
+            if (entry) {
+                console.log(`[SafeCrypto.getSafeDEK] DEK type:`, typeof entry.dek);
+                console.log(`[SafeCrypto.getSafeDEK] Unlocked at:`, new Date(entry.unlocked_at).toISOString());
+            }
             return entry ? entry.dek : null;
         },
         
@@ -458,26 +483,34 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Object>} - Encrypted file data
          */
         async encryptFileForSafe(file, safeId) {
+            console.log(`[SafeCrypto.encryptFileForSafe] Starting encryption for safe: ${safeId}`);
             const safeDEK = this.getSafeDEK(safeId);
+            console.log(`[SafeCrypto.encryptFileForSafe] Got DEK:`, !!safeDEK);
             if (!safeDEK) {
                 throw new Error('Safe is locked. Please unlock first.');
             }
             
             // Read file
+            console.log(`[SafeCrypto.encryptFileForSafe] Reading file...`);
             const fileData = new Uint8Array(await file.arrayBuffer());
+            console.log(`[SafeCrypto.encryptFileForSafe] File size:`, fileData.length);
             
             // Encrypt file directly with Safe DEK (simpler approach)
+            console.log(`[SafeCrypto.encryptFileForSafe] Generating IV...`);
             const iv = crypto.getRandomValues(new Uint8Array(12));
+            console.log(`[SafeCrypto.encryptFileForSafe] Encrypting with AES-GCM...`);
             const encryptedData = await crypto.subtle.encrypt(
                 { name: 'AES-GCM', iv: iv },
                 safeDEK,
                 fileData
             );
+            console.log(`[SafeCrypto.encryptFileForSafe] Encrypted size:`, encryptedData.byteLength);
             
             // Combine IV + encrypted data
             const encryptedFile = new Uint8Array(iv.length + encryptedData.byteLength);
             encryptedFile.set(iv);
             encryptedFile.set(new Uint8Array(encryptedData), iv.length);
+            console.log(`[SafeCrypto.encryptFileForSafe] Combined size (IV + ciphertext):`, encryptedFile.length);
             
             return {
                 encryptedFile: new Blob([encryptedFile]),
@@ -495,23 +528,38 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Blob>} - Decrypted file
          */
         async decryptFileFromSafe(encryptedBlob, safeId, mimeType = 'image/jpeg') {
+            console.log(`[SafeCrypto.decryptFileFromSafe] Starting decryption for safe: ${safeId}`);
+            console.log(`[SafeCrypto.decryptFileFromSafe] Encrypted blob size:`, encryptedBlob.size);
+            console.log(`[SafeCrypto.decryptFileFromSafe] MIME type:`, mimeType);
+            
             const safeDEK = this.getSafeDEK(safeId);
             if (!safeDEK) {
+                console.error(`[SafeCrypto.decryptFileFromSafe] Safe ${safeId} is locked`);
                 throw new Error('Safe is locked. Please unlock first.');
             }
+            console.log(`[SafeCrypto.decryptFileFromSafe] Got DEK, type:`, typeof safeDEK);
             
             // Decrypt file directly with safe DEK
             const encryptedData = new Uint8Array(await encryptedBlob.arrayBuffer());
+            console.log(`[SafeCrypto.decryptFileFromSafe] Encrypted data length:`, encryptedData.length);
+            
             const iv = encryptedData.slice(0, 12);
             const ciphertext = encryptedData.slice(12);
+            console.log(`[SafeCrypto.decryptFileFromSafe] IV length:`, iv.length);
+            console.log(`[SafeCrypto.decryptFileFromSafe] Ciphertext length:`, ciphertext.length);
             
-            const decrypted = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv: iv },
-                safeDEK,
-                ciphertext
-            );
-            
-            return new Blob([decrypted], { type: mimeType });
+            try {
+                const decrypted = await crypto.subtle.decrypt(
+                    { name: 'AES-GCM', iv: iv },
+                    safeDEK,
+                    ciphertext
+                );
+                console.log(`[SafeCrypto.decryptFileFromSafe] Decryption successful, size:`, decrypted.byteLength);
+                return new Blob([decrypted], { type: mimeType });
+            } catch (e) {
+                console.error(`[SafeCrypto.decryptFileFromSafe] Decryption failed:`, e);
+                throw e;
+            }
         },
         
         /**
