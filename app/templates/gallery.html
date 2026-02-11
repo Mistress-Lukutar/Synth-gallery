@@ -164,7 +164,7 @@
 <div class="folder-breadcrumbs" id="folder-breadcrumbs">
     {% for crumb in breadcrumbs %}
         {% if not loop.last %}
-        <a href="{{ base_url }}/?folder_id={{ crumb.id }}" onclick="event.preventDefault(); navigateToFolder('{{ crumb.id }}');">{{ crumb.name }}</a>
+        <a href="{{ base_url }}/?folder_id={{ crumb.id }}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('{{ crumb.id }}'); return false;">{{ crumb.name }}</a>
         <span>/</span>
         {% else %}
         <span class="current">{{ crumb.name }}</span>
@@ -296,7 +296,7 @@
 <div class="subfolders-section">
     <div class="subfolders-grid">
         {% for folder in subfolders %}
-        <a href="{{ base_url }}/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}">
+        <a href="{{ base_url }}/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('{{ folder.id }}'); return false;">
             <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
