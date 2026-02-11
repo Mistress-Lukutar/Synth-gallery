@@ -1326,10 +1326,10 @@
                 event.stopPropagation();
             }
             
-            // Show loading indicator
+            // Smooth transition: fade out current gallery
             const gallery = document.getElementById('gallery');
             if (gallery) {
-                gallery.innerHTML = '<div class="loading-indicator">Loading...</div>';
+                gallery.style.opacity = '0.5';
             }
             
             try {
@@ -1516,12 +1516,13 @@
                 }
             });
             
-            // Empty state
-            if (html === '' && (!data.subfolders || data.subfolders.length === 0)) {
+            // Empty state - show when no photos/albums in the folder
+            const hasItems = data.items && data.items.length > 0;
+            if (!hasItems) {
                 html = `
                     <div class="empty-state">
                         <p>No photos yet</p>
-                        <p>Click "Upload" or drag & drop to add your first photos</p>
+                        <p>Click "Upload" to add your first photos</p>
                     </div>
                 `;
             }
@@ -1549,6 +1550,9 @@
                 // Initial rebuild with placeholders
                 window.rebuildMasonry(true);
                 
+                // Restore opacity after masonry is built
+                gallery.style.opacity = '1';
+                
                 // Wait for images to load and rebuild masonry
                 const images = gallery.querySelectorAll('img');
                 let loadedCount = 0;
@@ -1575,6 +1579,9 @@
                     // Final rebuild after all images should be loaded
                     setTimeout(() => window.rebuildMasonry(true), 500);
                 }
+            } else {
+                // No masonry function, just restore opacity
+                gallery.style.opacity = '1';
             }
         }
         

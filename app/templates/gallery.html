@@ -385,7 +385,7 @@
     {% else %}
         <div class="empty-state">
             <p>No photos yet</p>
-            <p>Click "Upload" or drag & drop to add your first photos</p>
+            <p>Click "Upload" to add your first photos</p>
         </div>
     {% endif %}
 </div>
@@ -558,7 +558,7 @@
         }
 
         if (visibleItems.length === 0) {
-            gallery.innerHTML = '<div class="empty-state"><p>No photos yet</p><p>Click "Upload" or drag & drop to add your first photos</p></div>';
+            gallery.innerHTML = '<div class="empty-state"><p>No photos yet</p><p>Click "Upload" to add your first photos</p></div>';
             saveNavigationOrder([]);
             masonryBuilt = true;
             lastColumnCount = columnCount;
