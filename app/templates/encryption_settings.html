@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Encryption Settings - Synth</title>
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <style>
+        .settings-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .settings-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .settings-header a {
+            color: var(--text-muted);
+            text-decoration: none;
+        }
+
+        .settings-header a:hover {
+            color: var(--text);
+        }
+
+        .settings-header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .settings-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .settings-section h2 {
+            margin: 0 0 1rem 0;
+            font-size: 1.1rem;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .settings-section h2 svg {
+            width: 20px;
+            height: 20px;
+            stroke: var(--accent);
+        }
+
+        .settings-section h3 {
+            margin: 1.5rem 0 0.75rem 0;
+            font-size: 1rem;
+            color: var(--text);
+        }
+
+        .settings-section p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin: 0 0 1rem 0;
+        }
+
+        .status-banner {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .status-banner.enabled {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+
+        .status-banner.disabled {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+
+        .status-banner.pending {
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            color: #eab308;
+        }
+
+        .status-banner svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .key-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .key-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .key-card h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.9rem;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .key-card h4 svg {
+            width: 16px;
+            height: 16px;
+            stroke: var(--accent);
+        }
+
+        .key-card .status {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+        }
+
+        .key-card .status.active {
+            color: #22c55e;
+        }
+
+        .key-card .status.inactive {
+            color: var(--text-muted);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--text);
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            background: var(--bg-secondary);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+
+        .btn-success {
+            background: #22c55e;
+            border-color: #22c55e;
+            color: white;
+        }
+
+        .btn-success:hover {
+            opacity: 0.9;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+            border-color: #f59e0b;
+            color: white;
+        }
+
+        .btn-warning:hover {
+            opacity: 0.9;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            border-color: #ef4444;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            opacity: 0.9;
+        }
+
+        .btn svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .progress-section {
+            margin: 1.5rem 0;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--bg);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent);
+            transition: width 0.3s ease;
+        }
+
+        .progress-fill.complete {
+            background: #22c55e;
+        }
+
+        .info-box {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+
+        .info-box h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.9rem;
+            color: #60a5fa;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-box p {
+            margin: 0;
+            font-size: 0.85rem;
+        }
+
+        .warning-box {
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+
+        .warning-box h4 {
+            margin: 0 0 0.5rem 0;
+            font-size: 0.9rem;
+            color: #eab308;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .warning-box p {
+            margin: 0;
+            font-size: 0.85rem;
+        }
+
+        .migration-log {
+            max-height: 200px;
+            overflow-y: auto;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+            margin-top: 1rem;
+        }
+
+        .migration-log:empty {
+            display: none;
+        }
+
+        .migration-log .entry {
+            padding: 0.2rem 0;
+        }
+
+        .migration-log .success {
+            color: #22c55e;
+        }
+
+        .migration-log .error {
+            color: #ef4444;
+        }
+
+        .migration-log .info {
+            color: var(--text-muted);
+        }
+
+        .action-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .help-text {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            line-height: 1.4;
+        }
+
+        .action-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .action-item span {
+            font-size: 0.9rem;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <div class="settings-header">
+            <a href="{{ base_url }}/settings" title="Back to Settings">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </a>
+            <h1>Encryption Settings</h1>
+        </div>
+
+        <!-- Status Banner -->
+        <div class="status-banner {{ status_class }}" id="encryptionStatus">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                {% if status_class == 'enabled' %}
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+                {% elif status_class == 'pending' %}
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+                {% else %}
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                {% endif %}
+            </svg>
+            <div>
+                <strong>{{ status_title }}</strong>
+                <p style="margin: 0; font-size: 0.85rem;">{{ status_message }}</p>
+            </div>
+        </div>
+
+        <!-- Key Management Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                </svg>
+                Key Management
+            </h2>
+            <p>Your encryption keys are stored only in your browser memory and never sent to the server.</p>
+
+            <!-- DEK Status (read-only) -->
+            <div class="info-box" id="dekStatusBox" style="display: none;">
+                <h4>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    Master Key (DEK)
+                </h4>
+                <p id="dekStatusText">Loading...</p>
+            </div>
+
+            <div class="key-cards">
+                <!-- Folder Keys - for shared folder encryption -->
+                <div class="key-card">
+                    <h4>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        Shared Folders
+                    </h4>
+                    <p class="status inactive" id="folderKeyStatus">Not configured</p>
+                    <button class="btn" onclick="setupFolderEncryption()" disabled id="folderSetupBtn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 4v16m8-8H4"/>
+                        </svg>
+                        Setup
+                    </button>
+                    <p class="help-text">
+                        Enables folder-level encryption for shared folders. All members get the same folder key.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        {% if show_migration %}
+        <!-- Migration Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                </svg>
+                Migration to Zero-Trust
+            </h2>
+
+            <div class="info-box">
+                <h4>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="16" x2="12" y2="12"/>
+                        <line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    What is changing?
+                </h4>
+                <p>Your photos are currently encrypted with a server-managed key. We're upgrading to client-side encryption where only you control your keys. The server will never see your unencrypted photos.</p>
+            </div>
+
+            <div class="progress-section">
+                <div class="progress-header">
+                    <span>Migration Progress</span>
+                    <span id="progressText">{{ migration_percent }}%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill {{ 'complete' if migration_percent == 100 else '' }}" id="progressFill" style="width: {{ migration_percent }}%"></div>
+                </div>
+            </div>
+
+            {% if migration_pending > 0 %}
+            <div class="warning-box">
+                <h4>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    {{ migration_pending }} photos need migration
+                </h4>
+                <p>These photos use the old encryption format and need to be re-encrypted with your client-side key.</p>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-success" id="startMigrationBtn" onclick="startMigration()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+                    </svg>
+                    Start Migration
+                </button>
+                <button class="btn" onclick="downloadBackup()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Download Backup
+                </button>
+            </div>
+
+            <div class="migration-log" id="migrationLog"></div>
+            {% else %}
+            <div class="status-banner enabled">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+                <span>All photos migrated to envelope encryption</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Advanced Options Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                Advanced Options
+            </h2>
+
+            <div class="action-list">
+                <div class="action-item">
+                    <span>Export Master Key</span>
+                    <button class="btn" onclick="exportDEK()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Export
+                    </button>
+                </div>
+
+                <div class="action-item">
+                    <span>Generate Recovery Key</span>
+                    <button class="btn" onclick="generateRecoveryKey()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        Generate
+                    </button>
+                </div>
+
+                <div class="action-item">
+                    <span style="color: #ef4444;">Reset All Encryption</span>
+                    <button class="btn btn-danger" onclick="resetEncryption()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                        Reset
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crypto Libraries -->
+    <script src="{{ base_url }}/static/js/crypto/dek-manager.js"></script>
+    <script src="{{ base_url }}/static/js/crypto/file-crypto.js"></script>
+    <script src="{{ base_url }}/static/js/crypto/key-exchange.js"></script>
+    <script src="{{ base_url }}/static/js/crypto/index.js"></script>
+
+    <script>
+        // Status tracking
+        let migrationInProgress = false;
+        let migratedCount = 0;
+        let totalToMigrate = {{ migration_pending }};
+
+        // Server-side flags
+        const hasDEKOnServer = {{ 'true' if has_dek else 'false' }};
+        
+        // Check for secure context (Web Crypto requires HTTPS or localhost)
+        const isSecureContext = window.isSecureContext;
+        const hasWebCrypto = window.crypto && window.crypto.subtle;
+        
+        // Initialize on page load - auto-prompt for password
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('Page loaded, checking EnvelopeCrypto...');
+            console.log('Secure context:', isSecureContext);
+            console.log('Web Crypto available:', hasWebCrypto);
+            
+            // Show DEK status box
+            document.getElementById('dekStatusBox').style.display = 'block';
+            
+            // Check for insecure context
+            if (!isSecureContext || !hasWebCrypto) {
+                showDEKStatus('error', 
+                    'Encryption requires a secure connection. ' +
+                    'Please use https:// or access via localhost. ' +
+                    'Current URL: ' + window.location.origin
+                );
+                return;
+            }
+            
+            if (typeof EnvelopeCrypto === 'undefined') {
+                console.error('EnvelopeCrypto not loaded!');
+                showDEKStatus('error', 'Crypto libraries failed to load');
+                return;
+            }
+            
+            // Show DEK status box
+            document.getElementById('dekStatusBox').style.display = 'block';
+            showDEKStatus('loading', 'Loading encryption keys...');
+            
+            // Check if DEK is already in memory
+            if (EnvelopeCrypto.DEKManager.hasDEK()) {
+                showDEKStatus('active', 'Master Key (DEK) is active in memory');
+                enableFolderSetup();
+                return;
+            }
+            
+            // Auto-prompt for password
+            if (hasDEKOnServer) {
+                await unlockWithPassword();
+            } else {
+                await initializeNewEncryption();
+            }
+        });
+        
+        function showDEKStatus(state, message) {
+            const box = document.getElementById('dekStatusBox');
+            const text = document.getElementById('dekStatusText');
+            
+            text.textContent = message;
+            box.className = 'info-box';
+            
+            if (state === 'active') {
+                box.style.background = 'rgba(34, 197, 94, 0.1)';
+                box.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+                box.querySelector('h4').style.color = '#22c55e';
+            } else if (state === 'error') {
+                box.style.background = 'rgba(239, 68, 68, 0.1)';
+                box.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                box.querySelector('h4').style.color = '#ef4444';
+            }
+        }
+        
+        function enableFolderSetup() {
+            const btn = document.getElementById('folderSetupBtn');
+            if (btn) btn.disabled = false;
+        }
+        
+        async function unlockWithPassword() {
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (attempts < maxAttempts) {
+                const password = prompt(`Enter your password to unlock encryption (${attempts + 1}/${maxAttempts}):`);
+                if (!password) {
+                    showDEKStatus('error', 'Password required to access encrypted files');
+                    return;
+                }
+                
+                try {
+                    showDEKStatus('loading', 'Unlocking encryption...');
+                    
+                    const response = await fetch('{{ base_url }}/api/envelope/my-encrypted-dek', {
+                        credentials: 'same-origin'
+                    });
+                    
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    const data = await response.json();
+                    await EnvelopeCrypto.initialize(password, data);
+                    
+                    showDEKStatus('active', 'Master Key (DEK) is active in memory');
+                    enableFolderSetup();
+                    
+                    // Auto-generate sharing keys if needed
+                    await ensureSharingKeys();
+                    
+                    return;
+                } catch (e) {
+                    attempts++;
+                    console.error('Unlock failed:', e);
+                    if (attempts >= maxAttempts) {
+                        showDEKStatus('error', 'Failed to unlock. Please refresh to try again.');
+                    } else {
+                        alert('Incorrect password. Please try again.');
+                    }
+                }
+            }
+        }
+        
+        async function initializeNewEncryption() {
+            const password = prompt('Create a password to protect your files. This password will be used to encrypt your data.');
+            if (!password) {
+                showDEKStatus('error', 'Password required to enable encryption');
+                return;
+            }
+            
+            if (password.length < 8) {
+                alert('Password must be at least 8 characters long');
+                return initializeNewEncryption();
+            }
+            
+            try {
+                showDEKStatus('loading', 'Initializing encryption...');
+                
+                await EnvelopeCrypto.initialize(password, null);
+                
+                showDEKStatus('active', 'Master Key (DEK) is active in memory');
+                enableFolderSetup();
+                
+                // Auto-generate sharing keys
+                await ensureSharingKeys();
+                
+                alert('Encryption initialized successfully!');
+            } catch (e) {
+                console.error('Initialize failed:', e);
+                showDEKStatus('error', 'Failed to initialize encryption');
+            }
+        }
+        
+
+
+
+
+        async function ensureSharingKeys() {
+            // Check if user already has keys on server
+            try {
+                const response = await fetch('{{ base_url }}/api/envelope/my-public-key', {
+                    credentials: 'same-origin'
+                });
+                const data = await response.json();
+                
+                if (data.has_key) {
+                    console.log('Sharing keys already exist');
+                    return; // Keys already exist, nothing to do
+                }
+            } catch (e) {
+                console.log('Could not check key status, will try to generate');
+            }
+            
+            // Generate and upload keys
+            try {
+                console.log('Generating ECC key pair...');
+                const keyPair = await EnvelopeCrypto.KeyExchange.generateKeyPair();
+                EnvelopeCrypto.KeyExchange.setUserKeyPair(keyPair);
+                const publicKey = await EnvelopeCrypto.KeyExchange.exportPublicKey();
+
+                const csrfToken = getCsrfToken();
+                const response = await fetch('{{ base_url }}/api/envelope/my-public-key', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({public_key: publicKey})
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                console.log('Sharing keys generated and uploaded');
+            } catch (e) {
+                console.error('Failed to generate sharing keys:', e);
+                // Non-fatal error, log and continue
+            }
+        }
+
+        async function startMigration() {
+            console.log('startMigration clicked');
+            
+            if (typeof EnvelopeCrypto === 'undefined') {
+                console.error('EnvelopeCrypto not available');
+                alert('Error: Encryption library not loaded. Please refresh the page.');
+                return;
+            }
+            
+            if (migrationInProgress) {
+                console.log('Migration already in progress');
+                return;
+            }
+            
+            // Проверяем DEK
+            if (!EnvelopeCrypto.DEKManager.hasDEK()) {
+                alert('Encryption key not loaded. Please refresh the page and enter your password.');
+                return;
+            }
+
+            migrationInProgress = true;
+            document.getElementById('startMigrationBtn').disabled = true;
+
+            // Show log container
+            const logEl = document.getElementById('migrationLog');
+            if (logEl) logEl.style.display = 'block';
+
+            try {
+                console.log('Fetching pending photos...');
+                const response = await fetch('{{ base_url }}/api/envelope/migration/pending-photos', {
+                    credentials: 'same-origin'
+                });
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+                
+                const data = await response.json();
+                console.log('Received data:', data);
+                
+                const photos = data.photos;
+                totalToMigrate = photos.length;
+
+                if (totalToMigrate === 0) {
+                    log('No photos to migrate', 'info');
+                    migrationInProgress = false;
+                    document.getElementById('startMigrationBtn').disabled = false;
+                    return;
+                }
+
+                log(`Found ${totalToMigrate} photos to migrate`, 'info');
+
+                const batchSize = 5;
+                for (let i = 0; i < photos.length; i += batchSize) {
+                    const batch = photos.slice(i, i + batchSize);
+                    await migrateBatch(batch);
+                    migratedCount += batch.length;
+                    updateProgress();
+                }
+
+                log('Migration complete', 'success');
+                setTimeout(() => window.location.reload(), 2000);
+            } catch (e) {
+                console.error('Migration error:', e);
+                log('Migration failed: ' + e.message, 'error');
+                migrationInProgress = false;
+                document.getElementById('startMigrationBtn').disabled = false;
+            }
+        }
+
+        async function migrateBatch(photos) {
+            const photoKeys = [];
+            for (const photo of photos) {
+                try {
+                    log(`Migrating ${photo.original_name || photo.id}...`, 'info');
+                    const ck = await EnvelopeCrypto.DEKManager.generateContentKey();
+                    const encryptedCK = await EnvelopeCrypto.DEKManager.encryptContentKey(ck);
+                    photoKeys.push({
+                        photo_id: photo.id,
+                        encrypted_ck: encryptedCK,
+                        thumbnail_encrypted_ck: null
+                    });
+                    log(`  ${photo.original_name || photo.id}`, 'success');
+                } catch (e) {
+                    log(`  Failed: ${e.message}`, 'error');
+                }
+            }
+
+            if (photoKeys.length > 0) {
+                log(`Uploading batch of ${photoKeys.length} keys...`, 'info');
+                
+                const csrfToken = getCsrfToken();
+                console.log('Migration batch CSRF token:', csrfToken ? 'present' : 'missing');
+                
+                const response = await fetch('{{ base_url }}/api/envelope/migration/batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({photo_keys: photoKeys})
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Batch upload failed: HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const result = await response.json();
+                log(`Batch uploaded: ${result.successful || photoKeys.length} successful`, 'success');
+            }
+        }
+
+        function updateProgress() {
+            const percent = Math.round((migratedCount / totalToMigrate) * 100);
+            document.getElementById('progressText').textContent = percent + '%';
+            document.getElementById('progressFill').style.width = percent + '%';
+        }
+
+        function updateUI(elementId, text, active) {
+            const el = document.getElementById(elementId);
+            if (el) {
+                el.textContent = text;
+                el.className = 'status ' + (active ? 'active' : 'inactive');
+            }
+        }
+
+        function log(message, type) {
+            console.log(`[${type}] ${message}`);
+            const logEl = document.getElementById('migrationLog');
+            if (!logEl) return;
+            
+            // Show log if hidden
+            logEl.style.display = 'block';
+            
+            const entry = document.createElement('div');
+            entry.className = 'entry ' + type;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function getCsrfToken() {
+            // Пробуем получить из meta тега
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta && meta.getAttribute('content')) {
+                return meta.getAttribute('content');
+            }
+            
+            // Fallback: получаем из cookie
+            const match = document.cookie.match(/synth_csrf=([^;]+)/);
+            if (match) return match[1];
+            
+            console.warn('CSRF token not found');
+            return '';
+        }
+
+        function downloadBackup() {
+            window.location.href = '{{ base_url }}/api/admin/backups/create';
+        }
+
+        async function exportDEK() {
+            if (!EnvelopeCrypto.DEKManager.hasDEK()) {
+                alert('Initialize encryption first');
+                return;
+            }
+            const exported = await EnvelopeCrypto.DEKManager.exportDEK();
+            const blob = new Blob([JSON.stringify({dek: exported, exported_at: new Date().toISOString()}, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `synth-key-backup-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function generateRecoveryKey() {
+            alert('Recovery key generation will be implemented');
+        }
+
+        function resetEncryption() {
+            if (!confirm('WARNING: This will reset all encryption. Continue?')) return;
+            alert('Reset will be implemented');
+        }
+
+        function setupFolderEncryption() {
+            alert('Folder encryption setup will be implemented');
+        }
+    </script>
+</body>
+</html>

@@ -149,6 +149,82 @@
         </div>
     </div>
 
+    <!-- Safe Create modal -->
+    <div id="safe-modal" class="modal hidden">
+        <div class="modal-content safe-modal-content">
+            <span class="close" onclick="closeSafeModal()">&times;</span>
+            <h2 id="safe-modal-title">Create Safe</h2>
+
+            <div class="form-group">
+                <label for="safe-name-input">Safe name:</label>
+                <input type="text" id="safe-name-input" placeholder="My Safe" autocomplete="off">
+            </div>
+
+            <div class="form-group">
+                <label>Protection method:</label>
+                <div class="safe-protection-options">
+                    <label class="radio-label">
+                        <input type="radio" name="safe-protection" value="password" checked>
+                        <span class="radio-text">Password</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="safe-protection" value="webauthn">
+                        <span class="radio-text">Hardware Key</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Password protection section -->
+            <div id="safe-password-section" class="form-group">
+                <label for="safe-password-input">Safe password:</label>
+                <input type="password" id="safe-password-input" placeholder="Min 8 characters" autocomplete="new-password">
+                <p class="input-hint">This password will be required every time you access this safe</p>
+            </div>
+
+            <!-- WebAuthn protection section -->
+            <div id="safe-webauthn-section" class="form-group hidden">
+                <label>Select hardware key:</label>
+                <select id="safe-webauthn-select">
+                    <option value="">Loading credentials...</option>
+                </select>
+                <p class="input-hint">You'll need this hardware key to unlock the safe</p>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" onclick="closeSafeModal()" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="safe-submit-btn" class="btn">Create Safe</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Safe Unlock modal -->
+    <div id="safe-unlock-modal" class="modal hidden">
+        <div class="modal-content safe-modal-content">
+            <span class="close" onclick="closeSafeUnlockModal()">&times;</span>
+            <h2 id="safe-unlock-title">Unlock Safe</h2>
+            <p id="safe-unlock-description" class="modal-description">Enter password to unlock</p>
+
+            <!-- Password unlock section -->
+            <div id="safe-unlock-password-section" class="form-group">
+                <label for="safe-unlock-password-input">Password:</label>
+                <input type="password" id="safe-unlock-password-input" placeholder="Safe password" autocomplete="off">
+            </div>
+
+            <!-- WebAuthn unlock section -->
+            <div id="safe-unlock-webauthn-section" class="form-group hidden">
+                <p>Click below to authenticate with your hardware key</p>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" onclick="closeSafeUnlockModal()" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="safe-unlock-submit-btn" class="btn">Unlock</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include SafeCrypto -->
+    <script src="{{ base_url }}/static/js/crypto/safe-crypto.js"></script>
+
     <!-- Share modal -->
     <div id="share-modal" class="modal hidden">
         <div class="modal-content share-modal-content">
@@ -518,11 +594,33 @@
             updatePreview(dt.files);
         };
 
+        // Get safe_id for a folder
+        function getFolderSafeId(folderId) {
+            if (!folderId || !folderTree) return null;
+            const folder = folderTree.find(f => f.id === folderId);
+            return folder ? folder.safe_id : null;
+        }
+
+        // Encrypt file for safe upload
+        async function encryptFileForSafeUpload(file, safeId) {
+            if (!SafeCrypto.isUnlocked(safeId)) {
+                throw new Error('Safe is locked. Please unlock it first.');
+            }
+            return await SafeCrypto.encryptFileForSafe(file, safeId);
+        }
+
         // File upload
         submitBtn.onclick = async () => {
             // Check that we have a valid folder
             if (!currentFolderId) {
                 alert('No folder selected. Please navigate to a folder first.');
+                return;
+            }
+
+            // Check if uploading to a safe
+            const targetSafeId = getFolderSafeId(currentFolderId);
+            if (targetSafeId && !SafeCrypto.isUnlocked(targetSafeId)) {
+                alert('This folder is in a locked safe. Please unlock the safe first.');
                 return;
             }
 
@@ -543,6 +641,12 @@
                 if (uploadMode === 'folder') {
                     // Bulk folder upload
                     if (!folderFiles.length) return;
+
+                    // Check if uploading to a safe - not supported yet
+                    if (targetSafeId) {
+                        alert('Folder upload is not supported in safes. Please upload files individually.');
+                        throw new Error('Folder upload not supported in safes');
+                    }
 
                     progressText.textContent = `Uploading ${folderFiles.length} files...`;
                     progressFill.style.width = '30%';
@@ -595,6 +699,12 @@
                     const isAlbum = albumCheckbox.checked && files.length > 1;
 
                     if (isAlbum) {
+                        // Check if uploading to a safe - albums not supported yet
+                        if (targetSafeId) {
+                            alert('Albums are not supported in safes. Please upload files individually or uncheck "Create album".\n\nThe files will still be uploaded, just not as an album.');
+                            throw new Error('Albums not supported in safes');
+                        }
+
                         progressText.textContent = 'Uploading album...';
                         progressFill.style.width = '50%';
 
@@ -617,7 +727,24 @@
                             progressFill.style.width = `${((i + 1) / files.length) * 100}%`;
 
                             const formData = new FormData();
-                            formData.append('file', files[i]);
+                            
+                            // If uploading to a safe, encrypt the file first
+                            if (targetSafeId) {
+                                try {
+                                    const encrypted = await encryptFileForSafeUpload(files[i], targetSafeId);
+                                    // Create a new File from the encrypted blob to preserve the name
+                                    const encryptedFile = new File([encrypted.encryptedFile], files[i].name, {
+                                        type: 'application/octet-stream'
+                                    });
+                                    formData.append('file', encryptedFile);
+                                    formData.append('encrypted_ck', 'safe'); // Marker for safe-encrypted files
+                                } catch (encryptErr) {
+                                    throw new Error(`Encryption failed: ${encryptErr.message}`);
+                                }
+                            } else {
+                                formData.append('file', files[i]);
+                            }
+                            
                             formData.append('folder_id', currentFolderId);
                             const resp = await csrfFetch('{{ base_url }}/upload', { method: 'POST', body: formData });
                             if (!resp.ok) {
@@ -877,12 +1004,13 @@
 
         // Render folder tree recursively
         function renderFolderTree() {
-            const myFolders = folderTree.filter(f => f.permission === 'owner');
+            const myFolders = folderTree.filter(f => f.permission === 'owner' && !f.safe_id);
+            const safeFolders = folderTree.filter(f => f.permission === 'owner' && f.safe_id);
             const sharedFolders = folderTree.filter(f => f.permission !== 'owner');
 
             let html = '';
 
-            // My Folders section
+            // My Folders section (regular folders)
             html += '<div class="folder-section">';
             html += '<div class="folder-section-header">My Folders</div>';
             if (myFolders.length > 0) {
@@ -904,6 +1032,103 @@
             `;
             html += '</div>';
 
+            // Safes section
+            if (userSafes.length > 0) {
+                html += '<div class="folder-section">';
+                html += '<div class="folder-section-header">Safes</div>';
+                
+                userSafes.forEach(safe => {
+                    const isUnlocked = safe.is_unlocked;
+                    const safeFoldersList = safeFolders.filter(f => f.safe_id === safe.id);
+                    
+                    // Safe header
+                    html += `
+                        <div class="folder-item-wrapper">
+                            <span class="folder-expand-placeholder"></span>
+                            <div class="folder-item safe-item ${isUnlocked ? 'unlocked' : 'locked'}" 
+                                 data-safe-id="${safe.id}">
+                                <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    ${isUnlocked ? `
+                                        <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                    ` : `
+                                        <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                        <circle cx="12" cy="16" r="1" fill="currentColor"/>
+                                    `}
+                                </svg>
+                                <span class="folder-name">${escapeHtml(safe.name)}</span>
+                                <span class="folder-count">${safe.photo_count || 0}</span>
+                                ${isUnlocked ? `
+                                    <button class="safe-action-btn" onclick="event.stopPropagation(); lockSafe('${safe.id}')" title="Lock">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                            <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                        </svg>
+                                    </button>
+                                    <button class="safe-action-btn" onclick="event.stopPropagation(); openCreateFolderInSafe('${safe.id}')" title="Add folder">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                            <line x1="12" y1="5" x2="12" y2="19"/>
+                                            <line x1="5" y1="12" x2="19" y2="12"/>
+                                        </svg>
+                                    </button>
+                                ` : `
+                                    <button class="safe-action-btn unlock-btn" onclick="event.stopPropagation(); openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}')" title="Unlock">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                            <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                            <path d="M12 16l2-2"/>
+                                        </svg>
+                                    </button>
+                                `}
+                            </div>
+                        </div>
+                    `;
+                    
+                    // Folders inside safe (only if unlocked)
+                    if (isUnlocked && safeFoldersList.length > 0) {
+                        html += buildSafeTreeHTML(safe.id, 1, safeFoldersList);
+                    }
+                });
+                
+                // Add safe button
+                html += `
+                    <div class="folder-item-wrapper">
+                        <span class="folder-expand-placeholder"></span>
+                        <div class="folder-item add-folder-item" onclick="openCreateSafe()">
+                            <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                <line x1="12" y1="14" x2="12" y2="17"/>
+                                <line x1="9" y1="15.5" x2="15" y2="15.5"/>
+                            </svg>
+                            <span class="folder-name">create safe</span>
+                        </div>
+                    </div>
+                `;
+                
+                html += '</div>';
+            } else {
+                // Show create safe button even if no safes exist
+                html += '<div class="folder-section">';
+                html += '<div class="folder-section-header">Safes</div>';
+                html += `
+                    <div class="folder-item-wrapper">
+                        <span class="folder-expand-placeholder"></span>
+                        <div class="folder-item add-folder-item" onclick="openCreateSafe()">
+                            <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                                <line x1="12" y1="14" x2="12" y2="17"/>
+                                <line x1="9" y1="15.5" x2="15" y2="15.5"/>
+                            </svg>
+                            <span class="folder-name">create safe</span>
+                        </div>
+                    </div>
+                `;
+                html += '</div>';
+            }
+
             // Shared with me section
             if (sharedFolders.length > 0) {
                 html += '<div class="folder-section">';
@@ -913,6 +1138,48 @@
             }
 
             folderTreeContainer.innerHTML = html;
+        }
+
+        // Build tree for folders inside a safe
+        function buildSafeTreeHTML(safeId, level, folders) {
+            // Don't show children of collapsed folders
+            const visibleFolders = folders.filter(f => {
+                if (!f.parent_id) return true;
+                // Check if parent is collapsed
+                return !collapsedFolders.has(f.parent_id);
+            });
+            
+            return visibleFolders.map(folder => {
+                const isActive = folder.id === currentFolderId;
+                const hasChildren = folders.some(f => f.parent_id === folder.id);
+                const isCollapsed = collapsedFolders.has(folder.id);
+                const photoCount = folder.photo_count || 0;
+                
+                const expandArrow = hasChildren ? `
+                    <button class="folder-expand-btn ${isCollapsed ? 'collapsed' : ''}"
+                            onclick="toggleFolderCollapse('${folder.id}', event)"
+                            title="${isCollapsed ? 'Expand' : 'Collapse'}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                ` : '<span class="folder-expand-placeholder"></span>';
+                
+                return `
+                    <div class="folder-item-wrapper safe-folder" style="padding-left: ${level * 16}px">
+                        ${expandArrow}
+                        <div class="folder-item private ${isActive ? 'active' : ''}"
+                             data-folder-id="${folder.id}"
+                             onclick="navigateToFolder('${folder.id}')">
+                            <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            <span class="folder-name">${escapeHtml(folder.name)}</span>
+                            <span class="folder-count">${photoCount}</span>
+                        </div>
+                    </div>
+                ` + (isCollapsed ? '' : buildSafeTreeHTML(safeId, level + 1, folders.filter(f => f.parent_id === folder.id)));
+            }).join('');
         }
 
         function buildTreeHTML(parentId, level, folders = folderTree) {
@@ -1435,7 +1702,462 @@
             loadCollapsedFolders();
             loadFolderTree();
             loadDefaultFolder();
+            loadSafes();
         });
+
+        // === Safe Management ===
+        let userSafes = [];
+        let currentUnlockSafeId = null;
+        let currentUnlockSessionKey = null;
+
+        // Safe modal elements
+        const safeModal = document.getElementById('safe-modal');
+        const safeNameInput = document.getElementById('safe-name-input');
+        const safePasswordInput = document.getElementById('safe-password-input');
+        const safeWebauthnSelect = document.getElementById('safe-webauthn-select');
+        const safeSubmitBtn = document.getElementById('safe-submit-btn');
+        
+        // Safe unlock modal elements
+        const safeUnlockModal = document.getElementById('safe-unlock-modal');
+        const safeUnlockTitle = document.getElementById('safe-unlock-title');
+        const safeUnlockDescription = document.getElementById('safe-unlock-description');
+        const safeUnlockPasswordSection = document.getElementById('safe-unlock-password-section');
+        const safeUnlockWebauthnSection = document.getElementById('safe-unlock-webauthn-section');
+        const safeUnlockPasswordInput = document.getElementById('safe-unlock-password-input');
+        const safeUnlockSubmitBtn = document.getElementById('safe-unlock-submit-btn');
+
+        // Toggle protection type in create modal
+        document.querySelectorAll('input[name="safe-protection"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                if (e.target.value === 'password') {
+                    document.getElementById('safe-password-section').classList.remove('hidden');
+                    document.getElementById('safe-webauthn-section').classList.add('hidden');
+                } else {
+                    document.getElementById('safe-password-section').classList.add('hidden');
+                    document.getElementById('safe-webauthn-section').classList.remove('hidden');
+                    loadWebAuthnCredentials();
+                }
+            });
+        });
+
+        async function loadSafes() {
+            try {
+                const resp = await fetch('{{ base_url }}/api/safes');
+                const data = await resp.json();
+                userSafes = data.safes || [];
+                renderFolderTree(); // Re-render to show safes
+            } catch (err) {
+                console.error('Failed to load safes:', err);
+            }
+        }
+
+        async function loadWebAuthnCredentials() {
+            try {
+                const resp = await fetch('{{ base_url }}/api/safes/webauthn/credentials');
+                const data = await resp.json();
+                
+                safeWebauthnSelect.innerHTML = '';
+                if (data.credentials && data.credentials.length > 0) {
+                    data.credentials.forEach(cred => {
+                        const opt = document.createElement('option');
+                        opt.value = cred.credential_id;
+                        opt.textContent = cred.name;
+                        safeWebauthnSelect.appendChild(opt);
+                    });
+                } else {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'No hardware keys registered';
+                    safeWebauthnSelect.appendChild(opt);
+                }
+            } catch (err) {
+                console.error('Failed to load credentials:', err);
+                safeWebauthnSelect.innerHTML = '<option value="">Error loading</option>';
+            }
+        }
+
+        function openCreateSafe() {
+            // Check if SafeCrypto is available
+            if (!SafeCrypto.isAvailable) {
+                alert('Safe creation requires a secure connection (HTTPS or localhost). Please access this page via https:// or localhost.');
+                return;
+            }
+            
+            document.getElementById('safe-modal-title').textContent = 'Create Safe';
+            safeNameInput.value = '';
+            safePasswordInput.value = '';
+            document.querySelector('input[name="safe-protection"][value="password"]').checked = true;
+            document.getElementById('safe-password-section').classList.remove('hidden');
+            document.getElementById('safe-webauthn-section').classList.add('hidden');
+            safeModal.classList.remove('hidden');
+            safeNameInput.focus();
+        }
+
+        function closeSafeModal() {
+            safeModal.classList.add('hidden');
+        }
+
+        function openSafeUnlock(safeId, safeName, unlockType) {
+            currentUnlockSafeId = safeId;
+            safeUnlockTitle.textContent = `Unlock "${safeName}"`;
+            
+            if (unlockType === 'password') {
+                safeUnlockDescription.textContent = 'Enter your safe password to unlock';
+                safeUnlockPasswordSection.classList.remove('hidden');
+                safeUnlockWebauthnSection.classList.add('hidden');
+                safeUnlockPasswordInput.value = '';
+                safeUnlockPasswordInput.focus();
+            } else {
+                safeUnlockDescription.textContent = 'Authenticate with your hardware key to unlock';
+                safeUnlockPasswordSection.classList.add('hidden');
+                safeUnlockWebauthnSection.classList.remove('hidden');
+            }
+            
+            safeUnlockModal.classList.remove('hidden');
+        }
+
+        function closeSafeUnlockModal() {
+            safeUnlockModal.classList.add('hidden');
+            currentUnlockSafeId = null;
+            currentUnlockSessionKey = null;
+        }
+
+        // Create safe
+        safeSubmitBtn.onclick = async () => {
+            const name = safeNameInput.value.trim();
+            if (!name) {
+                alert('Please enter a safe name');
+                return;
+            }
+
+            const protectionType = document.querySelector('input[name="safe-protection"]:checked').value;
+            
+            safeSubmitBtn.disabled = true;
+            safeSubmitBtn.textContent = 'Creating...';
+
+            try {
+                let safeData;
+                
+                if (protectionType === 'password') {
+                    const password = safePasswordInput.value;
+                    if (!password || password.length < 8) {
+                        alert('Password must be at least 8 characters');
+                        safeSubmitBtn.disabled = false;
+                        safeSubmitBtn.textContent = 'Create Safe';
+                        return;
+                    }
+                    
+                    safeData = await SafeCrypto.createSafeWithPassword(name, password);
+                    console.log('[DEBUG] Created safe data:', {
+                        name: safeData.name,
+                        hasEncryptedDEK: !!safeData.encrypted_dek,
+                        hasSalt: !!safeData.salt,
+                        saltLength: safeData.salt ? safeData.salt.length : 0
+                    });
+                } else {
+                    const credentialId = safeWebauthnSelect.value;
+                    if (!credentialId) {
+                        alert('Please select a hardware key');
+                        safeSubmitBtn.disabled = false;
+                        safeSubmitBtn.textContent = 'Create Safe';
+                        return;
+                    }
+                    
+                    safeData = await SafeCrypto.createSafeWithWebAuthn(name, credentialId);
+                }
+
+                // Send to server
+                const requestBody = {
+                    name: safeData.name,
+                    unlock_type: protectionType,
+                    password: protectionType === 'password' ? safePasswordInput.value : undefined,
+                    credential_id: protectionType === 'webauthn' ? safeWebauthnSelect.value : undefined,
+                    encrypted_dek: safeData.encrypted_dek,
+                    salt: safeData.salt
+                };
+                console.log('[DEBUG] Sending to server:', {
+                    hasEncryptedDEK: !!requestBody.encrypted_dek,
+                    hasSalt: !!requestBody.salt,
+                    saltLength: requestBody.salt ? requestBody.salt.length : 0
+                });
+                
+                const resp = await csrfFetch('{{ base_url }}/api/safes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to create safe');
+                }
+
+                // Complete unlock with session
+                const createResult = await resp.json();
+                
+                await csrfFetch('{{ base_url }}/api/safes/unlock/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        safe_id: createResult.safe_id,
+                        session_encrypted_dek: safeData.session_encrypted_dek
+                    })
+                });
+
+                // Store session key locally
+                SafeCrypto.storeSafeDEKFromSession(
+                    createResult.safe_id,
+                    safeData.session_encrypted_dek,
+                    safeData.session_key
+                );
+
+                closeSafeModal();
+                loadSafes();
+                
+                // Ask user if they want to create a folder in the safe
+                if (confirm('Safe created! Create a folder inside it?')) {
+                    openCreateFolderInSafe(createResult.safe_id);
+                }
+                
+            } catch (err) {
+                console.error('Create safe failed:', err);
+                alert('Failed to create safe: ' + err.message);
+            } finally {
+                safeSubmitBtn.disabled = false;
+                safeSubmitBtn.textContent = 'Create Safe';
+            }
+        };
+
+        // Unlock safe
+        safeUnlockSubmitBtn.onclick = async () => {
+            if (!currentUnlockSafeId) return;
+
+            const safe = userSafes.find(s => s.id === currentUnlockSafeId);
+            if (!safe) return;
+
+            safeUnlockSubmitBtn.disabled = true;
+            safeUnlockSubmitBtn.textContent = 'Unlocking...';
+
+            try {
+                if (safe.unlock_type === 'password') {
+                    const password = safeUnlockPasswordInput.value;
+                    if (!password) {
+                        alert('Please enter password');
+                        safeUnlockSubmitBtn.disabled = false;
+                        safeUnlockSubmitBtn.textContent = 'Unlock';
+                        return;
+                    }
+
+                    // Get challenge from server
+                    const challengeResp = await csrfFetch('{{ base_url }}/api/safes/unlock', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ safe_id: currentUnlockSafeId })
+                    });
+
+                    if (!challengeResp.ok) {
+                        const errorText = await challengeResp.text();
+                        throw new Error(`Server error: ${challengeResp.status} - ${errorText}`);
+                    }
+
+                    const challengeData = await challengeResp.json();
+                    console.log('Challenge data:', challengeData);
+                    
+                    if (challengeData.status !== 'challenge') {
+                        throw new Error(`Unexpected status: ${challengeData.status}`);
+                    }
+                    
+                    if (!challengeData.encrypted_dek) {
+                        throw new Error('Server did not return encrypted_dek');
+                    }
+                    if (!challengeData.salt) {
+                        throw new Error('Server did not return salt');
+                    }
+                    
+                    // Unlock with password
+                    const unlockData = await SafeCrypto.unlockWithPassword(
+                        currentUnlockSafeId,
+                        password,
+                        challengeData.encrypted_dek,
+                        challengeData.salt
+                    );
+
+                    // Complete unlock
+                    await csrfFetch('{{ base_url }}/api/safes/unlock/complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            safe_id: currentUnlockSafeId,
+                            session_encrypted_dek: unlockData.session_encrypted_dek
+                        })
+                    });
+
+                    // Store locally
+                    await SafeCrypto.storeSafeDEKFromSession(
+                        currentUnlockSafeId,
+                        unlockData.session_encrypted_dek,
+                        unlockData.session_key
+                    );
+
+                } else {
+                    // WebAuthn unlock
+                    const challengeResp = await csrfFetch('{{ base_url }}/api/safes/unlock', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ safe_id: currentUnlockSafeId })
+                    });
+
+                    const challengeData = await challengeResp.json();
+                    
+                    // Perform WebAuthn authentication
+                    const credential = await navigator.credentials.get({
+                        publicKey: {
+                            ...challengeData.options,
+                            challenge: Uint8Array.from(atob(challengeData.challenge.replace(/-/g, '+').replace(/_/g, '/').padEnd(challengeData.challenge.length + (4 - challengeData.challenge.length % 4) % 4, '=')), c => c.charCodeAt(0))
+                        }
+                    });
+
+                    // Complete unlock
+                    const completeResp = await csrfFetch('{{ base_url }}/api/safes/unlock/complete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            safe_id: currentUnlockSafeId,
+                            credential: {
+                                id: credential.id,
+                                rawId: btoa(String.fromCharCode(...new Uint8Array(credential.rawId))),
+                                response: {
+                                    authenticatorData: btoa(String.fromCharCode(...new Uint8Array(credential.response.authenticatorData))),
+                                    clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(credential.response.clientDataJSON))),
+                                    signature: btoa(String.fromCharCode(...new Uint8Array(credential.response.signature)))
+                                },
+                                type: credential.type
+                            },
+                            challenge: challengeData.challenge
+                        })
+                    });
+
+                    const completeData = await completeResp.json();
+                    
+                    // Note: For WebAuthn, the server returns the session-encrypted DEK
+                    // We need to handle this properly in a real implementation
+                }
+
+                closeSafeUnlockModal();
+                loadSafes();
+                loadFolderTree();
+                
+            } catch (err) {
+                console.error('Unlock failed:', err);
+                alert('Unlock failed: ' + err.message);
+            } finally {
+                safeUnlockSubmitBtn.disabled = false;
+                safeUnlockSubmitBtn.textContent = 'Unlock';
+            }
+        };
+
+        // Lock safe
+        async function lockSafe(safeId) {
+            try {
+                await csrfFetch(`{{ base_url }}/api/safes/${safeId}/lock`, {
+                    method: 'POST'
+                });
+                
+                SafeCrypto.lockSafe(safeId);
+                loadSafes();
+                loadFolderTree();
+            } catch (err) {
+                console.error('Lock failed:', err);
+                alert('Failed to lock safe');
+            }
+        }
+
+        // Create folder in safe
+        function openCreateFolderInSafe(safeId) {
+            editingFolderId = null;
+            folderModalTitle.textContent = 'Create Folder in Safe';
+            folderSubmitBtn.textContent = 'Create';
+            folderNameInput.value = '';
+            folderParentSelect.innerHTML = '<option value="">Root of safe</option>';
+            
+            // Add folders from this safe as parent options
+            const safeFolders = folderTree.filter(f => f.safe_id === safeId);
+            safeFolders.forEach(folder => {
+                const opt = document.createElement('option');
+                opt.value = folder.id;
+                opt.textContent = folder.name;
+                folderParentSelect.appendChild(opt);
+            });
+            
+            // Store safe_id for submission
+            folderModal.dataset.safeId = safeId;
+            
+            defaultFolderSection.classList.add('hidden');
+            deleteFolderSection.classList.add('hidden');
+            folderModal.classList.remove('hidden');
+            folderNameInput.focus();
+        }
+
+        // Modify folder creation to support safe_id
+        const originalFolderSubmit = folderSubmitBtn.onclick;
+        folderSubmitBtn.onclick = async () => {
+            const safeId = folderModal.dataset.safeId;
+            if (!safeId) {
+                // Regular folder creation
+                const name = folderNameInput.value.trim();
+                if (!name) {
+                    alert('Please enter a folder name');
+                    return;
+                }
+
+                const parentId = folderParentSelect.value || null;
+
+                try {
+                    if (editingFolderId) {
+                        await csrfFetch(`{{ base_url }}/api/folders/${editingFolderId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name })
+                        });
+                    } else {
+                        await csrfFetch('{{ base_url }}/api/folders', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, parent_id: parentId })
+                        });
+                    }
+                    closeFolderModal();
+                    loadFolderTree();
+                } catch (err) {
+                    console.error('Folder operation failed:', err);
+                    alert('Operation failed');
+                }
+                return;
+            }
+
+            // Safe folder creation
+            const name = folderNameInput.value.trim();
+            if (!name) {
+                alert('Please enter a folder name');
+                return;
+            }
+
+            const parentId = folderParentSelect.value || null;
+
+            try {
+                await csrfFetch('{{ base_url }}/api/folders', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, parent_id: parentId, safe_id: safeId })
+                });
+                closeFolderModal();
+                folderModal.dataset.safeId = '';
+                loadFolderTree();
+            } catch (err) {
+                console.error('Folder creation failed:', err);
+                alert('Operation failed: ' + err.message);
+            }
+        };
     </script>
 
     {% block scripts %}{% endblock %}
