@@ -318,6 +318,9 @@
         let isUploading = false;
         let uploadMode = 'files'; // 'files' or 'folder'
         let folderFiles = []; // Store files with their relative paths for folder mode
+        
+        // Max file size (1GB) - should match nginx client_max_body_size
+        const MAX_FILE_SIZE = 1024 * 1024 * 1024;
 
         // Open/close modal
         const folderUploadBtn = document.getElementById('folder-upload-btn');
@@ -656,6 +659,15 @@
                 if (uploadMode === 'folder') {
                     // Bulk folder upload
                     if (!folderFiles.length) return;
+                    
+                    // Check file sizes
+                    const oversizedFiles = folderFiles.filter(({ file }) => file.size > MAX_FILE_SIZE);
+                    if (oversizedFiles.length > 0) {
+                        const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
+                        const fileNames = oversizedFiles.map(({ file }) => file.name).join(', ');
+                        alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
+                        throw new Error('Files too large');
+                    }
 
                     // Check if uploading to a safe - not supported yet
                     if (targetSafeId) {
@@ -681,8 +693,19 @@
                     const resp = await csrfFetch('{{ base_url }}/upload-bulk', { method: 'POST', body: formData });
 
                     if (!resp.ok) {
-                        const err = await resp.json();
-                        throw new Error(err.detail || 'Upload failed');
+                        // Handle 413 Content Too Large (nginx error)
+                        if (resp.status === 413) {
+                            throw new Error('File too large. Please increase client_max_body_size in nginx config or upload smaller files.');
+                        }
+                        const contentType = resp.headers.get('content-type');
+                        if (contentType && contentType.includes('application/json')) {
+                            const err = await resp.json();
+                            throw new Error(err.detail || 'Upload failed');
+                        } else {
+                            const text = await resp.text();
+                            console.error('Upload error response:', text.substring(0, 200));
+                            throw new Error(`Upload failed: HTTP ${resp.status}`);
+                        }
                     }
 
                     const data = await resp.json();
@@ -710,6 +733,15 @@
                     // Regular file upload
                     const files = Array.from(fileInput.files).filter(isValidMedia);
                     if (!files.length) return;
+                    
+                    // Check file sizes
+                    const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE);
+                    if (oversizedFiles.length > 0) {
+                        const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
+                        const fileNames = oversizedFiles.map(f => f.name).join(', ');
+                        alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
+                        throw new Error('Files too large');
+                    }
 
                     const isAlbum = albumCheckbox.checked && files.length > 1;
 
@@ -730,8 +762,15 @@
                         formData.append('folder_id', window.currentFolderId);
                         const resp = await csrfFetch('{{ base_url }}/upload-album', { method: 'POST', body: formData });
                         if (!resp.ok) {
-                            const err = await resp.json();
-                            throw new Error(err.detail || 'Upload failed');
+                            const contentType = resp.headers.get('content-type');
+                            if (contentType && contentType.includes('application/json')) {
+                                const err = await resp.json();
+                                throw new Error(err.detail || 'Upload failed');
+                            } else {
+                                const text = await resp.text();
+                                console.error('Upload error response:', text.substring(0, 200));
+                                throw new Error(`Upload failed: HTTP ${resp.status}`);
+                            }
                         }
                         const data = await resp.json();
                         uploadedIds = data.photos.map(p => p.id);
@@ -772,8 +811,19 @@
                             formData.append('folder_id', window.currentFolderId);
                             const resp = await csrfFetch('{{ base_url }}/upload', { method: 'POST', body: formData });
                             if (!resp.ok) {
-                                const err = await resp.json();
-                                throw new Error(err.detail || 'Upload failed');
+                                // Handle 413 Content Too Large (nginx error)
+                                if (resp.status === 413) {
+                                    throw new Error('File too large. Please increase client_max_body_size in nginx config or upload smaller files.');
+                                }
+                                const contentType = resp.headers.get('content-type');
+                                if (contentType && contentType.includes('application/json')) {
+                                    const err = await resp.json();
+                                    throw new Error(err.detail || 'Upload failed');
+                                } else {
+                                    const text = await resp.text();
+                                    console.error('Upload error response:', text.substring(0, 200));
+                                    throw new Error(`Upload failed: HTTP ${resp.status}`);
+                                }
                             }
                             const data = await resp.json();
                             uploadedIds.push(data.id);
@@ -1323,8 +1373,8 @@
             }
             
             try {
-                // Fetch folder content
-                const resp = await fetch(`{{ base_url }}/api/folders/${folderId}/content?sort=${currentSort || 'uploaded'}`);
+                // Fetch folder content - don't pass sort param to let server use folder's saved preference
+                const resp = await fetch(`{{ base_url }}/api/folders/${folderId}/content`);
                 if (!resp.ok) {
                     throw new Error('Failed to load folder');
                 }
@@ -1339,6 +1389,12 @@
                 
                 // Update current state
                 window.currentFolderId = folderId;
+                
+                // Update sort from server response (folder-specific sort preference)
+                if (data.sort) {
+                    currentSort = data.sort;
+                    updateSortUI(currentSort);
+                }
                 
                 // Update UI
                 renderFolderContent(data);
@@ -2082,6 +2138,19 @@
                 alert('Failed to remove permission');
             }
         }
+
+        // Update sort UI to reflect current sort preference
+        function updateSortUI(sortValue) {
+            const sortMenu = document.getElementById('sort-menu');
+            if (!sortMenu) return;
+            
+            sortMenu.querySelectorAll('.sort-option').forEach(option => {
+                option.classList.toggle('active', option.dataset.sort === sortValue);
+            });
+        }
+        
+        // Make updateSortUI available globally for SPA navigation
+        window.updateSortUI = updateSortUI;
 
         // Sort dropdown handler
         const sortBtn = document.getElementById('sort-btn');
