@@ -437,7 +437,7 @@
             renderFilePreview();
         }
         
-        // Render file preview with remove buttons
+        // Render file preview with hover-to-remove overlay
         function renderFilePreview() {
             if (selectedFiles.length === 0) {
                 previewContainer.classList.add('hidden');
@@ -450,7 +450,7 @@
             selectedFiles.forEach((file, index) => {
                 const wrapper = document.createElement('div');
                 wrapper.className = 'preview-item';
-                wrapper.style.cssText = 'position:relative;display:inline-block;margin:5px;';
+                wrapper.style.cssText = 'position:relative;display:inline-block;margin:5px;cursor:pointer;';
                 
                 // Create thumbnail
                 let thumb;
@@ -465,18 +465,39 @@
                 }
                 thumb.className = 'preview-thumb';
                 thumb.title = file.name;
+                thumb.style.cssText = 'display:block;';
                 
-                // Remove button
-                const removeBtn = document.createElement('button');
-                removeBtn.innerHTML = '&times;';
-                removeBtn.style.cssText = 'position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:#ff4444;color:white;border:none;cursor:pointer;font-size:14px;line-height:1;';
-                removeBtn.onclick = (e) => {
+                // Overlay with darkening and X
+                const overlay = document.createElement('div');
+                overlay.className = 'preview-overlay';
+                overlay.style.cssText = `
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    opacity: 0;
+                    transition: opacity 0.2s;
+                    border-radius: 4px;
+                `;
+                overlay.innerHTML = '<span style="color:white;font-size:24px;font-weight:bold;">&times;</span>';
+                
+                // Show overlay on hover
+                wrapper.onmouseenter = () => overlay.style.opacity = '1';
+                wrapper.onmouseleave = () => overlay.style.opacity = '0';
+                
+                // Remove on click
+                wrapper.onclick = (e) => {
                     e.stopPropagation();
                     removeFile(index);
                 };
                 
                 wrapper.appendChild(thumb);
-                wrapper.appendChild(removeBtn);
+                wrapper.appendChild(overlay);
                 preview.appendChild(wrapper);
             });
             
