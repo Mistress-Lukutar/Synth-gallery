@@ -318,6 +318,7 @@
         let isUploading = false;
         let uploadMode = 'files'; // 'files' or 'folder'
         let folderFiles = []; // Store files with their relative paths for folder mode
+        let selectedFiles = []; // Store selected files for regular upload (accumulates across selections)
         
         // Max file size (1GB) - should match nginx client_max_body_size
         const MAX_FILE_SIZE = 1024 * 1024 * 1024;
@@ -351,6 +352,7 @@
             fileInput.value = '';
             folderInput.value = '';
             folderFiles = [];
+            selectedFiles = [];
             preview.innerHTML = '';
             previewContainer.classList.add('hidden');
             uploadOptions.classList.add('hidden');
@@ -394,6 +396,7 @@
             fileInput.value = '';
             folderInput.value = '';
             folderFiles = [];
+            selectedFiles = [];
             preview.innerHTML = '';
             previewContainer.classList.add('hidden');
             uploadOptions.classList.add('hidden');
@@ -417,53 +420,91 @@
                    file.type === 'video/webm';
         }
 
-        // Update preview when files selected
-        function updatePreview(files) {
+        // Add files to selection (accumulates across selections)
+        function addFilesToSelection(files) {
             const mediaFiles = Array.from(files).filter(isValidMedia);
-
-            if (mediaFiles.length === 0) {
+            
+            if (mediaFiles.length === 0) return;
+            
+            // Add new files to selectedFiles (avoid duplicates by name+size)
+            for (const file of mediaFiles) {
+                const isDuplicate = selectedFiles.some(f => f.name === file.name && f.size === file.size);
+                if (!isDuplicate) {
+                    selectedFiles.push(file);
+                }
+            }
+            
+            renderFilePreview();
+        }
+        
+        // Render file preview with remove buttons
+        function renderFilePreview() {
+            if (selectedFiles.length === 0) {
                 previewContainer.classList.add('hidden');
                 uploadOptions.classList.add('hidden');
                 submitBtn.disabled = true;
                 return;
             }
-
+            
             preview.innerHTML = '';
-            for (const file of mediaFiles) {
+            selectedFiles.forEach((file, index) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'preview-item';
+                wrapper.style.cssText = 'position:relative;display:inline-block;margin:5px;';
+                
+                // Create thumbnail
+                let thumb;
                 if (file.type.startsWith('video/')) {
-                    // Create video thumbnail preview
-                    const video = document.createElement('video');
-                    video.src = URL.createObjectURL(file);
-                    video.className = 'preview-thumb';
-                    video.title = file.name;
-                    video.muted = true;
-                    video.preload = 'metadata';
-                    preview.appendChild(video);
+                    thumb = document.createElement('video');
+                    thumb.src = URL.createObjectURL(file);
+                    thumb.muted = true;
+                    thumb.preload = 'metadata';
                 } else {
-                    const img = document.createElement('img');
-                    img.src = URL.createObjectURL(file);
-                    img.className = 'preview-thumb';
-                    img.title = file.name;
-                    preview.appendChild(img);
+                    thumb = document.createElement('img');
+                    thumb.src = URL.createObjectURL(file);
                 }
-            }
-
-            previewCount.textContent = `${mediaFiles.length} file${mediaFiles.length > 1 ? 's' : ''} selected`;
+                thumb.className = 'preview-thumb';
+                thumb.title = file.name;
+                
+                // Remove button
+                const removeBtn = document.createElement('button');
+                removeBtn.innerHTML = '&times;';
+                removeBtn.style.cssText = 'position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:#ff4444;color:white;border:none;cursor:pointer;font-size:14px;line-height:1;';
+                removeBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    removeFile(index);
+                };
+                
+                wrapper.appendChild(thumb);
+                wrapper.appendChild(removeBtn);
+                preview.appendChild(wrapper);
+            });
+            
+            previewCount.textContent = `${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''} selected`;
             previewContainer.classList.remove('hidden');
             uploadOptions.classList.remove('hidden');
             submitBtn.disabled = false;
-
+            
             // Show album option only for multiple files
             const albumOption = albumCheckbox.closest('.upload-option');
-            if (mediaFiles.length > 1) {
+            if (selectedFiles.length > 1) {
                 albumOption.style.display = '';
             } else {
                 albumOption.style.display = 'none';
                 albumCheckbox.checked = false;
             }
         }
+        
+        // Remove file from selection
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            renderFilePreview();
+        }
 
-        fileInput.onchange = () => updatePreview(fileInput.files);
+        fileInput.onchange = () => {
+            addFilesToSelection(fileInput.files);
+            fileInput.value = ''; // Reset input to allow selecting same files again
+        };
 
         // Folder input handler
         folderInput.onchange = () => {
@@ -575,7 +616,8 @@
             fileInput.value = '';
             folderInput.value = '';
             folderFiles = [];
-            updatePreview([]);
+            selectedFiles = [];
+            renderFilePreview();
         };
 
         // Drag & drop for drop zone in modal
@@ -587,14 +629,7 @@
         dropZone.ondrop = (e) => {
             e.preventDefault();
             dropZone.classList.remove('drag-over');
-            const dt = new DataTransfer();
-            for (const file of e.dataTransfer.files) {
-                if (isValidMedia(file)) {
-                    dt.items.add(file);
-                }
-            }
-            fileInput.files = dt.files;
-            updatePreview(dt.files);
+            addFilesToSelection(e.dataTransfer.files);
         };
 
         // Get safe_id for a folder
@@ -731,7 +766,7 @@
 
                 } else {
                     // Regular file upload
-                    const files = Array.from(fileInput.files).filter(isValidMedia);
+                    const files = selectedFiles;
                     if (!files.length) return;
                     
                     // Check file sizes
@@ -859,11 +894,10 @@
 
                 // Close modal and refresh via SPA (no page reload)
                 setTimeout(() => {
-                    closeModal();
-                    resetUploadForm();
                     isUploading = false;
                     submitBtn.disabled = false;
                     cancelBtn.disabled = false;
+                    closeModal();
                     // Refresh current folder content via SPA
                     if (window.currentFolderId) {
                         navigateToFolder(window.currentFolderId, false);
