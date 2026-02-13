@@ -242,7 +242,7 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
 
 
 @router.get("/api/folders/{folder_id}/content")
-def get_folder_content_api(folder_id: str, request: Request, sort: str = "uploaded"):
+def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
     """Get folder content as JSON for SPA navigation."""
     user = require_user(request)
     
@@ -261,9 +261,9 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = "upload
     current_folder["permission"] = get_user_permission(folder_id, user["id"])
     breadcrumbs = get_folder_breadcrumbs(folder_id)
     
-    # Get sort preference
+    # Get sort preference: use URL param if provided, otherwise use saved preference
     if sort not in ("uploaded", "taken"):
-        sort = "uploaded"
+        sort = get_folder_sort_preference(user["id"], folder_id)
     
     # Get subfolders
     subfolders = db.execute("""
