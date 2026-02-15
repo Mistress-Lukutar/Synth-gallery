@@ -205,7 +205,8 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             "media_type": photo["media_type"] or "image",
             "sort_date": photo["sort_date"],
             "thumb_width": photo["thumb_width"],
-            "thumb_height": photo["thumb_height"]
+            "thumb_height": photo["thumb_height"],
+            "safe_id": photo["safe_id"]
         })
 
     # Sort media items by sort_date (descending), None values go to end
@@ -583,7 +584,10 @@ async def upload_photo(
     file: UploadFile = None, 
     folder_id: str = Form(None),
     encrypted_ck: str = Form(None),  # For client-side encrypted uploads (safes/envelope)
-    safe_id: str = Form(None)  # If uploading to a safe
+    safe_id: str = Form(None),  # If uploading to a safe
+    thumbnail: UploadFile = None,  # Client-side encrypted thumbnail (for safes)
+    thumb_width: int = Form(0),  # Thumbnail width from client
+    thumb_height: int = Form(0)  # Thumbnail height from client
 ):
     """Upload new photo or video to specified folder."""
     user = require_user(request)
@@ -685,11 +689,29 @@ async def upload_photo(
             with open(thumb_path, "wb") as f:
                 f.write(thumb_bytes)
     else:
-        # Client-side encrypted upload (envelope encryption)
+        # Client-side encrypted upload (envelope encryption / safe)
         # Save file as-is (already encrypted)
         file_path = UPLOADS_DIR / filename
         with open(file_path, "wb") as f:
             f.write(file_content)
+        
+        # Save client-provided thumbnail (encrypted) for safe uploads
+        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        print(f"[DEBUG] Safe upload: photo_id={photo_id}, thumbnail={thumbnail}, thumb_width={thumb_width}, thumb_height={thumb_height}")
+        if thumbnail:
+            # Client provided encrypted thumbnail - save as-is
+            thumb_content = await thumbnail.read()
+            print(f"[DEBUG] Thumbnail received: {len(thumb_content)} bytes, saving to {thumb_path}")
+            with open(thumb_path, "wb") as f:
+                f.write(thumb_content)
+            thumb_w, thumb_h = thumb_width, thumb_height
+            print(f"[DEBUG] Thumbnail saved successfully")
+        else:
+            # No thumbnail provided - create placeholder or skip
+            # For safes, we can't generate thumbnail on server, so we'll leave it empty
+            # The client will need to handle missing thumbnails gracefully
+            print(f"[DEBUG] No thumbnail provided for safe upload")
+            thumb_w, thumb_h = 0, 0
         
         # Default taken_at for encrypted uploads
         taken_at = datetime.now()
