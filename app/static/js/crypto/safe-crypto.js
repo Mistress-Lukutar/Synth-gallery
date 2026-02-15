@@ -477,6 +477,155 @@ base64Decode(encryptedDEKBase64)
         },
         
         /**
+         * Generate thumbnail from image/video file using Canvas
+         * @param {File} file - The media file
+         * @param {number} maxSize - Max thumbnail dimension
+         * @returns {Promise<Blob>} - JPEG thumbnail blob
+         */
+        async _generateThumbnail(file, maxSize = 400) {
+            console.log(`[_generateThumbnail] Starting for file: ${file.name}, type: ${file.type}`);
+            return new Promise((resolve, reject) => {
+                const isVideo = file.type.startsWith('video/');
+                const isImage = file.type.startsWith('image/');
+                console.log(`[_generateThumbnail] isVideo=${isVideo}, isImage=${isImage}`);
+                
+                if (isVideo) {
+                    this._generateVideoThumbnail(file, maxSize)
+                        .then(blob => { console.log(`[_generateThumbnail] Video thumbnail generated: ${blob.size} bytes`); resolve(blob); })
+                        .catch(err => { console.error(`[_generateThumbnail] Video thumbnail failed:`, err); reject(err); });
+                } else if (isImage) {
+                    this._generateImageThumbnail(file, maxSize)
+                        .then(blob => { console.log(`[_generateThumbnail] Image thumbnail generated: ${blob.size} bytes`); resolve(blob); })
+                        .catch(err => { console.error(`[_generateThumbnail] Image thumbnail failed:`, err); reject(err); });
+                } else {
+                    console.error(`[_generateThumbnail] Unsupported file type: ${file.type}`);
+                    reject(new Error('Unsupported file type for thumbnail'));
+                }
+            });
+        },
+        
+        /**
+         * Generate thumbnail from image
+         * @private
+         */
+        async _generateImageThumbnail(file, maxSize) {
+            console.log(`[_generateImageThumbnail] Starting for file: ${file.name}`);
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                console.log(`[_generateImageThumbnail] Created object URL: ${url}`);
+                
+                img.onload = () => {
+                    console.log(`[_generateImageThumbnail] Image loaded: ${img.naturalWidth}x${img.naturalHeight}`);
+                    URL.revokeObjectURL(url);
+                    
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Calculate dimensions maintaining aspect ratio
+                    let { width, height } = img;
+                    if (width > height) {
+                        if (width > maxSize) {
+                            height *= maxSize / width;
+                            width = maxSize;
+                        }
+                    } else {
+                        if (height > maxSize) {
+                            width *= maxSize / height;
+                            height = maxSize;
+                        }
+                    }
+                    
+                    canvas.width = Math.round(width);
+                    canvas.height = Math.round(height);
+                    console.log(`[_generateImageThumbnail] Canvas size: ${canvas.width}x${canvas.height}`);
+                    
+                    // Use better quality settings
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    
+                    canvas.toBlob(
+                        (blob) => {
+                            console.log(`[_generateImageThumbnail] toBlob result:`, blob ? `${blob.size} bytes` : 'null');
+                            if (blob) resolve(blob);
+                            else reject(new Error('Failed to create thumbnail blob'));
+                        },
+                        'image/jpeg',
+                        0.85
+                    );
+                };
+                
+                img.onerror = (err) => {
+                    console.error(`[_generateImageThumbnail] Image load error:`, err);
+                    URL.revokeObjectURL(url);
+                    reject(new Error('Failed to load image'));
+                };
+                
+                img.src = url;
+            });
+        },
+        
+        /**
+         * Generate thumbnail from video
+         * @private
+         */
+        async _generateVideoThumbnail(file, maxSize) {
+            return new Promise((resolve, reject) => {
+                const video = document.createElement('video');
+                const url = URL.createObjectURL(file);
+                
+                video.onloadedmetadata = () => {
+                    // Seek to 1 second or 25% of duration
+                    video.currentTime = Math.min(1, video.duration * 0.25);
+                };
+                
+                video.onseeked = () => {
+                    URL.revokeObjectURL(url);
+                    
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Calculate dimensions
+                    let { videoWidth: width, videoHeight: height } = video;
+                    if (width > height) {
+                        if (width > maxSize) {
+                            height *= maxSize / width;
+                            width = maxSize;
+                        }
+                    } else {
+                        if (height > maxSize) {
+                            width *= maxSize / height;
+                            height = maxSize;
+                        }
+                    }
+                    
+                    canvas.width = Math.round(width);
+                    canvas.height = Math.round(height);
+                    
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    canvas.toBlob(
+                        (blob) => {
+                            if (blob) resolve(blob);
+                            else reject(new Error('Failed to create video thumbnail blob'));
+                        },
+                        'image/jpeg',
+                        0.85
+                    );
+                };
+                
+                video.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('Failed to load video'));
+                };
+                
+                video.src = url;
+                video.load();
+            });
+        },
+        
+        /**
          * Encrypt a file for safe upload
          * @param {File} file - File to encrypt
          * @param {string} safeId - Safe ID
@@ -484,10 +633,30 @@ base64Decode(encryptedDEKBase64)
          */
         async encryptFileForSafe(file, safeId) {
             console.log(`[SafeCrypto.encryptFileForSafe] Starting encryption for safe: ${safeId}`);
+            console.log(`[SafeCrypto.encryptFileForSafe] File: name=${file.name}, type=${file.type}, size=${file.size}`);
             const safeDEK = this.getSafeDEK(safeId);
             console.log(`[SafeCrypto.encryptFileForSafe] Got DEK:`, !!safeDEK);
             if (!safeDEK) {
                 throw new Error('Safe is locked. Please unlock first.');
+            }
+            
+            // Generate thumbnail first (before encryption)
+            let thumbnailBlob = null;
+            let thumbnailDimensions = { width: 0, height: 0 };
+            
+            try {
+                console.log(`[SafeCrypto.encryptFileForSafe] Generating thumbnail for type: ${file.type}...`);
+                thumbnailBlob = await this._generateThumbnail(file, 400);
+                console.log(`[SafeCrypto.encryptFileForSafe] Thumbnail blob:`, thumbnailBlob ? `${thumbnailBlob.size} bytes` : 'null');
+                if (thumbnailBlob) {
+                    // Get dimensions from the blob
+                    const img = await this._loadImageFromBlob(thumbnailBlob);
+                    thumbnailDimensions = { width: img.width, height: img.height };
+                    console.log(`[SafeCrypto.encryptFileForSafe] Thumbnail generated: ${thumbnailDimensions.width}x${thumbnailDimensions.height}`);
+                }
+            } catch (e) {
+                console.warn(`[SafeCrypto.encryptFileForSafe] Thumbnail generation failed:`, e);
+                thumbnailBlob = null;
             }
             
             // Read file
@@ -512,12 +681,63 @@ base64Decode(encryptedDEKBase64)
             encryptedFile.set(new Uint8Array(encryptedData), iv.length);
             console.log(`[SafeCrypto.encryptFileForSafe] Combined size (IV + ciphertext):`, encryptedFile.length);
             
-            return {
+            // Encrypt thumbnail if generated
+            let encryptedThumbnail = null;
+            if (thumbnailBlob) {
+                try {
+                    console.log(`[SafeCrypto.encryptFileForSafe] Encrypting thumbnail...`);
+                    const thumbData = new Uint8Array(await thumbnailBlob.arrayBuffer());
+                    const thumbIv = crypto.getRandomValues(new Uint8Array(12));
+                    const encryptedThumbData = await crypto.subtle.encrypt(
+                        { name: 'AES-GCM', iv: thumbIv },
+                        safeDEK,
+                        thumbData
+                    );
+                    
+                    // Combine IV + encrypted thumbnail data
+                    encryptedThumbnail = new Uint8Array(thumbIv.length + encryptedThumbData.byteLength);
+                    encryptedThumbnail.set(thumbIv);
+                    encryptedThumbnail.set(new Uint8Array(encryptedThumbData), thumbIv.length);
+                    console.log(`[SafeCrypto.encryptFileForSafe] Thumbnail encrypted, size:`, encryptedThumbnail.length);
+                } catch (e) {
+                    console.warn(`[SafeCrypto.encryptFileForSafe] Thumbnail encryption failed:`, e);
+                }
+            }
+            
+            const result = {
                 encryptedFile: new Blob([encryptedFile]),
+                encryptedThumbnail: encryptedThumbnail ? new Blob([encryptedThumbnail]) : null,
                 originalName: file.name,
                 mediaType: file.type.startsWith('video/') ? 'video' : 'image',
-                mimeType: file.type
+                mimeType: file.type,
+                thumbWidth: thumbnailDimensions.width,
+                thumbHeight: thumbnailDimensions.height
             };
+            console.log(`[SafeCrypto.encryptFileForSafe] Returning result: encryptedFile=${result.encryptedFile.size}, encryptedThumbnail=${result.encryptedThumbnail ? result.encryptedThumbnail.size : 'null'}, thumbDimensions=${result.thumbWidth}x${result.thumbHeight}`);
+            return result;
+        },
+        
+        /**
+         * Load image from blob to get dimensions
+         * @private
+         */
+        _loadImageFromBlob(blob) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const url = URL.createObjectURL(blob);
+                
+                img.onload = () => {
+                    URL.revokeObjectURL(url);
+                    resolve(img);
+                };
+                
+                img.onerror = () => {
+                    URL.revokeObjectURL(url);
+                    reject(new Error('Failed to load image'));
+                };
+                
+                img.src = url;
+            });
         },
         
         /**

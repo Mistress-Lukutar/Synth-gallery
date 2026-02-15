@@ -676,6 +676,8 @@
             try {
                 const result = await SafeCrypto.encryptFileForSafe(file, safeId);
                 console.log('[encryptFileForSafeUpload] Encryption successful, encrypted size:', result.encryptedFile.size);
+                console.log('[encryptFileForSafeUpload] Thumbnail:', result.encryptedThumbnail ? result.encryptedThumbnail.size : 'none');
+                console.log('[encryptFileForSafeUpload] Thumbnail dimensions:', result.thumbWidth, 'x', result.thumbHeight);
                 return result;
             } catch (e) {
                 console.error('[encryptFileForSafeUpload] Encryption failed:', e);
@@ -854,6 +856,19 @@
                                     });
                                     formData.append('file', encryptedFile);
                                     formData.append('encrypted_ck', 'safe'); // Marker for safe-encrypted files
+                                    
+                                    // Add encrypted thumbnail if generated
+                                    console.log(`[Upload] File ${i+1}: Checking thumbnail:`, encrypted.encryptedThumbnail);
+                                    if (encrypted.encryptedThumbnail) {
+                                        console.log(`[Upload] File ${i+1}: Adding thumbnail, size:`, encrypted.encryptedThumbnail.size);
+                                        const thumbFile = new File([encrypted.encryptedThumbnail], 'thumb.jpg.encrypted', {
+                                            type: 'application/octet-stream'
+                                        });
+                                        formData.append('thumbnail', thumbFile);
+                                        formData.append('thumb_width', encrypted.thumbWidth || 0);
+                                        formData.append('thumb_height', encrypted.thumbHeight || 0);
+                                    }
+                                    
                                     console.log(`[Upload] File ${i+1}: FormData prepared with encrypted_ck marker`);
                                 } catch (encryptErr) {
                                     console.error(`[Upload] File ${i+1}: Encryption failed:`, encryptErr);
@@ -1756,6 +1771,9 @@
             const safeImages = document.querySelectorAll('img[data-safe-thumbnail]');
             if (safeImages.length === 0) return;
             
+            // Placeholder SVG for locked/missing thumbnails
+            const placeholderSvg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23666" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" fill="%23333"/><circle cx="8.5" cy="8.5" r="1.5" fill="%23666"/><path d="M21 15l-5-5L5 21" stroke="%23666"/><path d="M7 11l3-3 2 2 4-4" stroke="%23666"/></svg>';
+            
             for (const img of safeImages) {
                 const photoId = img.dataset.safeThumbnail;
                 const safeId = img.dataset.safeId;
@@ -1776,6 +1794,13 @@
                     const resp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/thumbnail`);
                     if (!resp.ok) {
                         console.warn(`Failed to load thumbnail for ${photoId}:`, resp.status);
+                        // Show placeholder for missing thumbnail (404 or other error)
+                        img.src = placeholderSvg;
+                        img.style.opacity = '1';
+                        img.previousElementSibling.style.display = 'none';
+                        if (window.onGalleryImageLoad) {
+                            window.onGalleryImageLoad(img);
+                        }
                         continue;
                     }
                     
@@ -1798,10 +1823,24 @@
                     
                     img.onerror = () => {
                         console.error(`Failed to load decrypted thumbnail for ${photoId}`);
+                        // Show placeholder on error
+                        img.src = placeholderSvg;
+                        img.style.opacity = '1';
+                        img.previousElementSibling.style.display = 'none';
+                        if (window.onGalleryImageLoad) {
+                            window.onGalleryImageLoad(img);
+                        }
                     };
                     
                 } catch (err) {
                     console.error(`Error loading safe thumbnail for ${photoId}:`, err);
+                    // Show placeholder on error
+                    img.src = placeholderSvg;
+                    img.style.opacity = '1';
+                    img.previousElementSibling.style.display = 'none';
+                    if (window.onGalleryImageLoad) {
+                        window.onGalleryImageLoad(img);
+                    }
                 }
             }
         }
