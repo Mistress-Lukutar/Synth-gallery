@@ -299,6 +299,30 @@
         </div>
     </div>
 
+    <!-- Safe Edit modal -->
+    <div id="safe-edit-modal" class="modal hidden">
+        <div class="modal-content folder-modal-content">
+            <span class="close" onclick="closeSafeEditModal()">&times;</span>
+            <h2 id="safe-edit-modal-title">Edit Safe</h2>
+
+            <div class="form-group">
+                <label for="safe-edit-name-input">Safe name:</label>
+                <input type="text" id="safe-edit-name-input" placeholder="My Safe" autocomplete="off">
+            </div>
+
+            <div id="delete-safe-section" class="form-group">
+                <button type="button" id="delete-safe-btn" class="btn btn-danger btn-block">
+                    Delete safe
+                </button>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" onclick="closeSafeEditModal()" class="btn btn-secondary">Cancel</button>
+                <button type="button" id="safe-edit-submit-btn" class="btn">Save</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Include SafeCrypto -->
     <script src="{{ base_url }}/static/js/crypto/safe-crypto.js"></script>
 
@@ -1352,7 +1376,7 @@
                     // Folders inside safe (only if unlocked)
                     if (isUnlocked) {
                         if (safeFoldersList.length > 0) {
-                            html += buildSafeTreeHTML(safe.id, 1, safeFoldersList);
+                            html += buildSafeTreeHTML(safe.id, 1, safeFoldersList, null);
                         }
                         // Add "add folder" button at the end of safe folder list
                         html += `
@@ -1420,16 +1444,17 @@
             folderTreeContainer.innerHTML = html;
         }
 
-        // Build tree for folders inside a safe
-        function buildSafeTreeHTML(safeId, level, folders) {
-            // Don't show children of collapsed folders
-            const visibleFolders = folders.filter(f => {
-                if (!f.parent_id) return true;
-                // Check if parent is collapsed
-                return !collapsedFolders.has(f.parent_id);
-            });
-            
-            return visibleFolders.map(folder => {
+        // Build tree for folders inside a safe (same algorithm as buildTreeHTML)
+        function buildSafeTreeHTML(safeId, level, folders, parentId = null) {
+            // If parent is collapsed, don't render children
+            if (parentId && collapsedFolders.has(parentId)) {
+                return '';
+            }
+
+            const children = folders.filter(f => f.parent_id === parentId);
+            if (children.length === 0) return '';
+
+            return children.map(folder => {
                 const isActive = folder.id === window.currentFolderId;
                 const hasChildren = folders.some(f => f.parent_id === folder.id);
                 const isCollapsed = collapsedFolders.has(folder.id);
@@ -1458,7 +1483,7 @@
                             <span class="folder-count">${photoCount}</span>
                         </div>
                     </div>
-                ` + (isCollapsed ? '' : buildSafeTreeHTML(safeId, level + 1, folders.filter(f => f.parent_id === folder.id)));
+                ` + buildSafeTreeHTML(safeId, level + 1, folders, folder.id);
             }).join('');
         }
 
@@ -1748,12 +1773,16 @@
                     const uploadBtn = folderHeader.querySelector('#folder-upload-btn');
                     if (uploadBtn) uploadBtn.style.display = '';
                     
-                    // Hide share/edit/sort buttons for safe root
+                    // Update buttons for safe: hide share, show edit for safe, hide sort
                     const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
                     const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
                     const sortBtn = folderHeader.querySelector('#sort-btn');
                     if (shareBtn) shareBtn.style.display = 'none';
-                    if (editBtn) editBtn.style.display = 'none';
+                    if (editBtn) {
+                        editBtn.style.display = '';
+                        editBtn.setAttribute('onclick', `openEditSafe('${safeId}')`);
+                        editBtn.setAttribute('title', 'Edit safe');
+                    }
                     if (sortBtn) sortBtn.style.display = 'none';
                 }
                 
@@ -2499,12 +2528,19 @@
             try {
                 await csrfFetch(`{{ base_url }}/api/folders/${folderId}`, { method: 'DELETE' });
                 closeFolderModal();
+                
+                // Always refresh folder tree
+                loadFolderTree();
+                
                 if (folderId === window.currentFolderId) {
-                    // Navigate to parent or root
-                    window.location.href = folder.parent_id ? `{{ base_url }}/?folder_id=${folder.parent_id}` : '{{ base_url }}/';
-                } else {
-                    loadFolderTree();
+                    // Navigate to parent or root using SPA navigation
+                    if (folder.parent_id) {
+                        navigateToFolder(folder.parent_id, true);
+                    } else {
+                        navigateToDefaultFolder();
+                    }
                 }
+                // If deleted folder is not current, tree update is enough
             } catch (err) {
                 console.error('Delete failed:', err);
                 alert('Delete failed');
@@ -2900,6 +2936,85 @@
             safeModal.classList.add('hidden');
         }
 
+        // Safe Edit Modal functions
+        let editingSafeId = null;
+        const safeEditModal = document.getElementById('safe-edit-modal');
+        const safeEditNameInput = document.getElementById('safe-edit-name-input');
+        const safeEditSubmitBtn = document.getElementById('safe-edit-submit-btn');
+        const deleteSafeBtn = document.getElementById('delete-safe-btn');
+
+        function openEditSafe(safeId) {
+            const safe = userSafes.find(s => s.id === safeId);
+            if (!safe) return;
+
+            editingSafeId = safeId;
+            document.getElementById('safe-edit-modal-title').textContent = 'Edit Safe';
+            safeEditNameInput.value = safe.name;
+            
+            safeEditModal.classList.remove('hidden');
+            safeEditNameInput.focus();
+        }
+
+        function closeSafeEditModal() {
+            safeEditModal.classList.add('hidden');
+            editingSafeId = null;
+        }
+
+        // Close modal when clicking outside
+        safeEditModal.onclick = (e) => {
+            if (e.target === safeEditModal) closeSafeEditModal();
+        };
+
+        // Save safe changes
+        safeEditSubmitBtn.onclick = async () => {
+            if (!editingSafeId) return;
+
+            const name = safeEditNameInput.value.trim();
+            if (!name) {
+                alert('Please enter a safe name');
+                return;
+            }
+
+            try {
+                await csrfFetch(`{{ base_url }}/api/safes/${editingSafeId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                
+                closeSafeEditModal();
+                loadSafes();
+                loadFolderTree();
+                
+                // If currently viewing this safe, update the header
+                if (window.currentSafeId === editingSafeId) {
+                    const folderHeader = document.querySelector('.folder-header');
+                    if (folderHeader) {
+                        const h2 = folderHeader.querySelector('h2');
+                        if (h2) h2.textContent = name;
+                    }
+                    const folderBreadcrumbs = document.getElementById('folder-breadcrumbs');
+                    if (folderBreadcrumbs) {
+                        const lastSpan = folderBreadcrumbs.querySelector('span:last-child');
+                        if (lastSpan) lastSpan.textContent = name;
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to rename safe:', err);
+                alert('Failed to rename safe: ' + err.message);
+            }
+        };
+
+        // Delete safe from edit modal
+        deleteSafeBtn.onclick = async () => {
+            if (!editingSafeId) return;
+
+            const safe = userSafes.find(s => s.id === editingSafeId);
+            if (!safe) return;
+
+            await deleteSafeWithSPA(editingSafeId, safe.name);
+        };
+
         // Toggle password visibility
         window.toggleSafePassword = function(inputId, button) {
             const input = document.getElementById(inputId);
@@ -3206,8 +3321,8 @@
             }
         });
 
-        // Delete safe
-        async function deleteSafe(safeId, safeName) {
+        // Delete safe (SPA version - called from edit modal)
+        async function deleteSafeWithSPA(safeId, safeName) {
             // Confirm deletion
             const confirmMsg = `Are you sure you want to delete the safe "${safeName}"?\n\n` +
                 "This will delete:\n" +
@@ -3244,14 +3359,18 @@
                 // Clear from local storage
                 SafeCrypto.lockSafe(safeId);
                 
+                // Close edit modal if open
+                closeSafeEditModal();
+                
                 // Refresh UI
                 loadSafes();
                 loadFolderTree();
                 
-                // If currently viewing a folder in this safe, redirect to root
+                // If currently viewing this safe or a folder in it, navigate to default folder
                 const currentFolderSafe = getFolderSafeId(window.currentFolderId);
-                if (currentFolderSafe === safeId) {
-                    window.location.href = '{{ base_url }}/';
+                if (window.currentSafeId === safeId || currentFolderSafe === safeId) {
+                    window.currentSafeId = null;
+                    navigateToDefaultFolder();
                 }
                 
             } catch (err) {
