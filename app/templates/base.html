@@ -1643,8 +1643,8 @@
                 // Reset folder header buttons (restore from safe view)
                 const folderHeader = document.querySelector('.folder-header');
                 if (folderHeader) {
-                    const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
-                    const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
+                    const shareBtn = folderHeader.querySelector('button[title="Share"]');
+                    const editBtn = folderHeader.querySelector('button[title^="Edit"]');
                     const sortBtn = folderHeader.querySelector('#sort-btn');
                     
                     // Show sort button
@@ -1774,8 +1774,8 @@
                     if (uploadBtn) uploadBtn.style.display = '';
                     
                     // Update buttons for safe: hide share, show edit for safe, hide sort
-                    const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
-                    const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
+                    const shareBtn = folderHeader.querySelector('button[title="Share"]');
+                    const editBtn = folderHeader.querySelector('button[title^="Edit"]');
                     const sortBtn = folderHeader.querySelector('#sort-btn');
                     if (shareBtn) shareBtn.style.display = 'none';
                     if (editBtn) {
@@ -2010,8 +2010,8 @@
                 }
                 
                 // Update share/edit buttons visibility
-                const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
-                const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
+                const shareBtn = folderHeader.querySelector('button[title="Share"]');
+                const editBtn = folderHeader.querySelector('button[title^="Edit"]');
                 if (shareBtn) shareBtn.style.display = data.folder.user_id === '{{ user.id }}' ? '' : 'none';
                 if (editBtn) editBtn.style.display = data.folder.user_id === '{{ user.id }}' ? '' : 'none';
                 
