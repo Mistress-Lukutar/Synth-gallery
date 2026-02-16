@@ -53,42 +53,11 @@ body {
     background: transparent;
 }
 
-/* Header */
-header {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
-    padding: 1rem 2rem;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-}
-
-nav {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    max-width: 1400px;
-    margin: 0 auto;
-    gap: 1rem;
-}
-
-/* User Menu */
-.user-menu {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.user-name {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-}
 
 /* Tag Search */
 .search-container {
-    flex: 1;
-    max-width: 400px;
     position: relative;
+    min-width: 200px;
 }
 
 #tag-search-input {
@@ -180,11 +149,7 @@ nav {
 .selection-menu {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.8rem;
-    background: var(--bg);
-    border: 1px solid var(--accent);
-    border-radius: 8px;
+    gap: 0.25rem;
 }
 
 .selection-menu.hidden {
@@ -193,20 +158,117 @@ nav {
 
 #selection-count {
     font-size: 0.85rem;
-    color: var(--accent);
-    font-weight: 500;
+    color: var(--text);
+    font-weight: 600;
     white-space: nowrap;
+    min-width: 1.5rem;
+    text-align: center;
+    margin-right: 0.25rem;
 }
 
-.btn-danger {
-    background: #dc2626;
+/* Selection action buttons */
+.selection-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 0.15s ease;
+    opacity: 0.5;
 }
 
-.btn-danger:hover {
-    background: #b91c1c;
+.selection-action-btn:hover {
+    opacity: 1;
 }
 
-/* Sort Selector */
+.selection-action-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: var(--text);
+}
+
+.selection-action-btn--danger svg {
+    stroke: #ef4444;
+}
+
+.selection-action-btn--danger:hover svg {
+    stroke: #dc2626;
+}
+
+/* Legacy icon buttons */
+.btn-icon {
+    padding: 0.4rem !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-icon svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.btn.btn-danger {
+    background: #dc2626 !important;
+}
+
+.btn.btn-danger:hover {
+    background: #b91c1c !important;
+}
+
+.btn.btn-danger svg {
+    stroke: #fff;
+}
+
+/* Sort Dropdown */
+.sort-dropdown {
+    position: relative;
+}
+
+.sort-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 0.25rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    z-index: 100;
+    min-width: 120px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.sort-menu.hidden {
+    display: none;
+}
+
+.sort-option {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.sort-option:hover {
+    background: var(--border);
+}
+
+.sort-option.active {
+    color: var(--accent);
+}
+
+/* Legacy sort-select (kept for compatibility) */
 .sort-container {
     display: flex;
     align-items: center;
@@ -1439,11 +1501,6 @@ main {
         padding: 1rem;
     }
 
-    header {
-        padding: 1rem;
-        position: static;
-    }
-
     .nav-arrow {
         width: 40px;
         height: 60px;
@@ -1461,17 +1518,21 @@ main {
 
     /* Mobile selection menu */
     .selection-menu {
-        padding: 0.3rem 0.5rem;
-        gap: 0.3rem;
+        gap: 0.15rem;
     }
 
-    .selection-menu .btn-small {
-        padding: 0.3rem 0.5rem;
-        font-size: 0.75rem;
+    .selection-action-btn {
+        padding: 0.3rem;
+    }
+
+    .selection-action-btn svg {
+        width: 18px;
+        height: 18px;
     }
 
     #selection-count {
         font-size: 0.75rem;
+        min-width: 1.25rem;
     }
 
     /* Smaller select indicator on mobile */
@@ -1552,24 +1613,60 @@ main {
     transition: transform 0.3s ease;
 }
 
-.sidebar-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+.sidebar-logo {
     padding: 1rem;
     border-bottom: 1px solid var(--border);
 }
 
-.sidebar-header h3 {
-    font-size: 1rem;
+.sidebar-logo .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1.55rem;
     font-weight: 600;
     color: var(--text);
+    text-decoration: none;
+}
+
+.sidebar-logo .logo-icon {
+    width: 30px;
+    height: 30px;
 }
 
 .folder-tree {
     flex: 1;
     overflow-y: auto;
     padding: 0.5rem;
+}
+
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem;
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+}
+
+.sidebar-user .user-name {
+    font-size: 0.9rem;
+    color: var(--text);
+    font-weight: 500;
+}
+
+.sidebar-settings-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+
+.sidebar-settings-btn:hover {
+    color: var(--text);
+    background: var(--bg);
 }
 
 /* Folder items */
@@ -1641,8 +1738,27 @@ main {
 }
 
 .folder-item.active {
-    background: var(--accent);
-    color: white;
+    background: #2a2a2a;
+}
+
+/* Add folder button in sidebar */
+.folder-item.add-folder-item {
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.folder-item.add-folder-item:hover {
+    opacity: 0.8;
+    background: transparent;
+}
+
+.folder-item.add-folder-item .folder-icon {
+    stroke: var(--text-muted);
+}
+
+.folder-item.add-folder-item .folder-name {
+    font-style: italic;
+    color: var(--text-muted);
 }
 
 .folder-icon {
@@ -1655,10 +1771,6 @@ main {
 
 .folder-item.public .folder-icon {
     stroke: var(--accent);
-}
-
-.folder-item.active .folder-icon {
-    stroke: white;
 }
 
 .folder-item:hover .folder-icon {
@@ -1685,17 +1797,7 @@ main {
 }
 
 .folder-item.active .folder-count {
-    background: rgba(255,255,255,0.2);
-    color: white;
-}
-
-.folder-actions-inline {
-    display: none;
-    gap: 2px;
-}
-
-.folder-item-wrapper:hover .folder-actions-inline {
-    display: flex;
+    background: var(--bg);
 }
 
 .folder-action-btn {
@@ -1851,17 +1953,92 @@ main {
     align-items: center;
     margin-bottom: 1rem;
     padding: 0 0.5rem;
+    gap: 1rem;
 }
 
-.folder-header h2 {
-    font-size: 1.25rem;
+.folder-header-left {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-shrink: 0;
+}
+
+.folder-header-left h2 {
+    font-size: 1.5rem;
     font-weight: 600;
+    margin: 0;
+    line-height: 1;
 }
 
-.folder-header-actions {
+/* Folder action buttons (upload, sort, share) */
+.folder-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.folder-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 0.15s ease;
+    opacity: 0.5;
+}
+
+.folder-action-btn:hover {
+    opacity: 1;
+}
+
+.folder-action-btn svg {
+    width: 22px;
+    height: 22px;
+    stroke: var(--text);
+}
+
+.folder-header-right {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+}
+
+/* Download progress */
+.download-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 150px;
+}
+
+.download-progress.hidden {
+    display: none;
+}
+
+.download-progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
+    overflow: hidden;
+    min-width: 80px;
+}
+
+.download-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    width: 0%;
+    transition: width 0.2s ease;
+}
+
+.download-progress-text {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
 }
 
 .access-select {
@@ -1954,15 +2131,18 @@ main {
         margin-left: 0;
     }
 
-    /* Header scrolls with page on mobile */
-    header {
-        position: static;
+    .folder-header {
+        flex-wrap: wrap;
+        gap: 0.5rem;
     }
 
-    .folder-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.75rem;
+    .folder-header-left {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .download-progress {
+        min-width: 120px;
     }
 
     .folder-breadcrumbs {
@@ -2121,25 +2301,6 @@ main {
     padding: 1rem;
 }
 
-/* Share button */
-.btn-share {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    cursor: pointer;
-    font-size: 0.9rem;
-}
-
-.btn-share:hover {
-    background: var(--bg);
-    border-color: var(--accent);
-}
-
 /* Sidebar folder sections */
 .folder-section {
     margin-bottom: 1rem;
@@ -2187,21 +2348,9 @@ main {
     stroke: #10b981;
 }
 
-.folder-item.shared-viewers {
-    border-left: 2px solid #10b981;
-    margin-left: -2px;
-    padding-left: calc(0.75rem - 2px);
-}
-
 /* Shared with editors - orange upload icon */
 .folder-item.shared-editors .folder-icon {
     stroke: #f59e0b;
-}
-
-.folder-item.shared-editors {
-    border-left: 2px solid #f59e0b;
-    margin-left: -2px;
-    padding-left: calc(0.75rem - 2px);
 }
 
 /* === Incoming Shared Folder Styles === */
@@ -2211,37 +2360,9 @@ main {
     stroke: #10b981;
 }
 
-.folder-item.incoming-viewer {
-    border-left: 2px solid #10b981;
-    margin-left: -2px;
-    padding-left: calc(0.75rem - 2px);
-    background: rgba(16, 185, 129, 0.05);
-}
-
 /* Incoming folder where I'm editor - orange */
 .folder-item.incoming-editor .folder-icon {
     stroke: #f59e0b;
-}
-
-.folder-item.incoming-editor {
-    border-left: 2px solid #f59e0b;
-    margin-left: -2px;
-    padding-left: calc(0.75rem - 2px);
-    background: rgba(245, 158, 11, 0.05);
-}
-
-/* Active state overrides */
-.folder-item.active.shared-viewers,
-.folder-item.active.shared-editors,
-.folder-item.active.incoming-viewer,
-.folder-item.active.incoming-editor {
-    border-left-color: transparent;
-    margin-left: 0;
-    padding-left: 0.75rem;
-}
-
-.folder-item.active .folder-icon {
-    stroke: white;
 }
 
 /* ============ Lightbox Photo Viewer ============ */
@@ -2406,9 +2527,8 @@ main {
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
     padding: 2rem;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: flex-end;
-    gap: 1rem;
 }
 
 .lightbox-meta {
@@ -2454,15 +2574,37 @@ main {
     opacity: 0.7;
 }
 
-.lightbox-actions {
+.lightbox-edit-buttons {
     display: flex;
-    gap: 0.5rem;
-    flex-shrink: 0;
+    gap: 0.4rem;
+    margin-left: 0.75rem;
 }
 
-.lightbox-actions .btn-small {
-    padding: 0.4rem 0.8rem;
-    font-size: 0.85rem;
+.lightbox-edit-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    border-radius: 4px;
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.lightbox-edit-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.lightbox-edit-btn.hidden {
+    display: none;
+}
+
+.lightbox-edit-btn svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* Lightbox swipe animations */
@@ -2999,198 +3141,59 @@ main {
     }
 }
 
-/* ============ Drag and Drop Styles ============ */
+/* ============ Folder Picker Modal ============ */
 
-/* Draggable gallery items */
-.gallery-item[draggable="true"] {
-    cursor: grab;
+.folder-picker-content {
+    max-width: 400px;
 }
 
-.gallery-item[draggable="true"]:active {
-    cursor: grabbing;
+.folder-picker-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 1rem 0;
 }
 
-/* Item being dragged */
-.gallery-item.dragging {
+.folder-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.folder-picker-item:hover {
+    background: var(--bg);
+}
+
+.folder-picker-item.disabled {
     opacity: 0.5;
-    transform: scale(0.95);
-    cursor: grabbing;
-}
-
-/* Drag ghost/preview */
-.drag-ghost {
-    position: fixed;
-    pointer-events: none;
-    z-index: 10000;
-    opacity: 0.9;
-    transform: rotate(-2deg);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    border-radius: 8px;
-    overflow: hidden;
-    max-width: 150px;
-    max-height: 150px;
-}
-
-.drag-ghost img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-/* Multi-select drag badge */
-.drag-count-badge {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    background: var(--accent);
-    color: white;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.25rem 0.5rem;
-    border-radius: 12px;
-    min-width: 24px;
-    text-align: center;
-}
-
-/* Folder drop target styles */
-.folder-item.drop-target {
-    background: rgba(59, 130, 246, 0.15);
-    outline: 2px dashed var(--accent);
-    outline-offset: -2px;
-}
-
-.folder-item.drop-target .folder-icon {
-    stroke: var(--accent);
-    transform: scale(1.1);
-    transition: transform 0.15s ease;
-}
-
-/* Folder drop not allowed */
-.folder-item.drop-blocked {
-    background: rgba(239, 68, 68, 0.1);
-    outline: 2px dashed #ef4444;
-    outline-offset: -2px;
     cursor: not-allowed;
 }
 
-.folder-item.drop-blocked .folder-icon {
-    stroke: #ef4444;
+.folder-picker-item.disabled:hover {
+    background: transparent;
 }
 
-/* Gallery folder card as drop target */
-.gallery-item.folder-item-card.drop-target {
-    border-color: var(--accent);
-    border-style: solid;
-    background: rgba(59, 130, 246, 0.1);
-    transform: scale(1.03);
-}
-
-.gallery-item.folder-item-card.drop-target .folder-card-icon {
-    stroke: var(--accent);
-}
-
-/* Feedback when dragging over sidebar */
-.sidebar.drag-active {
-    background: rgba(59, 130, 246, 0.02);
-}
-
-.sidebar.drag-active .folder-tree {
-    border: 2px dashed var(--accent);
-    border-radius: 8px;
-    margin: 0.25rem;
-    padding: 0.25rem;
-}
-
-/* Cannot drop on album items */
-.gallery-item.album-item.drop-blocked {
-    outline: 2px dashed #ef4444;
-    outline-offset: -2px;
-    opacity: 0.6;
-}
-
-/* Visual cue that item can be moved */
-.gallery-item:not(.folder-item-card):not(.album-item)::before {
-    content: '';
-    position: absolute;
-    top: 8px;
-    right: 8px;
+.folder-picker-icon {
     width: 20px;
     height: 20px;
-    background: rgba(0, 0, 0, 0.4);
-    border-radius: 4px;
-    opacity: 0;
-    transition: opacity 0.2s;
-    z-index: 5;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    stroke: var(--text-muted);
+    flex-shrink: 0;
 }
 
-.gallery-item:not(.folder-item-card):not(.album-item):hover::before {
-    opacity: 0;
+.folder-picker-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* Move indicator on hover */
-.gallery-item.movable:hover .move-handle {
-    opacity: 1;
-}
-
-.move-handle {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 24px;
-    height: 24px;
-    background: rgba(0, 0, 0, 0.5);
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.2s;
-    z-index: 12;
-    cursor: grab;
-}
-
-.move-handle svg {
-    width: 14px;
-    height: 14px;
-    color: white;
-}
-
-.move-handle:hover {
-    background: rgba(0, 0, 0, 0.7);
-}
-
-/* Drop success animation */
-@keyframes dropSuccess {
-    0% {
-        transform: scale(1);
-        background: rgba(59, 130, 246, 0.2);
-    }
-    50% {
-        transform: scale(1.05);
-        background: rgba(16, 185, 129, 0.3);
-    }
-    100% {
-        transform: scale(1);
-        background: transparent;
-    }
-}
-
-.folder-item.drop-success {
-    animation: dropSuccess 0.4s ease;
-}
-
-/* Mobile: disable drag visual cues */
-@media (max-width: 768px) {
-    .move-handle {
-        display: none;
-    }
-
-    .gallery-item[draggable="true"] {
-        cursor: pointer;
-    }
+.folder-picker-current {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
 }
 
 /* Subfolders tiles section */
@@ -3267,4 +3270,463 @@ main {
     .subfolder-name {
         font-size: 0.8rem;
     }
+}
+
+
+/* ==========================================================================
+   SAFES - Encrypted Vaults
+   ========================================================================== */
+
+/* Safe folder item in sidebar */
+.folder-item.safe-item {
+    color: var(--accent);
+    font-weight: 500;
+}
+
+.folder-item.safe-item.locked {
+    color: #f59e0b; /* Amber for locked */
+    opacity: 0.8;
+}
+
+.folder-item.safe-item.unlocked {
+    color: #22c55e; /* Green for unlocked */
+}
+
+.folder-item.safe-item .folder-icon {
+    color: inherit;
+}
+
+/* Safe action buttons */
+.safe-action-btn {
+    background: transparent;
+    border: none;
+    color: currentColor;
+    cursor: pointer;
+    padding: 2px 4px;
+    margin-left: 4px;
+    border-radius: 4px;
+    opacity: 0.7;
+    transition: opacity 0.15s, background 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.safe-action-btn:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.safe-action-btn.unlock-btn {
+    color: #f59e0b;
+}
+
+.safe-action-btn.unlock-btn:hover {
+    background: rgba(245, 158, 11, 0.2);
+}
+
+.safe-action-btn.delete-btn {
+    color: #ef4444;
+}
+
+.safe-action-btn.delete-btn:hover {
+    background: rgba(239, 68, 68, 0.2);
+}
+
+/* Folders inside safe */
+.folder-item-wrapper.safe-folder .folder-item {
+    color: var(--text-muted);
+}
+
+.folder-item-wrapper.safe-folder .folder-item.active {
+    color: var(--text);
+    background: rgba(59, 130, 246, 0.15);
+}
+
+/* Safe modal */
+.safe-modal-content {
+    max-width: 420px;
+}
+
+.safe-protection-options {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    transition: border-color 0.15s, background 0.15s;
+    flex: 1;
+}
+
+.radio-label:hover {
+    border-color: var(--accent);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.radio-label input[type="radio"] {
+    margin: 0;
+}
+
+.radio-text {
+    font-size: 0.9rem;
+}
+
+/* Modal description */
+.modal-description {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+/* Input hint */
+.input-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
+}
+
+/* Add folder item (for create safe button) */
+.folder-item.add-folder-item {
+    color: var(--text-muted);
+    font-style: italic;
+    opacity: 0.8;
+}
+
+.folder-item.add-folder-item:hover {
+    opacity: 1;
+    color: var(--accent);
+}
+
+/* Safe badge in gallery */
+.safe-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #f59e0b;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    backdrop-filter: blur(4px);
+}
+
+.safe-badge.unlocked {
+    color: #22c55e;
+}
+
+/* Safe indicator in folder header */
+.folder-header .safe-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    background: rgba(245, 158, 11, 0.15);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 20px;
+    color: #f59e0b;
+    font-size: 0.8rem;
+    margin-left: 1rem;
+}
+
+.folder-header .safe-indicator.unlocked {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .safe-protection-options {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .safe-action-btn {
+        padding: 4px 6px;
+    }
+}
+
+/* Safe input wrapper with password toggle */
+.safe-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.safe-input-wrapper input {
+    width: 100%;
+    padding: 0.75rem 2.5rem 0.75rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.9rem;
+    transition: border-color 0.2s;
+}
+
+.safe-input-wrapper input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.safe-input-wrapper input::placeholder {
+    color: var(--text-muted);
+}
+
+.safe-input-wrapper .password-toggle {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: color 0.2s, background 0.2s;
+}
+
+.safe-input-wrapper .password-toggle:hover {
+    color: var(--text);
+    background: var(--bg-secondary);
+}
+
+.safe-input-wrapper .password-toggle svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Safe input label with icon */
+.safe-input-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.safe-input-label svg {
+    width: 18px;
+    height: 18px;
+    color: var(--accent);
+}
+
+/* Safe password input (standalone) */
+.safe-password-input {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.safe-password-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Safe input hint */
+.safe-input-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    line-height: 1.4;
+}
+
+.safe-input-hint svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    color: var(--accent);
+}
+
+/* Safe select wrapper */
+.safe-select-wrapper {
+    position: relative;
+}
+
+.safe-select-wrapper select {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.9rem;
+    appearance: none;
+    cursor: pointer;
+}
+
+.safe-select-wrapper select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Safe password strength indicator */
+.safe-password-strength {
+    height: 4px;
+    background: var(--bg);
+    border-radius: 2px;
+    margin-top: 0.5rem;
+    overflow: hidden;
+}
+
+.safe-password-strength .strength-bar {
+    height: 100%;
+    width: 0;
+    background: #444;
+    transition: width 0.3s, background 0.3s;
+}
+
+/* Safe password group spacing */
+.safe-password-group {
+    margin-bottom: 1.25rem;
+}
+
+/* Safe modal actions */
+.safe-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.safe-modal-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.safe-modal-actions .btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Safe cancel button */
+.safe-cancel-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.safe-cancel-btn:hover {
+    background: var(--bg-secondary);
+    border-color: var(--text-muted);
+}
+
+/* Safe submit button */
+.safe-submit-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+}
+
+.safe-submit-btn:hover {
+    background: var(--accent-hover);
+}
+
+.safe-submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* WebAuthn prompt in unlock modal */
+.webauthn-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    gap: 1rem;
+}
+
+.webauthn-prompt svg {
+    width: 48px;
+    height: 48px;
+    color: var(--accent);
+}
+
+
+/* ==========================================================================
+   SAFE E2E ENCRYPTION - LIGHTBOX
+   ========================================================================== */
+
+.safe-locked-message,
+.safe-error-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.safe-locked-message p {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+}
+
+.safe-locked-message .btn {
+    margin-top: 1rem;
+}
+
+.safe-error-message p:first-child {
+    color: #ef4444;
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.safe-error-message .error-details {
+    font-size: 0.85rem;
+    opacity: 0.7;
+}
+
+.loading-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 1rem;
+}
+
+.loading-indicator::after {
+    content: '';
+    width: 20px;
+    height: 20px;
+    margin-left: 10px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }

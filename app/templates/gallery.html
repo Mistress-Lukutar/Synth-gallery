@@ -25,10 +25,19 @@
                 <div class="lightbox-dates" id="lightbox-dates"></div>
                 <div class="lightbox-tags" id="lightbox-tags"></div>
             </div>
-            <div class="lightbox-actions">
-                <a id="lightbox-download" class="btn btn-small" download>Download</a>
-                <button id="lightbox-edit-tags" class="btn btn-small btn-secondary" onclick="openTagEditor()">Edit Tags</button>
-                <button id="lightbox-edit-album" class="btn btn-small btn-secondary hidden" onclick="openAlbumEditor()">Edit Album</button>
+            <div class="lightbox-edit-buttons">
+                <button id="lightbox-edit-tags" class="lightbox-edit-btn" onclick="openTagEditor()" title="Edit Tags">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                        <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="lightbox-edit-album" class="lightbox-edit-btn hidden" onclick="openAlbumEditor()" title="Edit Album">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                        <path d="m15 5 4 4"/>
+                    </svg>
+                </button>
             </div>
         </div>
     </div>
@@ -152,10 +161,10 @@
 
 <!-- Breadcrumbs -->
 {% if breadcrumbs and breadcrumbs|length > 1 %}
-<div class="folder-breadcrumbs">
+<div class="folder-breadcrumbs" id="folder-breadcrumbs">
     {% for crumb in breadcrumbs %}
         {% if not loop.last %}
-        <a href="/?folder_id={{ crumb.id }}">{{ crumb.name }}</a>
+        <a href="{{ base_url }}/?folder_id={{ crumb.id }}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('{{ crumb.id }}'); return false;">{{ crumb.name }}</a>
         <span>/</span>
         {% else %}
         <span class="current">{{ crumb.name }}</span>
@@ -167,17 +176,117 @@
 <!-- Folder header -->
 {% if current_folder %}
 <div class="folder-header">
-    <h2>{{ current_folder.name }}</h2>
-    <div class="folder-header-actions">
-        {% if current_folder.user_id == user.id %}
-        <button class="btn-share" onclick="openShareModal('{{ current_folder.id }}')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+    <div class="folder-header-left">
+        <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle folders">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12h18M3 6h18M3 18h18"/>
             </svg>
-            Share
         </button>
-        {% endif %}
+        <h2>{{ current_folder.name }}</h2>
+        <!-- Folder action buttons -->
+        <div class="folder-actions">
+            {% if current_folder.permission in ['owner', 'editor'] %}
+            <button id="folder-upload-btn" class="folder-action-btn" title="Upload">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+            </button>
+            {% endif %}
+            <div class="sort-dropdown">
+                <button id="sort-btn" class="folder-action-btn" title="Sort by">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                        <path d="M7 4v16M7 4l-4 4M7 4l4 4"/>
+                        <path d="M17 20V4M17 20l-4-4M17 20l4-4"/>
+                    </svg>
+                </button>
+                <div id="sort-menu" class="sort-menu hidden">
+                    <button class="sort-option{% if sort == 'taken' %} active{% endif %}" data-sort="taken">Capture date</button>
+                    <button class="sort-option{% if sort == 'uploaded' %} active{% endif %}" data-sort="uploaded">Upload date</button>
+                </div>
+            </div>
+            {% if current_folder.user_id == user.id %}
+            <button class="folder-action-btn" onclick="openShareModal('{{ current_folder.id }}')" title="Share">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+            </button>
+            <button class="folder-action-btn" onclick="openEditFolder('{{ current_folder.id }}')" title="Edit folder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+            </button>
+            {% endif %}
+        </div>
+        <!-- Selection Menu (hidden by default) -->
+        <div id="selection-menu" class="selection-menu hidden">
+            <span id="selection-count">0</span>
+            <button id="select-all-btn" class="selection-action-btn" title="Select All">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18">
+                    <rect x="5" y="5" width="14" height="14" rx="2" stroke-width="2.5"/>
+                    <rect x="2" y="2" width="14" height="14" rx="2" stroke-dasharray="3 2" stroke-width="1.5"/>
+                </svg>
+            </button>
+            <button id="deselect-all-btn" class="selection-action-btn" title="Deselect All">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                </svg>
+            </button>
+            <button id="download-selected-btn" class="selection-action-btn" title="Download">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </button>
+            {% if current_folder.permission in ['owner', 'editor'] %}
+            <button id="move-selected-btn" class="selection-action-btn" title="Move to folder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    <polyline points="12 11 12 17"/>
+                    <polyline points="9 14 12 11 15 14"/>
+                </svg>
+            </button>
+            {% endif %}
+            <button id="copy-selected-btn" class="selection-action-btn" title="Copy to folder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+            </button>
+            {% if current_folder.permission in ['owner', 'editor'] %}
+            <button id="ai-selected-btn" class="selection-action-btn" title="Generate AI Tags">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
+                </svg>
+            </button>
+            <button id="delete-selected-btn" class="selection-action-btn selection-action-btn--danger" title="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    <div class="folder-header-right">
+        <!-- Download progress (hidden by default) -->
+        <div id="download-progress" class="download-progress hidden">
+            <div class="download-progress-bar">
+                <div id="download-progress-fill" class="download-progress-fill"></div>
+            </div>
+            <span id="download-progress-text">Preparing...</span>
+        </div>
+        <!-- Tag Search -->
+        <div class="search-container">
+            <input type="text" id="tag-search-input" placeholder="Search..." autocomplete="off">
+            <div id="tag-suggestions" class="suggestions hidden"></div>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -187,7 +296,7 @@
 <div class="subfolders-section">
     <div class="subfolders-grid">
         {% for folder in subfolders %}
-        <a href="/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}">
+        <a href="{{ base_url }}/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('{{ folder.id }}'); return false;">
             <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
             </svg>
@@ -216,7 +325,7 @@
                      {% endif %}>
                     {% if item.cover_photo_id %}
                     <div class="gallery-placeholder"></div>
-                    <img src="/thumbnails/{{ item.cover_photo_id }}.jpg"
+                    <img src="{{ base_url }}/thumbnails/{{ item.cover_photo_id }}.jpg"
                          alt="{{ item.name }}"
                          loading="lazy"
                          onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
@@ -246,17 +355,26 @@
             <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo" data-media-type="{{ item.media_type or 'image' }}"
                  {% if item.thumb_width and item.thumb_height %}
                  data-thumb-width="{{ item.thumb_width }}" data-thumb-height="{{ item.thumb_height }}"
-                 {% endif %}>
+                 {% endif %}
+                 {% if item.safe_id %}data-safe-id="{{ item.safe_id }}"{% endif %}>
                 <div class="gallery-link" onclick="openPhoto('{{ item.id }}')"
                      {% if item.thumb_width and item.thumb_height %}
                      style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
                      {% endif %}>
                     <div class="gallery-placeholder"></div>
-                    <img src="/thumbnails/{{ item.id }}.jpg"
+                    {% if item.safe_id %}
+                    <img data-safe-thumbnail="{{ item.id }}"
+                         data-safe-id="{{ item.safe_id }}"
+                         alt="{{ item.original_name }}"
+                         loading="lazy"
+                         style="opacity: 0;">
+                    {% else %}
+                    <img src="{{ base_url }}/thumbnails/{{ item.id }}.jpg"
                          alt="{{ item.original_name }}"
                          loading="lazy"
                          onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                          style="opacity: 0;">
+                    {% endif %}
                     {% if item.media_type == 'video' %}
                     <div class="video-badge">
                         <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -276,7 +394,7 @@
     {% else %}
         <div class="empty-state">
             <p>No photos yet</p>
-            <p>Click "Upload" or drag & drop to add your first photos</p>
+            <p>Click "Upload" to add your first photos</p>
         </div>
     {% endif %}
 </div>
@@ -318,6 +436,9 @@
     function initMasonry() {
         // Collect all items FIRST before any async operations
         allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        
+        // Export to window for SPA navigation compatibility
+        window.allItems = allItems;
 
         // Wait for layout to be ready before building masonry
         // This ensures gallery.clientWidth has correct value
@@ -393,7 +514,7 @@
 
     async function saveDimensionsToServer(photoId, width, height) {
         try {
-            await csrfFetch(`/api/photos/${photoId}/dimensions`, {
+            await csrfFetch(`{{ base_url }}/api/photos/${photoId}/dimensions`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ width, height })
@@ -414,6 +535,12 @@
         // Skip rebuild if column count hasn't changed (unless forced or first build)
         if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
             return;
+        }
+
+        // Sync allItems with window.allItems (for SPA navigation compatibility)
+        // Use window.allItems if defined (even if empty), otherwise fall back to local allItems
+        if (window.allItems !== undefined) {
+            allItems = window.allItems;
         }
 
         // Get visible items
@@ -441,7 +568,7 @@
         }
 
         if (visibleItems.length === 0) {
-            gallery.innerHTML = '<div class="empty-state"><p>No photos yet</p><p>Click "Upload" or drag & drop to add your first photos</p></div>';
+            gallery.innerHTML = '<div class="empty-state"><p>No photos yet</p><p>Click "Upload" to add your first photos</p></div>';
             saveNavigationOrder([]);
             masonryBuilt = true;
             lastColumnCount = columnCount;
@@ -536,6 +663,114 @@
 
     // Export rebuildMasonry for drag-and-drop
     window.rebuildMasonry = rebuildMasonry;
+    
+    // Debounced masonry rebuild for image load events (SPA navigation compatibility)
+    let imageLoadDebounceTimer;
+    window.onGalleryImageLoad = function(img) {
+        // Save dimensions to item dataset for masonry calculations
+        const item = img.closest('.gallery-item');
+        if (item && img.naturalWidth && img.naturalHeight) {
+            item.dataset.thumbWidth = img.naturalWidth;
+            item.dataset.thumbHeight = img.naturalHeight;
+            
+            // Update aspect-ratio on gallery-link
+            const link = item.querySelector('.gallery-link');
+            if (link) {
+                link.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+            }
+        }
+        
+        // Debounce masonry rebuild to avoid excessive recalculations
+        clearTimeout(imageLoadDebounceTimer);
+        imageLoadDebounceTimer = setTimeout(() => {
+            rebuildMasonry(true);
+        }, 100);
+    };
+    
+    // Load safe thumbnails client-side (E2E decryption)
+    async function loadSafeThumbnails() {
+        const safeImages = document.querySelectorAll('img[data-safe-thumbnail]');
+        if (safeImages.length === 0) return;
+        
+        // Placeholder SVG for locked/missing thumbnails
+        const placeholderSvg = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23666" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" fill="%23333"/><circle cx="8.5" cy="8.5" r="1.5" fill="%23666"/><path d="M21 15l-5-5L5 21" stroke="%23666"/><path d="M7 11l3-3 2 2 4-4" stroke="%23666"/></svg>';
+        
+        for (const img of safeImages) {
+            const photoId = img.dataset.safeThumbnail;
+            const safeId = img.dataset.safeId;
+            
+            if (!photoId || !safeId) continue;
+            
+            // Check if safe is unlocked
+            if (!SafeCrypto.isUnlocked(safeId)) {
+                // Show locked placeholder
+                img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23999" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+                img.style.opacity = '1';
+                if (img.previousElementSibling) {
+                    img.previousElementSibling.style.display = 'none';
+                }
+                continue;
+            }
+            
+            try {
+                // Fetch encrypted thumbnail
+                const resp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/thumbnail`);
+                if (!resp.ok) {
+                    console.warn(`Failed to load thumbnail for ${photoId}:`, resp.status);
+                    // Show placeholder for missing thumbnail
+                    img.src = placeholderSvg;
+                    img.style.opacity = '1';
+                    if (img.previousElementSibling) {
+                        img.previousElementSibling.style.display = 'none';
+                    }
+                    // Trigger masonry rebuild for placeholder
+                    onGalleryImageLoad(img);
+                    continue;
+                }
+                
+                // Decrypt thumbnail
+                const encryptedBlob = await resp.blob();
+                const decryptedBlob = await SafeCrypto.decryptFileFromSafe(encryptedBlob, safeId, 'image/jpeg');
+                
+                // Create object URL
+                const url = URL.createObjectURL(decryptedBlob);
+                img.src = url;
+                
+                // Handle load
+                img.onload = () => {
+                    if (img.previousElementSibling) {
+                        img.previousElementSibling.style.display = 'none';
+                    }
+                    img.style.opacity = '1';
+                    onGalleryImageLoad(img);
+                };
+                
+                img.onerror = () => {
+                    console.error(`Failed to load decrypted thumbnail for ${photoId}`);
+                    // Show placeholder on error
+                    img.src = placeholderSvg;
+                    img.style.opacity = '1';
+                    if (img.previousElementSibling) {
+                        img.previousElementSibling.style.display = 'none';
+                    }
+                    onGalleryImageLoad(img);
+                };
+                
+            } catch (err) {
+                console.error(`Error loading safe thumbnail for ${photoId}:`, err);
+                // Show placeholder on error
+                img.src = placeholderSvg;
+                img.style.opacity = '1';
+                if (img.previousElementSibling) {
+                    img.previousElementSibling.style.display = 'none';
+                }
+                onGalleryImageLoad(img);
+            }
+        }
+    }
+    
+    // Load safe thumbnails on init
+    loadSafeThumbnails();
 
     // Use ResizeObserver to detect gallery width changes
     // This handles: window resize, sidebar loading, zoom changes, etc.
@@ -564,7 +799,7 @@
     // Load all tags for autocomplete
     async function loadAllTags() {
         try {
-            const resp = await fetch('/api/tags/all');
+            const resp = await fetch('{{ base_url }}/api/tags/all');
             allTags = await resp.json();
         } catch (e) {
             console.error('Failed to load tags:', e);
@@ -589,7 +824,7 @@
         const count = selectedPhotos.size + selectedAlbums.size;
         if (count > 0) {
             selectionMenu.classList.remove('hidden');
-            selectionCount.textContent = count + ' selected';
+            selectionCount.textContent = count;
         } else {
             selectionMenu.classList.add('hidden');
         }
@@ -656,14 +891,15 @@
     });
 
     // Delete selected
-    document.getElementById('delete-selected-btn').addEventListener('click', async () => {
+    const deleteBtn = document.getElementById('delete-selected-btn');
+    if (deleteBtn) deleteBtn.addEventListener('click', async () => {
         if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
         const count = selectedPhotos.size + selectedAlbums.size;
         if (!confirm(`Delete ${count} item(s)? This cannot be undone.`)) return;
 
         try {
-            const resp = await csrfFetch('/api/photos/batch-delete', {
+            const resp = await csrfFetch('{{ base_url }}/api/photos/batch-delete', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -673,7 +909,15 @@
             });
             const data = await resp.json();
             if (data.status === 'ok') {
-                location.reload();
+                // Refresh via SPA instead of page reload (keeps safes unlocked)
+                selectedPhotos.clear();
+                selectedAlbums.clear();
+                updateSelectionUI();
+                if (window.currentFolderId) {
+                    navigateToFolder(window.currentFolderId, false);
+                } else {
+                    location.reload();
+                }
             }
         } catch (e) {
             console.error('Delete failed:', e);
@@ -681,16 +925,113 @@
         }
     });
 
-    // AI tags for selected
-    document.getElementById('ai-selected-btn').addEventListener('click', async () => {
+    // Download selected
+    document.getElementById('download-selected-btn').addEventListener('click', async () => {
         if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
-        const btn = document.getElementById('ai-selected-btn');
+        const btn = document.getElementById('download-selected-btn');
+        const progressContainer = document.getElementById('download-progress');
+        const progressFill = document.getElementById('download-progress-fill');
+        const progressText = document.getElementById('download-progress-text');
+
         btn.disabled = true;
-        btn.textContent = 'Processing...';
+        progressContainer.classList.remove('hidden');
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Preparing...';
 
         try {
-            const resp = await csrfFetch('/api/photos/batch-ai-tags', {
+            const resp = await fetch('{{ base_url }}/api/photos/batch-download', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken()
+                },
+                body: JSON.stringify({
+                    photo_ids: Array.from(selectedPhotos),
+                    album_ids: Array.from(selectedAlbums)
+                })
+            });
+
+            if (!resp.ok) {
+                throw new Error('Download failed');
+            }
+
+            // Get content length for progress
+            const contentLength = resp.headers.get('Content-Length');
+            const total = contentLength ? parseInt(contentLength, 10) : 0;
+
+            // Get filename from Content-Disposition header
+            const disposition = resp.headers.get('Content-Disposition');
+            let filename = 'download';
+            if (disposition) {
+                const match = disposition.match(/filename="(.+)"/);
+                if (match) filename = match[1];
+            }
+
+            // Read response with progress
+            const reader = resp.body.getReader();
+            const chunks = [];
+            let received = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                chunks.push(value);
+                received += value.length;
+
+                if (total > 0) {
+                    const percent = Math.round((received / total) * 100);
+                    progressFill.style.width = percent + '%';
+                    progressText.textContent = `${percent}%`;
+                } else {
+                    // Unknown size - show received amount
+                    const mb = (received / 1024 / 1024).toFixed(1);
+                    progressText.textContent = `${mb} MB`;
+                    // Animate progress bar indeterminate-style
+                    progressFill.style.width = '50%';
+                }
+            }
+
+            progressFill.style.width = '100%';
+            progressText.textContent = 'Done';
+
+            // Create blob and download
+            const blob = new Blob(chunks);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Hide progress after short delay
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+            }, 1000);
+
+        } catch (e) {
+            console.error('Download failed:', e);
+            progressText.textContent = 'Error';
+            setTimeout(() => {
+                progressContainer.classList.add('hidden');
+            }, 2000);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    // AI tags for selected
+    const aiBtn = document.getElementById('ai-selected-btn');
+    if (aiBtn) aiBtn.addEventListener('click', async () => {
+        if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
+
+        aiBtn.disabled = true;
+
+        try {
+            const resp = await csrfFetch('{{ base_url }}/api/photos/batch-ai-tags', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -709,8 +1050,22 @@
             console.error('AI tagging failed:', e);
             alert('Failed to generate AI tags');
         } finally {
-            btn.disabled = false;
-            btn.textContent = 'AI Tags';
+            aiBtn.disabled = false;
+        }
+    });
+
+    // Escape to deselect all
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && (selectedPhotos.size > 0 || selectedAlbums.size > 0)) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            // Don't deselect if lightbox or modals are open
+            const lightbox = document.getElementById('lightbox');
+            if (lightbox && !lightbox.classList.contains('hidden')) return;
+
+            e.preventDefault();
+            selectedPhotos.clear();
+            selectedAlbums.clear();
+            updateSelectionUI();
         }
     });
 
@@ -801,7 +1156,7 @@
             }
             window.history.replaceState({}, '', url);
 
-            const resp = await fetch(`/api/photos/search?tags=${encodeURIComponent(query)}`);
+            const resp = await fetch(`{{ base_url }}/api/photos/search?tags=${encodeURIComponent(query)}`);
             const results = await resp.json();
 
             // Separate matching IDs by type
@@ -854,7 +1209,6 @@
     const lightboxMedia = document.getElementById('lightbox-media');
     const lightboxTags = document.getElementById('lightbox-tags');
     const lightboxDates = document.getElementById('lightbox-dates');
-    const lightboxDownload = document.getElementById('lightbox-download');
     const lightboxAlbumIndicator = document.getElementById('lightbox-album-indicator');
     const lightboxAlbumBars = document.getElementById('lightbox-album-bars');
     const lightboxAlbumText = document.getElementById('lightbox-album-text');
@@ -895,6 +1249,24 @@
 
     // Open photo in lightbox
     window.openPhoto = async function(photoId) {
+        // First check if photo is in a locked safe
+        try {
+            const resp = await fetch(`{{ base_url }}/api/photos/${photoId}`);
+            if (!resp.ok) return;
+            const photo = await resp.json();
+
+            // If photo is in a locked safe, open unlock modal first
+            if (photo.safe_id && typeof SafeCrypto !== 'undefined' && !SafeCrypto.isUnlocked(photo.safe_id)) {
+                console.log('[openPhoto] Photo is in locked safe, opening unlock modal');
+                window.pendingSafePhotoId = photoId;
+                openSafeUnlockFromLightbox(photo.safe_id);
+                return;
+            }
+        } catch (e) {
+            console.error('Failed to check photo safe status:', e);
+        }
+
+        // Photo is not in a safe or safe is unlocked - open normally
         loadNavOrder();
         currentPhotoId = photoId;
         currentAlbumPhotos = [];
@@ -912,7 +1284,7 @@
         loadNavOrder();
 
         try {
-            const resp = await fetch(`/api/albums/${albumId}`);
+            const resp = await fetch(`{{ base_url }}/api/albums/${albumId}`);
             if (!resp.ok) return;
             const album = await resp.json();
 
@@ -932,40 +1304,153 @@
         }
     };
 
+    // Load photo from safe (client-side decryption)
+    async function loadSafePhoto(photo) {
+        console.log('[loadSafePhoto] Starting for photo:', photo.id, 'safe_id:', photo.safe_id);
+        try {
+            // Check if safe is unlocked
+            console.log('[loadSafePhoto] Checking if safe is unlocked:', photo.safe_id);
+            console.log('[loadSafePhoto] SafeCrypto.isUnlocked:', SafeCrypto.isUnlocked(photo.safe_id));
+            console.log('[loadSafePhoto] SafeCrypto available:', !!SafeCrypto);
+            
+            if (!SafeCrypto.isUnlocked(photo.safe_id)) {
+                console.log('[loadSafePhoto] Safe is locked, opening unlock modal');
+                // Open unlock modal directly instead of showing message
+                openSafeUnlockFromLightbox(photo.safe_id, photo.id);
+                return;
+            }
+
+            // Show loading state
+            lightboxMedia.innerHTML = `<div class="loading-indicator">Decrypting...</div>`;
+
+            // Get encrypted file
+            console.log('[loadSafePhoto] Fetching file:', photo.filename);
+            const encryptedResp = await fetch(`{{ base_url }}/uploads/${photo.filename}`);
+            console.log('[loadSafePhoto] Fetch response:', encryptedResp.status, encryptedResp.ok);
+            if (!encryptedResp.ok) {
+                throw new Error('Failed to load encrypted file');
+            }
+
+            // Check if server returned encrypted file
+            const encryptionHeader = encryptedResp.headers.get('X-Encryption');
+            console.log('[loadSafePhoto] X-Encryption header:', encryptionHeader);
+            
+            // Client-side decryption
+            console.log('[loadSafePhoto] Getting blob...');
+            const responseBlob = await encryptedResp.blob();
+            console.log('[loadSafePhoto] Got blob, size:', responseBlob.size);
+            
+            let blobToDisplay;
+            
+            if (encryptionHeader !== 'e2e') {
+                // Server already decrypted the file (legacy server-encrypted file)
+                console.log('[loadSafePhoto] Server returned decrypted file (legacy)');
+                blobToDisplay = responseBlob;
+            } else {
+                // Need client-side decryption
+                try {
+                    console.log('[loadSafePhoto] Attempting client-side decryption...');
+                    blobToDisplay = await SafeCrypto.decryptFileFromSafe(
+                        responseBlob,
+                        photo.safe_id,
+                        photo.media_type || 'image/jpeg'
+                    );
+                    console.log('[loadSafePhoto] Decryption successful');
+                } catch (decryptError) {
+                    // Fallback: show encrypted blob (will be garbage but user sees something)
+                    console.warn('[loadSafePhoto] Failed to decrypt:', decryptError);
+                    lightboxMedia.innerHTML = `
+                        <div class="safe-error-message">
+                            <p>Failed to decrypt photo</p>
+                            <p class="error-details">${decryptError.message}</p>
+                            <p>The file may be corrupted or encrypted with a different key.</p>
+                        </div>`;
+                    return;
+                }
+            }
+
+            // Create object URL and display
+            const url = URL.createObjectURL(blobToDisplay);
+            
+            if (photo.media_type === 'video') {
+                lightboxMedia.innerHTML = `
+                    <video src="${url}" controls autoplay loop playsinline class="lightbox-video">
+                        Your browser does not support video.
+                    </video>`;
+            } else {
+                lightboxMedia.innerHTML = `
+                    <img src="${url}" alt="${photo.original_name}" class="lightbox-image">`;
+            }
+        } catch (e) {
+            console.error('Failed to load safe photo:', e);
+            lightboxMedia.innerHTML = `
+                <div class="safe-error-message">
+                    <p>Failed to load photo</p>
+                    <p class="error-details">${e.message}</p>
+                    <button onclick="loadPhoto(photo)" class="btn btn-secondary mt-2">Try Loading Raw</button>
+                </div>`;
+        }
+    }
+
+    // Unlock safe from lightbox
+    window.openSafeUnlockFromLightbox = function(safeId, photoId) {
+        // Find safe name
+        const safeItem = document.querySelector(`.folder-item.safe-item[data-safe-id="${safeId}"]`);
+        const safeName = safeItem ? safeItem.querySelector('.folder-name').textContent : 'Safe';
+        
+        // Save the photo ID to open after unlock (if provided or already set)
+        if (photoId) {
+            window.pendingSafePhotoId = photoId;
+        } else if (currentPhotoId && !window.pendingSafePhotoId) {
+            window.pendingSafePhotoId = currentPhotoId;
+        }
+        
+        // Open unlock modal
+        if (typeof openSafeUnlock === 'function') {
+            openSafeUnlock(safeId, safeName, 'password');
+        }
+    };
+
     // Load and display photo
     async function loadPhoto(photoId) {
         try {
-            const resp = await fetch(`/api/photos/${photoId}`);
+            const resp = await fetch(`{{ base_url }}/api/photos/${photoId}`);
             if (!resp.ok) {
-                console.error('Failed to load photo');
+                console.error('Failed to load photo, status:', resp.status);
                 return;
             }
             const photo = await resp.json();
 
-            // Update media
-            if (photo.media_type === 'video') {
-                lightboxMedia.innerHTML = `
-                    <video src="/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
-                        Your browser does not support video.
-                    </video>`;
+            // Check if photo is in a safe
+            if (photo.safe_id && typeof SafeCrypto !== 'undefined') {
+                await loadSafePhoto(photo);
+                // Still update metadata below
             } else {
-                // Progressive loading: show thumbnail first, then load full image
-                const thumbUrl = `/thumbnails/${photo.id}.jpg`;
-                const fullUrl = `/uploads/${photo.filename}`;
+                // Update media for regular photos
+                if (photo.media_type === 'video') {
+                    lightboxMedia.innerHTML = `
+                        <video src="{{ base_url }}/uploads/${photo.filename}" controls autoplay loop playsinline class="lightbox-video">
+                            Your browser does not support video.
+                        </video>`;
+                } else {
+                    // Progressive loading: show thumbnail first, then load full image
+                    const thumbUrl = `{{ base_url }}/thumbnails/${photo.id}.jpg`;
+                    const fullUrl = `{{ base_url }}/uploads/${photo.filename}`;
 
-                lightboxMedia.innerHTML = `
-                    <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image">`;
+                    lightboxMedia.innerHTML = `
+                        <img src="${thumbUrl}" alt="${photo.original_name}" class="lightbox-image">`;
 
-                // Preload full image in background
-                const fullImg = new Image();
-                fullImg.onload = () => {
-                    const currentImg = lightboxMedia.querySelector('.lightbox-image');
-                    // Only swap if still viewing the same photo
-                    if (currentImg && currentPhotoId === photo.id) {
-                        currentImg.src = fullUrl;
-                    }
-                };
-                fullImg.src = fullUrl;
+                    // Preload full image in background
+                    const fullImg = new Image();
+                    fullImg.onload = () => {
+                        const currentImg = lightboxMedia.querySelector('.lightbox-image');
+                        // Only swap if still viewing the same photo
+                        if (currentImg && currentPhotoId === photo.id) {
+                            currentImg.src = fullUrl;
+                        }
+                    };
+                    fullImg.src = fullUrl;
+                }
             }
 
             // Update tags
@@ -994,10 +1479,6 @@
                 datesHtml += `<span class="date-item" title="Upload date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> ${uploadedDate}</span>`;
             }
             lightboxDates.innerHTML = datesHtml;
-
-            // Update download link
-            lightboxDownload.href = `/uploads/${photo.filename}`;
-            lightboxDownload.download = photo.original_name;
 
             // Update album indicator
             if (photo.album) {
@@ -1292,7 +1773,7 @@
         currentEditingPhotoId = window.currentLightboxPhotoId;
 
         // Get current tags from lightbox
-        const resp = await fetch(`/api/photos/${currentEditingPhotoId}`);
+        const resp = await fetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}`);
         const photo = await resp.json();
 
         originalTags = photo.tags.map(t => ({
@@ -1324,14 +1805,14 @@
 
     // Load tag categories
     async function loadCategories() {
-        const response = await fetch('/api/tag-categories');
+        const response = await fetch('{{ base_url }}/api/tag-categories');
         categories = await response.json();
         renderCategoryButtons();
     }
 
     // Load tag presets
     async function loadTagPresets(search = "") {
-        const response = await fetch(`/api/tag-presets?search=${encodeURIComponent(search)}`);
+        const response = await fetch(`{{ base_url }}/api/tag-presets?search=${encodeURIComponent(search)}`);
         const data = await response.json();
         renderPresets(data);
         return data;
@@ -1455,11 +1936,11 @@
         );
 
         for (const tag of toRemove) {
-            await csrfFetch(`/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
+            await csrfFetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { method: 'DELETE' });
         }
 
         for (const tag of toAdd) {
-            await csrfFetch(`/api/photos/${currentEditingPhotoId}/tag`, {
+            await csrfFetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}/tag`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
@@ -1486,7 +1967,7 @@
             return;
         }
 
-        await csrfFetch('/api/tag-presets', {
+        await csrfFetch('{{ base_url }}/api/tag-presets', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
@@ -1514,7 +1995,7 @@
         btn.innerHTML = 'Analyzing...';
 
         try {
-            const response = await csrfFetch(`/api/photos/${currentEditingPhotoId}/ai-tags`, {
+            const response = await csrfFetch(`{{ base_url }}/api/photos/${currentEditingPhotoId}/ai-tags`, {
                 method: 'POST'
             });
             const data = await response.json();
@@ -1625,7 +2106,7 @@
 
         try {
             // Load album data
-            const albumResp = await fetch(`/api/albums/${currentAlbumId}`);
+            const albumResp = await fetch(`{{ base_url }}/api/albums/${currentAlbumId}`);
             const album = await albumResp.json();
 
             albumPhotos = album.photos.map(p => ({
@@ -1636,7 +2117,7 @@
             coverPhotoId = album.cover_photo_id || album.effective_cover_photo_id;
 
             // Load available photos
-            const availResp = await fetch(`/api/albums/${currentAlbumId}/available-photos`);
+            const availResp = await fetch(`{{ base_url }}/api/albums/${currentAlbumId}/available-photos`);
             const availData = await availResp.json();
             availablePhotos = availData.photos || [];
             selectedToAdd.clear();
@@ -1658,9 +2139,13 @@
         albumEditorPanel.classList.remove('open');
         lightbox.classList.remove('panel-open');
 
-        // Reload page if changes were made to refresh gallery
+        // Refresh via SPA if changes were made (keeps safes unlocked)
         if (hasChanges) {
-            window.location.reload();
+            if (window.currentFolderId) {
+                navigateToFolder(window.currentFolderId, false);
+            } else {
+                window.location.reload();
+            }
             return;
         }
 
@@ -1700,7 +2185,7 @@
             <div class="album-cover-option ${photo.id === coverPhotoId ? 'selected' : ''}"
                  data-photo-id="${photo.id}"
                  onclick="selectCoverPhoto('${photo.id}')">
-                <img src="/thumbnails/${photo.id}.jpg" alt="">
+                <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" alt="">
             </div>
         `).join('');
     }
@@ -1710,7 +2195,7 @@
         if (photoId === coverPhotoId) return;
 
         try {
-            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/cover`, {
+            const resp = await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/cover`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_id: photoId })
@@ -1744,7 +2229,7 @@
                         <line x1="8" y1="18" x2="16" y2="18"/>
                     </svg>
                 </div>
-                <img class="photo-thumb" src="/thumbnails/${photo.id}.jpg" alt="">
+                <img class="photo-thumb" src="{{ base_url }}/thumbnails/${photo.id}.jpg" alt="">
                 <span class="photo-info">${index + 1}</span>
                 <button class="remove-btn" onclick="removePhotoFromAlbum('${photo.id}')" title="Remove from album">&times;</button>
             </div>
@@ -1798,7 +2283,7 @@
                 // Save new order to server
                 const photoIds = albumPhotos.map(p => p.id);
                 try {
-                    await csrfFetch(`/api/albums/${currentAlbumId}/reorder`, {
+                    await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/reorder`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ photo_ids: photoIds })
@@ -1817,7 +2302,7 @@
     // Remove photo from album
     window.removePhotoFromAlbum = async function(photoId) {
         try {
-            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/photos`, {
+            const resp = await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/photos`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_ids: [photoId] })
@@ -1874,7 +2359,7 @@
             <div class="available-photo-item ${selectedToAdd.has(p.id) ? 'selected' : ''}"
                  data-photo-id="${p.id}"
                  onclick="togglePhotoSelection('${p.id}')">
-                <img src="/thumbnails/${p.id}.jpg" alt="">
+                <img src="{{ base_url }}/thumbnails/${p.id}.jpg" alt="">
                 <div class="photo-check-indicator">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                         <polyline points="20 6 9 17 4 12"></polyline>
@@ -1922,7 +2407,7 @@
         const photoIds = Array.from(selectedToAdd);
 
         try {
-            const resp = await csrfFetch(`/api/albums/${currentAlbumId}/photos`, {
+            const resp = await csrfFetch(`{{ base_url }}/api/albums/${currentAlbumId}/photos`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ photo_ids: photoIds })
@@ -1972,262 +2457,124 @@
     });
 })();
 
-// ============ Drag and Drop to Move Photos ============
+// ============ Move/Copy Items to Folder ============
 (function() {
-    const gallery = document.getElementById('gallery');
-    const sidebar = document.getElementById('sidebar');
-    const folderTree = document.getElementById('folder-tree');
+    // Use global currentFolderId from base.html (SPA navigation compatible)
+    const getCurrentFolderId = () => window.currentFolderId || new URLSearchParams(window.location.search).get('folder_id');
+    const moveBtn = document.getElementById('move-selected-btn');
+    const copyBtn = document.getElementById('copy-selected-btn');
 
-    if (!gallery || !sidebar) return;
+    // Need at least copy button to proceed (move is optional for viewers)
+    if (!copyBtn) return;
 
-    // Current folder ID from URL
-    const currentFolderId = new URLSearchParams(window.location.search).get('folder_id');
+    let pendingAction = null; // 'move' or 'copy'
 
-    // Drag state
-    let draggedItems = []; // [{type: 'photo'|'album', id: string}]
-    let dragGhost = null;
+    // Create folder picker modal
+    const pickerModal = document.createElement('div');
+    pickerModal.id = 'folder-picker-modal';
+    pickerModal.className = 'modal hidden';
+    pickerModal.innerHTML = `
+        <div class="modal-content folder-picker-content">
+            <span class="close">&times;</span>
+            <h2 id="folder-picker-title">Move to folder</h2>
+            <div class="folder-picker-list" id="folder-picker-list"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="folder-picker-cancel">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(pickerModal);
 
-    // Get selected items or single item
-    function getDragItems(element) {
+    const pickerTitle = document.getElementById('folder-picker-title');
+    const pickerList = document.getElementById('folder-picker-list');
+    const pickerClose = pickerModal.querySelector('.close');
+    const pickerCancel = document.getElementById('folder-picker-cancel');
+
+    // Open picker modal
+    function openFolderPicker(action) {
+        pendingAction = action;
+        pickerTitle.textContent = action === 'move' ? 'Move to folder' : 'Copy to folder';
+        renderFolderList();
+        pickerModal.classList.remove('hidden');
+    }
+
+    // Close picker modal
+    function closeFolderPicker() {
+        pickerModal.classList.add('hidden');
+        pendingAction = null;
+    }
+
+    // Render folder list as tree
+    function renderFolderList() {
+        const folders = window.folderTree || [];
+        const editableFolders = folders.filter(f =>
+            f.permission === 'owner' || f.permission === 'editor'
+        );
+
+        if (editableFolders.length === 0) {
+            pickerList.innerHTML = '<div class="no-folders">No folders available</div>';
+            return;
+        }
+
+        // Build tree recursively
+        function buildTree(parentId, level) {
+            const children = editableFolders.filter(f => f.parent_id === parentId);
+            if (children.length === 0) return '';
+
+            return children.map(folder => {
+                const isCurrent = folder.id === getCurrentFolderId();
+                const disabled = isCurrent && pendingAction === 'move';
+                const indent = level * 20;
+                const html = `
+                    <div class="folder-picker-item ${disabled ? 'disabled' : ''}"
+                         data-folder-id="${folder.id}"
+                         style="padding-left: ${12 + indent}px"
+                         ${disabled ? 'title="Already in this folder"' : ''}>
+                        <svg class="folder-picker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span class="folder-picker-name">${escapeHtml(folder.name)}</span>
+                        ${isCurrent ? '<span class="folder-picker-current">(current)</span>' : ''}
+                    </div>
+                `;
+                return html + buildTree(folder.id, level + 1);
+            }).join('');
+        }
+
+        pickerList.innerHTML = buildTree(null, 0);
+
+        // Add click handlers
+        pickerList.querySelectorAll('.folder-picker-item:not(.disabled)').forEach(item => {
+            item.addEventListener('click', () => {
+                const folderId = item.dataset.folderId;
+                executeAction(folderId);
+            });
+        });
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Execute move or copy
+    async function executeAction(targetFolderId) {
         const selectedPhotos = window.selectedPhotos || new Set();
         const selectedAlbums = window.selectedAlbums || new Set();
 
-        // If item is selected, drag all selected items
-        const photoId = element.dataset.photoId;
-        const albumId = element.dataset.albumId;
-        const itemType = element.dataset.itemType;
+        const photoIds = Array.from(selectedPhotos);
+        const albumIds = Array.from(selectedAlbums);
 
-        if ((photoId && selectedPhotos.has(photoId)) || (albumId && selectedAlbums.has(albumId))) {
-            const items = [];
-            selectedPhotos.forEach(id => items.push({ type: 'photo', id }));
-            selectedAlbums.forEach(id => items.push({ type: 'album', id }));
-            return items;
+        if (photoIds.length === 0 && albumIds.length === 0) {
+            closeFolderPicker();
+            return;
         }
-
-        // Otherwise, drag only this item
-        if (itemType === 'photo' && photoId) {
-            return [{ type: 'photo', id: photoId }];
-        } else if (itemType === 'album' && albumId) {
-            return [{ type: 'album', id: albumId }];
-        }
-
-        return [];
-    }
-
-    // Create custom drag ghost
-    function createDragGhost(element, count) {
-        const ghost = document.createElement('div');
-        ghost.className = 'drag-ghost';
-
-        const img = element.querySelector('img');
-        if (img) {
-            const imgClone = img.cloneNode(true);
-            ghost.appendChild(imgClone);
-        }
-
-        if (count > 1) {
-            const badge = document.createElement('div');
-            badge.className = 'drag-count-badge';
-            badge.textContent = count;
-            ghost.appendChild(badge);
-        }
-
-        document.body.appendChild(ghost);
-        return ghost;
-    }
-
-    // Update ghost position
-    function updateGhostPosition(e) {
-        if (dragGhost) {
-            dragGhost.style.left = (e.clientX + 10) + 'px';
-            dragGhost.style.top = (e.clientY + 10) + 'px';
-        }
-    }
-
-    // Remove drag ghost
-    function removeDragGhost() {
-        if (dragGhost) {
-            dragGhost.remove();
-            dragGhost = null;
-        }
-    }
-
-    // Make gallery items draggable
-    function setupGalleryDraggables() {
-        const items = gallery.querySelectorAll('.gallery-item[data-item-type="photo"], .gallery-item[data-item-type="album"]');
-
-        items.forEach(item => {
-            // Skip folders - they can't be dragged
-            if (item.dataset.itemType === 'folder') return;
-
-            // Skip if already set up (prevent duplicate listeners)
-            if (item.dataset.dragSetup === 'true') return;
-            item.dataset.dragSetup = 'true';
-
-            item.setAttribute('draggable', 'true');
-
-            item.addEventListener('dragstart', (e) => {
-                draggedItems = getDragItems(item);
-                if (draggedItems.length === 0) {
-                    e.preventDefault();
-                    return;
-                }
-
-                item.classList.add('dragging');
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', JSON.stringify(draggedItems));
-
-                // Hide default browser drag image by using an off-screen element
-                const emptyEl = document.createElement('div');
-                emptyEl.style.position = 'absolute';
-                emptyEl.style.top = '-1000px';
-                emptyEl.style.left = '-1000px';
-                emptyEl.style.width = '1px';
-                emptyEl.style.height = '1px';
-                emptyEl.style.opacity = '0.01';
-                document.body.appendChild(emptyEl);
-                e.dataTransfer.setDragImage(emptyEl, 0, 0);
-                // Remove element after drag starts
-                setTimeout(() => emptyEl.remove(), 0);
-
-                // Create custom ghost
-                dragGhost = createDragGhost(item, draggedItems.length);
-                updateGhostPosition(e);
-
-                // Highlight sidebar
-                sidebar.classList.add('drag-active');
-            });
-
-            item.addEventListener('drag', (e) => {
-                updateGhostPosition(e);
-            });
-
-            item.addEventListener('dragend', () => {
-                item.classList.remove('dragging');
-                removeDragGhost();
-                sidebar.classList.remove('drag-active');
-                clearDropTargets();
-                draggedItems = [];
-            });
-        });
-    }
-
-    // Clear all drop target classes
-    function clearDropTargets() {
-        document.querySelectorAll('.drop-target, .drop-blocked').forEach(el => {
-            el.classList.remove('drop-target', 'drop-blocked', 'drop-success');
-        });
-    }
-
-    // Check if folder is a valid drop target
-    function isValidDropTarget(folderId) {
-        // Can't drop on current folder
-        if (folderId === currentFolderId) return false;
-
-        // Check permission (stored in data attribute)
-        const folderItem = document.querySelector(`.folder-item[data-folder-id="${folderId}"]`);
-        if (!folderItem) return false;
-
-        const canEdit = folderItem.dataset.canEdit === 'true';
-        return canEdit;
-    }
-
-    // Setup folder drop zones (sidebar)
-    function setupFolderDropZones() {
-        const folderItems = document.querySelectorAll('.folder-item[data-folder-id]');
-
-        folderItems.forEach(folderItem => {
-            // Skip if already set up
-            if (folderItem.dataset.dropSetup === 'true') return;
-            folderItem.dataset.dropSetup = 'true';
-
-            const folderId = folderItem.dataset.folderId;
-
-            folderItem.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                if (draggedItems.length === 0) return;
-
-                if (isValidDropTarget(folderId)) {
-                    e.dataTransfer.dropEffect = 'move';
-                    folderItem.classList.add('drop-target');
-                    folderItem.classList.remove('drop-blocked');
-                } else {
-                    e.dataTransfer.dropEffect = 'none';
-                    folderItem.classList.add('drop-blocked');
-                    folderItem.classList.remove('drop-target');
-                }
-            });
-
-            folderItem.addEventListener('dragleave', (e) => {
-                // Only clear if actually leaving (not entering child)
-                if (!folderItem.contains(e.relatedTarget)) {
-                    folderItem.classList.remove('drop-target', 'drop-blocked');
-                }
-            });
-
-            folderItem.addEventListener('drop', async (e) => {
-                e.preventDefault();
-                folderItem.classList.remove('drop-target', 'drop-blocked');
-
-                if (draggedItems.length === 0 || !isValidDropTarget(folderId)) return;
-
-                // Move items
-                await moveItemsToFolder(draggedItems, folderId);
-
-                // Success animation
-                folderItem.classList.add('drop-success');
-                setTimeout(() => folderItem.classList.remove('drop-success'), 400);
-            });
-        });
-
-        // Also setup subfolder cards in gallery
-        const folderCards = gallery.querySelectorAll('.gallery-item.folder-item-card[data-folder-id]');
-
-        folderCards.forEach(card => {
-            // Skip if already set up
-            if (card.dataset.dropSetup === 'true') return;
-            card.dataset.dropSetup = 'true';
-
-            const folderId = card.dataset.folderId;
-
-            card.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                if (draggedItems.length === 0) return;
-
-                // Subfolder in gallery - always allow (we're in parent with edit access)
-                e.dataTransfer.dropEffect = 'move';
-                card.classList.add('drop-target');
-            });
-
-            card.addEventListener('dragleave', (e) => {
-                if (!card.contains(e.relatedTarget)) {
-                    card.classList.remove('drop-target');
-                }
-            });
-
-            card.addEventListener('drop', async (e) => {
-                e.preventDefault();
-                card.classList.remove('drop-target');
-
-                if (draggedItems.length === 0) return;
-
-                await moveItemsToFolder(draggedItems, folderId);
-
-                // Success animation
-                card.classList.add('drop-success');
-                setTimeout(() => card.classList.remove('drop-success'), 400);
-            });
-        });
-    }
-
-    // Move items to folder
-    async function moveItemsToFolder(items, targetFolderId) {
-        const photoIds = items.filter(i => i.type === 'photo').map(i => i.id);
-        const albumIds = items.filter(i => i.type === 'album').map(i => i.id);
 
         try {
-            const resp = await csrfFetch('/api/items/move', {
-                method: 'PUT',
+            const endpoint = pendingAction === 'move' ? '{{ base_url }}/api/items/move' : '{{ base_url }}/api/items/copy';
+            const resp = await csrfFetch(endpoint, {
+                method: pendingAction === 'move' ? 'PUT' : 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     photo_ids: photoIds,
@@ -2239,42 +2586,48 @@
             const data = await resp.json();
 
             if (data.status === 'ok') {
-                const totalMoved = data.moved_photos + data.moved_albums;
-                if (totalMoved > 0) {
+                if (pendingAction === 'move') {
                     // Remove moved items from DOM
-                    items.forEach(item => {
-                        const selector = item.type === 'photo'
-                            ? `.gallery-item[data-photo-id="${item.id}"]`
-                            : `.gallery-item[data-album-id="${item.id}"]`;
-                        const el = document.querySelector(selector);
+                    photoIds.forEach(id => {
+                        const el = document.querySelector(`.gallery-item[data-photo-id="${id}"]`);
+                        if (el) el.remove();
+                    });
+                    albumIds.forEach(id => {
+                        const el = document.querySelector(`.gallery-item[data-album-id="${id}"]`);
                         if (el) el.remove();
                     });
 
-                    // Clear selection
-                    if (window.selectedPhotos) window.selectedPhotos.clear();
-                    if (window.selectedAlbums) window.selectedAlbums.clear();
-
-                    // Update selection UI
-                    const selectionMenu = document.getElementById('selection-menu');
-                    if (selectionMenu) selectionMenu.classList.add('hidden');
-
-                    // Rebuild masonry if available (force rebuild since items were moved)
+                    // Rebuild masonry
                     if (window.rebuildMasonry) window.rebuildMasonry(true);
-
-                    // Update folder counts in sidebar
-                    updateFolderCounts();
                 }
+
+                // Clear selection
+                selectedPhotos.clear();
+                selectedAlbums.clear();
+
+                // Update selection UI
+                const selectionMenu = document.getElementById('selection-menu');
+                if (selectionMenu) selectionMenu.classList.add('hidden');
+
+                document.querySelectorAll('.gallery-item.selected').forEach(el => {
+                    el.classList.remove('selected');
+                });
+
+                // Update folder counts
+                updateFolderCounts();
             }
         } catch (e) {
-            console.error('Failed to move items:', e);
-            alert('Failed to move items. Please try again.');
+            console.error(`Failed to ${pendingAction} items:`, e);
+            alert(`Failed to ${pendingAction} items. Please try again.`);
         }
+
+        closeFolderPicker();
     }
 
-    // Update folder counts after move
+    // Update folder counts
     async function updateFolderCounts() {
         try {
-            const resp = await fetch('/api/folders');
+            const resp = await fetch('{{ base_url }}/api/folders');
             const folders = await resp.json();
 
             folders.forEach(folder => {
@@ -2288,41 +2641,21 @@
         }
     }
 
-    // Initialize when DOM is ready
-    function init() {
-        setupGalleryDraggables();
-        setupFolderDropZones();
-
-        // Re-setup after masonry rebuild
-        const originalRebuildMasonry = window.rebuildMasonry;
-        if (originalRebuildMasonry) {
-            window.rebuildMasonry = function() {
-                originalRebuildMasonry();
-                setupGalleryDraggables();
-                setupFolderDropZones();
-            };
-        }
-    }
-
-    // Wait for folder tree to be loaded before setup
-    const observer = new MutationObserver((mutations, obs) => {
-        if (folderTree && folderTree.children.length > 0) {
-            obs.disconnect();
-            init();
+    // Event listeners
+    if (moveBtn) moveBtn.addEventListener('click', () => openFolderPicker('move'));
+    copyBtn.addEventListener('click', () => openFolderPicker('copy'));
+    pickerClose.addEventListener('click', closeFolderPicker);
+    pickerCancel.addEventListener('click', closeFolderPicker);
+    pickerModal.addEventListener('click', (e) => {
+        if (e.target === pickerModal) closeFolderPicker();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !pickerModal.classList.contains('hidden')) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeFolderPicker();
         }
     });
-
-    if (folderTree) {
-        observer.observe(folderTree, { childList: true });
-        // Also init if folder tree is already loaded
-        if (folderTree.children.length > 0) {
-            observer.disconnect();
-            init();
-        }
-    }
-
-    // Fallback init
-    setTimeout(init, 500);
 })();
 </script>
 {% endblock %}

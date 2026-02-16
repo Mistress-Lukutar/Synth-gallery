@@ -6,9 +6,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import (
     PUBLIC_PATHS, SESSION_COOKIE,
-    CSRF_TOKEN_NAME, CSRF_HEADER_NAME, CSRF_COOKIE_NAME
+    CSRF_TOKEN_NAME, CSRF_HEADER_NAME, CSRF_COOKIE_NAME,
+    ROOT_PATH
 )
 from .database import get_session
+
+
+def strip_root_path(path: str) -> str:
+    """Remove root path prefix for path checking."""
+    if ROOT_PATH and path.startswith(ROOT_PATH):
+        return path[len(ROOT_PATH):] or "/"
+    return path
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -16,18 +24,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        # Strip root path for checking against PUBLIC_PATHS
+        check_path = strip_root_path(path)
 
         # Allow public paths
-        if path in PUBLIC_PATHS or path.startswith("/static/"):
+        if check_path in PUBLIC_PATHS or check_path.startswith("/static/"):
             return await call_next(request)
 
         # Allow API paths with API key (for AI service)
-        if path.startswith("/api/ai/"):
+        if check_path.startswith("/api/ai/"):
             # AI endpoints have their own auth via API key
             return await call_next(request)
 
         # Allow WebAuthn authentication paths (for passwordless login)
-        if path.startswith("/api/webauthn/authenticate/") or path.startswith("/api/webauthn/check/"):
+        if check_path.startswith("/api/webauthn/authenticate/") or check_path.startswith("/api/webauthn/check/"):
             return await call_next(request)
 
         # Check session cookie
@@ -45,7 +55,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # No valid session - redirect to login
         if request.method == "GET":
-            return RedirectResponse(url="/login", status_code=302)
+            return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
         # For API calls, return 401
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
@@ -69,15 +79,18 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # Store token in request state for templates
         request.state.csrf_token = csrf_token
 
+        # Strip root path for checking
+        check_path = strip_root_path(request.url.path)
+
         # Check CSRF for protected methods
         if request.method in self.PROTECTED_METHODS:
             # Skip CSRF check for exempt paths
-            if any(request.url.path.startswith(p) for p in self.EXEMPT_PATHS):
+            if any(check_path.startswith(p) for p in self.EXEMPT_PATHS):
                 response = await call_next(request)
                 return self._set_csrf_cookie(response, csrf_token)
 
             # Skip CSRF check for public paths (like login)
-            if request.url.path in PUBLIC_PATHS:
+            if check_path in PUBLIC_PATHS:
                 response = await call_next(request)
                 return self._set_csrf_cookie(response, csrf_token)
 
