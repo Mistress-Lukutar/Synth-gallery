@@ -10,7 +10,7 @@ Security updates are provided for the latest stable version (main branch).
 
 Instead, contact us privately:
 
-- 🔗 GitHub: [https://github.com/Mistress-Lukutar](https://github.com/Mistress-Lukutar)
+- GitHub: [https://github.com/Mistress-Lukutar](https://github.com/Mistress-Lukutar)
 - Please use [GitHub Private Vulnerability Reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) if enabled
 
 ### What to Include
@@ -82,27 +82,27 @@ DEK Cache TTL: Matches session (7 days)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    ENCRYPTION HIERARCHY                      │
+│                    ENCRYPTION HIERARCHY                     │
 ├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  USER PASSWORD / HARDWARE KEY                                │
-│       │                                                      │
-│       ▼                                                      │
+│                                                             │
+│  USER PASSWORD / HARDWARE KEY                               │
+│       │                                                     │
+│       ▼                                                     │
 │  PBKDF2-SHA256 (600k iterations)                            │
-│       │                                                      │
-│       ▼                                                      │
+│       │                                                     │
+│       ▼                                                     │
 │  KEK (Key Encryption Key) ─────────┐                        │
 │       │                            │                        │
 │       ▼                            │                        │
 │  DEK (Data Encryption Key) ◄───────┘                        │
-│       │                                                      │
-│       ├──► File 1: CK encrypted with DEK                     │
-│       ├──► File 2: CK encrypted with DEK                     │
+│       │                                                     │
+│       ├──► File 1: CK encrypted with DEK                    │
+│       ├──► File 2: CK encrypted with DEK                    │
 │       └──► Safe DEK: encrypted with password/hardware key   │
-│                                                              │
+│                                                             │
 │  Safes (E2E): Content encrypted with Safe DEK               │
-│               Safe DEK never leaves browser memory           │
-│                                                              │
+│               Safe DEK never leaves browser memory          │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
