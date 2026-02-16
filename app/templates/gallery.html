@@ -1249,6 +1249,24 @@
 
     // Open photo in lightbox
     window.openPhoto = async function(photoId) {
+        // First check if photo is in a locked safe
+        try {
+            const resp = await fetch(`{{ base_url }}/api/photos/${photoId}`);
+            if (!resp.ok) return;
+            const photo = await resp.json();
+
+            // If photo is in a locked safe, open unlock modal first
+            if (photo.safe_id && typeof SafeCrypto !== 'undefined' && !SafeCrypto.isUnlocked(photo.safe_id)) {
+                console.log('[openPhoto] Photo is in locked safe, opening unlock modal');
+                window.pendingSafePhotoId = photoId;
+                openSafeUnlockFromLightbox(photo.safe_id);
+                return;
+            }
+        } catch (e) {
+            console.error('Failed to check photo safe status:', e);
+        }
+
+        // Photo is not in a safe or safe is unlocked - open normally
         loadNavOrder();
         currentPhotoId = photoId;
         currentAlbumPhotos = [];
@@ -1296,14 +1314,9 @@
             console.log('[loadSafePhoto] SafeCrypto available:', !!SafeCrypto);
             
             if (!SafeCrypto.isUnlocked(photo.safe_id)) {
-                console.log('[loadSafePhoto] Safe is locked, showing unlock UI');
-                lightboxMedia.innerHTML = `
-                    <div class="safe-locked-message">
-                        <p>🔒 This photo is in a locked safe</p>
-                        <button onclick="openSafeUnlockFromLightbox('${photo.safe_id}')" class="btn">
-                            Unlock Safe
-                        </button>
-                    </div>`;
+                console.log('[loadSafePhoto] Safe is locked, opening unlock modal');
+                // Open unlock modal directly instead of showing message
+                openSafeUnlockFromLightbox(photo.safe_id, photo.id);
                 return;
             }
 
@@ -1380,10 +1393,17 @@
     }
 
     // Unlock safe from lightbox
-    window.openSafeUnlockFromLightbox = function(safeId) {
+    window.openSafeUnlockFromLightbox = function(safeId, photoId) {
         // Find safe name
         const safeItem = document.querySelector(`.folder-item.safe-item[data-safe-id="${safeId}"]`);
         const safeName = safeItem ? safeItem.querySelector('.folder-name').textContent : 'Safe';
+        
+        // Save the photo ID to open after unlock (if provided or already set)
+        if (photoId) {
+            window.pendingSafePhotoId = photoId;
+        } else if (currentPhotoId && !window.pendingSafePhotoId) {
+            window.pendingSafePhotoId = currentPhotoId;
+        }
         
         // Open unlock modal
         if (typeof openSafeUnlock === 'function') {
