@@ -174,26 +174,72 @@
                 </div>
             </div>
 
-            <!-- Password protection section -->
-            <div id="safe-password-section" class="form-group">
-                <label for="safe-password-input">Safe password:</label>
-                <input type="password" id="safe-password-input" placeholder="Min 8 characters" autocomplete="new-password">
-                <p class="input-hint">This password will be required every time you access this safe</p>
-            </div>
+            <form id="safe-form" onsubmit="event.preventDefault();" autocomplete="off">
+                <!-- Hidden username field for accessibility and password manager compatibility -->
+                <input type="text" id="safe-username" name="username" value="synth-safe-user" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" aria-hidden="true">
+                
+                <!-- Password protection section -->
+                <div id="safe-password-section" class="form-group safe-password-group">
+                    <label for="safe-password-input" class="safe-input-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        Create Password
+                    </label>
+                    <div class="safe-input-wrapper">
+                        <input type="password" id="safe-password-input" class="safe-password-input" placeholder="Enter a strong password (min 8 chars)" autocomplete="new-password" minlength="8" required>
+                        <button type="button" class="password-toggle" onclick="toggleSafePassword('safe-password-input', this)" aria-label="Show password">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="safe-password-strength" id="safe-password-strength">
+                        <div class="strength-bar"></div>
+                    </div>
+                    <p class="safe-input-hint">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 16v-4M12 8h.01"/>
+                        </svg>
+                        This password protects your safe. Don't forget it - it cannot be recovered!
+                    </p>
+                </div>
 
-            <!-- WebAuthn protection section -->
-            <div id="safe-webauthn-section" class="form-group hidden">
-                <label>Select hardware key:</label>
-                <select id="safe-webauthn-select">
-                    <option value="">Loading credentials...</option>
-                </select>
-                <p class="input-hint">You'll need this hardware key to unlock the safe</p>
-            </div>
+                <!-- WebAuthn protection section -->
+                <div id="safe-webauthn-section" class="form-group hidden">
+                    <label class="safe-input-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                        Select Hardware Key
+                    </label>
+                    <div class="safe-select-wrapper">
+                        <select id="safe-webauthn-select" class="safe-select">
+                            <option value="">Loading credentials...</option>
+                        </select>
+                    </div>
+                    <p class="safe-input-hint">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 16v-4M12 8h.01"/>
+                        </svg>
+                        You'll need this hardware key every time you access the safe
+                    </p>
+                </div>
 
-            <div class="modal-actions">
-                <button type="button" onclick="closeSafeModal()" class="btn btn-secondary">Cancel</button>
-                <button type="button" id="safe-submit-btn" class="btn">Create Safe</button>
-            </div>
+                <div class="modal-actions safe-modal-actions">
+                    <button type="button" onclick="closeSafeModal()" class="btn btn-secondary safe-cancel-btn">Cancel</button>
+                    <button type="submit" id="safe-submit-btn" class="btn safe-submit-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                        Create Safe
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -204,21 +250,52 @@
             <h2 id="safe-unlock-title">Unlock Safe</h2>
             <p id="safe-unlock-description" class="modal-description">Enter password to unlock</p>
 
-            <!-- Password unlock section -->
-            <div id="safe-unlock-password-section" class="form-group">
-                <label for="safe-unlock-password-input">Password:</label>
-                <input type="password" id="safe-unlock-password-input" placeholder="Safe password" autocomplete="off">
-            </div>
+            <form id="safe-unlock-form" onsubmit="event.preventDefault();" autocomplete="off">
+                <!-- Hidden username field for accessibility -->
+                <input type="text" id="safe-unlock-username" name="username" value="synth-safe-user" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" aria-hidden="true">
+                
+                <!-- Password unlock section -->
+                <div id="safe-unlock-password-section" class="form-group safe-password-group">
+                    <label for="safe-unlock-password-input" class="safe-input-label">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        Enter Password
+                    </label>
+                    <div class="safe-input-wrapper">
+                        <input type="password" id="safe-unlock-password-input" class="safe-password-input" placeholder="Enter your safe password" autocomplete="current-password" required autofocus>
+                        <button type="button" class="password-toggle" onclick="toggleSafePassword('safe-unlock-password-input', this)" aria-label="Show password">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
 
-            <!-- WebAuthn unlock section -->
-            <div id="safe-unlock-webauthn-section" class="form-group hidden">
-                <p>Click below to authenticate with your hardware key</p>
-            </div>
+                <!-- WebAuthn unlock section -->
+                <div id="safe-unlock-webauthn-section" class="form-group hidden">
+                    <div class="webauthn-prompt">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                        <p>Authenticate with your hardware key to unlock</p>
+                    </div>
+                </div>
 
-            <div class="modal-actions">
-                <button type="button" onclick="closeSafeUnlockModal()" class="btn btn-secondary">Cancel</button>
-                <button type="button" id="safe-unlock-submit-btn" class="btn">Unlock</button>
-            </div>
+                <div class="modal-actions safe-modal-actions">
+                    <button type="button" onclick="closeSafeUnlockModal()" class="btn btn-secondary safe-cancel-btn">Cancel</button>
+                    <button type="submit" id="safe-unlock-submit-btn" class="btn safe-submit-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            <circle cx="12" cy="12" r="1" fill="currentColor"/>
+                        </svg>
+                        Unlock
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -685,16 +762,61 @@
             }
         }
 
+        // Get or create root folder for safe
+        async function getSafeRootFolder(safeId) {
+            // Check if root folder already exists
+            const safeFolders = folderTree.filter(f => f.safe_id === safeId && !f.parent_id);
+            if (safeFolders.length > 0) {
+                return safeFolders[0].id;
+            }
+            
+            // Create root folder for safe
+            const resp = await csrfFetch('{{ base_url }}/api/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: 'Root',
+                    safe_id: safeId
+                })
+            });
+            
+            if (!resp.ok) {
+                throw new Error('Failed to create safe root folder');
+            }
+            
+            const data = await resp.json();
+            // Reload folder tree to include new folder
+            await loadFolderTree();
+            return data.folder_id;
+        }
+
         // File upload
         submitBtn.onclick = async () => {
+            let targetFolderId = window.currentFolderId;
+            let targetSafeId = null;
+            
+            // If no folder selected but we're in a safe context
+            if (!targetFolderId && window.currentSafeId) {
+                // Get or create root folder for this safe
+                try {
+                    targetFolderId = await getSafeRootFolder(window.currentSafeId);
+                    targetSafeId = window.currentSafeId;
+                } catch (e) {
+                    alert('Failed to prepare safe folder: ' + e.message);
+                    return;
+                }
+            }
+            
             // Check that we have a valid folder
-            if (!window.currentFolderId) {
+            if (!targetFolderId) {
                 alert('No folder selected. Please navigate to a folder first.');
                 return;
             }
-
+            
             // Check if uploading to a safe
-            const targetSafeId = getFolderSafeId(window.currentFolderId);
+            if (!targetSafeId) {
+                targetSafeId = getFolderSafeId(targetFolderId);
+            }
             if (targetSafeId && !SafeCrypto.isUnlocked(targetSafeId)) {
                 alert('This folder is in a locked safe. Please unlock the safe first.');
                 return;
@@ -745,7 +867,7 @@
                     });
 
                     formData.append('paths', JSON.stringify(paths));
-                    formData.append('folder_id', window.currentFolderId);
+                    formData.append('folder_id', targetFolderId);
 
                     progressFill.style.width = '50%';
                     const resp = await csrfFetch('{{ base_url }}/upload-bulk', { method: 'POST', body: formData });
@@ -817,7 +939,7 @@
                         for (const file of files) {
                             formData.append('files', file);
                         }
-                        formData.append('folder_id', window.currentFolderId);
+                        formData.append('folder_id', targetFolderId);
                         const resp = await csrfFetch('{{ base_url }}/upload-album', { method: 'POST', body: formData });
                         if (!resp.ok) {
                             const contentType = resp.headers.get('content-type');
@@ -879,7 +1001,7 @@
                                 formData.append('file', files[i]);
                             }
                             
-                            formData.append('folder_id', window.currentFolderId);
+                            formData.append('folder_id', targetFolderId);
                             const resp = await csrfFetch('{{ base_url }}/upload', { method: 'POST', body: formData });
                             if (!resp.ok) {
                                 // Handle 413 Content Too Large (nginx error)
@@ -935,8 +1057,10 @@
                     cancelBtn.disabled = false;
                     closeModal();
                     // Refresh current folder content via SPA
-                    if (window.currentFolderId) {
-                        navigateToFolder(window.currentFolderId, false);
+                    if (targetFolderId) {
+                        navigateToFolder(targetFolderId, false);
+                    } else if (window.currentSafeId) {
+                        navigateToSafe(window.currentSafeId, false);
                     } else {
                         location.reload();
                     }
@@ -1198,9 +1322,9 @@
                     const isUnlocked = safe.is_unlocked;
                     const safeFoldersList = safeFolders.filter(f => f.safe_id === safe.id);
                     
-                    // Safe header - click to unlock if locked, click to toggle if unlocked
+                    // Safe header - click to unlock if locked, navigate to safe if unlocked
                     const safeClickHandler = isUnlocked 
-                        ? `toggleSafeExpand('${safe.id}')`
+                        ? `navigateToSafe('${safe.id}')`
                         : `openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}')`;
                     
                     html += `
@@ -1226,8 +1350,24 @@
                     `;
                     
                     // Folders inside safe (only if unlocked)
-                    if (isUnlocked && safeFoldersList.length > 0) {
-                        html += buildSafeTreeHTML(safe.id, 1, safeFoldersList);
+                    if (isUnlocked) {
+                        if (safeFoldersList.length > 0) {
+                            html += buildSafeTreeHTML(safe.id, 1, safeFoldersList);
+                        }
+                        // Add "add folder" button at the end of safe folder list
+                        html += `
+                            <div class="folder-item-wrapper safe-folder" style="padding-left: 16px">
+                                <span class="folder-expand-placeholder"></span>
+                                <div class="folder-item add-folder-item" onclick="openCreateFolderInSafe('${safe.id}')">
+                                    <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                                        <line x1="12" y1="11" x2="12" y2="17"></line>
+                                        <line x1="9" y1="14" x2="15" y2="14"></line>
+                                    </svg>
+                                    <span class="folder-name">add folder</span>
+                                </div>
+                            </div>
+                        `;
                     }
                 });
                 
@@ -1475,6 +1615,33 @@
                 // Refresh folder tree to update counts
                 loadFolderTree();
                 
+                // Reset folder header buttons (restore from safe view)
+                const folderHeader = document.querySelector('.folder-header');
+                if (folderHeader) {
+                    const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
+                    const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
+                    const sortBtn = folderHeader.querySelector('#sort-btn');
+                    
+                    // Show sort button
+                    if (sortBtn) sortBtn.style.display = '';
+                    
+                    // Show share/edit buttons based on ownership
+                    if (data.folder) {
+                        const canShare = data.folder.user_id === {{ user.id }};
+                        const canEdit = data.folder.permission === 'owner' || data.folder.permission === 'editor';
+                        
+                        if (shareBtn) shareBtn.style.display = canShare ? '' : 'none';
+                        if (editBtn) editBtn.style.display = canEdit ? '' : 'none';
+                        
+                        // Update onclick handlers
+                        if (shareBtn) shareBtn.setAttribute('onclick', `openShareModal('${folderId}')`);
+                        if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${folderId}')`);
+                    }
+                }
+                
+                // Clear currentSafeId since we're now in a specific folder
+                window.currentSafeId = null;
+                
             } catch (err) {
                 console.error('[SPA] Navigation failed:', err);
                 // Fallback to full reload on error
@@ -1482,6 +1649,307 @@
             }
             
             return false;
+        }
+        
+        // Navigate to safe (show all photos in safe, allow upload to safe root)
+        window.navigateToSafe = async function(safeId, pushState = true) {
+            console.log('[SPA] Navigating to safe:', safeId);
+            
+            // Find safe info
+            const safe = userSafes.find(s => s.id === safeId);
+            if (!safe) {
+                console.error('[navigateToSafe] Safe not found:', safeId);
+                return;
+            }
+            
+            // Check if safe is unlocked
+            if (!SafeCrypto.isUnlocked(safeId)) {
+                console.log('[navigateToSafe] Safe is locked, opening unlock modal');
+                openSafeUnlock(safeId, safe.name, safe.unlock_type);
+                return;
+            }
+            
+            // Smooth transition
+            const gallery = document.getElementById('gallery');
+            if (gallery) {
+                gallery.style.opacity = '0.5';
+            }
+            
+            try {
+                // Find ALL root folders for this safe
+                console.log('[navigateToSafe] folderTree:', folderTree.map(f => ({id: f.id, name: f.name, safe_id: f.safe_id, parent_id: f.parent_id})));
+                const rootFolders = folderTree.filter(f => f.safe_id === safeId && !f.parent_id);
+                console.log('[navigateToSafe] rootFolders:', rootFolders.map(f => f.name));
+                
+                // Find ALL subfolders inside root folders
+                const allSubfolders = folderTree.filter(f => f.safe_id === safeId && f.parent_id && rootFolders.some(rf => rf.id === f.parent_id));
+                console.log('[navigateToSafe] allSubfolders:', allSubfolders.map(f => f.name));
+                
+                // Use first root folder as primary (for uploads), but we'll show content from all
+                const primaryFolderId = rootFolders.length > 0 ? rootFolders[0].id : null;
+                
+                // Update URL
+                if (pushState) {
+                    history.pushState({ safeId: safeId }, '', `{{ base_url }}/?safe_id=${safeId}`);
+                }
+                
+                // Set current state - we're in safe
+                window.currentFolderId = primaryFolderId;
+                window.currentSafeId = safeId;
+                
+                // Safe works like a regular folder - show its root content (empty) and subfolders
+                if (rootFolders.length > 0) {
+                    console.log('[navigateToSafe] Safe has', rootFolders.length, 'root folders, rendering as folder');
+                    
+                    // Create fake folder data for the safe root
+                    const safeAsFolder = {
+                        folder: {
+                            id: safeId,
+                            name: safe.name,
+                            user_id: safe.user_id,
+                            permission: 'owner' // Safe owner always has full access
+                        },
+                        // Root of safe has no items (they are in subfolders)
+                        items: [],
+                        albums: [],
+                        photos: [],
+                        subfolders: rootFolders, // These will be shown as subfolders
+                        breadcrumbs: [
+                            { id: safeId, name: safe.name }
+                        ],
+                        sort: 'uploaded'
+                    };
+                    
+                    console.log('[navigateToSafe] Rendering safe as folder with', rootFolders.length, 'subfolders');
+                    renderFolderContent(safeAsFolder);
+                } else {
+                    // No folders in safe yet - show empty state
+                    console.log('[navigateToSafe] No root folder, showing empty state');
+                    renderSafeRootContent(safe);
+                }
+                
+                // Highlight safe in sidebar (not a specific folder)
+                document.querySelectorAll('.folder-item').forEach(item => item.classList.remove('active'));
+                const safeItem = document.querySelector(`.folder-item.safe-item[data-safe-id="${safeId}"]`);
+                if (safeItem) safeItem.classList.add('active');
+                
+                loadSafeThumbnails();
+                
+                // Update folder header for safe
+                const folderHeader = document.querySelector('.folder-header');
+                const folderBreadcrumbs = document.getElementById('folder-breadcrumbs');
+                
+                if (folderHeader) {
+                    folderHeader.style.display = 'flex';
+                    const h2 = folderHeader.querySelector('h2');
+                    if (h2) h2.textContent = safe.name;
+                    
+                    // Show upload button for safe
+                    const uploadBtn = folderHeader.querySelector('#folder-upload-btn');
+                    if (uploadBtn) uploadBtn.style.display = '';
+                    
+                    // Hide share/edit/sort buttons for safe root
+                    const shareBtn = folderHeader.querySelector('button[onclick^="openShareModal"]');
+                    const editBtn = folderHeader.querySelector('button[onclick^="openEditFolder"]');
+                    const sortBtn = folderHeader.querySelector('#sort-btn');
+                    if (shareBtn) shareBtn.style.display = 'none';
+                    if (editBtn) editBtn.style.display = 'none';
+                    if (sortBtn) sortBtn.style.display = 'none';
+                }
+                
+                if (folderBreadcrumbs) {
+                    folderBreadcrumbs.innerHTML = `
+                        <a href="{{ base_url }}/" onclick="event.preventDefault(); navigateToDefaultFolder(); return false;">Home</a>
+                        <span class="separator">/</span>
+                        <span>${escapeHtml(safe.name)}</span>
+                    `;
+                    folderBreadcrumbs.style.display = '';
+                }
+                
+            } catch (err) {
+                console.error('[navigateToSafe] Failed:', err);
+                alert('Failed to load safe: ' + err.message);
+            }
+        }
+        
+        // Render safe content similar to regular gallery with subfolders section
+        function renderSafeContent(data, safe, subfolders) {
+            console.log('[renderSafeContent] Rendering safe:', safe.name, 'subfolders:', subfolders?.length, 'items:', data.items?.length);
+            console.log('[renderSafeContent] Items types:', data.items?.map(i => i.type));
+            
+            const gallery = document.getElementById('gallery');
+            
+            if (!gallery) {
+                console.error('[renderSafeContent] Gallery element not found!');
+                return;
+            }
+            
+            document.title = safe.name + ' - Synth Gallery';
+            
+            // Build subfolders section using provided subfolders list
+            let subfoldersHtml = '';
+            if (subfolders && subfolders.length > 0) {
+                subfoldersHtml = `
+                    <div class="subfolders-section">
+                        <div class="subfolders-grid">
+                            ${subfolders.map(folder => `
+                                <a href="{{ base_url }}/?folder_id=${folder.id}" class="subfolder-tile" data-folder-id="${folder.id}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('${folder.id}'); return false;">
+                                    <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                    </svg>
+                                    <span class="subfolder-name">${escapeHtml(folder.name)}</span>
+                                    <span class="subfolder-count">${folder.photo_count || 0}</span>
+                                </a>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Filter only photos and albums for gallery (exclude folders)
+            const galleryItems = (data.items || []).filter(item => item.type === 'photo' || item.type === 'album');
+            console.log('[renderSafeContent] Gallery items after filter:', galleryItems.length);
+            
+            // Build gallery content (photos and albums from root folder)
+            let galleryHtml = '<div class="gallery" id="gallery" style="opacity: 0; transition: opacity 0.15s;">';
+            
+            if (galleryItems.length > 0) {
+                galleryItems.forEach(item => {
+                    if (item.type === 'album') {
+                        // Album rendering
+                        const album = item.data;
+                        const coverId = album.cover_photo_id || album.effective_cover_photo_id;
+                        galleryHtml += `
+                            <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album">
+                                <div class="gallery-link" onclick="openAlbum('${album.id}')">
+                                    ${coverId ? `
+                                        <div class="gallery-placeholder"></div>
+                                        <img src="{{ base_url }}/thumbnails/${coverId}.jpg" alt="${escapeHtml(album.name)}" loading="lazy" onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';" style="opacity: 0;">
+                                    ` : `
+                                        <div class="album-placeholder"><span>Empty Album</span></div>
+                                    `}
+                                    <div class="album-badge">
+                                        <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                                            <rect x="3" y="3" width="7" height="7" rx="1"/>
+                                            <rect x="14" y="3" width="7" height="7" rx="1"/>
+                                            <rect x="3" y="14" width="7" height="7" rx="1"/>
+                                            <rect x="14" y="14" width="7" height="7" rx="1"/>
+                                        </svg>
+                                        <span>${album.photo_count || 0}</span>
+                                    </div>
+                                </div>
+                                <div class="select-indicator" title="Select">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <polyline points="20 6 9 17 4 12"></polyline>
+                                    </svg>
+                                </div>
+                            </div>
+                        `;
+                    } else if (item.type === 'photo') {
+                        // Photo rendering
+                        const photo = item.data;
+                        const safeId = photo.safe_id;
+                        const mediaType = photo.media_type || 'image';
+                        
+                        if (safeId) {
+                            // Safe photo with client-side thumbnail
+                            galleryHtml += `
+                                <div class="gallery-item" data-photo-id="${photo.id}" data-item-type="photo" data-media-type="${mediaType}" data-safe-id="${safeId}">
+                                    <div class="gallery-link" onclick="openPhoto('${photo.id}')">
+                                        <div class="gallery-placeholder"></div>
+                                        <img data-safe-thumbnail="${photo.id}" data-safe-id="${safeId}" alt="${escapeHtml(photo.original_name)}" loading="lazy" style="opacity: 0;">
+                                        ${mediaType === 'video' ? `
+                                            <div class="video-badge">
+                                                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                                </svg>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <div class="select-indicator" title="Select">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // Regular photo
+                            galleryHtml += `
+                                <div class="gallery-item" data-photo-id="${photo.id}" data-item-type="photo" data-media-type="${mediaType}">
+                                    <div class="gallery-link" onclick="openPhoto('${photo.id}')">
+                                        <div class="gallery-placeholder"></div>
+                                        <img src="{{ base_url }}/thumbnails/${photo.id}.jpg" alt="${escapeHtml(photo.original_name || '')}" loading="lazy" onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';" style="opacity: 0;">
+                                        ${mediaType === 'video' ? `
+                                            <div class="video-badge">
+                                                <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                                </svg>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                    <div class="select-indicator" title="Select">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                            <polyline points="20 6 9 17 4 12"></polyline>
+                                        </svg>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                });
+            } else {
+                galleryHtml += `
+                    <div class="empty-state">
+                        <p>No photos yet</p>
+                        <p>Click "Upload" to add your first photos</p>
+                    </div>
+                `;
+            }
+            
+            galleryHtml += '</div>';
+            
+            console.log('[renderSafeContent] subfoldersHtml length:', subfoldersHtml.length);
+            console.log('[renderSafeContent] galleryHtml length:', galleryHtml.length);
+            console.log('[renderSafeContent] gallery exists before insert:', !!document.getElementById('gallery'));
+            
+            // Insert subfolders before gallery and replace gallery content
+            gallery.insertAdjacentHTML('beforebegin', subfoldersHtml);
+            console.log('[renderSafeContent] After insertAdjacentHTML, gallery exists:', !!document.getElementById('gallery'));
+            
+            gallery.outerHTML = galleryHtml;
+            console.log('[renderSafeContent] After outerHTML, gallery exists:', !!document.getElementById('gallery'));
+            
+            // Restore opacity
+            setTimeout(() => {
+                const newGallery = document.getElementById('gallery');
+                if (newGallery) newGallery.style.opacity = '1';
+            }, 50);
+            
+            // Load safe thumbnails
+            if (typeof loadSafeThumbnails === 'function') {
+                loadSafeThumbnails();
+            }
+            
+            // Initialize masonry if available
+            if (typeof window.rebuildMasonry === 'function') {
+                setTimeout(() => window.rebuildMasonry(true), 100);
+            }
+        }
+        
+        // Render safe root content (when safe has no folders yet)
+        function renderSafeRootContent(safe) {
+            const gallery = document.getElementById('gallery');
+            if (!gallery) return;
+            
+            gallery.innerHTML = `
+                <div class="empty-state">
+                    <p>Safe "${escapeHtml(safe.name)}" is empty</p>
+                    <p>Create a folder or upload photos directly to the safe</p>
+                </div>
+            `;
+            document.title = safe.name + ' - Synth Gallery';
+            gallery.style.opacity = '1';
         }
         
         // Render folder content in gallery
@@ -1767,7 +2235,7 @@
         }
         
         // Load safe thumbnails client-side (E2E decryption)
-        async function loadSafeThumbnails() {
+        window.loadSafeThumbnails = async function() {
             const safeImages = document.querySelectorAll('img[data-safe-thumbnail]');
             if (safeImages.length === 0) return;
             
@@ -2432,6 +2900,40 @@
             safeModal.classList.add('hidden');
         }
 
+        // Toggle password visibility
+        window.toggleSafePassword = function(inputId, button) {
+            const input = document.getElementById(inputId);
+            const isPassword = input.type === 'password';
+            input.type = isPassword ? 'text' : 'password';
+            
+            // Update icon
+            button.innerHTML = isPassword 
+                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
+            button.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+        };
+
+        // Password strength indicator - используем уже объявленную переменную
+        if (safePasswordInput) {
+            safePasswordInput.addEventListener('input', function() {
+                const value = this.value;
+                const strengthBar = document.querySelector('#safe-password-strength .strength-bar');
+                if (!strengthBar) return;
+                
+                let strength = 0;
+                if (value.length >= 8) strength++;
+                if (value.match(/[a-z]/) && value.match(/[A-Z]/)) strength++;
+                if (value.match(/[0-9]/)) strength++;
+                if (value.match(/[^a-zA-Z0-9]/)) strength++;
+                
+                const colors = ['#ff4444', '#ff8800', '#ffcc00', '#44ff44'];
+                const widths = ['25%', '50%', '75%', '100%'];
+                
+                strengthBar.style.width = widths[strength - 1] || '0%';
+                strengthBar.style.backgroundColor = colors[strength - 1] || '#444';
+            });
+        }
+
         function openSafeUnlock(safeId, safeName, unlockType) {
             currentUnlockSafeId = safeId;
             safeUnlockTitle.textContent = `Unlock "${safeName}"`;
@@ -2457,8 +2959,8 @@
             currentUnlockSessionKey = null;
         }
 
-        // Create safe
-        safeSubmitBtn.onclick = async () => {
+        // Create safe - handle form submit
+        document.getElementById('safe-form').addEventListener('submit', async (e) => {
             const name = safeNameInput.value.trim();
             if (!name) {
                 alert('Please enter a safe name');
@@ -2548,11 +3050,7 @@
 
                 closeSafeModal();
                 loadSafes();
-                
-                // Ask user if they want to create a folder in the safe
-                if (confirm('Safe created! Create a folder inside it?')) {
-                    openCreateFolderInSafe(createResult.safe_id);
-                }
+                // Safe created - user can now create folders via "add folder" button or upload directly to safe
                 
             } catch (err) {
                 console.error('Create safe failed:', err);
@@ -2561,10 +3059,10 @@
                 safeSubmitBtn.disabled = false;
                 safeSubmitBtn.textContent = 'Create Safe';
             }
-        };
+        });
 
-        // Unlock safe
-        safeUnlockSubmitBtn.onclick = async () => {
+        // Unlock safe - handle form submit
+        document.getElementById('safe-unlock-form').addEventListener('submit', async (e) => {
             if (!currentUnlockSafeId) return;
 
             const safe = userSafes.find(s => s.id === currentUnlockSafeId);
@@ -2682,6 +3180,23 @@
                 loadSafes();
                 loadFolderTree();
                 
+                // Refresh safe thumbnails to show decrypted versions
+                if (typeof loadSafeThumbnails === 'function') {
+                    console.log('[Unlock] Refreshing safe thumbnails');
+                    loadSafeThumbnails();
+                }
+                
+                // If there was a pending photo to view, open it now
+                if (window.pendingSafePhotoId) {
+                    console.log('[Unlock] Opening pending photo:', window.pendingSafePhotoId);
+                    const photoId = window.pendingSafePhotoId;
+                    window.pendingSafePhotoId = null;
+                    // Open the photo in lightbox if function exists
+                    if (typeof openPhoto === 'function') {
+                        openPhoto(photoId);
+                    }
+                }
+                
             } catch (err) {
                 console.error('Unlock failed:', err);
                 alert('Unlock failed: ' + err.message);
@@ -2689,7 +3204,7 @@
                 safeUnlockSubmitBtn.disabled = false;
                 safeUnlockSubmitBtn.textContent = 'Unlock';
             }
-        };
+        });
 
         // Delete safe
         async function deleteSafe(safeId, safeName) {
