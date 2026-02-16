@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Backup Management - Synth Admin</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
     <style>
         .admin-layout {
             max-width: 800px;
@@ -153,10 +153,10 @@
                 Database Backups
             </h1>
             <nav class="admin-nav">
-                <a href="/admin/backups" class="active">Backups</a>
-                <a href="/admin/maintenance">Maintenance</a>
+                <a href="{{ base_url }}/admin/backups" class="active">Backups</a>
+                <a href="{{ base_url }}/admin/maintenance">Maintenance</a>
                 <span style="color: var(--border);">|</span>
-                <a href="/" class="back-link">&larr; Gallery</a>
+                <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
 
@@ -185,7 +185,7 @@
                         </div>
                     </div>
                     <div class="backup-item-actions">
-                        <a href="/api/admin/backup/{{ backup.name }}/download" class="btn btn-small btn-secondary">Download</a>
+                        <a href="{{ base_url }}/api/admin/backup/{{ backup.name }}/download" class="btn btn-small btn-secondary">Download</a>
                         <button class="btn btn-small btn-secondary" onclick="restoreBackup('{{ backup.name }}')">Restore</button>
                         <button class="btn btn-small btn-danger" onclick="deleteBackup('{{ backup.name }}')">Delete</button>
                     </div>
@@ -255,7 +255,7 @@
                     </div>
                     <div class="backup-item-actions">
                         <button class="btn btn-small btn-secondary" onclick="verifyFullBackup('{{ backup.filename }}')">Verify</button>
-                        <a href="/api/admin/full-backup/{{ backup.filename }}/download" class="btn btn-small btn-secondary">Download</a>
+                        <a href="{{ base_url }}/api/admin/full-backup/{{ backup.filename }}/download" class="btn btn-small btn-secondary">Download</a>
                         <button class="btn btn-small btn-secondary" onclick="restoreFullBackup('{{ backup.filename }}')">Restore</button>
                         <button class="btn btn-small btn-danger" onclick="deleteFullBackup('{{ backup.filename }}')">Delete</button>
                     </div>
@@ -297,7 +297,7 @@
             btn.textContent = 'Creating...';
 
             try {
-                const resp = await csrfFetch('/api/admin/backup', { method: 'POST' });
+                const resp = await csrfFetch('{{ base_url }}/api/admin/backup', { method: 'POST' });
                 if (!resp.ok) throw new Error('Failed to create backup');
 
                 const data = await resp.json();
@@ -316,7 +316,7 @@
             }
 
             try {
-                const resp = await csrfFetch(`/api/admin/backup/${filename}/restore`, { method: 'POST' });
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/backup/${filename}/restore`, { method: 'POST' });
                 if (!resp.ok) throw new Error('Failed to restore backup');
 
                 const data = await resp.json();
@@ -333,7 +333,7 @@
             }
 
             try {
-                const resp = await csrfFetch(`/api/admin/backup/${filename}`, { method: 'DELETE' });
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/backup/${filename}`, { method: 'DELETE' });
                 if (!resp.ok) throw new Error('Failed to delete backup');
 
                 const item = document.querySelector(`.backup-item[data-name="${filename}"]:not(.full-backup-item)`);
@@ -381,7 +381,7 @@
             list.insertBefore(progressItem, list.firstChild);
 
             try {
-                const resp = await csrfFetch('/api/admin/full-backup', { method: 'POST' });
+                const resp = await csrfFetch('{{ base_url }}/api/admin/full-backup', { method: 'POST' });
                 if (!resp.ok) {
                     const err = await resp.json();
                     throw new Error(err.detail || 'Failed to create backup');
@@ -417,7 +417,7 @@
             showStatus(`Verifying ${filename}...`);
 
             try {
-                const resp = await fetch(`/api/admin/full-backup/${filename}/verify`);
+                const resp = await fetch(`{{ base_url }}/api/admin/full-backup/${filename}/verify`);
                 if (!resp.ok) throw new Error('Verification request failed');
 
                 const data = await resp.json();
@@ -439,7 +439,7 @@
             showStatus(`Restoring from ${filename}...`);
 
             try {
-                const resp = await csrfFetch(`/api/admin/full-backup/${filename}/restore`, { method: 'POST' });
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/full-backup/${filename}/restore`, { method: 'POST' });
                 if (!resp.ok) {
                     const err = await resp.json();
                     throw new Error(err.detail || 'Restore failed');
@@ -459,7 +459,7 @@
             }
 
             try {
-                const resp = await csrfFetch(`/api/admin/full-backup/${filename}`, { method: 'DELETE' });
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/full-backup/${filename}`, { method: 'DELETE' });
                 if (!resp.ok) throw new Error('Failed to delete backup');
 
                 const item = document.querySelector(`.full-backup-item[data-name="${filename}"]`);

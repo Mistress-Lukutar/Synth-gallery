@@ -1,9 +1,13 @@
 """Authentication routes."""
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 
-from ..config import BASE_DIR, SESSION_COOKIE, SESSION_MAX_AGE
+from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH
+from fastapi.templating import Jinja2Templates
+from ..config import BASE_DIR
+
+templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
+templates.env.globals["base_url"] = ROOT_PATH
 from ..database import (
     authenticate_user, create_session, delete_session, get_session,
     get_user_encryption_keys, set_user_encryption_keys
@@ -12,7 +16,6 @@ from ..dependencies import get_csrf_token
 from ..services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
-templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 
 
 @router.get("/login")
@@ -36,12 +39,13 @@ def login_page(request: Request, error: str = None):
                         "request": request,
                         "error": "Session restored. Please enter password to decrypt your files.",
                         "username": session["username"],
-                        "csrf_token": get_csrf_token(request)
+                        "csrf_token": get_csrf_token(request),
+                        "base_url": ROOT_PATH
                     }
                 )
 
             # DEK is in cache or user has no encryption, safe to redirect
-            return RedirectResponse(url="/", status_code=302)
+            return RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
 
     return templates.TemplateResponse(
         "login.html",
@@ -49,7 +53,8 @@ def login_page(request: Request, error: str = None):
             "request": request,
             "error": error,
             "username": "",
-            "csrf_token": get_csrf_token(request)
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH
         }
     )
 
@@ -66,7 +71,8 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
                 "request": request,
                 "error": "Invalid username or password",
                 "username": username,
-                "csrf_token": get_csrf_token(request)
+                "csrf_token": get_csrf_token(request),
+                "base_url": ROOT_PATH
             },
             status_code=401
         )
@@ -97,7 +103,7 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         dek_cache.set(user["id"], dek, ttl_seconds=SESSION_MAX_AGE)
 
     # Redirect to gallery with session cookie
-    response = RedirectResponse(url="/", status_code=302)
+    response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_id,
@@ -119,6 +125,6 @@ def logout(request: Request):
             dek_cache.invalidate(session["user_id"])
         delete_session(session_id)
 
-    response = RedirectResponse(url="/login", status_code=302)
+    response = RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
     response.delete_cookie(SESSION_COOKIE)
     return response

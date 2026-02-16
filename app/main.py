@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .config import BASE_DIR
+from .config import BASE_DIR, ROOT_PATH
 from .database import init_db, cleanup_expired_sessions
 from .middleware import AuthMiddleware, CSRFMiddleware
 from .services.backup import backup_scheduler
@@ -17,6 +17,8 @@ from .routes.tags import router as tags_router
 from .routes.api import router as api_router
 from .routes.admin import router as admin_router
 from .routes.webauthn import router as webauthn_router, settings_router
+from .routes.safes import router as safes_router
+from .routes.safe_files import router as safe_files_router
 
 
 @asynccontextmanager
@@ -31,7 +33,7 @@ async def lifespan(app: FastAPI):
     backup_scheduler.stop()
 
 
-app = FastAPI(title="Photo Gallery", lifespan=lifespan)
+app = FastAPI(title="Photo Gallery", lifespan=lifespan, root_path=ROOT_PATH)
 
 # Add middleware (order matters - first added = last executed)
 app.add_middleware(AuthMiddleware)
@@ -50,3 +52,5 @@ app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(webauthn_router)
 app.include_router(settings_router)
+app.include_router(safes_router)
+app.include_router(safe_files_router)

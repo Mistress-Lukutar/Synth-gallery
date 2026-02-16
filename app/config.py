@@ -11,6 +11,11 @@ THUMBNAILS_DIR = BASE_DIR / "thumbnails"
 UPLOADS_DIR.mkdir(exist_ok=True)
 THUMBNAILS_DIR.mkdir(exist_ok=True)
 
+# Base URL configuration (for running under a subpath like /synth)
+# Set via environment variable SYNTH_BASE_URL, e.g., "synth" or "/synth"
+BASE_URL = os.environ.get("SYNTH_BASE_URL", "").strip("/")
+ROOT_PATH = f"/{BASE_URL}" if BASE_URL else ""
+
 # Allowed media types
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
@@ -20,7 +25,7 @@ ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 SESSION_COOKIE = "synth_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
-# Paths that don't require authentication
+# Paths that don't require authentication (without BASE_URL prefix)
 PUBLIC_PATHS = {"/login", "/static", "/favicon.ico"}
 
 # API key for AI service (should be set via environment variable)
