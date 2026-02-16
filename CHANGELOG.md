@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-02-16
+
 ### Added
 - **Safes (Encrypted Vaults)** - Folders with independent end-to-end encryption
   - Each safe has its own encryption key (DEK), separate from user's master key
@@ -17,11 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Files stored encrypted on disk
     - Server returns encrypted files with `X-Encryption: e2e` header
     - Client decrypts files in browser using SafeCrypto
+  - Client-side thumbnail generation for safe uploads (E2E encryption)
   - No sharing support (owner-only access)
   - Requires HTTPS or localhost (Web Crypto API)
-  - Fixed base64 encoding issues between client and server
-  - Fixed URL-safe base64 decoding on server (Python's urlsafe_b64decode)
-  - Fixed JavaScript syntax error in gallery.html (broken function structure)
+
+### Fixed
+- Fixed base64 encoding issues between client and server
+- Fixed URL-safe base64 decoding on server (Python's urlsafe_b64decode)
+- Fixed JavaScript syntax error in gallery.html (broken function structure)
+- Fixed safe folder tree display and navigation
+- Fixed Edit Safe modal incorrectly opening for folders inside safes
+- Fixed SPA navigation for upload/delete/album-editor (no page reload)
+- Fixed upload modal: close after success, accumulate files across selections
+- Fixed sort persistence and upload error handling
+- Fixed progressive image loading in lightbox
 
 ## [0.8.4] - 2026-01-10
 
@@ -275,6 +286,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Responsive masonry grid layout
 - Lightbox photo viewer
 
+[0.8.5]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.4...v0.8.5
+[0.8.4]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.3...v0.8.4
+[0.8.3]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.7.0...v0.8.0
