@@ -5,11 +5,10 @@ Personal media vault with end-to-end encryption, hardware key authentication, an
 ## Key Features
 
 ### Security
-- **End-to-End Encryption** — AES-256-GCM encryption for all uploaded files
+- **Server-side Encryption** — AES-256-GCM encryption for all uploaded files
 - **Encrypted Vaults (Safes)** — Independent E2E-encrypted containers with separate keys
 - **Hardware Key Login** — WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Recovery Keys** — Generate backup keys to recover access if password is lost
-- **Zero-Knowledge** — Server/admin cannot access your files without your password
 
 ### Storage & Organization
 - **Folder Hierarchy** — Organize content in nested folders
