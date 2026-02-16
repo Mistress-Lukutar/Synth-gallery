@@ -3457,6 +3457,219 @@ main {
     }
 }
 
+/* Safe input wrapper with password toggle */
+.safe-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.safe-input-wrapper input {
+    width: 100%;
+    padding: 0.75rem 2.5rem 0.75rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.9rem;
+    transition: border-color 0.2s;
+}
+
+.safe-input-wrapper input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.safe-input-wrapper input::placeholder {
+    color: var(--text-muted);
+}
+
+.safe-input-wrapper .password-toggle {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: color 0.2s, background 0.2s;
+}
+
+.safe-input-wrapper .password-toggle:hover {
+    color: var(--text);
+    background: var(--bg-secondary);
+}
+
+.safe-input-wrapper .password-toggle svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Safe input label with icon */
+.safe-input-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.safe-input-label svg {
+    width: 18px;
+    height: 18px;
+    color: var(--accent);
+}
+
+/* Safe password input (standalone) */
+.safe-password-input {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.9rem;
+}
+
+.safe-password-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Safe input hint */
+.safe-input-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    line-height: 1.4;
+}
+
+.safe-input-hint svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    color: var(--accent);
+}
+
+/* Safe select wrapper */
+.safe-select-wrapper {
+    position: relative;
+}
+
+.safe-select-wrapper select {
+    width: 100%;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.9rem;
+    appearance: none;
+    cursor: pointer;
+}
+
+.safe-select-wrapper select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Safe password strength indicator */
+.safe-password-strength {
+    height: 4px;
+    background: var(--bg);
+    border-radius: 2px;
+    margin-top: 0.5rem;
+    overflow: hidden;
+}
+
+.safe-password-strength .strength-bar {
+    height: 100%;
+    width: 0;
+    background: #444;
+    transition: width 0.3s, background 0.3s;
+}
+
+/* Safe password group spacing */
+.safe-password-group {
+    margin-bottom: 1.25rem;
+}
+
+/* Safe modal actions */
+.safe-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.safe-modal-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.safe-modal-actions .btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Safe cancel button */
+.safe-cancel-btn {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.safe-cancel-btn:hover {
+    background: var(--bg-secondary);
+    border-color: var(--text-muted);
+}
+
+/* Safe submit button */
+.safe-submit-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+}
+
+.safe-submit-btn:hover {
+    background: var(--accent-hover);
+}
+
+.safe-submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* WebAuthn prompt in unlock modal */
+.webauthn-prompt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-muted);
+    gap: 1rem;
+}
+
+.webauthn-prompt svg {
+    width: 48px;
+    height: 48px;
+    color: var(--accent);
+}
+
 
 /* ==========================================================================
    SAFE E2E ENCRYPTION - LIGHTBOX
