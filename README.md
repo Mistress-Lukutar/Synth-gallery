@@ -6,6 +6,7 @@ Personal media vault with end-to-end encryption, hardware key authentication, an
 
 ### Security
 - **End-to-End Encryption** — AES-256-GCM encryption for all uploaded files
+- **Encrypted Vaults (Safes)** — Independent E2E-encrypted containers with separate keys
 - **Hardware Key Login** — WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Recovery Keys** — Generate backup keys to recover access if password is lost
 - **Zero-Knowledge** — Server/admin cannot access your files without your password
@@ -90,6 +91,29 @@ Admin UI available at `/admin/backups`
 
 Note: Keys are bound to the domain where registered. Register separate keys for each access method (localhost, VPN, public domain).
 
+## Encrypted Vaults (Safes)
+
+Safes are independent encrypted containers with their own encryption keys, separate from your user account key.
+
+### Features
+- **Independent Encryption Key** — Each safe has its own DEK (Data Encryption Key)
+- **Multiple Unlock Methods** — Password (PBKDF2) or hardware key (WebAuthn)
+- **Folder Structure** — Create folders and albums inside safes
+- **True E2E** — Server never sees decrypted content; files are decrypted in your browser
+- **No Sharing** — Owner-only access (by design)
+
+### Usage
+1. Click "+" next to "Safes" in the sidebar
+2. Choose unlock method: password or hardware key
+3. Upload files — they are encrypted client-side before sending to server
+4. Click the safe to unlock it (decryption happens locally in your browser)
+
+### Security Notes
+- Safe passwords are independent of your account password
+- Lost safe password = lost data (no recovery)
+- Files inside safes are stored double-encrypted: safe encryption + user's master encryption
+- Requires HTTPS or localhost (Web Crypto API requirement)
+
 ## Environment Variables
 
 ```bash
@@ -110,6 +134,7 @@ BACKUP_ROTATION_COUNT=5        # number of backups to keep
 | Layer | Protection |
 |-------|------------|
 | Files at rest | AES-256-GCM per-user encryption |
+| Safes (Vaults) | Additional AES-256-GCM with independent keys |
 | Password | bcrypt + PBKDF2-SHA256 key derivation |
 | Sessions | HTTP-only cookies, 7-day expiry |
 | API | CSRF tokens, API key auth for external services |
