@@ -65,14 +65,12 @@ def patched_config(isolated_environment: Dict):
         "THUMBNAILS_DIR": config.THUMBNAILS_DIR,
         "BACKUP_PATH": config.BACKUP_PATH,
         "DATABASE_PATH": db_module.DATABASE_PATH,
-        "BASE_DIR": config.BASE_DIR,
     }
     
-    # Apply patches
+    # Apply patches - NOTE: We don't patch BASE_DIR to keep static files working
     config.UPLOADS_DIR = isolated_environment["uploads_dir"]
     config.THUMBNAILS_DIR = isolated_environment["thumbnails_dir"]
     config.BACKUP_PATH = isolated_environment["backups_dir"]
-    config.BASE_DIR = isolated_environment["base_dir"]
     db_module.DATABASE_PATH = isolated_environment["db_path"]
     db_module.BASE_DIR = isolated_environment["base_dir"]
     
@@ -83,7 +81,7 @@ def patched_config(isolated_environment: Dict):
     config.THUMBNAILS_DIR = originals["THUMBNAILS_DIR"]
     config.BACKUP_PATH = originals["BACKUP_PATH"]
     db_module.DATABASE_PATH = originals["DATABASE_PATH"]
-    db_module.BASE_DIR = originals["BASE_DIR"]
+    db_module.BASE_DIR = config.BASE_DIR  # Restore from config
 
 
 @pytest.fixture(scope="function")
@@ -191,11 +189,16 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
             response = authenticated_client.get("/")
             assert response.status_code == 200  # Not 302 redirect to login
     """
+    # First get login page to obtain CSRF token
+    client.get("/login")
+    csrf_token = client.cookies.get("synth_csrf", "")
+    
     response = client.post(
         "/login",
         data={
             "username": test_user["username"],
-            "password": test_user["password"]
+            "password": test_user["password"],
+            "csrf_token": csrf_token
         },
         follow_redirects=False
     )
@@ -204,6 +207,12 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
     assert "synth_session" in response.cookies, "Session cookie should be set"
     
     return client
+
+
+@pytest.fixture(scope="function")
+def csrf_token(authenticated_client: TestClient) -> str:
+    """Get CSRF token for authenticated client."""
+    return authenticated_client.cookies.get("synth_csrf", "")
 
 
 @pytest.fixture(scope="function")
