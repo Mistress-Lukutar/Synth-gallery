@@ -2268,6 +2268,93 @@
             }
         }
         
+        // Helper: Regenerate and upload thumbnail for a safe photo
+        window.regenerateSafeThumbnail = async function(photoId, safeId) {
+            console.log(`[RegenerateThumbnail] Starting for photo ${photoId} in safe ${safeId}`);
+            
+            try {
+                // Fetch the original encrypted file
+                const fileResp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/file`);
+                if (!fileResp.ok) {
+                    console.error(`[RegenerateThumbnail] Failed to fetch original file:`, fileResp.status);
+                    return null;
+                }
+                
+                // Get photo info to determine mime type
+                const photoInfoResp = await fetch(`{{ base_url }}/api/photos/${photoId}`);
+                let mimeType = 'image/jpeg';
+                if (photoInfoResp.ok) {
+                    const photoInfo = await photoInfoResp.json();
+                    mimeType = photoInfo.media_type === 'video' ? 'video/mp4' : (photoInfo.mime_type || 'image/jpeg');
+                }
+                
+                // Decrypt the file
+                const encryptedBlob = await fileResp.blob();
+                const decryptedBlob = await SafeCrypto.decryptFileFromSafe(encryptedBlob, safeId, mimeType);
+                
+                // Create a File object from the decrypted blob
+                const fileName = `photo_${photoId}.${mimeType.split('/')[1] || 'jpg'}`;
+                const file = new File([decryptedBlob], fileName, { type: mimeType });
+                
+                // Generate thumbnail using SafeCrypto's internal method
+                let thumbnailBlob;
+                let thumbWidth = 0;
+                let thumbHeight = 0;
+                
+                if (file.type.startsWith('video/')) {
+                    thumbnailBlob = await SafeCrypto._generateVideoThumbnail(file, 400);
+                } else {
+                    thumbnailBlob = await SafeCrypto._generateImageThumbnail(file, 400);
+                }
+                
+                // Get dimensions
+                const img = await SafeCrypto._loadImageFromBlob(thumbnailBlob);
+                thumbWidth = img.width;
+                thumbHeight = img.height;
+                
+                // Encrypt thumbnail with safe DEK
+                const safeDEK = SafeCrypto.getSafeDEK(safeId);
+                const thumbData = new Uint8Array(await thumbnailBlob.arrayBuffer());
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                const encryptedThumbData = await window.crypto.subtle.encrypt(
+                    { name: 'AES-GCM', iv: iv },
+                    safeDEK,
+                    thumbData
+                );
+                
+                // Combine IV + encrypted data
+                const encryptedThumbnail = new Uint8Array(iv.length + encryptedThumbData.byteLength);
+                encryptedThumbnail.set(iv);
+                encryptedThumbnail.set(new Uint8Array(encryptedThumbData), iv.length);
+                
+                // Upload thumbnail
+                const formData = new FormData();
+                formData.append('thumbnail', new Blob([encryptedThumbnail]), 'thumbnail.jpg');
+                formData.append('thumb_width', thumbWidth);
+                formData.append('thumb_height', thumbHeight);
+                
+                const uploadResp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/thumbnail`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                    },
+                    body: formData
+                });
+                
+                if (!uploadResp.ok) {
+                    console.error(`[RegenerateThumbnail] Failed to upload thumbnail:`, uploadResp.status);
+                    return null;
+                }
+                
+                console.log(`[RegenerateThumbnail] Successfully regenerated thumbnail for ${photoId}`);
+                return new Blob([encryptedThumbnail]);
+                
+            } catch (err) {
+                console.error(`[RegenerateThumbnail] Error:`, err);
+                return null;
+            }
+        }
+        
         // Load safe thumbnails client-side (E2E decryption)
         window.loadSafeThumbnails = async function() {
             const safeImages = document.querySelectorAll('img[data-safe-thumbnail]');
@@ -2294,6 +2381,52 @@
                 try {
                     // Fetch encrypted thumbnail
                     const resp = await fetch(`{{ base_url }}/api/safe-files/photos/${photoId}/thumbnail`);
+                    
+                    // Check if thumbnail needs regeneration (202 status with X-Regenerate-Thumbnail header)
+                    if (resp.status === 202 && resp.headers.get('X-Regenerate-Thumbnail') === 'true') {
+                        console.log(`[LoadSafeThumbnails] Thumbnail missing for ${photoId}, regenerating...`);
+                        
+                        // Show loading state
+                        img.style.opacity = '0.5';
+                        
+                        // Regenerate thumbnail
+                        const regeneratedBlob = await regenerateSafeThumbnail(photoId, safeId);
+                        
+                        if (!regeneratedBlob) {
+                            console.warn(`[LoadSafeThumbnails] Failed to regenerate thumbnail for ${photoId}`);
+                            img.src = placeholderSvg;
+                            img.style.opacity = '1';
+                            img.previousElementSibling.style.display = 'none';
+                            if (window.onGalleryImageLoad) {
+                                window.onGalleryImageLoad(img);
+                            }
+                            continue;
+                        }
+                        
+                        // Decrypt and display the regenerated thumbnail
+                        const decryptedBlob = await SafeCrypto.decryptFileFromSafe(regeneratedBlob, safeId, 'image/jpeg');
+                        const url = URL.createObjectURL(decryptedBlob);
+                        img.src = url;
+                        
+                        img.onload = () => {
+                            img.previousElementSibling.style.display = 'none';
+                            img.style.opacity = '1';
+                            if (window.onGalleryImageLoad) {
+                                window.onGalleryImageLoad(img);
+                            }
+                        };
+                        
+                        img.onerror = () => {
+                            img.src = placeholderSvg;
+                            img.style.opacity = '1';
+                            img.previousElementSibling.style.display = 'none';
+                            if (window.onGalleryImageLoad) {
+                                window.onGalleryImageLoad(img);
+                            }
+                        };
+                        continue;
+                    }
+                    
                     if (!resp.ok) {
                         console.warn(`Failed to load thumbnail for ${photoId}:`, resp.status);
                         // Show placeholder for missing thumbnail (404 or other error)
