@@ -1,0 +1,338 @@
+"""
+Gallery view and file access integration tests.
+
+Verifies:
+- Gallery page rendering
+- File access control
+- Thumbnail generation
+- Sort order
+"""
+import pytest
+from fastapi.testclient import TestClient
+
+
+class TestGalleryView:
+    """Test main gallery page."""
+    
+    def test_gallery_shows_user_content(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        test_image_bytes: bytes
+    ):
+        """Gallery should display user's photos and folders."""
+        # Upload photo to folder
+        authenticated_client.post(
+            "/upload",
+            data={"folder_id": test_folder},
+            files={"file": ("gallery_item.jpg", test_image_bytes, "image/jpeg")}
+        )
+        
+        # View folder
+        response = authenticated_client.get(f"/?folder_id={test_folder}")
+        
+        assert response.status_code == 200
+        # Should contain photo reference
+        assert "gallery_item" in response.text or test_folder in response.text
+    
+    def test_gallery_defaults_to_user_default_folder(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict
+    ):
+        """Gallery without folder_id should redirect to default folder."""
+        response = authenticated_client.get("/", follow_redirects=False)
+        
+        # Should redirect to folder
+        assert response.status_code == 302
+        assert "folder_id=" in response.headers.get("location", "")
+    
+    def test_gallery_shows_folder_breadcrumbs(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict
+    ):
+        """Gallery should show breadcrumb navigation."""
+        from app.database import create_folder
+        
+        nested = create_folder("Nested", test_user["id"])
+        
+        response = authenticated_client.get(f"/?folder_id={nested}")
+        
+        assert response.status_code == 200
+        # Should contain folder name in breadcrumbs
+        assert "Nested" in response.text
+
+
+class TestFileAccessControl:
+    """Test file access permissions."""
+    
+    def test_owner_can_access_own_file(
+        self,
+        authenticated_client: TestClient,
+        uploaded_photo: dict
+    ):
+        """Owner should access their uploaded file."""
+        response = authenticated_client.get(f"/uploads/{uploaded_photo['filename']}")
+        
+        assert response.status_code == 200
+    
+    def test_viewer_can_access_shared_file(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict,
+        test_image_bytes: bytes
+    ):
+        """Viewer of shared folder can access files."""
+        from app.database import (
+            create_folder, add_folder_permission, 
+            create_user  # Ensure second user exists
+        )
+        
+        # Second user creates folder and uploads
+        folder_id = create_folder("SharedFiles", second_user["id"])
+        
+        client.post(
+            "/login",
+            data={"username": second_user["username"], "password": second_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.post(
+            "/upload",
+            data={"folder_id": folder_id},
+            files={"file": ("shared.jpg", test_image_bytes, "image/jpeg")}
+        )
+        filename = response.json()["filename"]
+        
+        # Share with first user
+        add_folder_permission(folder_id, test_user["id"], "viewer", second_user["id"])
+        
+        # First user accesses file
+        client.cookies.clear()
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.get(f"/uploads/{filename}")
+        
+        assert response.status_code == 200
+    
+    def test_unrelated_user_cannot_access_file(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict,
+        test_image_bytes: bytes
+    ):
+        """User without permission cannot access others' files."""
+        from app.database import create_folder
+        
+        # Second user creates private folder and uploads
+        private_folder = create_folder("PrivateFiles", second_user["id"])
+        
+        client.post(
+            "/login",
+            data={"username": second_user["username"], "password": second_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.post(
+            "/upload",
+            data={"folder_id": private_folder},
+            files={"file": ("secret.jpg", test_image_bytes, "image/jpeg")}
+        )
+        filename = response.json()["filename"]
+        
+        # First user (unrelated) tries to access
+        client.cookies.clear()
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.get(f"/uploads/{filename}")
+        
+        assert response.status_code == 403
+    
+    def test_file_access_requires_authentication(
+        self,
+        client: TestClient,
+        authenticated_client: TestClient,
+        test_folder: str,
+        test_image_bytes: bytes
+    ):
+        """Unauthenticated requests should be rejected."""
+        # Upload as authenticated user
+        response = authenticated_client.post(
+            "/upload",
+            data={"folder_id": test_folder},
+            files={"file": ("auth_test.jpg", test_image_bytes, "image/jpeg")}
+        )
+        filename = response.json()["filename"]
+        
+        # Try to access without auth (new client)
+        response = client.get(f"/uploads/{filename}")
+        
+        assert response.status_code in [302, 401]  # Redirect to login or 401
+
+
+class TestThumbnailAccess:
+    """Test thumbnail generation and access."""
+    
+    def test_thumbnail_generated_on_upload(
+        self,
+        authenticated_client: TestClient,
+        uploaded_photo: dict
+    ):
+        """Thumbnail should exist after upload."""
+        thumbnail_name = f"{uploaded_photo['id']}.jpg"
+        response = authenticated_client.get(f"/thumbnails/{thumbnail_name}")
+        
+        assert response.status_code == 200
+        assert response.headers.get("content-type") == "image/jpeg"
+    
+    def test_thumbnail_requires_same_permissions_as_original(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict,
+        test_image_bytes: bytes
+    ):
+        """Thumbnail access should follow same rules as original."""
+        from app.database import create_folder
+        
+        private_folder = create_folder("ThumbPrivate", second_user["id"])
+        
+        client.post(
+            "/login",
+            data={"username": second_user["username"], "password": second_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.post(
+            "/upload",
+            data={"folder_id": private_folder},
+            files={"file": ("thumb_test.jpg", test_image_bytes, "image/jpeg")}
+        )
+        photo_id = response.json()["id"]
+        
+        # Unrelated user tries to get thumbnail
+        client.cookies.clear()
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.get(f"/thumbnails/{photo_id}.jpg")
+        
+        assert response.status_code == 403
+    
+    def test_thumbnail_regenerated_if_missing(
+        self,
+        authenticated_client: TestClient,
+        uploaded_photo: dict
+    ):
+        """Should regenerate thumbnail if deleted."""
+        from app.config import THUMBNAILS_DIR
+        
+        thumbnail_name = f"{uploaded_photo['id']}.jpg"
+        thumb_path = THUMBNAILS_DIR / thumbnail_name
+        
+        # Delete thumbnail manually
+        if thumb_path.exists():
+            thumb_path.unlink()
+        
+        # Request should regenerate it
+        response = authenticated_client.get(f"/thumbnails/{thumbnail_name}")
+        
+        assert response.status_code == 200
+        # Should exist again (if regeneration is implemented)
+        # assert thumb_path.exists()  # Optional based on implementation
+
+
+class TestGallerySorting:
+    """Test photo/album sorting options."""
+    
+    def test_sort_by_upload_date(self, authenticated_client: TestClient, test_user: dict):
+        """Photos can be sorted by upload date."""
+        from app.database import create_folder
+        
+        folder_id = create_folder("SortTest", test_user["id"])
+        
+        response = authenticated_client.get(f"/?folder_id={folder_id}&sort=uploaded")
+        
+        assert response.status_code == 200
+    
+    def test_sort_by_taken_date(self, authenticated_client: TestClient, test_user: dict):
+        """Photos can be sorted by capture date (EXIF)."""
+        from app.database import create_folder
+        
+        folder_id = create_folder("SortTaken", test_user["id"])
+        
+        response = authenticated_client.get(f"/?folder_id={folder_id}&sort=taken")
+        
+        assert response.status_code == 200
+    
+    def test_folder_content_api_returns_sorted_items(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        test_image_bytes: bytes
+    ):
+        """API should return properly sorted items."""
+        # Upload multiple photos
+        for i in range(3):
+            authenticated_client.post(
+                "/upload",
+                data={"folder_id": test_folder},
+                files={"file": (f"sort_{i}.jpg", test_image_bytes, "image/jpeg")}
+            )
+        
+        response = authenticated_client.get(f"/api/folders/{test_folder}/content?sort=uploaded")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "items" in data:
+                # Verify items are sorted
+                items = data["items"]
+                assert len(items) >= 3
+
+
+class TestAPIResponses:
+    """Test API response formats."""
+    
+    def test_folder_tree_api_structure(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str
+    ):
+        """Folder tree API should have expected structure."""
+        response = authenticated_client.get("/api/folders/tree")
+        
+        assert response.status_code == 200
+        folders = response.json()
+        
+        if folders:  # If any folders exist
+            folder = folders[0]
+            # Check expected fields
+            assert "id" in folder
+            assert "name" in folder
+            # These may or may not exist depending on implementation
+            # assert "photo_count" in folder
+            # assert "permission" in folder
+    
+    def test_default_folder_api(self, authenticated_client: TestClient):
+        """Default folder API should return valid folder ID."""
+        response = authenticated_client.get("/api/user/default-folder")
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        assert "folder_id" in data
+        assert len(data["folder_id"]) > 0

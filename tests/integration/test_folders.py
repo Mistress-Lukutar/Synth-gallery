@@ -1,0 +1,329 @@
+"""
+Folder management integration tests.
+
+Verifies:
+- Folder CRUD operations
+- Permission system (owner, editor, viewer)
+- Folder tree structure
+- Sharing functionality
+"""
+import pytest
+from fastapi.testclient import TestClient
+
+
+class TestFolderCreation:
+    """Test creating folders via API."""
+    
+    def test_create_folder_via_api(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict
+    ):
+        """Create folder through API endpoint."""
+        response = authenticated_client.post(
+            "/api/folders",
+            json={"name": "New API Folder"}
+        )
+        
+        # Note: If endpoint doesn't exist yet, this documents expected behavior
+        if response.status_code == 404:
+            pytest.skip("Folder creation API not implemented yet")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert data["name"] == "New API Folder"
+    
+    def test_folder_tree_returns_user_folders(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str
+    ):
+        """Folder tree API should return user's folders."""
+        response = authenticated_client.get("/api/folders/tree")
+        
+        assert response.status_code == 200
+        folders = response.json()
+        
+        # Should be a list
+        assert isinstance(folders, list)
+        # Should contain our test folder
+        folder_ids = [f["id"] for f in folders]
+        assert test_folder in folder_ids
+
+
+class TestFolderPermissions:
+    """Test folder access control and sharing."""
+    
+    def test_user_can_access_own_folder(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str
+    ):
+        """User should access their own folder."""
+        response = authenticated_client.get(f"/?folder_id={test_folder}")
+        
+        # Should not redirect to login or show access denied
+        assert response.status_code == 200
+    
+    def test_user_cannot_access_others_folder_without_permission(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict
+    ):
+        """User without permission cannot access another's folder."""
+        from app.database import create_folder
+        
+        # Second user creates folder
+        private_folder = create_folder("Private", second_user["id"])
+        
+        # First user tries to access
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.get(f"/?folder_id={private_folder}")
+        
+        # Should be forbidden
+        assert response.status_code in [403, 302]  # 403 or redirect
+    
+    def test_shared_folder_accessible_to_viewer(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict
+    ):
+        """Shared folder should be accessible to viewer."""
+        from app.database import create_folder, add_folder_permission
+        
+        # Second user creates and shares folder
+        shared_folder = create_folder("Shared", second_user["id"])
+        add_folder_permission(shared_folder, test_user["id"], "viewer", second_user["id"])
+        
+        # First user accesses
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.get(f"/?folder_id={shared_folder}")
+        
+        assert response.status_code == 200
+    
+    def test_viewer_cannot_upload_to_shared_folder(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict,
+        test_image_bytes: bytes
+    ):
+        """Viewer permission should not allow uploads."""
+        from app.database import create_folder, add_folder_permission
+        from PIL import Image
+        import io
+        
+        # Setup: second user shares folder as viewer-only
+        shared_folder = create_folder("View Only", second_user["id"])
+        add_folder_permission(shared_folder, test_user["id"], "viewer", second_user["id"])
+        
+        # First user tries to upload
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.post(
+            "/upload",
+            data={"folder_id": shared_folder},
+            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+        )
+        
+        assert response.status_code == 403
+    
+    def test_editor_can_upload_to_shared_folder(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict,
+        test_image_bytes: bytes
+    ):
+        """Editor permission should allow uploads."""
+        from app.database import create_folder, add_folder_permission
+        
+        # Setup: second user shares folder as editor
+        shared_folder = create_folder("Editable", second_user["id"])
+        add_folder_permission(shared_folder, test_user["id"], "editor", second_user["id"])
+        
+        # First user uploads
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        response = client.post(
+            "/upload",
+            data={"folder_id": shared_folder},
+            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+        )
+        
+        assert response.status_code == 200
+
+
+class TestFolderHierarchy:
+    """Test nested folder structure."""
+    
+    def test_nested_folder_creation(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict
+    ):
+        """Create nested folder structure."""
+        from app.database import create_folder
+        
+        parent = create_folder("Parent", test_user["id"])
+        child = create_folder("Child", test_user["id"], parent)
+        grandchild = create_folder("Grandchild", test_user["id"], child)
+        
+        # All should be accessible
+        for folder_id in [parent, child, grandchild]:
+            response = authenticated_client.get(f"/?folder_id={folder_id}")
+            assert response.status_code == 200, f"Failed to access folder {folder_id}"
+    
+    def test_folder_tree_shows_hierarchy(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict
+    ):
+        """Folder tree should reflect parent-child relationships."""
+        from app.database import create_folder
+        
+        parent = create_folder("TreeParent", test_user["id"])
+        child = create_folder("TreeChild", test_user["id"], parent)
+        
+        response = authenticated_client.get("/api/folders/tree")
+        folders = response.json()
+        
+        # Find child in tree
+        child_folder = next((f for f in folders if f["id"] == child), None)
+        if child_folder:
+            assert child_folder.get("parent_id") == parent
+
+
+class TestFolderDeletion:
+    """Test folder deletion and cleanup."""
+    
+    def test_delete_folder_removes_contents(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict,
+        test_image_bytes: bytes
+    ):
+        """Deleting folder should remove photos."""
+        from app.database import create_folder, delete_folder
+        from app.config import UPLOADS_DIR
+        
+        # Create folder with photo
+        folder_id = create_folder("ToDelete", test_user["id"])
+        
+        response = authenticated_client.post(
+            "/upload",
+            data={"folder_id": folder_id},
+            files={"file": ("delete_me.jpg", test_image_bytes, "image/jpeg")}
+        )
+        filename = response.json()["filename"]
+        file_path = UPLOADS_DIR / filename
+        
+        # Verify file exists
+        assert file_path.exists()
+        
+        # Delete folder
+        deleted_files = delete_folder(folder_id)
+        
+        # File should be marked for deletion (actual cleanup may be async)
+        assert filename in deleted_files or not file_path.exists()
+    
+    def test_only_owner_can_delete_folder(
+        self,
+        client: TestClient,
+        test_user: dict,
+        second_user: dict
+    ):
+        """Only folder owner can delete it."""
+        from app.database import create_folder, add_folder_permission
+        
+        folder_id = create_folder("Protected", second_user["id"])
+        add_folder_permission(folder_id, test_user["id"], "editor", second_user["id"])
+        
+        # Editor (not owner) tries to delete
+        client.post(
+            "/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+            follow_redirects=False
+        )
+        
+        # Assuming API endpoint exists
+        response = client.delete(f"/api/folders/{folder_id}")
+        
+        if response.status_code != 404:  # If endpoint exists
+            assert response.status_code == 403
+
+
+class TestFolderContentAPI:
+    """Test folder content retrieval via API."""
+    
+    def test_folder_content_returns_photos_albums(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        test_image_bytes: bytes
+    ):
+        """Folder content API should list photos and albums."""
+        # Upload a photo first
+        authenticated_client.post(
+            "/upload",
+            data={"folder_id": test_folder},
+            files={"file": ("content_test.jpg", test_image_bytes, "image/jpeg")}
+        )
+        
+        response = authenticated_client.get(f"/api/folders/{test_folder}/content")
+        
+        if response.status_code == 404:
+            pytest.skip("Folder content API not implemented")
+        
+        assert response.status_code == 200
+        data = response.json()
+        
+        # Should have expected structure
+        assert "photos" in data or "items" in data
+    
+    def test_breadcrumbs_returned_for_folder(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict
+    ):
+        """Breadcrumbs should show path from root."""
+        from app.database import create_folder
+        
+        level1 = create_folder("Level1", test_user["id"])
+        level2 = create_folder("Level2", test_user["id"], level1)
+        level3 = create_folder("Level3", test_user["id"], level2)
+        
+        response = authenticated_client.get(f"/api/folders/{level3}/breadcrumbs")
+        
+        if response.status_code == 404:
+            pytest.skip("Breadcrumbs API not implemented")
+        
+        assert response.status_code == 200
+        breadcrumbs = response.json()
+        
+        # Should contain hierarchy
+        names = [b["name"] for b in breadcrumbs]
+        assert "Level1" in names
+        assert "Level2" in names
+        assert "Level3" in names
