@@ -1,0 +1,91 @@
+name: Architecture Improvement
+ description: Propose a structural change or refactoring
+title: "[ARCH] "
+labels: ["architecture", "refactoring"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Architecture Improvement Proposal
+        
+        Use this template to propose structural changes, refactoring, or technical debt resolution.
+        See `ROADMAP.md` for planned improvements.
+        
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How critical is this improvement?
+      options:
+        - 🔴 Critical (blocks development/deployment)
+        - 🟡 High (significant tech debt)
+        - 🟢 Medium (nice to have)
+        - 🔵 Low (future consideration)
+    validations:
+      required: true
+      
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What area does this affect?
+      options:
+        - Database / Storage
+        - API / Routes
+        - Security / Encryption
+        - Performance / Scalability
+        - Code Organization
+        - Testing
+        - DevOps / Deployment
+    validations:
+      required: true
+      
+  - type: textarea
+    id: problem
+    attributes:
+      label: Current Problem
+      description: Describe the architectural issue or limitation
+      placeholder: |
+        Example: The database.py file is 2100+ lines and contains mixed concerns...
+    validations:
+      required: true
+      
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the desired end state
+      placeholder: |
+        Example: Split into Repository pattern with separate classes per domain...
+    validations:
+      required: true
+      
+  - type: textarea
+    id: changes
+    attributes:
+      label: Files Affected
+      description: List files that will be modified/created
+      placeholder: |
+        - `app/database.py` (refactor)
+        - `app/repositories/user.py` (new)
+        - `app/repositories/folder.py` (new)
+        
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks & Mitigation
+      description: What could go wrong and how to prevent it
+      placeholder: |
+        Risk: Breaking existing file uploads
+        Mitigation: Maintain backward compatibility wrappers
+        
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Implementation Checklist
+      options:
+        - label: Tests written/updated
+        - label: Backward compatibility maintained
+        - label: Documentation updated (ROADMAP.md, CHANGELOG.md)
+        - label: Performance benchmarked
+        - label: Security review completed
