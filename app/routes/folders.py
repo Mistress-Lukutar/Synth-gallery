@@ -84,7 +84,7 @@ def create_new_folder(request: Request, data: FolderCreate):
             if parent["user_id"] != user["id"]:
                 raise HTTPException(status_code=403, detail="Cannot create folder in another user's folder")
             # Check parent is not in a safe
-            if parent.get("safe_id"):
+            if parent["safe_id"]:
                 raise HTTPException(status_code=403, detail="Cannot create subfolder outside of safe")
 
         folder_id = create_folder(data.name, user["id"], data.parent_id)
