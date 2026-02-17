@@ -50,9 +50,9 @@ def backups_page(request: Request):
     scheduler_status = backup_scheduler.status
 
     return templates.TemplateResponse(
+        request,
         "admin_backups.html",
         {
-            "request": request,
             "user": user,
             "backups": db_backups,
             "full_backups": full_backups,
@@ -242,9 +242,9 @@ def maintenance_page(request: Request):
     stats = get_thumbnail_stats()
 
     return templates.TemplateResponse(
+        request,
         "admin_maintenance.html",
         {
-            "request": request,
             "user": user,
             "stats": stats,
             "csrf_token": get_csrf_token(request),
