@@ -1,12 +1,27 @@
 import sqlite3
 import secrets
 import threading
+import warnings
 from pathlib import Path
 
 import bcrypt
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "gallery.db"
+
+
+# =============================================================================
+# REFACTORING: Repository Pattern Migration
+# =============================================================================
+# New code uses UserRepository from infrastructure.repositories
+# Old functions below are kept for backward compatibility but delegate to Repository
+# =============================================================================
+
+def _get_user_repo():
+    """Get UserRepository instance with current DB connection."""
+    # Lazy import to avoid circular dependencies
+    from .infrastructure.repositories import UserRepository
+    return UserRepository(get_db())
 
 
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
@@ -522,124 +537,91 @@ def init_db():
 # === User Management Functions ===
 
 def create_user(username: str, password: str, display_name: str) -> int:
-    """Create a new user. Returns user ID."""
-    db = get_db()
-    password_hash, password_salt = hash_password(password)
-    cursor = db.execute(
-        "INSERT INTO users (username, password_hash, password_salt, display_name) VALUES (?, ?, ?, ?)",
-        (username.lower().strip(), password_hash, password_salt, display_name.strip())
-    )
-    db.commit()
-    return cursor.lastrowid
+    """Create a new user. Returns user ID.
+    
+    DEPRECATED: Use UserRepository.create() instead.
+    """
+    return _get_user_repo().create(username, password, display_name)
 
 
 def get_user_by_username(username: str):
-    """Get user by username"""
-    db = get_db()
-    return db.execute(
-        "SELECT * FROM users WHERE username = ?",
-        (username.lower().strip(),)
-    ).fetchone()
+    """Get user by username
+    
+    DEPRECATED: Use UserRepository.get_by_username() instead.
+    """
+    return _get_user_repo().get_by_username(username)
 
 
 def get_user_by_id(user_id: int):
-    """Get user by ID"""
-    db = get_db()
-    return db.execute(
-        "SELECT * FROM users WHERE id = ?",
-        (user_id,)
-    ).fetchone()
+    """Get user by ID
+    
+    DEPRECATED: Use UserRepository.get_by_id() instead.
+    """
+    return _get_user_repo().get_by_id(user_id)
 
 
 def is_user_admin(user_id: int) -> bool:
-    """Check if user is an admin."""
-    db = get_db()
-    result = db.execute(
-        "SELECT is_admin FROM users WHERE id = ?",
-        (user_id,)
-    ).fetchone()
-    return bool(result and result["is_admin"])
+    """Check if user is an admin.
+    
+    DEPRECATED: Use UserRepository.is_admin() instead.
+    """
+    return _get_user_repo().is_admin(user_id)
 
 
 def set_user_admin(user_id: int, is_admin: bool) -> bool:
-    """Set user admin status. Returns True if user exists."""
-    db = get_db()
-    result = db.execute(
-        "UPDATE users SET is_admin = ? WHERE id = ?",
-        (1 if is_admin else 0, user_id)
-    )
-    db.commit()
-    return result.rowcount > 0
+    """Set user admin status. Returns True if user exists.
+    
+    DEPRECATED: Use UserRepository.set_admin() instead.
+    """
+    return _get_user_repo().set_admin(user_id, is_admin)
 
 
 def search_users(query: str, exclude_user_id: int = None, limit: int = 10) -> list:
-    """Search users by username or display_name"""
-    db = get_db()
-    search_pattern = f"%{query.lower()}%"
-
-    if exclude_user_id:
-        users = db.execute("""
-            SELECT id, username, display_name
-            FROM users
-            WHERE id != ? AND (LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
-            ORDER BY display_name
-            LIMIT ?
-        """, (exclude_user_id, search_pattern, search_pattern, limit)).fetchall()
-    else:
-        users = db.execute("""
-            SELECT id, username, display_name
-            FROM users
-            WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
-            ORDER BY display_name
-            LIMIT ?
-        """, (search_pattern, search_pattern, limit)).fetchall()
-
-    return [dict(u) for u in users]
+    """Search users by username or display_name
+    
+    DEPRECATED: Use UserRepository.search() instead.
+    """
+    return _get_user_repo().search(query, exclude_user_id, limit)
 
 
 def update_user_password(user_id: int, new_password: str):
-    """Update user password"""
-    db = get_db()
-    password_hash, password_salt = hash_password(new_password)
-    db.execute(
-        "UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?",
-        (password_hash, password_salt, user_id)
-    )
-    db.commit()
+    """Update user password
+    
+    DEPRECATED: Use UserRepository.update_password() instead.
+    """
+    _get_user_repo().update_password(user_id, new_password)
 
 
 def update_user_display_name(user_id: int, display_name: str):
-    """Update user display name"""
-    db = get_db()
-    db.execute(
-        "UPDATE users SET display_name = ? WHERE id = ?",
-        (display_name.strip(), user_id)
-    )
-    db.commit()
+    """Update user display name
+    
+    DEPRECATED: Use UserRepository.update_display_name() instead.
+    """
+    _get_user_repo().update_display_name(user_id, display_name)
 
 
 def delete_user(user_id: int):
-    """Delete user and their sessions"""
-    db = get_db()
-    db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
-    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    db.commit()
+    """Delete user and their sessions
+    
+    DEPRECATED: Use UserRepository.delete() instead.
+    """
+    _get_user_repo().delete(user_id)
 
 
 def list_users():
-    """List all users"""
-    db = get_db()
-    return db.execute(
-        "SELECT id, username, display_name, created_at FROM users ORDER BY id"
-    ).fetchall()
+    """List all users
+    
+    DEPRECATED: Use UserRepository.list_all() instead.
+    """
+    return _get_user_repo().list_all()
 
 
 def authenticate_user(username: str, password: str):
-    """Authenticate user. Returns user row if valid, None otherwise."""
-    user = get_user_by_username(username)
-    if user and verify_password(password, user["password_hash"], user["password_salt"]):
-        return user
-    return None
+    """Authenticate user. Returns user row if valid, None otherwise.
+    
+    DEPRECATED: Use UserRepository.authenticate() instead.
+    """
+    return _get_user_repo().authenticate(username, password)
 
 
 # === Session Management ===
