@@ -24,6 +24,12 @@ def _get_user_repo():
     return UserRepository(get_db())
 
 
+def _get_session_repo():
+    """Get SessionRepository instance with current DB connection."""
+    from .infrastructure.repositories import SessionRepository
+    return SessionRepository(get_db())
+
+
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     """Hash password using bcrypt.
 
@@ -627,38 +633,35 @@ def authenticate_user(username: str, password: str):
 # === Session Management ===
 
 def create_session(user_id: int, expires_hours: int = 24 * 7) -> str:
-    """Create a new session. Returns session ID."""
-    db = get_db()
-    session_id = secrets.token_urlsafe(32)
-    db.execute(
-        "INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, datetime('now', '+' || ? || ' hours'))",
-        (session_id, user_id, expires_hours)
-    )
-    db.commit()
-    return session_id
+    """Create a new session. Returns session ID.
+    
+    DEPRECATED: Use SessionRepository.create() instead.
+    """
+    return _get_session_repo().create(user_id, expires_hours)
 
 
 def get_session(session_id: str):
-    """Get session if valid and not expired"""
-    db = get_db()
-    return db.execute(
-        "SELECT s.*, u.username, u.display_name FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.id = ? AND s.expires_at > datetime('now')",
-        (session_id,)
-    ).fetchone()
+    """Get session if valid and not expired.
+    
+    DEPRECATED: Use SessionRepository.get_valid() instead.
+    """
+    return _get_session_repo().get_valid(session_id)
 
 
 def delete_session(session_id: str):
-    """Delete session (logout)"""
-    db = get_db()
-    db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-    db.commit()
+    """Delete session (logout).
+    
+    DEPRECATED: Use SessionRepository.delete() instead.
+    """
+    _get_session_repo().delete(session_id)
 
 
 def cleanup_expired_sessions():
-    """Remove expired sessions"""
-    db = get_db()
-    db.execute("DELETE FROM sessions WHERE expires_at <= datetime('now')")
-    db.commit()
+    """Remove expired sessions.
+    
+    DEPRECATED: Use SessionRepository.cleanup_expired() instead.
+    """
+    _get_session_repo().cleanup_expired()
 
 
 # === Folder Management ===
