@@ -30,6 +30,12 @@ def _get_session_repo():
     return SessionRepository(get_db())
 
 
+def _get_folder_repo():
+    """Get FolderRepository instance with current DB connection."""
+    from .infrastructure.repositories import FolderRepository
+    return FolderRepository(get_db())
+
+
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     """Hash password using bcrypt.
 
@@ -667,89 +673,43 @@ def cleanup_expired_sessions():
 # === Folder Management ===
 
 def create_folder(name: str, user_id: int, parent_id: str = None) -> str:
-    """Create a new folder. Returns folder ID."""
-    import uuid
-    db = get_db()
-    folder_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO folders (id, name, parent_id, user_id) VALUES (?, ?, ?, ?)",
-        (folder_id, name.strip(), parent_id, user_id)
-    )
-    db.commit()
-    return folder_id
+    """Create a new folder. Returns folder ID.
+    
+    DEPRECATED: Use FolderRepository.create() instead.
+    """
+    return _get_folder_repo().create(name, user_id, parent_id)
 
 
 def get_folder(folder_id: str):
-    """Get folder by ID"""
-    db = get_db()
-    return db.execute(
-        "SELECT * FROM folders WHERE id = ?",
-        (folder_id,)
-    ).fetchone()
+    """Get folder by ID.
+    
+    DEPRECATED: Use FolderRepository.get_by_id() instead.
+    """
+    return _get_folder_repo().get_by_id(folder_id)
 
 
 def update_folder(folder_id: str, name: str = None):
-    """Update folder name"""
-    db = get_db()
-    if name is not None:
-        db.execute("UPDATE folders SET name = ? WHERE id = ?", (name.strip(), folder_id))
-        db.commit()
+    """Update folder name.
+    
+    DEPRECATED: Use FolderRepository.update() instead.
+    """
+    _get_folder_repo().update(folder_id, name)
 
 
 def delete_folder(folder_id: str):
-    """Delete folder and all its contents."""
-    db = get_db()
-
-    # Get all folder IDs in the tree (recursive)
-    folder_ids = db.execute("""
-        WITH RECURSIVE folder_tree AS (
-            SELECT id FROM folders WHERE id = ?
-            UNION ALL
-            SELECT f.id FROM folders f JOIN folder_tree ft ON f.parent_id = ft.id
-        )
-        SELECT id FROM folder_tree
-    """, (folder_id,)).fetchall()
-    folder_id_list = [f["id"] for f in folder_ids]
-
-    if not folder_id_list:
-        return []
-
-    # Collect all photo filenames for file cleanup
-    placeholders = ",".join("?" * len(folder_id_list))
-    photos = db.execute(f"""
-        SELECT p.filename FROM photos p
-        WHERE p.folder_id IN ({placeholders})
-           OR p.album_id IN (SELECT a.id FROM albums a WHERE a.folder_id IN ({placeholders}))
-    """, folder_id_list + folder_id_list).fetchall()
-
-    filenames = [p["filename"] for p in photos]
-
-    # Delete photos in these folders (both standalone and in albums)
-    db.execute(f"""
-        DELETE FROM photos
-        WHERE folder_id IN ({placeholders})
-           OR album_id IN (SELECT id FROM albums WHERE folder_id IN ({placeholders}))
-    """, folder_id_list + folder_id_list)
-
-    # Delete albums in these folders
-    db.execute(f"DELETE FROM albums WHERE folder_id IN ({placeholders})", folder_id_list)
-
-    # Delete the folders themselves (children first due to recursive CTE order)
-    db.execute(f"DELETE FROM folders WHERE id IN ({placeholders})", folder_id_list)
-
-    db.commit()
-
-    return filenames  # Return for file cleanup
+    """Delete folder and all its contents.
+    
+    DEPRECATED: Use FolderRepository.delete() instead.
+    """
+    return _get_folder_repo().delete(folder_id)
 
 
 def get_user_folders(user_id: int) -> list:
-    """Get all folders owned by user"""
-    db = get_db()
-    folders = db.execute(
-        "SELECT * FROM folders WHERE user_id = ? ORDER BY name",
-        (user_id,)
-    ).fetchall()
-    return [dict(f) for f in folders]
+    """Get all folders owned by user.
+    
+    DEPRECATED: Use FolderRepository.list_by_user() instead.
+    """
+    return _get_folder_repo().list_by_user(user_id)
 
 
 def get_folder_tree(user_id: int) -> list:
@@ -809,33 +769,19 @@ def get_folder_tree(user_id: int) -> list:
 
 
 def get_folder_children(folder_id: str) -> list:
-    """Get direct child folders"""
-    db = get_db()
-    folders = db.execute(
-        "SELECT * FROM folders WHERE parent_id = ? ORDER BY name",
-        (folder_id,)
-    ).fetchall()
-    return [dict(f) for f in folders]
+    """Get direct child folders.
+    
+    DEPRECATED: Use FolderRepository.get_children() instead.
+    """
+    return _get_folder_repo().get_children(folder_id)
 
 
 def get_folder_breadcrumbs(folder_id: str) -> list:
-    """Get breadcrumb path from root to folder"""
-    db = get_db()
-    breadcrumbs = []
-    current_id = folder_id
-
-    while current_id:
-        folder = db.execute(
-            "SELECT id, name, parent_id FROM folders WHERE id = ?",
-            (current_id,)
-        ).fetchone()
-        if folder:
-            breadcrumbs.insert(0, {"id": folder["id"], "name": folder["name"]})
-            current_id = folder["parent_id"]
-        else:
-            break
-
-    return breadcrumbs
+    """Get breadcrumb path from root to folder.
+    
+    DEPRECATED: Use FolderRepository.get_breadcrumbs() instead.
+    """
+    return _get_folder_repo().get_breadcrumbs(folder_id)
 
 
 def create_default_folder(user_id: int) -> str:
