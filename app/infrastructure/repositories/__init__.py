@@ -14,6 +14,7 @@ from .base import Repository, ConnectionProtocol
 from .user_repository import UserRepository
 from .session_repository import SessionRepository
 from .folder_repository import FolderRepository
+from .permission_repository import PermissionRepository
 
 __all__ = [
     "Repository",
@@ -21,4 +22,5 @@ __all__ = [
     "UserRepository",
     "SessionRepository",
     "FolderRepository",
+    "PermissionRepository",
 ]
