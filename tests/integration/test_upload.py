@@ -13,6 +13,12 @@ from fastapi.testclient import TestClient
 from pathlib import Path
 
 
+def _csrf_headers(client: TestClient) -> dict:
+    """Get CSRF headers for POST requests."""
+    token = client.cookies.get("synth_csrf", "")
+    return {"X-CSRF-Token": token}
+
+
 class TestSingleFileUpload:
     """Test single photo/video upload."""
     
@@ -26,7 +32,7 @@ class TestSingleFileUpload:
         response = authenticated_client.post(
             "/upload",
             data={"folder_id": test_folder},
-            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+            headers=_csrf_headers(authenticated_client), files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
         )
         
         assert response.status_code == 200
@@ -57,7 +63,7 @@ class TestSingleFileUpload:
         response = client.post(
             "/upload",
             data={"folder_id": folder_id},
-            files={"file": ("encrypted.jpg", img_bytes.getvalue(), "image/jpeg")}
+            headers=_csrf_headers(authenticated_client), files={"file": ("encrypted.jpg", img_bytes.getvalue(), "image/jpeg")}
         )
         
         assert response.status_code == 200
@@ -81,7 +87,7 @@ class TestSingleFileUpload:
         response = authenticated_client.post(
             "/upload",
             data={"folder_id": test_folder},
-            files={"file": ("malware.exe", b"not an image", "application/octet-stream")}
+            headers=_csrf_headers(authenticated_client), files={"file": ("malware.exe", b"not an image", "application/octet-stream")}
         )
         
         assert response.status_code == 400
@@ -95,7 +101,7 @@ class TestSingleFileUpload:
         response = authenticated_client.post(
             "/upload",
             data={},  # No folder_id
-            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+            headers=_csrf_headers(authenticated_client), files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
         )
         
         assert response.status_code in [400, 422]
@@ -123,7 +129,7 @@ class TestSingleFileUpload:
         response = client.post(
             "/upload",
             data={"folder_id": folder_id},
-            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+            headers=_csrf_headers(authenticated_client), files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
         )
         
         assert response.status_code == 403
@@ -175,7 +181,7 @@ class TestAlbumUpload:
         response = authenticated_client.post(
             "/upload-album",
             data={"folder_id": test_folder},
-            files={"files": ("single.jpg", test_image_bytes, "image/jpeg")}
+            headers=_csrf_headers(authenticated_client), files={"files": ("single.jpg", test_image_bytes, "image/jpeg")}
         )
         
         assert response.status_code == 400
@@ -233,7 +239,7 @@ class TestFileRetrieval:
         response = authenticated_client.post(
             "/upload",
             data={"folder_id": test_folder},
-            files={"file": ("original.jpg", test_image_bytes, "image/jpeg")}
+            headers=_csrf_headers(authenticated_client), files={"file": ("original.jpg", test_image_bytes, "image/jpeg")}
         )
         filename = response.json()["filename"]
         
