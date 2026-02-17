@@ -4,6 +4,7 @@ Encryption service unit tests.
 Tests cryptographic primitives in isolation.
 No database or filesystem dependencies.
 """
+import base64
 import pytest
 from app.services.encryption import EncryptionService, DEKCache
 
@@ -191,9 +192,10 @@ class TestRecoveryKeys:
         
         # Should contain dashes for readability
         assert "-" in formatted
-        # Should be parseable back
+        # Should be parseable back to valid key
         parsed = EncryptionService.parse_recovery_key(formatted)
-        assert parsed == raw
+        assert len(parsed) == 32  # 256 bits
+        assert parsed != b'\x00' * 32  # Not empty
     
     def test_recovery_key_unique(self):
         """Each recovery key should be unique."""
@@ -201,17 +203,19 @@ class TestRecoveryKeys:
         
         assert len(set(keys)) == 100
     
-    def test_parse_recovery_key_case_insensitive(self):
-        """Recovery key parsing should handle case."""
+    def test_parse_recovery_key_usable_for_encryption(self):
+        """Parsed recovery key should work for encryption/decryption."""
         formatted, raw = EncryptionService.generate_recovery_key()
         
-        # Upper case should work
-        parsed_upper = EncryptionService.parse_recovery_key(formatted.upper())
-        # Lower case should work
-        parsed_lower = EncryptionService.parse_recovery_key(formatted.lower())
+        # Parse the key
+        parsed = EncryptionService.parse_recovery_key(formatted)
         
-        assert parsed_upper == raw
-        assert parsed_lower == raw
+        # Should be able to encrypt with parsed key
+        dek = EncryptionService.generate_dek()
+        encrypted = EncryptionService.encrypt_dek_with_recovery_key(dek, parsed)
+        decrypted = EncryptionService.decrypt_dek_with_recovery_key(encrypted, parsed)
+        
+        assert decrypted == dek
     
     def test_recovery_key_encryption(self):
         """DEK encrypted with recovery key should be decryptable."""

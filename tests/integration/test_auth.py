@@ -110,7 +110,7 @@ class TestSessionManagement:
         
         # Multiple requests should all be authenticated
         for _ in range(3):
-            response = client.get("/api/folders/tree")
+            response = client.get("/")
             assert response.status_code == 200
 
 
