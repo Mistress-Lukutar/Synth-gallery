@@ -13,5 +13,12 @@ Migration Guide:
 from .base import Repository, ConnectionProtocol
 from .user_repository import UserRepository
 from .session_repository import SessionRepository
+from .folder_repository import FolderRepository
 
-__all__ = ["Repository", "ConnectionProtocol", "UserRepository", "SessionRepository"]
+__all__ = [
+    "Repository",
+    "ConnectionProtocol",
+    "UserRepository",
+    "SessionRepository",
+    "FolderRepository",
+]
