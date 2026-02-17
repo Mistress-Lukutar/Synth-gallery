@@ -1637,6 +1637,11 @@
                 // Update sidebar active state
                 updateSidebarActiveState(folderId);
                 
+                // Close sidebar on mobile after navigation
+                if (window.innerWidth <= 900) {
+                    closeSidebar();
+                }
+                
                 // Refresh folder tree to update counts
                 loadFolderTree();
                 
