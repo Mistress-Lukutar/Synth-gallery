@@ -36,6 +36,12 @@ def _get_folder_repo():
     return FolderRepository(get_db())
 
 
+def _get_permission_repo():
+    """Get PermissionRepository instance with current DB connection."""
+    from .infrastructure.repositories import PermissionRepository
+    return PermissionRepository(get_db())
+
+
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     """Hash password using bcrypt.
 
@@ -924,46 +930,33 @@ def toggle_folder_collapsed(user_id: int, folder_id: str) -> bool:
 # === Folder Permissions ===
 
 def add_folder_permission(folder_id: str, user_id: int, permission: str, granted_by: int) -> bool:
-    """Add or update permission for a user on a folder"""
-    if permission not in ('viewer', 'editor'):
-        return False
-
-    db = get_db()
+    """Add or update permission for a user on a folder.
+    
+    DEPRECATED: Use PermissionRepository.grant() instead.
+    """
     try:
-        db.execute("""
-            INSERT INTO folder_permissions (folder_id, user_id, permission, granted_by)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(folder_id, user_id) DO UPDATE SET permission = ?, granted_by = ?, granted_at = CURRENT_TIMESTAMP
-        """, (folder_id, user_id, permission, granted_by, permission, granted_by))
-        db.commit()
-        return True
-    except Exception:
+        return _get_permission_repo().grant(folder_id, user_id, permission, granted_by)
+    except ValueError:
         return False
 
 
 def remove_folder_permission(folder_id: str, user_id: int) -> bool:
-    """Remove permission for a user on a folder"""
-    db = get_db()
-    result = db.execute(
-        "DELETE FROM folder_permissions WHERE folder_id = ? AND user_id = ?",
-        (folder_id, user_id)
-    )
-    db.commit()
-    return result.rowcount > 0
+    """Remove permission for a user on a folder.
+    
+    DEPRECATED: Use PermissionRepository.revoke() instead.
+    """
+    return _get_permission_repo().revoke(folder_id, user_id)
 
 
 def update_folder_permission(folder_id: str, user_id: int, permission: str) -> bool:
-    """Update permission level for a user on a folder"""
-    if permission not in ('viewer', 'editor'):
+    """Update permission level for a user on a folder.
+    
+    DEPRECATED: Use PermissionRepository.update_permission() instead.
+    """
+    try:
+        return _get_permission_repo().update_permission(folder_id, user_id, permission)
+    except ValueError:
         return False
-
-    db = get_db()
-    result = db.execute(
-        "UPDATE folder_permissions SET permission = ? WHERE folder_id = ? AND user_id = ?",
-        (permission, folder_id, user_id)
-    )
-    db.commit()
-    return result.rowcount > 0
 
 
 # === User Folder Preferences ===
@@ -994,60 +987,45 @@ def set_folder_sort_preference(user_id: int, folder_id: str, sort_by: str) -> bo
 
 
 def get_folder_permissions(folder_id: str) -> list:
-    """Get all permissions for a folder with user info"""
-    db = get_db()
-    permissions = db.execute("""
-        SELECT fp.user_id, fp.permission, fp.granted_at,
-               u.username, u.display_name
-        FROM folder_permissions fp
-        JOIN users u ON fp.user_id = u.id
-        WHERE fp.folder_id = ?
-        ORDER BY u.display_name
-    """, (folder_id,)).fetchall()
-    return [dict(p) for p in permissions]
+    """Get all permissions for a folder with user info.
+    
+    DEPRECATED: Use PermissionRepository.list_permissions() instead.
+    """
+    return _get_permission_repo().list_permissions(folder_id)
 
 
 def get_user_permission(folder_id: str, user_id: int) -> str | None:
-    """Get user's permission level for a folder: 'owner', 'editor', 'viewer', or None"""
-    db = get_db()
-
-    # Check if user is owner
-    folder = db.execute("SELECT user_id FROM folders WHERE id = ?", (folder_id,)).fetchone()
-    if folder and folder["user_id"] == user_id:
-        return 'owner'
-
-    # Check explicit permissions
-    perm = db.execute(
-        "SELECT permission FROM folder_permissions WHERE folder_id = ? AND user_id = ?",
-        (folder_id, user_id)
-    ).fetchone()
-
-    return perm["permission"] if perm else None
+    """Get user's permission level for a folder: 'owner', 'editor', 'viewer', or None.
+    
+    DEPRECATED: Use PermissionRepository.get_permission() instead.
+    """
+    return _get_permission_repo().get_permission(folder_id, user_id)
 
 
 def can_view_folder(folder_id: str, user_id: int) -> bool:
-    """Check if user can view folder (owner, viewer, or editor)"""
-    if not folder_id:
-        return True
-
-    permission = get_user_permission(folder_id, user_id)
-    return permission in ('owner', 'viewer', 'editor')
+    """Check if user can view folder (owner, viewer, or editor).
+    
+    DEPRECATED: Use PermissionRepository.can_view() instead.
+    """
+    return _get_permission_repo().can_view(folder_id, user_id)
 
 
 def can_edit_folder(folder_id: str, user_id: int) -> bool:
-    """Check if user can edit folder content (owner or editor)"""
-    if not folder_id:
-        return False
-
-    permission = get_user_permission(folder_id, user_id)
-    return permission in ('owner', 'editor')
+    """Check if user can edit folder content (owner or editor).
+    
+    DEPRECATED: Use PermissionRepository.can_edit() instead.
+    """
+    return _get_permission_repo().can_edit(folder_id, user_id)
 
 
 # === Access Control ===
 
 def can_access_folder(folder_id: str, user_id: int) -> bool:
-    """Check if user can access folder (view permission)"""
-    return can_view_folder(folder_id, user_id)
+    """Check if user can access folder (view permission).
+    
+    DEPRECATED: Use PermissionRepository.can_view() instead.
+    """
+    return _get_permission_repo().can_view(folder_id, user_id)
 
 
 def can_access_photo(photo_id: str, user_id: int) -> bool:
