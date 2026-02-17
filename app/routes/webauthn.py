@@ -348,9 +348,9 @@ def settings_page(request: Request):
         return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
     return templates.TemplateResponse(
+        request,
         "settings.html",
         {
-            "request": request,
             "user": dict(user),
             "csrf_token": get_csrf_token(request),
             "base_url": ROOT_PATH

@@ -223,9 +223,9 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
     } for folder in subfolders]
 
     return templates.TemplateResponse(
+        request,
         "gallery.html",
         {
-            "request": request,
             "items": items,
             "subfolders": subfolders_list,
             "photos": photos,
