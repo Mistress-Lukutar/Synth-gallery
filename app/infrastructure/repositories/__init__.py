@@ -17,6 +17,7 @@ from .folder_repository import FolderRepository, AsyncFolderRepository
 from .permission_repository import PermissionRepository, AsyncPermissionRepository
 from .photo_repository import PhotoRepository, AsyncPhotoRepository
 from .safe_repository import SafeRepository, AsyncSafeRepository
+from .webauthn_repository import WebAuthnRepository, AsyncWebAuthnRepository
 
 __all__ = [
     "Repository",
@@ -35,4 +36,6 @@ __all__ = [
     "AsyncPhotoRepository",
     "SafeRepository",
     "AsyncSafeRepository",
+    "WebAuthnRepository",
+    "AsyncWebAuthnRepository",
 ]

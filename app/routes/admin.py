@@ -9,7 +9,8 @@ from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
-from ..database import is_user_admin
+from ..database import get_db
+from ..infrastructure.repositories import UserRepository
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.backup import (
     create_backup, list_backups, get_backup_path,
@@ -27,9 +28,15 @@ router = APIRouter()
 def require_admin(request: Request):
     """Check if current user is admin. Raises 403 if not."""
     user = require_user(request)
-    if not is_user_admin(user["id"]):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        user_data = user_repo.get_by_id(user["id"])
+        if not user_data or not user_data.get("is_admin"):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        return user
+    finally:
+        db.close()
 
 
 # === Admin Pages ===
