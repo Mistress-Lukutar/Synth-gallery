@@ -42,6 +42,12 @@ def _get_permission_repo():
     return PermissionRepository(get_db())
 
 
+def _get_photo_repo():
+    """Get PhotoRepository instance with current DB connection."""
+    from .infrastructure.repositories import PhotoRepository
+    return PhotoRepository(get_db())
+
+
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     """Hash password using bcrypt.
 
@@ -1610,60 +1616,54 @@ def clear_recovery_key(user_id: int) -> bool:
 
 
 def mark_photo_encrypted(photo_id: str) -> bool:
-    """Mark photo as encrypted."""
-    db = get_db()
-    db.execute("UPDATE photos SET is_encrypted = 1 WHERE id = ?", (photo_id,))
-    db.commit()
-    return True
+    """Mark photo as encrypted.
+    
+    DEPRECATED: Use PhotoRepository.mark_encrypted() instead.
+    """
+    return _get_photo_repo().mark_encrypted(photo_id, encrypted=True)
 
 
 def mark_photo_decrypted(photo_id: str) -> bool:
-    """Mark photo as not encrypted (for migration rollback)."""
-    db = get_db()
-    db.execute("UPDATE photos SET is_encrypted = 0 WHERE id = ?", (photo_id,))
-    db.commit()
-    return True
+    """Mark photo as not encrypted (for migration rollback).
+    
+    DEPRECATED: Use PhotoRepository.mark_encrypted() instead.
+    """
+    return _get_photo_repo().mark_encrypted(photo_id, encrypted=False)
 
 
 def get_user_unencrypted_photos(user_id: int) -> list:
-    """Get all unencrypted photos for a user (for migration)."""
-    db = get_db()
-    photos = db.execute("""
-        SELECT id, filename FROM photos
-        WHERE user_id = ? AND is_encrypted = 0
-    """, (user_id,)).fetchall()
-    return [dict(p) for p in photos]
+    """Get all unencrypted photos for a user (for migration).
+    
+    DEPRECATED: Use PhotoRepository with custom query instead.
+    """
+    # Get all user photos and filter
+    all_photos = _get_photo_repo().get_by_folder(folder_id=None, sort_by="uploaded")
+    return [p for p in all_photos if p.get("user_id") == user_id and not p.get("is_encrypted")]
 
 
 def get_photo_by_id(photo_id: str) -> dict | None:
-    """Get photo by ID with encryption status."""
-    db = get_db()
-    photo = db.execute(
-        "SELECT * FROM photos WHERE id = ?",
-        (photo_id,)
-    ).fetchone()
-    return dict(photo) if photo else None
+    """Get photo by ID with encryption status.
+    
+    DEPRECATED: Use PhotoRepository.get_by_id() instead.
+    """
+    return _get_photo_repo().get_by_id(photo_id)
 
 
 def get_photo_owner_id(photo_id: str) -> int | None:
-    """Get owner user_id for a photo (for shared folder decryption)."""
-    db = get_db()
-    photo = db.execute(
-        "SELECT user_id FROM photos WHERE id = ?",
-        (photo_id,)
-    ).fetchone()
-    return photo["user_id"] if photo else None
+    """Get owner user_id for a photo (for shared folder decryption).
+    
+    DEPRECATED: Use PhotoRepository.get_by_id() instead.
+    """
+    photo = _get_photo_repo().get_by_id(photo_id)
+    return photo.get("user_id") if photo else None
 
 
 def update_photo_thumbnail_dimensions(photo_id: str, width: int, height: int) -> bool:
-    """Update thumbnail dimensions for a photo."""
-    db = get_db()
-    result = db.execute(
-        "UPDATE photos SET thumb_width = ?, thumb_height = ? WHERE id = ?",
-        (width, height, photo_id)
-    )
-    db.commit()
-    return result.rowcount > 0
+    """Update thumbnail dimensions for a photo.
+    
+    DEPRECATED: Use PhotoRepository.update_thumbnail_dimensions() instead.
+    """
+    return _get_photo_repo().update_thumbnail_dimensions(photo_id, width, height)
 
 
 # =============================================================================
