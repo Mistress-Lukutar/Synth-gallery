@@ -411,7 +411,7 @@ class FolderService:
         albums = db.execute("""
             SELECT a.*,
                    (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
-                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY album_position LIMIT 1) as cover_photo_id
+                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
             FROM albums a
             WHERE a.folder_id = ?
             ORDER BY a.created_at DESC

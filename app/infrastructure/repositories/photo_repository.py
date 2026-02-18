@@ -259,7 +259,7 @@ class PhotoRepository(Repository):
         cursor = self._execute(
             """SELECT * FROM photos 
                WHERE album_id = ? 
-               ORDER BY COALESCE(album_position, 999999), uploaded_at""",
+               ORDER BY COALESCE(position, 999999), uploaded_at""",
             (album_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -278,14 +278,14 @@ class PhotoRepository(Repository):
         if position is None:
             # Get next position
             cursor = self._execute(
-                "SELECT MAX(COALESCE(album_position, 0)) as max_pos FROM photos WHERE album_id = ?",
+                "SELECT MAX(COALESCE(position, 0)) as max_pos FROM photos WHERE album_id = ?",
                 (album_id,)
             )
             row = cursor.fetchone()
             position = (row["max_pos"] or 0) + 1
         
         cursor = self._execute(
-            "UPDATE photos SET album_id = ?, album_position = ? WHERE id = ?",
+            "UPDATE photos SET album_id = ?, position = ? WHERE id = ?",
             (album_id, position, photo_id)
         )
         self._commit()
@@ -301,7 +301,7 @@ class PhotoRepository(Repository):
             True if removed
         """
         cursor = self._execute(
-            "UPDATE photos SET album_id = NULL, album_position = NULL WHERE id = ?",
+            "UPDATE photos SET album_id = NULL, position = NULL WHERE id = ?",
             (photo_id,)
         )
         self._commit()
@@ -320,7 +320,7 @@ class PhotoRepository(Repository):
         try:
             for i, photo_id in enumerate(photo_ids):
                 self._execute(
-                    "UPDATE photos SET album_position = ? WHERE id = ? AND album_id = ?",
+                    "UPDATE photos SET position = ? WHERE id = ? AND album_id = ?",
                     (i, photo_id, album_id)
                 )
             self._commit()
