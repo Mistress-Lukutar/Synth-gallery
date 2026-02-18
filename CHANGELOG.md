@@ -63,7 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `/api/albums/{id}/cover` - Set album cover photo
   - Fixed `PhotoRepository.create()` signature to accept optional `photo_id` parameter
   - Fixed Python 3.12 datetime adapter deprecation warning
-  - Added 30 unit tests for service layer (5 for PhotoService)
+  - Fixed test isolation issues with UPLOADS_DIR/THUMBNAILS_DIR imports
+  - Fixed safe upload file extension preservation (.png instead of .jpg)
+  - Fixed missing `delete` method in sync PhotoRepository
+  - Added 32 unit tests for service layer (2 for delete photo validation)
   - Business logic now testable without FastAPI dependencies
   - Clean separation: HTTP handling in routes, business logic in services
 

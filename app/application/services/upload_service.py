@@ -91,7 +91,7 @@ class UploadService:
         if is_safe:
             # Client-side encrypted upload - save as-is
             taken_at, thumb_w, thumb_h = await self._process_safe_upload(
-                photo_id, file_content, client_thumbnail, thumb_dimensions
+                photo_id, file_content, ext, client_thumbnail, thumb_dimensions
             )
             is_encrypted = True
         else:
@@ -161,16 +161,24 @@ class UploadService:
         self,
         photo_id: str,
         file_content: bytes,
+        ext: str,
         client_thumbnail: Optional[UploadFile],
         thumb_dimensions: Tuple[int, int]
     ) -> Tuple[datetime, int, int]:
         """Process client-side encrypted upload for safe.
         
+        Args:
+            photo_id: Photo UUID
+            file_content: Encrypted file content
+            ext: Original file extension (e.g., '.png', '.jpg')
+            client_thumbnail: Optional client-provided thumbnail
+            thumb_dimensions: Thumbnail width and height
+            
         Returns:
             Tuple of (taken_at, thumb_width, thumb_height)
         """
-        # Save encrypted file as-is
-        file_path = self.uploads_dir / f"{photo_id}{Path(photo_id).suffix or '.jpg'}"
+        # Save encrypted file as-is with original extension
+        file_path = self.uploads_dir / f"{photo_id}{ext}"
         with open(file_path, "wb") as f:
             f.write(file_content)
         
