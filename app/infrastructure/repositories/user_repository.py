@@ -4,7 +4,7 @@ This is the NEW implementation. Old functions in database.py now delegate here.
 """
 import bcrypt
 from typing import Optional
-from .base import Repository
+from .base import Repository, AsyncRepository
 
 
 class UserRepository(Repository):
@@ -249,6 +249,237 @@ class UserRepository(Repository):
             return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
         
         # Legacy SHA-256 (for migration)
+        if salt:
+            import hashlib
+            check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
+            return check_hash == hashed
+        
+        return False
+
+
+# =============================================================================
+# ASYNC VERSION (Issue #15)
+# =============================================================================
+
+class AsyncUserRepository(AsyncRepository):
+    """Async repository for user entity operations.
+    
+    Uses aiosqlite for non-blocking database operations.
+    
+    Examples:
+        >>> async def get_user():
+        ...     async with get_async_db() as conn:
+        ...         repo = AsyncUserRepository(conn)
+        ...         return await repo.get_by_id(1)
+    """
+    
+    async def get_by_id(self, user_id: int) -> dict | None:
+        """Get user by ID asynchronously.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            User dict or None if not found
+        """
+        return await self._fetchone(
+            "SELECT * FROM users WHERE id = ?",
+            (user_id,)
+        )
+    
+    async def get_by_username(self, username: str) -> dict | None:
+        """Get user by username (case-insensitive) asynchronously.
+        
+        Args:
+            username: Username to search
+            
+        Returns:
+            User dict or None if not found
+        """
+        return await self._fetchone(
+            "SELECT * FROM users WHERE username = ?",
+            (username.lower().strip(),)
+        )
+    
+    async def create(self, username: str, password: str, display_name: str) -> int:
+        """Create new user asynchronously.
+        
+        Args:
+            username: Unique username
+            password: Plain text password (will be hashed)
+            display_name: Display name
+            
+        Returns:
+            New user ID
+        """
+        password_hash, _ = self._hash_password(password)
+        
+        cursor = await self._execute(
+            """INSERT INTO users 
+               (username, password_hash, password_salt, display_name) 
+               VALUES (?, ?, ?, ?)""",
+            (username.lower().strip(), password_hash, "", display_name.strip())
+        )
+        await self._commit()
+        return cursor.lastrowid
+    
+    async def update_password(self, user_id: int, new_password: str) -> bool:
+        """Update user password asynchronously.
+        
+        Args:
+            user_id: User ID
+            new_password: New plain text password
+            
+        Returns:
+            True if user existed and was updated
+        """
+        password_hash, _ = self._hash_password(new_password)
+        
+        cursor = await self._execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id)
+        )
+        await self._commit()
+        return cursor.rowcount > 0
+    
+    async def update_display_name(self, user_id: int, display_name: str) -> bool:
+        """Update user display name asynchronously.
+        
+        Args:
+            user_id: User ID
+            display_name: New display name
+            
+        Returns:
+            True if user existed and was updated
+        """
+        cursor = await self._execute(
+            "UPDATE users SET display_name = ? WHERE id = ?",
+            (display_name.strip(), user_id)
+        )
+        await self._commit()
+        return cursor.rowcount > 0
+    
+    async def delete(self, user_id: int) -> bool:
+        """Delete user and their sessions asynchronously.
+        
+        Args:
+            user_id: User ID to delete
+            
+        Returns:
+            True if user existed and was deleted
+        """
+        # Delete sessions first (foreign key constraint)
+        await self._execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        
+        # Delete user
+        cursor = await self._execute("DELETE FROM users WHERE id = ?", (user_id,))
+        await self._commit()
+        return cursor.rowcount > 0
+    
+    async def list_all(self) -> list[dict]:
+        """List all users asynchronously.
+        
+        Returns:
+            List of user dicts
+        """
+        return await self._fetchall(
+            "SELECT id, username, display_name, created_at FROM users ORDER BY id"
+        )
+    
+    async def search(self, query: str, exclude_user_id: int | None = None, limit: int = 10) -> list[dict]:
+        """Search users by username or display_name asynchronously.
+        
+        Args:
+            query: Search string
+            exclude_user_id: Optional user ID to exclude from results
+            limit: Maximum results
+            
+        Returns:
+            List of matching users
+        """
+        search_pattern = f"%{query.lower()}%"
+        
+        if exclude_user_id:
+            return await self._fetchall(
+                """SELECT id, username, display_name 
+                   FROM users 
+                   WHERE id != ? AND (LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
+                   ORDER BY display_name
+                   LIMIT ?""",
+                (exclude_user_id, search_pattern, search_pattern, limit)
+            )
+        else:
+            return await self._fetchall(
+                """SELECT id, username, display_name 
+                   FROM users 
+                   WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
+                   ORDER BY display_name
+                   LIMIT ?""",
+                (search_pattern, search_pattern, limit)
+            )
+    
+    async def authenticate(self, username: str, password: str) -> dict | None:
+        """Authenticate user with username and password asynchronously.
+        
+        Args:
+            username: Username
+            password: Plain text password
+            
+        Returns:
+            User dict if authentication successful, None otherwise
+        """
+        user = await self.get_by_username(username)
+        if not user:
+            return None
+        
+        if self._verify_password(password, user["password_hash"], user.get("password_salt", "")):
+            return user
+        return None
+    
+    async def is_admin(self, user_id: int) -> bool:
+        """Check if user is admin asynchronously.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            True if user is admin
+        """
+        result = await self._fetchone(
+            "SELECT is_admin FROM users WHERE id = ?",
+            (user_id,)
+        )
+        return bool(result and result["is_admin"])
+    
+    async def set_admin(self, user_id: int, is_admin: bool) -> bool:
+        """Set user admin status asynchronously.
+        
+        Args:
+            user_id: User ID
+            is_admin: New admin status
+            
+        Returns:
+            True if user existed
+        """
+        cursor = await self._execute(
+            "UPDATE users SET is_admin = ? WHERE id = ?",
+            (1 if is_admin else 0, user_id)
+        )
+        await self._commit()
+        return cursor.rowcount > 0
+    
+    # Private helper methods (same as sync version)
+    
+    def _hash_password(self, password: str) -> tuple[str, str]:
+        """Hash password using bcrypt."""
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        return hashed.decode('utf-8'), ""
+    
+    def _verify_password(self, password: str, hashed: str, salt: str) -> bool:
+        """Verify password against hash."""
+        if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
+            return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+        
         if salt:
             import hashlib
             check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
