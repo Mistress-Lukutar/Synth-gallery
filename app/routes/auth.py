@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
 from fastapi.templating import Jinja2Templates
 
-from ..database import get_db
+from ..database import create_connection
 from ..infrastructure.repositories import UserRepository, SessionRepository
 from ..application.services import AuthService
 from ..dependencies import get_csrf_token
@@ -19,7 +19,7 @@ templates.env.globals["base_url"] = ROOT_PATH
 
 def get_auth_service() -> AuthService:
     """Create AuthService with repositories."""
-    db = get_db()
+    db = create_connection()
     return AuthService(
         user_repository=UserRepository(db),
         session_repository=SessionRepository(db)

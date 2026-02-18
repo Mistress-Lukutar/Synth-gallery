@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..database import get_db
+from ..database import create_connection
 from ..infrastructure.repositories import SafeRepository, WebAuthnRepository
 from ..application.services import SafeService
 from ..dependencies import require_user
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/safes", tags=["safes"])
 
 def get_safe_service() -> SafeService:
     """Get configured SafeService instance."""
-    db = get_db()
+    db = create_connection()
     safe_repo = SafeRepository(db)
     return SafeService(safe_repo)
 
@@ -72,7 +72,7 @@ def create_new_safe(request: Request, data: SafeCreate):
     """Create a new safe."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # For WebAuthn type, verify credential belongs to user
         if data.unlock_type == 'webauthn' and data.credential_id:
@@ -138,7 +138,7 @@ def unlock_safe(request: Request, data: SafeUnlock):
     """
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         service = SafeService(SafeRepository(db))
         safe = service.safe_repo.get_by_id(data.safe_id)
@@ -196,7 +196,7 @@ def complete_safe_unlock(request: Request, data: SafeUnlockComplete):
     """Complete safe unlock and create session."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         service = SafeService(SafeRepository(db))
         
@@ -303,7 +303,7 @@ def list_webauthn_credentials_for_safes(request: Request):
     """List user's WebAuthn credentials that can be used for safe protection."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         webauthn_repo = WebAuthnRepository(db)
         credentials = webauthn_repo.get_for_user(user["id"])
