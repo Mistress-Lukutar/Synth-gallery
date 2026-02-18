@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Internal)
+- **Major Architecture Refactoring: God Module Elimination**
+  - Split `app/database.py` (2100+ lines) into 6 focused Repository classes
+  - New structure in `app/infrastructure/repositories/`:
+    - `UserRepository` - User CRUD and authentication
+    - `SessionRepository` - Session management and lifecycle
+    - `FolderRepository` - Folder hierarchy and tree operations
+    - `PermissionRepository` - Access control and sharing
+    - `PhotoRepository` - Photo/video management and albums
+    - `SafeRepository` - Encrypted vault operations
+  - Reduced database.py from 2100+ to ~900 lines (-57%)
+  - All existing functionality preserved via backward-compatible proxy functions
+  - Added comprehensive test suite (39 tests, 38 passing)
+  - No breaking changes for existing code
+  - Fixes TemplateResponse deprecation warnings (FastAPI 0.100+ API)
+
+### Migration for Developers
+```python
+# Old way (still works):
+from app.database import create_user, get_folder
+create_user("john", "pass", "John")
+
+# New recommended way:
+from app.infrastructure.repositories import UserRepository
+from app.database import get_db
+repo = UserRepository(get_db())
+repo.create("john", "pass", "John")
+```
+
 ## [0.8.5] - 2026-02-16
 
 ### Added
