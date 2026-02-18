@@ -450,6 +450,74 @@ class TestPhotoService:
         assert exc_info.value.status_code == 404
 
 
+class TestUploadServiceDeletePhoto:
+    """Test UploadService delete_photo with real repository."""
+    
+    def test_delete_photo_with_repo_has_delete_method(self):
+        """Verify PhotoRepository actually has delete method.
+        
+        This test prevents regression where delete_photo fails because
+        PhotoRepository.delete doesn't exist.
+        """
+        from app.infrastructure.repositories import PhotoRepository
+        
+        # Check that delete method exists
+        assert hasattr(PhotoRepository, 'delete'), \
+            "PhotoRepository must have delete method"
+        
+        # Check that it's callable
+        assert callable(getattr(PhotoRepository, 'delete')), \
+            "PhotoRepository.delete must be callable"
+    
+    def test_delete_photo_integration(self, tmp_path):
+        """Integration test for delete_photo with real file system.
+        
+        This test verifies the full flow:
+        1. Photo metadata is retrieved from repository
+        2. Files are deleted from disk
+        3. Repository delete is called
+        """
+        from unittest.mock import Mock, MagicMock
+        
+        # Create temp directories
+        uploads_dir = tmp_path / "uploads"
+        thumbs_dir = tmp_path / "thumbnails"
+        uploads_dir.mkdir()
+        thumbs_dir.mkdir()
+        
+        # Create mock repository that mimics real PhotoRepository
+        mock_repo = Mock()
+        mock_repo.get_by_id.return_value = {
+            "id": "test-photo-123",
+            "filename": "test-photo-123.png"
+        }
+        mock_repo.delete.return_value = {"id": "test-photo-123", "filename": "test-photo-123.png"}
+        
+        # Create service
+        from app.application.services import UploadService
+        service = UploadService(
+            photo_repository=mock_repo,
+            uploads_dir=uploads_dir,
+            thumbnails_dir=thumbs_dir
+        )
+        
+        # Create dummy files
+        (uploads_dir / "test-photo-123.png").write_text("dummy upload")
+        (thumbs_dir / "test-photo-123.jpg").write_text("dummy thumb")
+        
+        # Act
+        result = service.delete_photo("test-photo-123")
+        
+        # Assert
+        assert result is True
+        mock_repo.get_by_id.assert_called_once_with("test-photo-123")
+        mock_repo.delete.assert_called_once_with("test-photo-123")
+        
+        # Verify files were deleted
+        assert not (uploads_dir / "test-photo-123.png").exists()
+        assert not (thumbs_dir / "test-photo-123.jpg").exists()
+
+
 class TestUploadService:
     """Test UploadService business logic."""
     

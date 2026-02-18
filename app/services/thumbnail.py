@@ -1,7 +1,6 @@
 """Thumbnail management service - regeneration, cleanup, statistics."""
 from pathlib import Path
 
-from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 from ..database import get_db
 from .media import (
     create_thumbnail, create_video_thumbnail,
@@ -19,6 +18,9 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
 
     Returns True if thumbnail was successfully regenerated, False otherwise.
     """
+    # Import config here to respect test patches (Issue #16)
+    from ..config import UPLOADS_DIR, THUMBNAILS_DIR
+    
     db = get_db()
     photo = db.execute(
         "SELECT filename, media_type, is_encrypted, user_id FROM photos WHERE id = ?",
@@ -84,6 +86,9 @@ def cleanup_orphaned_thumbnails() -> dict:
 
     Returns dict with cleanup statistics.
     """
+    # Import config here to respect test patches (Issue #16)
+    from ..config import THUMBNAILS_DIR
+    
     db = get_db()
 
     # Get all photo IDs from database
@@ -129,6 +134,9 @@ def regenerate_missing_thumbnails() -> dict:
 
     Returns dict with regeneration statistics.
     """
+    # Import config here to respect test patches (Issue #16)
+    from ..config import UPLOADS_DIR, THUMBNAILS_DIR
+    
     db = get_db()
 
     # Get all photos
@@ -204,6 +212,9 @@ def get_thumbnail_stats() -> dict:
 
     Returns dict with counts and status information.
     """
+    # Import config here to respect test patches (Issue #16)
+    from ..config import UPLOADS_DIR, THUMBNAILS_DIR
+    
     db = get_db()
 
     # Get all photos
