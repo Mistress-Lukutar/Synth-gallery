@@ -9,11 +9,7 @@ This service encapsulates business logic for:
 from typing import Optional, Tuple
 from fastapi import HTTPException
 
-from ...database import (
-    can_delete_photo, can_delete_album, can_edit_folder, can_edit_album,
-    move_photo_to_folder, move_album_to_folder
-)
-from ...infrastructure.repositories import PhotoRepository
+from ...infrastructure.repositories import PhotoRepository, FolderRepository, PermissionRepository
 
 
 class PhotoService:
@@ -26,8 +22,109 @@ class PhotoService:
     - Batch move operations
     """
     
-    def __init__(self, photo_repository: PhotoRepository):
+    def __init__(
+        self, 
+        photo_repository: PhotoRepository,
+        folder_repository: FolderRepository = None,
+        permission_repository: PermissionRepository = None
+    ):
         self.photo_repo = photo_repository
+        self.folder_repo = folder_repository
+        self.perm_repo = permission_repository
+    
+    def _can_delete_photo(self, photo_id: str, user_id: int) -> bool:
+        """Check if user can delete photo."""
+        if not self.perm_repo or not self.folder_repo:
+            # Fallback to checking photo ownership
+            photo = self.photo_repo.get_by_id(photo_id)
+            if not photo:
+                return False
+            if photo["user_id"] == user_id:
+                return True
+            return False
+        
+        photo = self.photo_repo.get_by_id(photo_id)
+        if not photo:
+            return False
+        
+        # Photo owner can always delete
+        if photo["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions
+        if photo.get("folder_id"):
+            folder = self.folder_repo.get_by_id(photo["folder_id"])
+            if folder:
+                # Folder owner can delete any photo
+                if folder["user_id"] == user_id:
+                    return True
+        
+        return False
+    
+    def _can_delete_album(self, album_id: str, user_id: int) -> bool:
+        """Check if user can delete album."""
+        album = self.photo_repo.get_album(album_id)
+        if not album:
+            return False
+        
+        # Album owner can always delete
+        if album["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions
+        if album.get("folder_id"):
+            folder = self.folder_repo.get_by_id(album["folder_id"])
+            if folder and folder["user_id"] == user_id:
+                return True
+        
+        return False
+    
+    def _can_edit_folder(self, folder_id: str, user_id: int) -> bool:
+        """Check if user can edit folder."""
+        if not self.perm_repo:
+            return False
+        return self.perm_repo.can_edit(folder_id, user_id)
+    
+    def _can_edit_album(self, album_id: str, user_id: int) -> bool:
+        """Check if user can edit album."""
+        album = self.photo_repo.get_album(album_id)
+        if not album:
+            return False
+        
+        # Album owner can always edit
+        if album["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions
+        if album.get("folder_id") and self.perm_repo:
+            return self.perm_repo.can_edit(album["folder_id"], user_id)
+        
+        return False
+    
+    def _move_photo_to_folder(self, photo_id: str, folder_id: str) -> bool:
+        """Move photo to folder."""
+        # Update folder_id directly
+        try:
+            self.photo_repo._execute(
+                "UPDATE photos SET folder_id = ? WHERE id = ?",
+                (folder_id, photo_id)
+            )
+            self.photo_repo._commit()
+            return True
+        except Exception:
+            return False
+    
+    def _move_album_to_folder(self, album_id: str, folder_id: str) -> bool:
+        """Move album to folder."""
+        try:
+            self.photo_repo._execute(
+                "UPDATE albums SET folder_id = ? WHERE id = ?",
+                (folder_id, album_id)
+            )
+            self.photo_repo._commit()
+            return True
+        except Exception:
+            return False
     
     def move_photo(self, photo_id: str, dest_folder_id: str, user_id: int) -> dict:
         """Move a standalone photo to another folder.
@@ -56,11 +153,11 @@ class PhotoService:
             )
         
         # Check source permission
-        if not can_delete_photo(photo_id, user_id):
+        if not self._can_delete_photo(photo_id, user_id):
             raise HTTPException(status_code=403, detail="No permission to move this photo")
         
         # Check destination permission
-        if not can_edit_folder(dest_folder_id, user_id):
+        if not self._can_edit_folder(dest_folder_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot move to this folder")
         
         # Check if already in target folder
@@ -68,7 +165,7 @@ class PhotoService:
             return {"status": "ok", "message": "Photo already in this folder"}
         
         # Move photo
-        success = move_photo_to_folder(photo_id, dest_folder_id)
+        success = self._move_photo_to_folder(photo_id, dest_folder_id)
         if not success:
             raise HTTPException(status_code=400, detail="Failed to move photo")
         
@@ -89,20 +186,17 @@ class PhotoService:
             HTTPException: If album not found, no permission, or move failed
         """
         # Get album info
-        album = self.photo_repo._execute(
-            "SELECT folder_id, user_id FROM albums WHERE id = ?",
-            (album_id,)
-        ).fetchone()
+        album = self.photo_repo.get_album(album_id)
         
         if not album:
             raise HTTPException(status_code=404, detail="Album not found")
         
         # Check source permission
-        if not can_delete_album(album_id, user_id):
+        if not self._can_delete_album(album_id, user_id):
             raise HTTPException(status_code=403, detail="No permission to move this album")
         
         # Check destination permission
-        if not can_edit_folder(dest_folder_id, user_id):
+        if not self._can_edit_folder(dest_folder_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot move to this folder")
         
         # Check if already in target folder
@@ -110,7 +204,7 @@ class PhotoService:
             return {"status": "ok", "message": "Album already in this folder"}
         
         # Move album
-        success = move_album_to_folder(album_id, dest_folder_id)
+        success = self._move_album_to_folder(album_id, dest_folder_id)
         if not success:
             raise HTTPException(status_code=400, detail="Failed to move album")
         
@@ -140,7 +234,7 @@ class PhotoService:
             HTTPException: If no permission on destination folder
         """
         # Check destination permission
-        if not can_edit_folder(dest_folder_id, user_id):
+        if not self._can_edit_folder(dest_folder_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot move to this folder")
         
         moved_photos = 0
@@ -162,7 +256,7 @@ class PhotoService:
                 continue
             
             # Check source permission
-            if not can_delete_photo(photo_id, user_id):
+            if not self._can_delete_photo(photo_id, user_id):
                 skipped_photos += 1
                 continue
             
@@ -170,24 +264,21 @@ class PhotoService:
             if photo.get("folder_id") == dest_folder_id:
                 continue
             
-            if move_photo_to_folder(photo_id, dest_folder_id):
+            if self._move_photo_to_folder(photo_id, dest_folder_id):
                 moved_photos += 1
             else:
                 skipped_photos += 1
         
         # Move albums
         for album_id in album_ids:
-            album = self.photo_repo._execute(
-                "SELECT folder_id FROM albums WHERE id = ?",
-                (album_id,)
-            ).fetchone()
+            album = self.photo_repo.get_album(album_id)
             
             if not album:
                 skipped_albums += 1
                 continue
             
             # Check source permission
-            if not can_delete_album(album_id, user_id):
+            if not self._can_delete_album(album_id, user_id):
                 skipped_albums += 1
                 continue
             
@@ -195,7 +286,7 @@ class PhotoService:
             if album["folder_id"] == dest_folder_id:
                 continue
             
-            if move_album_to_folder(album_id, dest_folder_id):
+            if self._move_album_to_folder(album_id, dest_folder_id):
                 moved_albums += 1
             else:
                 skipped_albums += 1
@@ -224,14 +315,17 @@ class PhotoService:
         Raises:
             HTTPException: If no edit permission on album
         """
-        if not can_edit_album(album_id, user_id):
+        if not self._can_edit_album(album_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot edit this album")
         
         if not photo_ids:
             raise HTTPException(status_code=400, detail="No photos specified")
         
-        from ...database import add_photos_to_album
-        return add_photos_to_album(album_id, photo_ids)
+        count = 0
+        for photo_id in photo_ids:
+            if self.photo_repo.add_to_album(photo_id, album_id):
+                count += 1
+        return count
     
     def remove_photos_from_album(self, album_id: str, photo_ids: list[str], user_id: int) -> int:
         """Remove photos from album. Photos stay in folder.
@@ -247,14 +341,17 @@ class PhotoService:
         Raises:
             HTTPException: If no edit permission on album
         """
-        if not can_edit_album(album_id, user_id):
+        if not self._can_edit_album(album_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot edit this album")
         
         if not photo_ids:
             raise HTTPException(status_code=400, detail="No photos specified")
         
-        from ...database import remove_photos_from_album
-        return remove_photos_from_album(album_id, photo_ids)
+        count = 0
+        for photo_id in photo_ids:
+            if self.photo_repo.remove_from_album(photo_id):
+                count += 1
+        return count
     
     def reorder_album_photos(self, album_id: str, photo_ids: list[str], user_id: int) -> dict:
         """Reorder photos in album.
@@ -270,14 +367,13 @@ class PhotoService:
         Raises:
             HTTPException: If no edit permission or invalid photo IDs
         """
-        if not can_edit_album(album_id, user_id):
+        if not self._can_edit_album(album_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot edit this album")
         
         if not photo_ids:
             raise HTTPException(status_code=400, detail="No photos specified")
         
-        from ...database import reorder_album_photos
-        success = reorder_album_photos(album_id, photo_ids)
+        success = self.photo_repo.reorder_album(album_id, photo_ids)
         if not success:
             raise HTTPException(status_code=400, detail="Invalid photo IDs")
         
@@ -297,11 +393,10 @@ class PhotoService:
         Raises:
             HTTPException: If no edit permission or photo not in album
         """
-        if not can_edit_album(album_id, user_id):
+        if not self._can_edit_album(album_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot edit this album")
         
-        from ...database import set_album_cover
-        success = set_album_cover(album_id, photo_id)
+        success = self.photo_repo.set_album_cover(album_id, photo_id)
         if not success and photo_id:
             raise HTTPException(status_code=400, detail="Photo not in album")
         
