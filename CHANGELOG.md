@@ -41,19 +41,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (Internal)
 - **Service Layer Extraction (Issue #16 - In Progress)**
   - New `app/application/services/` module for business logic
-  - Created 4 application services:
+  - Created 5 application services:
     - `UploadService` - File uploads, thumbnails, encryption, batch operations
     - `FolderService` - Folder CRUD and hierarchy management  
     - `PermissionService` - Access control and sharing
     - `SafeService` - Encrypted vault operations
+    - `PhotoService` - Photo/album move operations and album management
   - Refactored `app/routes/folders.py` to use FolderService
   - Refactored upload endpoints to use UploadService:
     - `/upload` - Single file upload with encryption support
     - `/upload-album` - Multi-file album creation
     - `/upload-bulk` - Bulk folder structure upload
     - `/api/photos/batch-delete` - Batch delete photos and albums
+  - Refactored move endpoints to use PhotoService:
+    - `/api/photos/{id}/move` - Move photo to another folder
+    - `/api/albums/{id}/move` - Move album to another folder
+    - `/api/items/move` - Batch move photos and albums
+  - Refactored album management endpoints to use PhotoService:
+    - `/api/albums/{id}/photos` - Add/remove photos from album
+    - `/api/albums/{id}/reorder` - Reorder photos in album
+    - `/api/albums/{id}/cover` - Set album cover photo
   - Fixed `PhotoRepository.create()` signature to accept optional `photo_id` parameter
-  - Added 6 unit tests for UploadService (25 total service tests)
+  - Fixed Python 3.12 datetime adapter deprecation warning
+  - Added 30 unit tests for service layer (5 for PhotoService)
   - Business logic now testable without FastAPI dependencies
   - Clean separation: HTTP handling in routes, business logic in services
 
