@@ -4,18 +4,13 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
+from ..database import get_db
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
-from ..database import (
-    get_db, get_folder,
-    search_users,
-    get_safe, is_safe_unlocked_for_user, create_folder_in_safe,
-    get_folder_safe_id
-)
 from ..dependencies import require_user
 
 # Service layer imports (Issue #16)
 from ..infrastructure.repositories import (
-    FolderRepository, PermissionRepository, SafeRepository
+    FolderRepository, PermissionRepository, SafeRepository, UserRepository
 )
 from ..application.services import FolderService, PermissionService, UserSettingsService
 
@@ -91,29 +86,35 @@ def create_new_folder(request: Request, data: FolderCreate):
     """Create a new folder."""
     user = require_user(request)
     
-    # Handle safe folder creation (legacy path for now)
-    if data.safe_id:
-        safe = get_safe(data.safe_id)
-        if not safe:
-            raise HTTPException(status_code=404, detail="Safe not found")
-        if safe["user_id"] != user["id"]:
-            raise HTTPException(status_code=403, detail="Access denied")
+    db = get_db()
+    try:
+        # Handle safe folder creation
+        if data.safe_id:
+            safe_repo = SafeRepository(db)
+            safe = safe_repo.get_by_id(data.safe_id)
+            if not safe:
+                raise HTTPException(status_code=404, detail="Safe not found")
+            if safe["user_id"] != user["id"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+            
+            if not safe_repo.is_unlocked(data.safe_id, user["id"]):
+                raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
         
-        if not is_safe_unlocked_for_user(data.safe_id, user["id"]):
-            raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
-        
-        folder_id = create_folder_in_safe(data.name, user["id"], data.safe_id, data.parent_id)
-        folder = get_folder(folder_id)
-    else:
         # Using service layer (Issue #16)
-        service = get_folder_service()
+        service = FolderService(
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
+        )
         folder = service.create_folder(
             name=data.name,
             user_id=user["id"],
-            parent_id=data.parent_id
+            parent_id=data.parent_id,
+            safe_id=data.safe_id
         )
-    
-    return {"status": "ok", "folder": dict(folder)}
+        
+        return {"status": "ok", "folder": dict(folder)}
+    finally:
+        db.close()
 
 
 @router.put("/{folder_id}")
@@ -189,20 +190,27 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
     """Add permission for a user on a folder (owner only)."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
-    service = get_permission_service()
-    success = service.grant_permission(
-        folder_id=folder_id,
-        user_id=data.user_id,
-        permission=data.permission,
-        granted_by=user["id"]
-    )
-    
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to add permission")
-    
-    permissions = service.perm_repo.list_for_folder(folder_id)
-    return {"status": "ok", "permissions": permissions}
+    db = get_db()
+    try:
+        # Using service layer (Issue #16)
+        service = PermissionService(
+            permission_repository=PermissionRepository(db),
+            folder_repository=FolderRepository(db)
+        )
+        success = service.grant_permission(
+            folder_id=folder_id,
+            user_id=data.user_id,
+            permission=data.permission,
+            granted_by=user["id"]
+        )
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to add permission")
+        
+        permissions = service.perm_repo.list_for_folder(folder_id)
+        return {"status": "ok", "permissions": permissions}
+    finally:
+        db.close()
 
 
 @router.put("/{folder_id}/permissions/{target_user_id}")
@@ -215,20 +223,27 @@ def update_folder_permission_route(
     """Update permission for a user on a folder (owner only)."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
-    service = get_permission_service()
-    success = service.update_permission(
-        folder_id=folder_id,
-        user_id=target_user_id,
-        new_permission=data.permission,
-        updated_by=user["id"]
-    )
-    
-    if not success:
-        raise HTTPException(status_code=404, detail="Permission not found")
-    
-    permissions = service.perm_repo.list_for_folder(folder_id)
-    return {"status": "ok", "permissions": permissions}
+    db = get_db()
+    try:
+        # Using service layer (Issue #16)
+        service = PermissionService(
+            permission_repository=PermissionRepository(db),
+            folder_repository=FolderRepository(db)
+        )
+        success = service.update_permission(
+            folder_id=folder_id,
+            user_id=target_user_id,
+            new_permission=data.permission,
+            updated_by=user["id"]
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Permission not found")
+        
+        permissions = service.perm_repo.list_for_folder(folder_id)
+        return {"status": "ok", "permissions": permissions}
+    finally:
+        db.close()
 
 
 @router.delete("/{folder_id}/permissions/{target_user_id}")
@@ -240,19 +255,26 @@ def remove_folder_permission_route(
     """Remove permission for a user on a folder (owner only)."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
-    service = get_permission_service()
-    success = service.revoke_permission(
-        folder_id=folder_id,
-        user_id=target_user_id,
-        revoked_by=user["id"]
-    )
-    
-    if not success:
-        raise HTTPException(status_code=404, detail="Permission not found")
-    
-    permissions = service.perm_repo.list_for_folder(folder_id)
-    return {"status": "ok", "permissions": permissions}
+    db = get_db()
+    try:
+        # Using service layer (Issue #16)
+        service = PermissionService(
+            permission_repository=PermissionRepository(db),
+            folder_repository=FolderRepository(db)
+        )
+        success = service.revoke_permission(
+            folder_id=folder_id,
+            user_id=target_user_id,
+            revoked_by=user["id"]
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Permission not found")
+        
+        permissions = service.perm_repo.list_for_folder(folder_id)
+        return {"status": "ok", "permissions": permissions}
+    finally:
+        db.close()
 
 
 # === Folder Preferences ===
@@ -354,5 +376,10 @@ def search_users_route(request: Request, q: str = ""):
     if len(q) < 2:
         return {"users": []}
     
-    users = search_users(q, exclude_user_id=user["id"], limit=10)
-    return {"users": users}
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        users = user_repo.search(q, exclude_user_id=user["id"], limit=10)
+        return {"users": users}
+    finally:
+        db.close()
