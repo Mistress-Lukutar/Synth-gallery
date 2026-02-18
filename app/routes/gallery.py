@@ -707,8 +707,7 @@ async def upload_bulk(
         folder_id: Target folder ID
     """
     import json
-    import tempfile
-
+    
     user = require_user(request)
 
     if not folder_id:
@@ -729,150 +728,20 @@ async def upload_bulk(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid paths format")
 
-    if len(files) != len(file_paths):
-        raise HTTPException(status_code=400, detail="Files and paths count mismatch")
-
     # Get user's DEK for encryption
     dek = dek_cache.get(user["id"])
-    is_encrypted = dek is not None
 
-    # Group files by their parent folder
-    # Root level files go to '__root__'
-    # Subfolder files go to their subfolder name
-    from collections import defaultdict
-    groups = defaultdict(list)
-
-    for file, path in zip(files, file_paths):
-        parts = path.split('/')
-        if len(parts) == 1:
-            # Root level file
-            groups['__root__'].append((file, path))
-        elif len(parts) == 2:
-            # First level subfolder
-            album_name = parts[0]
-            groups[album_name].append((file, path))
-        # else: nested deeper - skip
-
-    db = get_db()
-    summary = {
-        "total_files": len(files),
-        "individual_photos": 0,
-        "albums_created": 0,
-        "photos_in_albums": 0,
-        "failed": 0,
-        "skipped_nested": len(files) - sum(len(g) for g in groups.values())
-    }
-    albums_created = []
-
-    # Helper function to process a single file with encryption
-    async def process_file(file, original_name, album_id=None, position=0):
-        if file.content_type not in ALLOWED_MEDIA_TYPES:
-            return None
-
-        media_type = get_media_type(file.content_type)
-        photo_id = str(uuid.uuid4())
-        ext = Path(original_name).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
-        filename = f"{photo_id}{ext}"
-
-        # Read file content
-        file_content = await file.read()
-
-        # Extract metadata from temp file
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(file_content)
-            tmp_path = Path(tmp.name)
-
-        try:
-            taken_at = extract_taken_date(tmp_path)
-            if taken_at is None:
-                taken_at = datetime.now()
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-        # Create thumbnail
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-        try:
-            if media_type == "video":
-                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
-            else:
-                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
-        except Exception:
-            return None
-
-        # Save files (encrypted if DEK available)
-        file_path = UPLOADS_DIR / filename
-        if is_encrypted:
-            encrypted_content = EncryptionService.encrypt_file(file_content, dek)
-            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-            with open(file_path, "wb") as f:
-                f.write(encrypted_content)
-            with open(thumb_path, "wb") as f:
-                f.write(encrypted_thumb)
-        else:
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_bytes)
-
-        # Save to database
-        if album_id:
-            db.execute(
-                "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (photo_id, filename, original_name, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
-            )
-        else:
-            db.execute(
-                "INSERT INTO photos (id, filename, original_name, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (photo_id, filename, original_name, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
-            )
-
-        return photo_id
-
-    # Process root level files as individual photos
-    for file, path in groups.pop('__root__', []):
-        original_name = Path(file.filename).name
-        result = await process_file(file, original_name)
-        if result:
-            summary["individual_photos"] += 1
-        else:
-            summary["failed"] += 1
-
-    # Process each subfolder as an album
-    for album_name, album_files in groups.items():
-        album_id = str(uuid.uuid4())
-        db.execute(
-            "INSERT INTO albums (id, name, folder_id, user_id) VALUES (?, ?, ?, ?)",
-            (album_id, album_name, folder_id, user["id"])
-        )
-
-        photos_uploaded = 0
-        for position, (file, path) in enumerate(album_files):
-            original_name = Path(file.filename).name
-            result = await process_file(file, original_name, album_id, position)
-            if result:
-                photos_uploaded += 1
-                summary["photos_in_albums"] += 1
-            else:
-                summary["failed"] += 1
-
-        if photos_uploaded > 0:
-            summary["albums_created"] += 1
-            albums_created.append({
-                "id": album_id,
-                "name": album_name,
-                "photo_count": photos_uploaded
-            })
-        else:
-            # No photos uploaded, delete empty album
-            db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
-
-    db.commit()
-
-    return {
-        "status": "ok",
-        "summary": summary,
-        "albums": albums_created
-    }
+    # Use UploadService (Issue #16)
+    service = get_upload_service()
+    result = await service.upload_bulk(
+        files=files,
+        paths=file_paths,
+        folder_id=folder_id,
+        user_id=user["id"],
+        user_dek=dek
+    )
+    
+    return result
 
 
 @router.get("/api/photos/{photo_id}")
@@ -1022,7 +891,8 @@ def batch_delete_photos(data: BatchDeleteInput, request: Request):
     """Delete multiple photos and albums."""
     user = require_user(request)
 
-    db = get_db()
+    # Use UploadService (Issue #16)
+    service = get_upload_service()
     deleted_photos = 0
     deleted_albums = 0
     skipped_photos = 0
@@ -1035,14 +905,10 @@ def batch_delete_photos(data: BatchDeleteInput, request: Request):
             skipped_photos += 1
             continue
 
-        photo = db.execute("SELECT filename FROM photos WHERE id = ?", (photo_id,)).fetchone()
-        if photo:
-            file_path = UPLOADS_DIR / photo["filename"]
-            thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-            file_path.unlink(missing_ok=True)
-            thumb_path.unlink(missing_ok=True)
-            db.execute("DELETE FROM photos WHERE id = ?", (photo_id,))
+        if service.delete_photo(photo_id):
             deleted_photos += 1
+        else:
+            skipped_photos += 1
 
     # Delete albums and their photos
     for album_id in data.album_ids:
@@ -1051,17 +917,9 @@ def batch_delete_photos(data: BatchDeleteInput, request: Request):
             skipped_albums += 1
             continue
 
-        photos = db.execute("SELECT id, filename FROM photos WHERE album_id = ?", (album_id,)).fetchall()
-        for photo in photos:
-            file_path = UPLOADS_DIR / photo["filename"]
-            thumb_path = THUMBNAILS_DIR / f"{photo['id']}.jpg"
-            file_path.unlink(missing_ok=True)
-            thumb_path.unlink(missing_ok=True)
-        db.execute("DELETE FROM photos WHERE album_id = ?", (album_id,))
-        db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
+        photo_count, _ = service.delete_album(album_id)
         deleted_albums += 1
 
-    db.commit()
     return {
         "status": "ok",
         "deleted_photos": deleted_photos,
