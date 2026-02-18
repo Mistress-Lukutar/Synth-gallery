@@ -82,13 +82,17 @@ class EncryptionService:
 
         Returns:
             Tuple of (human_readable_key, raw_key_bytes)
-            The human_readable_key is what's shown to the user (base64).
+            The human_readable_key is what's shown to the user (base32).
+            Base32 is used instead of base64 because:
+            1. It only contains A-Z and 2-7, avoiding conflicts with the '-' separator
+            2. It's case-insensitive, making user input more forgiving
+            3. It avoids look-alike characters (0 vs O, 1 vs I)
         """
         raw_key = secrets.token_bytes(RECOVERY_KEY_SIZE)
-        # Format as base64 for human readability, with dashes for easier reading
-        b64_key = base64.urlsafe_b64encode(raw_key).decode('ascii').rstrip('=')
-        # Split into groups of 8 for readability: XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX
-        formatted_key = '-'.join([b64_key[i:i+8] for i in range(0, len(b64_key), 8)])
+        # Use base32 - it only contains A-Z and 2-7, no special chars
+        b32_key = base64.b32encode(raw_key).decode('ascii')
+        # Split into groups of 4 for readability: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+        formatted_key = '-'.join([b32_key[i:i+4] for i in range(0, len(b32_key), 4)])
         return formatted_key, raw_key
 
     @staticmethod
@@ -102,13 +106,9 @@ class EncryptionService:
         Returns:
             Raw key bytes
         """
-        # Remove dashes and restore base64 padding
-        b64_key = formatted_key.replace('-', '')
-        # Add padding back
-        padding = 4 - len(b64_key) % 4
-        if padding != 4:
-            b64_key += '=' * padding
-        return base64.urlsafe_b64decode(b64_key)
+        # Remove dashes - safe because base32 doesn't use '-' character
+        b32_key = formatted_key.replace('-', '').upper()
+        return base64.b32decode(b32_key)
 
     @staticmethod
     def encrypt_dek_with_recovery_key(dek: bytes, recovery_key: bytes) -> bytes:
