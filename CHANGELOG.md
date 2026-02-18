@@ -49,14 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added (Internal)
 - **Service Layer Extraction (Issue #16 - Completed)**
   - New `app/application/services/` module for business logic
-  - Created 7 application services:
+  - Created 8 application services:
     - `UploadService` - File uploads, thumbnails, encryption, batch operations
     - `FolderService` - Folder CRUD and hierarchy management  
     - `PermissionService` - Access control and sharing
     - `SafeService` - Encrypted vault operations (safe CRUD, unlock/lock, sessions)
     - `PhotoService` - Photo/album move operations and album management
-    - `SafeFileService` - File operations in encrypted safes (NEW)
-    - `EnvelopeService` - Envelope encryption operations (NEW)
+    - `SafeFileService` - File operations in encrypted safes
+    - `EnvelopeService` - Envelope encryption operations
+    - `UserSettingsService` - User preferences (default folder, collapsed, sort) (NEW)
   - Refactored `app/routes/folders.py` to use FolderService
   - Refactored upload endpoints to use UploadService:
     - `/upload` - Single file upload with encryption support
@@ -92,6 +93,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `get_migration_status`
     - `get_photos_needing_migration`
     - `get_folder_key_full`
+  - Extended FolderService with:
+    - `get_folder_tree()` - Complex folder tree with safe handling
+    - `get_folder_contents()` - Subfolders, albums, photos in folder
+  - Created UserSettingsService for user preferences:
+    - Default folder management
+    - Collapsed folders state
+    - Sort preferences per folder
+    - Encryption key storage
   - Business logic now testable without FastAPI dependencies
   - Clean separation: HTTP handling in routes, business logic in services
 
