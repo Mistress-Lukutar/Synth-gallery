@@ -48,6 +48,12 @@ def _get_photo_repo():
     return PhotoRepository(get_db())
 
 
+def _get_safe_repo():
+    """Get SafeRepository instance with current DB connection."""
+    from .infrastructure.repositories import SafeRepository
+    return SafeRepository(get_db())
+
+
 def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     """Hash password using bcrypt.
 
@@ -1783,95 +1789,63 @@ def create_safe(
     salt: bytes = None,
     recovery_encrypted_dek: bytes = None
 ) -> str:
-    """Create a new safe. Returns safe ID."""
-    import uuid
-    db = get_db()
-    safe_id = str(uuid.uuid4())
+    """Create a new safe. Returns safe ID.
     
-    db.execute("""
-        INSERT INTO safes (id, name, user_id, encrypted_dek, unlock_type, 
-                          credential_id, salt, recovery_encrypted_dek)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (safe_id, name.strip(), user_id, encrypted_dek, unlock_type,
-          credential_id, salt, recovery_encrypted_dek))
-    db.commit()
-    return safe_id
+    DEPRECATED: Use SafeRepository.create() instead.
+    """
+    return _get_safe_repo().create(
+        name, user_id, encrypted_dek, unlock_type,
+        credential_id, salt, recovery_encrypted_dek
+    )
 
 
 def get_safe(safe_id: str) -> dict | None:
-    """Get safe by ID."""
-    db = get_db()
-    safe = db.execute("SELECT * FROM safes WHERE id = ?", (safe_id,)).fetchone()
-    return dict(safe) if safe else None
+    """Get safe by ID.
+    
+    DEPRECATED: Use SafeRepository.get_by_id() instead.
+    """
+    return _get_safe_repo().get_by_id(safe_id)
 
 
 def get_user_safes(user_id: int) -> list[dict]:
-    """Get all safes for a user."""
-    db = get_db()
-    safes = db.execute("""
-        SELECT s.*, 
-               (SELECT COUNT(*) FROM folders WHERE safe_id = s.id) as folder_count,
-               (SELECT COUNT(*) FROM photos WHERE safe_id = s.id) as photo_count
-        FROM safes s
-        WHERE s.user_id = ?
-        ORDER BY s.created_at DESC
-    """, (user_id,)).fetchall()
-    return [dict(s) for s in safes]
+    """Get all safes for a user.
+    
+    DEPRECATED: Use SafeRepository.list_by_user() instead.
+    """
+    return _get_safe_repo().list_by_user(user_id)
 
 
 def update_safe(safe_id: str, name: str = None) -> bool:
-    """Update safe name."""
-    db = get_db()
-    if name is not None:
-        db.execute("UPDATE safes SET name = ? WHERE id = ?", (name.strip(), safe_id))
-        db.commit()
-        return True
-    return False
+    """Update safe name.
+    
+    DEPRECATED: Use SafeRepository.update() instead.
+    """
+    return _get_safe_repo().update(safe_id, name)
 
 
 def delete_safe(safe_id: str) -> bool:
-    """Delete a safe and all its contents (folders, photos)."""
-    db = get_db()
+    """Delete a safe and all its contents (folders, photos).
     
-    # Get all folders in this safe
-    folders = db.execute("SELECT id FROM folders WHERE safe_id = ?", (safe_id,)).fetchall()
-    
-    # Delete photos in safe
-    db.execute("DELETE FROM photos WHERE safe_id = ?", (safe_id,))
-    
-    # Delete albums in safe
-    db.execute("DELETE FROM albums WHERE safe_id = ?", (safe_id,))
-    
-    # Delete folders in safe
-    db.execute("DELETE FROM folders WHERE safe_id = ?", (safe_id,))
-    
-    # Delete safe sessions
-    db.execute("DELETE FROM safe_sessions WHERE safe_id = ?", (safe_id,))
-    
-    # Delete safe
-    db.execute("DELETE FROM safes WHERE id = ?", (safe_id,))
-    db.commit()
-    return True
+    DEPRECATED: Use SafeRepository.delete() instead.
+    """
+    return _get_safe_repo().delete(safe_id)
 
 
 def get_safe_by_folder_id(folder_id: str) -> dict | None:
-    """Get safe that contains this folder (if any)."""
-    db = get_db()
-    safe = db.execute("""
-        SELECT s.* FROM safes s
-        JOIN folders f ON f.safe_id = s.id
-        WHERE f.id = ?
-    """, (folder_id,)).fetchone()
-    return dict(safe) if safe else None
+    """Get safe that contains this folder (if any).
+    
+    DEPRECATED: Use SafeRepository.get_by_folder() instead.
+    """
+    return _get_safe_repo().get_by_folder(folder_id)
 
 
 def is_folder_in_safe(folder_id: str) -> bool:
-    """Check if folder is inside a safe."""
-    db = get_db()
-    result = db.execute("""
-        SELECT 1 FROM folders WHERE id = ? AND safe_id IS NOT NULL
-    """, (folder_id,)).fetchone()
-    return result is not None
+    """Check if folder is inside a safe.
+    
+    DEPRECATED: Check folder.get('safe_id') is not None instead.
+    """
+    folder = _get_folder_repo().get_by_id(folder_id)
+    return folder.get("safe_id") is not None if folder else False
 
 
 def get_folder_safe_id(folder_id: str) -> str | None:
@@ -1888,60 +1862,51 @@ def get_folder_safe_id(folder_id: str) -> str | None:
 # =============================================================================
 
 def create_safe_session(safe_id: str, user_id: int, encrypted_dek: bytes, expires_hours: int = 24) -> str:
-    """Create a safe session for unlocked safe access."""
-    db = get_db()
-    session_id = secrets.token_urlsafe(32)
-    db.execute("""
-        INSERT INTO safe_sessions (id, safe_id, user_id, encrypted_dek, expires_at)
-        VALUES (?, ?, ?, ?, datetime('now', '+' || ? || ' hours'))
-    """, (session_id, safe_id, user_id, encrypted_dek, expires_hours))
-    db.commit()
-    return session_id
+    """Create a safe session for unlocked safe access.
+    
+    DEPRECATED: Use SafeRepository.create_session() instead.
+    """
+    return _get_safe_repo().create_session(safe_id, user_id, encrypted_dek, expires_hours)
 
 
 def get_safe_session(session_id: str) -> dict | None:
-    """Get valid safe session."""
-    db = get_db()
-    session = db.execute("""
-        SELECT * FROM safe_sessions 
-        WHERE id = ? AND expires_at > datetime('now')
-    """, (session_id,)).fetchone()
-    return dict(session) if session else None
+    """Get valid safe session.
+    
+    DEPRECATED: Use SafeRepository.get_session() instead.
+    """
+    return _get_safe_repo().get_session(session_id)
 
 
 def delete_safe_session(session_id: str) -> bool:
-    """Delete a safe session (lock the safe)."""
-    db = get_db()
-    db.execute("DELETE FROM safe_sessions WHERE id = ?", (session_id,))
-    db.commit()
-    return True
+    """Delete a safe session (lock the safe).
+    
+    DEPRECATED: Use SafeRepository.delete_session() instead.
+    """
+    return _get_safe_repo().delete_session(session_id)
 
 
 def cleanup_expired_safe_sessions():
-    """Remove expired safe sessions."""
-    db = get_db()
-    db.execute("DELETE FROM safe_sessions WHERE expires_at <= datetime('now')")
-    db.commit()
+    """Remove expired safe sessions.
+    
+    DEPRECATED: Use SafeRepository.cleanup_expired_sessions() instead.
+    """
+    _get_safe_repo().cleanup_expired_sessions()
 
 
 def get_user_unlocked_safes(user_id: int) -> list[str]:
-    """Get list of safe IDs that are currently unlocked for this user."""
-    db = get_db()
-    sessions = db.execute("""
-        SELECT safe_id FROM safe_sessions 
-        WHERE user_id = ? AND expires_at > datetime('now')
-    """, (user_id,)).fetchall()
-    return [s["safe_id"] for s in sessions]
+    """Get list of safe IDs that are currently unlocked for this user.
+    
+    DEPRECATED: Use SafeRepository.list_unlocked() instead.
+    """
+    return _get_safe_repo().list_unlocked(user_id)
 
 
 def is_safe_unlocked_for_user(safe_id: str, user_id: int) -> bool:
-    """Check if safe is currently unlocked for user."""
-    db = get_db()
-    result = db.execute("""
-        SELECT 1 FROM safe_sessions 
-        WHERE safe_id = ? AND user_id = ? AND expires_at > datetime('now')
-    """, (safe_id, user_id)).fetchone()
-    return result is not None
+    """Check if safe is currently unlocked for user.
+    
+    DEPRECATED: Use SafeRepository.is_unlocked() instead.
+    """
+    return _get_safe_repo().is_unlocked(safe_id, user_id)
 
 
 # =============================================================================
