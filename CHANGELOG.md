@@ -23,17 +23,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - No breaking changes for existing code
   - Fixes TemplateResponse deprecation warnings (FastAPI 0.100+ API)
 
+### Added (Internal)
+- **Async Database Layer (Issue #15)**
+  - Migrated from synchronous sqlite3 to async aiosqlite
+  - New `app/infrastructure/database/` module with async connection pool
+  - Async versions of all 6 repositories:
+    - `AsyncUserRepository` - Async user operations
+    - `AsyncSessionRepository` - Async session management
+    - `AsyncFolderRepository` - Async folder operations
+    - `AsyncPermissionRepository` - Async permission handling
+    - `AsyncPhotoRepository` - Async photo operations
+    - `AsyncSafeRepository` - Async safe operations
+  - FastAPI dependency `get_async_db()` for async endpoints
+  - Backward compatibility: sync APIs still work unchanged
+  - True non-blocking I/O for better concurrency under load
+
 ### Migration for Developers
 ```python
 # Old way (still works):
 from app.database import create_user, get_folder
 create_user("john", "pass", "John")
 
-# New recommended way:
+# New recommended sync way:
 from app.infrastructure.repositories import UserRepository
 from app.database import get_db
 repo = UserRepository(get_db())
 repo.create("john", "pass", "John")
+
+# New async way (for new endpoints):
+from app.infrastructure.repositories import AsyncUserRepository
+from app.database import get_async_db
+
+@app.post("/api/users")
+async def create_user(username: str, db = Depends(get_async_db)):
+    repo = AsyncUserRepository(db)
+    return await repo.create(username, "pass", username)
 ```
 
 ## [0.8.5] - 2026-02-16

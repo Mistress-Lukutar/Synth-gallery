@@ -5,7 +5,7 @@ Operations support recursive queries for subtree operations.
 """
 import uuid
 from typing import Optional
-from .base import Repository
+from .base import Repository, AsyncRepository, AsyncRepository
 
 
 class FolderRepository(Repository):
@@ -330,3 +330,253 @@ class FolderRepository(Repository):
             f"DELETE FROM folders WHERE id IN ({placeholders})",
             tuple(folder_ids)
         )
+
+
+# =============================================================================
+# ASYNC VERSION (Issue #15)
+# =============================================================================
+
+class AsyncFolderRepository(AsyncRepository):
+    """Async repository for folder operations."""
+
+    async def get_by_id(self, folder_id: str) -> dict | None:
+        """Get folder by ID.
+        
+        Args:
+            folder_id: Folder UUID
+            
+        Returns:
+            Folder dict or None
+        """
+        return await self._fetchone(
+            "SELECT * FROM folders WHERE id = ?",
+            (folder_id,)
+        )
+
+    async def get_by_parent(self, parent_id: str | None) -> list[dict]:
+        """Get folders by parent ID.
+        
+        Args:
+            parent_id: Parent folder ID (None for root folders)
+            
+        Returns:
+            List of folder dicts
+        """
+        return await self._fetchall(
+            "SELECT * FROM folders WHERE parent_id = ? ORDER BY name",
+            (parent_id,)
+        )
+
+    async def create(self, folder_id: str, name: str, user_id: int, parent_id: str | None = None) -> str:
+        """Create a new folder.
+        
+        Args:
+            folder_id: Folder UUID
+            name: Folder name
+            user_id: Owner user ID
+            parent_id: Parent folder ID (None for root)
+            
+        Returns:
+            New folder UUID
+        """
+        await self._execute(
+            """INSERT INTO folders (id, name, parent_id, user_id) 
+               VALUES (?, ?, ?, ?)""",
+            (folder_id, name.strip(), parent_id, user_id)
+        )
+        await self._commit()
+        return folder_id
+
+    async def update_name(self, folder_id: str, new_name: str) -> bool:
+        """Update folder name.
+        
+        Args:
+            folder_id: Folder ID
+            new_name: New folder name
+            
+        Returns:
+            True if folder existed and was updated
+        """
+        cursor = await self._execute(
+            "UPDATE folders SET name = ? WHERE id = ?",
+            (new_name.strip(), folder_id)
+        )
+        await self._commit()
+        return cursor.rowcount > 0
+
+    async def delete(self, folder_id: str) -> bool:
+        """Delete folder.
+        
+        Args:
+            folder_id: Folder ID to delete
+            
+        Returns:
+            True if folder existed and was deleted
+        """
+        cursor = await self._execute(
+            "DELETE FROM folders WHERE id = ?",
+            (folder_id,)
+        )
+        await self._commit()
+        return cursor.rowcount > 0
+
+    async def get_full_path(self, folder_id: str) -> list[dict]:
+        """Get full path from root to folder.
+        
+        Args:
+            folder_id: Target folder ID
+            
+        Returns:
+            List of {id, name} dicts from root to target
+        """
+        breadcrumbs = []
+        current_id = folder_id
+        
+        while current_id:
+            row = await self._fetchone(
+                "SELECT id, name, parent_id FROM folders WHERE id = ?",
+                (current_id,)
+            )
+            
+            if row:
+                breadcrumbs.insert(0, {"id": row["id"], "name": row["name"]})
+                current_id = row["parent_id"]
+            else:
+                break
+        
+        return breadcrumbs
+
+    async def get_tree(self, user_id: int) -> list[dict]:
+        """Get folder tree for user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of folder dicts with metadata
+        """
+        return await self._fetchall(
+            """SELECT f.*, u.display_name as owner_name,
+                   (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+               FROM folders f
+               JOIN users u ON f.user_id = u.id
+               WHERE f.user_id = ? 
+                  OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+               ORDER BY f.name""",
+            (user_id, user_id)
+        )
+
+    async def search_by_name(self, name: str, user_id: int | None = None) -> list[dict]:
+        """Search folders by name.
+        
+        Args:
+            name: Search term
+            user_id: Optional user ID to restrict search
+            
+        Returns:
+            List of matching folder dicts
+        """
+        if user_id is not None:
+            return await self._fetchall(
+                """SELECT * FROM folders 
+                   WHERE name LIKE ? AND user_id = ? 
+                   ORDER BY name""",
+                (f"%{name}%", user_id)
+            )
+        else:
+            return await self._fetchall(
+                """SELECT * FROM folders 
+                   WHERE name LIKE ? 
+                   ORDER BY name""",
+                (f"%{name}%",)
+            )
+
+    async def get_children(self, parent_id: str) -> list[dict]:
+        """Get direct child folders.
+        
+        Args:
+            parent_id: Parent folder ID
+            
+        Returns:
+            List of child folder dicts
+        """
+        return await self._fetchall(
+            "SELECT * FROM folders WHERE parent_id = ? ORDER BY name",
+            (parent_id,)
+        )
+
+    async def move(self, folder_id: str, new_parent_id: str | None) -> bool:
+        """Move folder to new parent.
+        
+        Args:
+            folder_id: Folder to move
+            new_parent_id: New parent (None for root)
+            
+        Returns:
+            True if successful
+        """
+        cursor = await self._execute(
+            "UPDATE folders SET parent_id = ? WHERE id = ?",
+            (new_parent_id, folder_id)
+        )
+        await self._commit()
+        return cursor.rowcount > 0
+
+    async def get_root_folders(self, user_id: int) -> list[dict]:
+        """Get all root folders for user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of root folder dicts
+        """
+        return await self._fetchall(
+            "SELECT * FROM folders WHERE user_id = ? AND parent_id IS NULL ORDER BY name",
+            (user_id,)
+        )
+
+    async def get_shared_folders(self, user_id: int) -> list[dict]:
+        """Get folders shared with user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of shared folder dicts
+        """
+        return await self._fetchall(
+            """SELECT f.* FROM folders f
+               JOIN folder_permissions fp ON f.id = fp.folder_id
+               WHERE fp.user_id = ?
+               ORDER BY f.name""",
+            (user_id,)
+        )
+
+    async def is_descendant_of(self, folder_id: str, ancestor_id: str) -> bool:
+        """Check if folder is descendant of ancestor.
+        
+        Args:
+            folder_id: Folder to check
+            ancestor_id: Potential ancestor folder ID
+            
+        Returns:
+            True if folder_id is descendant of ancestor_id
+        """
+        current_id = folder_id
+        
+        while current_id:
+            row = await self._fetchone(
+                "SELECT parent_id FROM folders WHERE id = ?",
+                (current_id,)
+            )
+            
+            if not row:
+                return False
+                
+            current_id = row["parent_id"]
+            
+            if current_id == ancestor_id:
+                return True
+        
+        return False

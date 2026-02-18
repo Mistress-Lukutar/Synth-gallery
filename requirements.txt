@@ -8,6 +8,7 @@ passlib[bcrypt]==1.7.4
 bcrypt==5.0.0
 cryptography>=42.0.0
 webauthn>=2.0.0
+aiosqlite>=0.20.0
 
 opencv-python
 pydantic

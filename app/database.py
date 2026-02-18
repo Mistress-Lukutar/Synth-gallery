@@ -2007,3 +2007,176 @@ def get_safe_tree_for_user(user_id: int) -> list[dict]:
     """, (user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
     
     return [dict(f) for f in folders]
+
+
+# =============================================================================
+# ASYNC DATABASE SUPPORT (Issue #15)
+# =============================================================================
+# Async database layer using aiosqlite for non-blocking operations
+# =============================================================================
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+import aiosqlite
+
+# Re-export async functions from infrastructure
+from app.infrastructure.database import (
+    get_async_db as _get_async_db_conn,
+    init_async_db,
+    close_async_db,
+    AsyncConnectionPool,
+)
+
+
+async def get_async_db() -> aiosqlite.Connection:
+    """FastAPI dependency for async database connection.
+    
+    Usage:
+        @router.get("/items")
+        async def get_items(db: aiosqlite.Connection = Depends(get_async_db)):
+            async with db.execute("SELECT * FROM items") as cursor:
+                rows = await cursor.fetchall()
+                return rows
+    """
+    conn = await _get_async_db_conn()
+    try:
+        yield conn
+    finally:
+        from app.infrastructure.database import release_async_db
+        await release_async_db(conn)
+
+
+@asynccontextmanager
+async def async_db_context() -> AsyncGenerator[aiosqlite.Connection, None]:
+    """Async context manager for database connections.
+    
+    Usage:
+        async with async_db_context() as db:
+            await db.execute("INSERT ...")
+            await db.commit()
+    """
+    conn = await _get_async_db_conn()
+    try:
+        yield conn
+    finally:
+        from app.infrastructure.database import release_async_db
+        await release_async_db(conn)
+
+
+# =============================================================================
+# ASYNC REPOSITORY HELPERS
+# =============================================================================
+# Helper functions for using async repositories
+# =============================================================================
+
+async def _get_async_user_repo():
+    """Get AsyncUserRepository instance."""
+    from app.infrastructure.repositories import AsyncUserRepository
+    async with async_db_context() as db:
+        return AsyncUserRepository(db)
+
+
+async def _get_async_session_repo():
+    """Get AsyncSessionRepository instance."""
+    from app.infrastructure.repositories import AsyncSessionRepository
+    async with async_db_context() as db:
+        return AsyncSessionRepository(db)
+
+
+async def _get_async_folder_repo():
+    """Get AsyncFolderRepository instance."""
+    from app.infrastructure.repositories import AsyncFolderRepository
+    async with async_db_context() as db:
+        return AsyncFolderRepository(db)
+
+
+async def _get_async_permission_repo():
+    """Get AsyncPermissionRepository instance."""
+    from app.infrastructure.repositories import AsyncPermissionRepository
+    async with async_db_context() as db:
+        return AsyncPermissionRepository(db)
+
+
+async def _get_async_photo_repo():
+    """Get AsyncPhotoRepository instance."""
+    from app.infrastructure.repositories import AsyncPhotoRepository
+    async with async_db_context() as db:
+        return AsyncPhotoRepository(db)
+
+
+async def _get_async_safe_repo():
+    """Get AsyncSafeRepository instance."""
+    from app.infrastructure.repositories import AsyncSafeRepository
+    async with async_db_context() as db:
+        return AsyncSafeRepository(db)
+
+
+# =============================================================================
+# ASYNC BACKWARD COMPATIBILITY WRAPPERS
+# =============================================================================
+# These functions provide async versions of common database operations
+# for gradual migration to async patterns
+# =============================================================================
+
+async def async_get_user_by_id(user_id: int) -> dict | None:
+    """Async version of get_user_by_id."""
+    from app.infrastructure.repositories import AsyncUserRepository
+    async with async_db_context() as db:
+        repo = AsyncUserRepository(db)
+        return await repo.get_by_id(user_id)
+
+
+async def async_get_user_by_username(username: str) -> dict | None:
+    """Async version of get_user_by_username."""
+    from app.infrastructure.repositories import AsyncUserRepository
+    async with async_db_context() as db:
+        repo = AsyncUserRepository(db)
+        return await repo.get_by_username(username)
+
+
+async def async_authenticate_user(username: str, password: str) -> dict | None:
+    """Async version of authenticate_user."""
+    from app.infrastructure.repositories import AsyncUserRepository
+    async with async_db_context() as db:
+        repo = AsyncUserRepository(db)
+        return await repo.authenticate(username, password)
+
+
+async def async_create_session(user_id: int, expires_hours: int = 24 * 7) -> str:
+    """Async version of create_session."""
+    from app.infrastructure.repositories import AsyncSessionRepository
+    async with async_db_context() as db:
+        repo = AsyncSessionRepository(db)
+        return await repo.create(user_id, expires_hours)
+
+
+async def async_get_valid_session(session_id: str) -> dict | None:
+    """Async version of get_valid_session."""
+    from app.infrastructure.repositories import AsyncSessionRepository
+    async with async_db_context() as db:
+        repo = AsyncSessionRepository(db)
+        return await repo.get_valid(session_id)
+
+
+async def async_delete_session(session_id: str) -> bool:
+    """Async version of delete_session."""
+    from app.infrastructure.repositories import AsyncSessionRepository
+    async with async_db_context() as db:
+        repo = AsyncSessionRepository(db)
+        return await repo.delete(session_id)
+
+
+async def async_get_folder(folder_id: str) -> dict | None:
+    """Async version of get_folder."""
+    from app.infrastructure.repositories import AsyncFolderRepository
+    async with async_db_context() as db:
+        repo = AsyncFolderRepository(db)
+        return await repo.get_by_id(folder_id)
+
+
+async def async_get_photos_by_folder(folder_id: str) -> list[dict]:
+    """Async version of get_photos_by_folder."""
+    from app.infrastructure.repositories import AsyncPhotoRepository
+    async with async_db_context() as db:
+        repo = AsyncPhotoRepository(db)
+        return await repo.list_by_folder(folder_id)
