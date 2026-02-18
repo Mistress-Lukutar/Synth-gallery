@@ -9,7 +9,7 @@ import json
 from pydantic import BaseModel
 from fastapi import APIRouter, Request, HTTPException
 
-from ..database import get_db
+from ..database import create_connection
 from ..infrastructure.repositories import UserRepository, PhotoRepository, FolderRepository, PermissionRepository
 from ..application.services import EnvelopeService
 from ..dependencies import require_user
@@ -57,7 +57,7 @@ def get_my_public_key(request: Request):
     """Get current user's public key."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         envelope_service = EnvelopeService(db)
         public_key = envelope_service.get_user_public_key(user["id"])
@@ -92,7 +92,7 @@ def upload_public_key(request: Request, data: PublicKeyUpload):
     if len(public_key) < 32:  # Minimum reasonable key size
         raise HTTPException(status_code=400, detail="Public key too short")
     
-    db = get_db()
+    db = create_connection()
     try:
         envelope_service = EnvelopeService(db)
         success = envelope_service.set_user_public_key(user["id"], public_key)
@@ -114,7 +114,7 @@ def get_my_encrypted_dek(request: Request):
     user = require_user(request)
     
     import base64
-    db = get_db()
+    db = create_connection()
     try:
         user_repo = UserRepository(db)
         enc_keys = user_repo.get_encryption_keys(user["id"])
@@ -143,7 +143,7 @@ def get_user_public_key_endpoint(user_id: int, request: Request):
     # Require authentication but not necessarily access to specific resources
     require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         envelope_service = EnvelopeService(db)
         public_key = envelope_service.get_user_public_key(user_id)
@@ -173,7 +173,7 @@ def get_photo_key_endpoint(photo_id: str, request: Request):
     """
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Check access
         perm_repo = PermissionRepository(db)
@@ -221,7 +221,7 @@ def upload_photo_key(photo_id: str, data: PhotoKeyUpload, request: Request):
     """
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Verify ownership
         photo_repo = PhotoRepository(db)
@@ -260,7 +260,7 @@ def share_photo_key(photo_id: str, data: SharePhotoKey, request: Request):
     """Share a photo with another user by providing them encrypted CK."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Verify ownership
         photo_repo = PhotoRepository(db)
@@ -296,7 +296,7 @@ def revoke_photo_share(photo_id: str, target_user_id: int, request: Request):
     """Revoke shared access from a user."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Verify ownership
         photo_repo = PhotoRepository(db)
@@ -321,7 +321,7 @@ def list_photo_shares(photo_id: str, request: Request):
     """List users who have shared access to this photo."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Verify ownership
         photo_repo = PhotoRepository(db)
@@ -358,7 +358,7 @@ def get_folder_key_endpoint(folder_id: str, request: Request):
     """Get encrypted folder DEK for current user."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Check access
         perm_repo = PermissionRepository(db)
@@ -391,7 +391,7 @@ def create_folder_key_endpoint(folder_id: str, data: FolderKeyCreate, request: R
     """Create folder key (called by owner when enabling folder encryption)."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Verify ownership
         folder_repo = FolderRepository(db)
@@ -432,7 +432,7 @@ def share_folder_key(folder_id: str, data: FolderKeyShare, request: Request):
     """Share folder DEK with a user."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Verify ownership
         folder_repo = FolderRepository(db)
@@ -472,7 +472,7 @@ def share_folder_key(folder_id: str, data: FolderKeyShare, request: Request):
 def get_user_migration_status(request: Request):
     """Get migration status for current user."""
     user = require_user(request)
-    db = get_db()
+    db = create_connection()
     try:
         envelope_service = EnvelopeService(db)
         status = envelope_service.get_migration_status(user["id"])
@@ -485,7 +485,7 @@ def get_user_migration_status(request: Request):
 def get_pending_migration_photos(request: Request):
     """Get list of photos needing migration."""
     user = require_user(request)
-    db = get_db()
+    db = create_connection()
     try:
         envelope_service = EnvelopeService(db)
         photos = envelope_service.get_photos_needing_migration(user["id"])
@@ -513,7 +513,7 @@ def batch_migrate_photos(data: MigrationBatch, request: Request):
     """
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         results = []
         import base64

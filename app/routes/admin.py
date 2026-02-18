@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
-from ..database import get_db
+from ..database import create_connection
 from ..infrastructure.repositories import UserRepository
 from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..services.backup import (
@@ -28,7 +28,7 @@ router = APIRouter()
 def require_admin(request: Request):
     """Check if current user is admin. Raises 403 if not."""
     user = require_user(request)
-    db = get_db()
+    db = create_connection()
     try:
         user_repo = UserRepository(db)
         user_data = user_repo.get_by_id(user["id"])
