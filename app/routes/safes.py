@@ -6,11 +6,8 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..database import (
-    get_db, get_webauthn_credential_by_id, get_webauthn_credentials,
-    update_webauthn_sign_count
-)
-from ..infrastructure.repositories import SafeRepository
+from ..database import get_db
+from ..infrastructure.repositories import SafeRepository, WebAuthnRepository
 from ..application.services import SafeService
 from ..dependencies import require_user
 
@@ -74,26 +71,31 @@ def list_safes(request: Request):
 def create_new_safe(request: Request, data: SafeCreate):
     """Create a new safe."""
     user = require_user(request)
-    service = get_safe_service()
     
-    # For WebAuthn type, verify credential belongs to user
-    if data.unlock_type == 'webauthn' and data.credential_id:
-        cred_id_bytes = base64.urlsafe_b64decode(
-            data.credential_id + '=' * (4 - len(data.credential_id) % 4)
+    db = get_db()
+    try:
+        # For WebAuthn type, verify credential belongs to user
+        if data.unlock_type == 'webauthn' and data.credential_id:
+            cred_id_bytes = base64.urlsafe_b64decode(
+                data.credential_id + '=' * (4 - len(data.credential_id) % 4)
+            )
+            webauthn_repo = WebAuthnRepository(db)
+            cred = webauthn_repo.get_by_credential_id(cred_id_bytes)
+            if not cred or cred["user_id"] != user["id"]:
+                raise HTTPException(status_code=403, detail="Invalid credential")
+        
+        service = SafeService(SafeRepository(db))
+        return service.create_safe(
+            name=data.name,
+            user_id=user["id"],
+            unlock_type=data.unlock_type,
+            encrypted_dek_b64=data.encrypted_dek,
+            password=data.password,
+            salt_b64=data.salt,
+            credential_id_b64=data.credential_id
         )
-        cred = get_webauthn_credential_by_id(cred_id_bytes)
-        if not cred or cred["user_id"] != user["id"]:
-            raise HTTPException(status_code=403, detail="Invalid credential")
-    
-    return service.create_safe(
-        name=data.name,
-        user_id=user["id"],
-        unlock_type=data.unlock_type,
-        encrypted_dek_b64=data.encrypted_dek,
-        password=data.password,
-        salt_b64=data.salt,
-        credential_id_b64=data.credential_id
-    )
+    finally:
+        db.close()
 
 
 @router.get("/{safe_id}")
@@ -135,117 +137,127 @@ def unlock_safe(request: Request, data: SafeUnlock):
     challenge data that the client must complete.
     """
     user = require_user(request)
-    service = get_safe_service()
     
-    safe = get_safe_service().safe_repo.get_by_id(data.safe_id)
-    if not safe:
-        raise HTTPException(status_code=404, detail="Safe not found")
-    
-    if safe["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    if safe["unlock_type"] == 'password':
-        # Return challenge data for client-side decryption
-        print(f"[DEBUG] Safe {data.safe_id}: unlock_type={safe['unlock_type']}, "
-              f"has_salt={safe['salt'] is not None}, "
-              f"has_encrypted_dek={safe['encrypted_dek'] is not None}")
+    db = get_db()
+    try:
+        service = SafeService(SafeRepository(db))
+        safe = service.safe_repo.get_by_id(data.safe_id)
+        if not safe:
+            raise HTTPException(status_code=404, detail="Safe not found")
         
-        return service.get_unlock_challenge(data.safe_id, user["id"])
-    
-    elif safe["unlock_type"] == 'webauthn':
-        # Return WebAuthn challenge
-        from ..services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
+        if safe["user_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
         
-        scheme = request.headers.get(
-            "x-forwarded-proto", 
-            "https" if request.url.scheme == "https" else "http"
-        )
-        host = request.headers.get("host", "localhost")
-        origin = get_origin_from_host(host, scheme)
-        rp_id = get_rp_id_from_origin(origin)
+        if safe["unlock_type"] == 'password':
+            # Return challenge data for client-side decryption
+            print(f"[DEBUG] Safe {data.safe_id}: unlock_type={safe['unlock_type']}, "
+                  f"has_salt={safe['salt'] is not None}, "
+                  f"has_encrypted_dek={safe['encrypted_dek'] is not None}")
+            
+            return service.get_unlock_challenge(data.safe_id, user["id"])
         
-        # Get the specific credential for this safe
-        credential_ids = [safe["credential_id"]] if safe["credential_id"] else []
+        elif safe["unlock_type"] == 'webauthn':
+            # Return WebAuthn challenge
+            from ..services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
+            
+            scheme = request.headers.get(
+                "x-forwarded-proto", 
+                "https" if request.url.scheme == "https" else "http"
+            )
+            host = request.headers.get("host", "localhost")
+            origin = get_origin_from_host(host, scheme)
+            rp_id = get_rp_id_from_origin(origin)
+            
+            # Get the specific credential for this safe
+            credential_ids = [safe["credential_id"]] if safe["credential_id"] else []
+            
+            options, challenge = WebAuthnService.generate_authentication_options_for_user(
+                user_id=user["id"],
+                credential_ids=credential_ids,
+                rp_id=rp_id,
+                origin=origin
+            )
+            
+            return {
+                "status": "challenge",
+                "type": "webauthn",
+                "options": options,
+                "challenge": base64.urlsafe_b64encode(challenge).rstrip(b"=").decode()
+            }
         
-        options, challenge = WebAuthnService.generate_authentication_options_for_user(
-            user_id=user["id"],
-            credential_ids=credential_ids,
-            rp_id=rp_id,
-            origin=origin
-        )
-        
-        return {
-            "status": "challenge",
-            "type": "webauthn",
-            "options": options,
-            "challenge": base64.urlsafe_b64encode(challenge).rstrip(b"=").decode()
-        }
-    
-    else:
-        raise HTTPException(status_code=400, detail="Invalid unlock type")
+        else:
+            raise HTTPException(status_code=400, detail="Invalid unlock type")
+    finally:
+        db.close()
 
 
 @router.post("/unlock/complete")
 def complete_safe_unlock(request: Request, data: SafeUnlockComplete):
     """Complete safe unlock and create session."""
     user = require_user(request)
-    service = get_safe_service()
     
-    safe = service.safe_repo.get_by_id(data.safe_id)
-    if not safe:
-        raise HTTPException(status_code=404, detail="Safe not found")
-    
-    if safe["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    if safe["unlock_type"] == 'webauthn':
-        # Verify WebAuthn response
-        from ..services.webauthn import WebAuthnService
+    db = get_db()
+    try:
+        service = SafeService(SafeRepository(db))
         
-        if not data.credential or not data.challenge:
-            raise HTTPException(
-                status_code=400, 
-                detail="WebAuthn credential and challenge required"
+        safe = service.safe_repo.get_by_id(data.safe_id)
+        if not safe:
+            raise HTTPException(status_code=404, detail="Safe not found")
+        
+        if safe["user_id"] != user["id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        if safe["unlock_type"] == 'webauthn':
+            # Verify WebAuthn response
+            from ..services.webauthn import WebAuthnService
+            
+            if not data.credential or not data.challenge:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="WebAuthn credential and challenge required"
+                )
+            
+            # Decode challenge
+            challenge_b64 = data.challenge
+            padding = 4 - len(challenge_b64) % 4
+            if padding != 4:
+                challenge_b64 += "=" * padding
+            challenge = base64.urlsafe_b64decode(challenge_b64)
+            
+            # Get credential
+            raw_id_b64 = data.credential.get("rawId", data.credential.get("id", ""))
+            padding = 4 - len(raw_id_b64) % 4
+            if padding != 4:
+                raw_id_b64 += "=" * padding
+            credential_id = base64.urlsafe_b64decode(raw_id_b64)
+            
+            webauthn_repo = WebAuthnRepository(db)
+            cred = webauthn_repo.get_by_credential_id(credential_id)
+            if not cred:
+                raise HTTPException(status_code=401, detail="Credential not found")
+            
+            # Verify authentication
+            new_sign_count = WebAuthnService.verify_authentication(
+                credential=data.credential,
+                challenge=challenge,
+                credential_public_key=cred["public_key"],
+                credential_current_sign_count=cred["sign_count"]
             )
+            
+            if new_sign_count is None:
+                raise HTTPException(status_code=401, detail="WebAuthn authentication failed")
+            
+            # Update sign count
+            webauthn_repo.update_sign_count(credential_id, new_sign_count)
         
-        # Decode challenge
-        challenge_b64 = data.challenge
-        padding = 4 - len(challenge_b64) % 4
-        if padding != 4:
-            challenge_b64 += "=" * padding
-        challenge = base64.urlsafe_b64decode(challenge_b64)
-        
-        # Get credential
-        raw_id_b64 = data.credential.get("rawId", data.credential.get("id", ""))
-        padding = 4 - len(raw_id_b64) % 4
-        if padding != 4:
-            raw_id_b64 += "=" * padding
-        credential_id = base64.urlsafe_b64decode(raw_id_b64)
-        
-        cred = get_webauthn_credential_by_id(credential_id)
-        if not cred:
-            raise HTTPException(status_code=401, detail="Credential not found")
-        
-        # Verify authentication
-        new_sign_count = WebAuthnService.verify_authentication(
-            credential=data.credential,
-            challenge=challenge,
-            credential_public_key=cred["public_key"],
-            credential_current_sign_count=cred["sign_count"]
+        # Complete unlock (create session)
+        return service.complete_unlock(
+            safe_id=data.safe_id,
+            user_id=user["id"],
+            session_encrypted_dek_b64=data.session_encrypted_dek
         )
-        
-        if new_sign_count is None:
-            raise HTTPException(status_code=401, detail="WebAuthn authentication failed")
-        
-        # Update sign count
-        update_webauthn_sign_count(credential_id, new_sign_count)
-    
-    # Complete unlock (create session)
-    return service.complete_unlock(
-        safe_id=data.safe_id,
-        user_id=user["id"],
-        session_encrypted_dek_b64=data.session_encrypted_dek
-    )
+    finally:
+        db.close()
 
 
 @router.post("/{safe_id}/lock")
@@ -291,16 +303,21 @@ def list_webauthn_credentials_for_safes(request: Request):
     """List user's WebAuthn credentials that can be used for safe protection."""
     user = require_user(request)
     
-    credentials = get_webauthn_credentials(user["id"])
-    
-    return {
-        "credentials": [
-            {
-                "id": c["id"],
-                "name": c["name"],
-                "credential_id": base64.b64encode(c["credential_id"]).decode(),
-                "created_at": c["created_at"]
-            }
-            for c in credentials
-        ]
-    }
+    db = get_db()
+    try:
+        webauthn_repo = WebAuthnRepository(db)
+        credentials = webauthn_repo.get_for_user(user["id"])
+        
+        return {
+            "credentials": [
+                {
+                    "id": c["id"],
+                    "name": c["name"],
+                    "credential_id": base64.b64encode(c["credential_id"]).decode(),
+                    "created_at": c["created_at"]
+                }
+                for c in credentials
+            ]
+        }
+    finally:
+        db.close()
