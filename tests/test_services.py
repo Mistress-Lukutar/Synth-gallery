@@ -372,3 +372,125 @@ class TestSafeService:
             safe_service.configure_safe("folder-uuid", user_id=1)
         
         assert exc_info.value.status_code == 404
+
+
+class TestUploadService:
+    """Test UploadService business logic."""
+    
+    @pytest.fixture
+    def mock_photo_repo(self):
+        """Create a mock PhotoRepository."""
+        repo = Mock()
+        return repo
+    
+    @pytest.fixture
+    def upload_service(self, mock_photo_repo, tmp_path):
+        """Create UploadService with mocked dependencies."""
+        uploads_dir = tmp_path / "uploads"
+        thumbnails_dir = tmp_path / "thumbnails"
+        uploads_dir.mkdir(exist_ok=True)
+        thumbnails_dir.mkdir(exist_ok=True)
+        
+        return UploadService(
+            photo_repository=mock_photo_repo,
+            uploads_dir=uploads_dir,
+            thumbnails_dir=thumbnails_dir
+        )
+    
+    def test_delete_photo_success(self, upload_service, mock_photo_repo, tmp_path):
+        """Test deleting an existing photo."""
+        # Arrange
+        photo_id = "photo-uuid-123"
+        mock_photo_repo.get_by_id.return_value = {
+            "id": photo_id,
+            "filename": f"{photo_id}.jpg"
+        }
+        
+        # Create dummy files
+        (upload_service.uploads_dir / f"{photo_id}.jpg").write_text("dummy")
+        (upload_service.thumbnails_dir / f"{photo_id}.jpg").write_text("dummy")
+        
+        # Act
+        result = upload_service.delete_photo(photo_id)
+        
+        # Assert
+        assert result is True
+        mock_photo_repo.get_by_id.assert_called_once_with(photo_id)
+        mock_photo_repo.delete.assert_called_once_with(photo_id)
+        # Files should be deleted
+        assert not (upload_service.uploads_dir / f"{photo_id}.jpg").exists()
+        assert not (upload_service.thumbnails_dir / f"{photo_id}.jpg").exists()
+    
+    def test_delete_photo_not_found(self, upload_service, mock_photo_repo):
+        """Test deleting non-existent photo."""
+        # Arrange
+        mock_photo_repo.get_by_id.return_value = None
+        
+        # Act
+        result = upload_service.delete_photo("nonexistent")
+        
+        # Assert
+        assert result is False
+        mock_photo_repo.delete.assert_not_called()
+    
+    def test_delete_album_success(self, upload_service, mock_photo_repo, tmp_path):
+        """Test deleting an album with photos."""
+        # Arrange
+        album_id = "album-uuid-123"
+        mock_photo_repo._execute.return_value.fetchall.return_value = [
+            {"id": "photo-1", "filename": "photo-1.jpg"},
+            {"id": "photo-2", "filename": "photo-2.jpg"}
+        ]
+        
+        # Create dummy files
+        for photo_id in ["photo-1", "photo-2"]:
+            (upload_service.uploads_dir / f"{photo_id}.jpg").write_text("dummy")
+            (upload_service.thumbnails_dir / f"{photo_id}.jpg").write_text("dummy")
+        
+        # Act
+        photo_count, album_count = upload_service.delete_album(album_id)
+        
+        # Assert
+        assert photo_count == 2
+        assert album_count == 1
+        # Files should be deleted
+        for photo_id in ["photo-1", "photo-2"]:
+            assert not (upload_service.uploads_dir / f"{photo_id}.jpg").exists()
+            assert not (upload_service.thumbnails_dir / f"{photo_id}.jpg").exists()
+    
+    def test_validate_file_rejects_empty(self, upload_service):
+        """Test that empty file is rejected."""
+        # Arrange
+        mock_file = Mock()
+        mock_file.filename = ""
+        
+        # Act & Assert
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            upload_service._validate_file(mock_file)
+        
+        assert exc_info.value.status_code == 400
+    
+    def test_get_media_type_from_content_type(self, upload_service):
+        """Test media type detection from content type."""
+        # Arrange
+        mock_file = Mock()
+        mock_file.content_type = "video/mp4"
+        
+        # Act
+        result = upload_service._get_media_type(mock_file)
+        
+        # Assert
+        assert result == "video"
+    
+    def test_get_media_type_from_extension_for_safe(self, upload_service):
+        """Test media type detection from extension for safe uploads."""
+        # Arrange
+        mock_file = Mock()
+        mock_file.filename = "video.mp4"
+        
+        # Act
+        result = upload_service._get_media_type(mock_file, is_safe=True)
+        
+        # Assert
+        assert result == "video"
