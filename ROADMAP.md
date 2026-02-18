@@ -298,7 +298,7 @@ When working on these improvements:
 
 ## Notes
 
-- **Backward Compatibility:** All changes must maintain API compatibility until v2.0
-- **Deprecation Strategy:** Old functions will proxy to new with `warnings.warn()`
+- **Backward Compatibility:** All changes must maintain API compatibility until v1.0
+- **Deprecation Strategy:** Old functions proxy to new with `warnings.warn()` until v1.0
 - **Testing:** See `tests/` directory for integration test requirements
 - **Performance:** Each change should include before/after benchmarks

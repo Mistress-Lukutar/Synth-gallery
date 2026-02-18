@@ -594,6 +594,7 @@ def create_user(username: str, password: str, display_name: str) -> int:
     
     DEPRECATED: Use UserRepository.create() instead.
     """
+    warnings.warn("create_user() is deprecated, use UserRepository.create()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().create(username, password, display_name)
 
 
@@ -602,6 +603,7 @@ def get_user_by_username(username: str):
     
     DEPRECATED: Use UserRepository.get_by_username() instead.
     """
+    warnings.warn("get_user_by_username() is deprecated, use UserRepository.get_by_username()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().get_by_username(username)
 
 
@@ -610,6 +612,7 @@ def get_user_by_id(user_id: int):
     
     DEPRECATED: Use UserRepository.get_by_id() instead.
     """
+    warnings.warn("get_user_by_id() is deprecated, use UserRepository.get_by_id()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().get_by_id(user_id)
 
 
@@ -618,6 +621,7 @@ def is_user_admin(user_id: int) -> bool:
     
     DEPRECATED: Use UserRepository.is_admin() instead.
     """
+    warnings.warn("is_user_admin() is deprecated, use UserRepository.is_admin()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().is_admin(user_id)
 
 
@@ -626,6 +630,7 @@ def set_user_admin(user_id: int, is_admin: bool) -> bool:
     
     DEPRECATED: Use UserRepository.set_admin() instead.
     """
+    warnings.warn("set_user_admin() is deprecated, use UserRepository.set_admin()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().set_admin(user_id, is_admin)
 
 
@@ -634,6 +639,7 @@ def search_users(query: str, exclude_user_id: int = None, limit: int = 10) -> li
     
     DEPRECATED: Use UserRepository.search() instead.
     """
+    warnings.warn("search_users() is deprecated, use UserRepository.search()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().search(query, exclude_user_id, limit)
 
 
@@ -642,6 +648,7 @@ def update_user_password(user_id: int, new_password: str):
     
     DEPRECATED: Use UserRepository.update_password() instead.
     """
+    warnings.warn("update_user_password() is deprecated, use UserRepository.update_password()", DeprecationWarning, stacklevel=2)
     _get_user_repo().update_password(user_id, new_password)
 
 
@@ -650,6 +657,7 @@ def update_user_display_name(user_id: int, display_name: str):
     
     DEPRECATED: Use UserRepository.update_display_name() instead.
     """
+    warnings.warn("update_user_display_name() is deprecated, use UserRepository.update_display_name()", DeprecationWarning, stacklevel=2)
     _get_user_repo().update_display_name(user_id, display_name)
 
 
@@ -658,6 +666,7 @@ def delete_user(user_id: int):
     
     DEPRECATED: Use UserRepository.delete() instead.
     """
+    warnings.warn("delete_user() is deprecated, use UserRepository.delete()", DeprecationWarning, stacklevel=2)
     _get_user_repo().delete(user_id)
 
 
@@ -666,6 +675,7 @@ def list_users():
     
     DEPRECATED: Use UserRepository.list_all() instead.
     """
+    warnings.warn("list_users() is deprecated, use UserRepository.list_all()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().list_all()
 
 
@@ -674,6 +684,7 @@ def authenticate_user(username: str, password: str):
     
     DEPRECATED: Use UserRepository.authenticate() instead.
     """
+    warnings.warn("authenticate_user() is deprecated, use UserRepository.authenticate()", DeprecationWarning, stacklevel=2)
     return _get_user_repo().authenticate(username, password)
 
 
@@ -684,6 +695,7 @@ def create_session(user_id: int, expires_hours: int = 24 * 7) -> str:
     
     DEPRECATED: Use SessionRepository.create() instead.
     """
+    warnings.warn("create_session() is deprecated, use SessionRepository.create()", DeprecationWarning, stacklevel=2)
     return _get_session_repo().create(user_id, expires_hours)
 
 
@@ -692,6 +704,7 @@ def get_session(session_id: str):
     
     DEPRECATED: Use SessionRepository.get_valid() instead.
     """
+    warnings.warn("get_session() is deprecated, use SessionRepository.get_valid()", DeprecationWarning, stacklevel=2)
     return _get_session_repo().get_valid(session_id)
 
 
@@ -700,6 +713,7 @@ def delete_session(session_id: str):
     
     DEPRECATED: Use SessionRepository.delete() instead.
     """
+    warnings.warn("delete_session() is deprecated, use SessionRepository.delete()", DeprecationWarning, stacklevel=2)
     _get_session_repo().delete(session_id)
 
 
@@ -708,6 +722,7 @@ def cleanup_expired_sessions():
     
     DEPRECATED: Use SessionRepository.cleanup_expired() instead.
     """
+    warnings.warn("cleanup_expired_sessions() is deprecated, use SessionRepository.cleanup_expired()", DeprecationWarning, stacklevel=2)
     _get_session_repo().cleanup_expired()
 
 
@@ -718,6 +733,7 @@ def create_folder(name: str, user_id: int, parent_id: str = None) -> str:
     
     DEPRECATED: Use FolderRepository.create() instead.
     """
+    warnings.warn("create_folder() is deprecated, use FolderRepository.create()", DeprecationWarning, stacklevel=2)
     return _get_folder_repo().create(name, user_id, parent_id)
 
 
@@ -726,6 +742,7 @@ def get_folder(folder_id: str):
     
     DEPRECATED: Use FolderRepository.get_by_id() instead.
     """
+    warnings.warn("get_folder() is deprecated, use FolderRepository.get_by_id()", DeprecationWarning, stacklevel=2)
     return _get_folder_repo().get_by_id(folder_id)
 
 
@@ -734,6 +751,7 @@ def update_folder(folder_id: str, name: str = None):
     
     DEPRECATED: Use FolderRepository.update() instead.
     """
+    warnings.warn("update_folder() is deprecated, use FolderRepository.update()", DeprecationWarning, stacklevel=2)
     _get_folder_repo().update(folder_id, name)
 
 
@@ -742,6 +760,7 @@ def delete_folder(folder_id: str):
     
     DEPRECATED: Use FolderRepository.delete() instead.
     """
+    warnings.warn("delete_folder() is deprecated, use FolderRepository.delete()", DeprecationWarning, stacklevel=2)
     return _get_folder_repo().delete(folder_id)
 
 
@@ -750,6 +769,7 @@ def get_user_folders(user_id: int) -> list:
     
     DEPRECATED: Use FolderRepository.list_by_user() instead.
     """
+    warnings.warn("get_user_folders() is deprecated, use FolderRepository.list_by_user()", DeprecationWarning, stacklevel=2)
     return _get_folder_repo().list_by_user(user_id)
 
 
@@ -814,6 +834,7 @@ def get_folder_children(folder_id: str) -> list:
     
     DEPRECATED: Use FolderRepository.get_children() instead.
     """
+    warnings.warn("get_folder_children() is deprecated, use FolderRepository.get_children()", DeprecationWarning, stacklevel=2)
     return _get_folder_repo().get_children(folder_id)
 
 
@@ -822,6 +843,7 @@ def get_folder_breadcrumbs(folder_id: str) -> list:
     
     DEPRECATED: Use FolderRepository.get_breadcrumbs() instead.
     """
+    warnings.warn("get_folder_breadcrumbs() is deprecated, use FolderRepository.get_breadcrumbs()", DeprecationWarning, stacklevel=2)
     return _get_folder_repo().get_breadcrumbs(folder_id)
 
 
@@ -969,6 +991,7 @@ def add_folder_permission(folder_id: str, user_id: int, permission: str, granted
     
     DEPRECATED: Use PermissionRepository.grant() instead.
     """
+    warnings.warn("add_folder_permission() is deprecated, use PermissionRepository.grant()", DeprecationWarning, stacklevel=2)
     try:
         return _get_permission_repo().grant(folder_id, user_id, permission, granted_by)
     except ValueError:
@@ -980,6 +1003,7 @@ def remove_folder_permission(folder_id: str, user_id: int) -> bool:
     
     DEPRECATED: Use PermissionRepository.revoke() instead.
     """
+    warnings.warn("remove_folder_permission() is deprecated, use PermissionRepository.revoke()", DeprecationWarning, stacklevel=2)
     return _get_permission_repo().revoke(folder_id, user_id)
 
 
@@ -988,6 +1012,7 @@ def update_folder_permission(folder_id: str, user_id: int, permission: str) -> b
     
     DEPRECATED: Use PermissionRepository.update_permission() instead.
     """
+    warnings.warn("update_folder_permission() is deprecated, use PermissionRepository.update_permission()", DeprecationWarning, stacklevel=2)
     try:
         return _get_permission_repo().update_permission(folder_id, user_id, permission)
     except ValueError:
@@ -1026,6 +1051,7 @@ def get_folder_permissions(folder_id: str) -> list:
     
     DEPRECATED: Use PermissionRepository.list_permissions() instead.
     """
+    warnings.warn("get_folder_permissions() is deprecated, use PermissionRepository.list_permissions()", DeprecationWarning, stacklevel=2)
     return _get_permission_repo().list_permissions(folder_id)
 
 
@@ -1034,6 +1060,7 @@ def get_user_permission(folder_id: str, user_id: int) -> str | None:
     
     DEPRECATED: Use PermissionRepository.get_permission() instead.
     """
+    warnings.warn("get_user_permission() is deprecated, use PermissionRepository.get_permission()", DeprecationWarning, stacklevel=2)
     return _get_permission_repo().get_permission(folder_id, user_id)
 
 
@@ -1042,6 +1069,7 @@ def can_view_folder(folder_id: str, user_id: int) -> bool:
     
     DEPRECATED: Use PermissionRepository.can_view() instead.
     """
+    warnings.warn("can_view_folder() is deprecated, use PermissionRepository.can_view()", DeprecationWarning, stacklevel=2)
     return _get_permission_repo().can_view(folder_id, user_id)
 
 
@@ -1050,6 +1078,7 @@ def can_edit_folder(folder_id: str, user_id: int) -> bool:
     
     DEPRECATED: Use PermissionRepository.can_edit() instead.
     """
+    warnings.warn("can_edit_folder() is deprecated, use PermissionRepository.can_edit()", DeprecationWarning, stacklevel=2)
     return _get_permission_repo().can_edit(folder_id, user_id)
 
 
@@ -1060,6 +1089,7 @@ def can_access_folder(folder_id: str, user_id: int) -> bool:
     
     DEPRECATED: Use PermissionRepository.can_view() instead.
     """
+    warnings.warn("can_access_folder() is deprecated, use PermissionRepository.can_view()", DeprecationWarning, stacklevel=2)
     return _get_permission_repo().can_view(folder_id, user_id)
 
 
@@ -1649,6 +1679,7 @@ def mark_photo_encrypted(photo_id: str) -> bool:
     
     DEPRECATED: Use PhotoRepository.mark_encrypted() instead.
     """
+    warnings.warn("mark_photo_encrypted() is deprecated, use PhotoRepository.mark_encrypted()", DeprecationWarning, stacklevel=2)
     return _get_photo_repo().mark_encrypted(photo_id, encrypted=True)
 
 
@@ -1657,6 +1688,7 @@ def mark_photo_decrypted(photo_id: str) -> bool:
     
     DEPRECATED: Use PhotoRepository.mark_encrypted() instead.
     """
+    warnings.warn("mark_photo_decrypted() is deprecated, use PhotoRepository.mark_encrypted()", DeprecationWarning, stacklevel=2)
     return _get_photo_repo().mark_encrypted(photo_id, encrypted=False)
 
 
@@ -1665,6 +1697,7 @@ def get_user_unencrypted_photos(user_id: int) -> list:
     
     DEPRECATED: Use PhotoRepository with custom query instead.
     """
+    warnings.warn("get_user_unencrypted_photos() is deprecated, use PhotoRepository with custom query", DeprecationWarning, stacklevel=2)
     # Get all user photos and filter
     all_photos = _get_photo_repo().get_by_folder(folder_id=None, sort_by="uploaded")
     return [p for p in all_photos if p.get("user_id") == user_id and not p.get("is_encrypted")]
@@ -1675,6 +1708,7 @@ def get_photo_by_id(photo_id: str) -> dict | None:
     
     DEPRECATED: Use PhotoRepository.get_by_id() instead.
     """
+    warnings.warn("get_photo_by_id() is deprecated, use PhotoRepository.get_by_id()", DeprecationWarning, stacklevel=2)
     return _get_photo_repo().get_by_id(photo_id)
 
 
@@ -1683,6 +1717,7 @@ def get_photo_owner_id(photo_id: str) -> int | None:
     
     DEPRECATED: Use PhotoRepository.get_by_id() instead.
     """
+    warnings.warn("get_photo_owner_id() is deprecated, use PhotoRepository.get_by_id()", DeprecationWarning, stacklevel=2)
     photo = _get_photo_repo().get_by_id(photo_id)
     return photo.get("user_id") if photo else None
 
@@ -1692,6 +1727,7 @@ def update_photo_thumbnail_dimensions(photo_id: str, width: int, height: int) ->
     
     DEPRECATED: Use PhotoRepository.update_thumbnail_dimensions() instead.
     """
+    warnings.warn("update_photo_thumbnail_dimensions() is deprecated, use PhotoRepository.update_thumbnail_dimensions()", DeprecationWarning, stacklevel=2)
     return _get_photo_repo().update_thumbnail_dimensions(photo_id, width, height)
 
 
@@ -1816,6 +1852,7 @@ def create_safe(
     
     DEPRECATED: Use SafeRepository.create() instead.
     """
+    warnings.warn("create_safe() is deprecated, use SafeRepository.create()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().create(
         name, user_id, encrypted_dek, unlock_type,
         credential_id, salt, recovery_encrypted_dek
@@ -1827,6 +1864,7 @@ def get_safe(safe_id: str) -> dict | None:
     
     DEPRECATED: Use SafeRepository.get_by_id() instead.
     """
+    warnings.warn("get_safe() is deprecated, use SafeRepository.get_by_id()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().get_by_id(safe_id)
 
 
@@ -1835,6 +1873,7 @@ def get_user_safes(user_id: int) -> list[dict]:
     
     DEPRECATED: Use SafeRepository.list_by_user() instead.
     """
+    warnings.warn("get_user_safes() is deprecated, use SafeRepository.list_by_user()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().list_by_user(user_id)
 
 
@@ -1843,6 +1882,7 @@ def update_safe(safe_id: str, name: str = None) -> bool:
     
     DEPRECATED: Use SafeRepository.update() instead.
     """
+    warnings.warn("update_safe() is deprecated, use SafeRepository.update()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().update(safe_id, name)
 
 
@@ -1851,6 +1891,7 @@ def delete_safe(safe_id: str) -> bool:
     
     DEPRECATED: Use SafeRepository.delete() instead.
     """
+    warnings.warn("delete_safe() is deprecated, use SafeRepository.delete()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().delete(safe_id)
 
 
@@ -1859,6 +1900,7 @@ def get_safe_by_folder_id(folder_id: str) -> dict | None:
     
     DEPRECATED: Use SafeRepository.get_by_folder() instead.
     """
+    warnings.warn("get_safe_by_folder_id() is deprecated, use SafeRepository.get_by_folder()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().get_by_folder(folder_id)
 
 
@@ -1889,6 +1931,7 @@ def create_safe_session(safe_id: str, user_id: int, encrypted_dek: bytes, expire
     
     DEPRECATED: Use SafeRepository.create_session() instead.
     """
+    warnings.warn("create_safe_session() is deprecated, use SafeRepository.create_session()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().create_session(safe_id, user_id, encrypted_dek, expires_hours)
 
 
@@ -1897,6 +1940,7 @@ def get_safe_session(session_id: str) -> dict | None:
     
     DEPRECATED: Use SafeRepository.get_session() instead.
     """
+    warnings.warn("get_safe_session() is deprecated, use SafeRepository.get_session()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().get_session(session_id)
 
 
@@ -1905,6 +1949,7 @@ def delete_safe_session(session_id: str) -> bool:
     
     DEPRECATED: Use SafeRepository.delete_session() instead.
     """
+    warnings.warn("delete_safe_session() is deprecated, use SafeRepository.delete_session()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().delete_session(session_id)
 
 
@@ -1913,6 +1958,7 @@ def cleanup_expired_safe_sessions():
     
     DEPRECATED: Use SafeRepository.cleanup_expired_sessions() instead.
     """
+    warnings.warn("cleanup_expired_safe_sessions() is deprecated, use SafeRepository.cleanup_expired_sessions()", DeprecationWarning, stacklevel=2)
     _get_safe_repo().cleanup_expired_sessions()
 
 
@@ -1921,6 +1967,7 @@ def get_user_unlocked_safes(user_id: int) -> list[str]:
     
     DEPRECATED: Use SafeRepository.list_unlocked() instead.
     """
+    warnings.warn("get_user_unlocked_safes() is deprecated, use SafeRepository.list_unlocked()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().list_unlocked(user_id)
 
 
@@ -1929,6 +1976,7 @@ def is_safe_unlocked_for_user(safe_id: str, user_id: int) -> bool:
     
     DEPRECATED: Use SafeRepository.is_unlocked() instead.
     """
+    warnings.warn("is_safe_unlocked_for_user() is deprecated, use SafeRepository.is_unlocked()", DeprecationWarning, stacklevel=2)
     return _get_safe_repo().is_unlocked(safe_id, user_id)
 
 
