@@ -6,11 +6,8 @@ from pydantic import BaseModel
 
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 from ..database import (
-    get_db, get_folder, get_folder_tree, get_folder_contents,
-    get_user_default_folder, set_user_default_folder,
-    can_access_folder, can_edit_folder,
+    get_db, get_folder,
     search_users,
-    get_folder_sort_preference, set_folder_sort_preference,
     get_safe, is_safe_unlocked_for_user, create_folder_in_safe,
     get_folder_safe_id
 )
@@ -20,7 +17,7 @@ from ..dependencies import require_user
 from ..infrastructure.repositories import (
     FolderRepository, PermissionRepository, SafeRepository
 )
-from ..application.services import FolderService, PermissionService
+from ..application.services import FolderService, PermissionService, UserSettingsService
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
@@ -56,6 +53,15 @@ def get_folder_service() -> FolderService:
     return FolderService(
         folder_repository=FolderRepository(db),
         safe_repository=SafeRepository(db)
+    )
+
+
+def get_user_settings_service() -> UserSettingsService:
+    """Create UserSettingsService with repositories."""
+    db = get_db()
+    return UserSettingsService(
+        folder_repository=FolderRepository(db),
+        permission_repository=PermissionRepository(db)
     )
 
 
@@ -147,10 +153,9 @@ def get_folder_contents_route(request: Request, folder_id: str):
     """Get contents of a specific folder."""
     user = require_user(request)
     
-    if not can_access_folder(folder_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    contents = get_folder_contents(folder_id, user["id"])
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    contents = service.get_folder_contents(folder_id, user["id"])
     return contents
 
 
@@ -159,16 +164,9 @@ def set_default_folder(request: Request, folder_id: str):
     """Set folder as user's default folder."""
     user = require_user(request)
     
-    # Using service layer for validation (Issue #16)
-    service = get_folder_service()
-    folder = service.folder_repo.get_by_id(folder_id)
-    
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="You don't own this folder")
-    
-    set_user_default_folder(user["id"], folder_id)
+    # Using service layer (Issue #16)
+    service = get_user_settings_service()
+    service.set_default_folder(user["id"], folder_id)
     return {"status": "ok"}
 
 
@@ -272,7 +270,9 @@ def set_sort_preference(request: Request, folder_id: str, data: SortPreference):
     if data.sort_by not in ('uploaded', 'taken'):
         raise HTTPException(status_code=400, detail="sort_by must be 'uploaded' or 'taken'")
     
-    set_folder_sort_preference(user["id"], folder_id, data.sort_by)
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    settings_service.set_sort_preference(user["id"], folder_id, data.sort_by)
     return {"status": "ok", "sort_by": data.sort_by}
 
 
@@ -286,7 +286,9 @@ def get_sort_preference(request: Request, folder_id: str):
     if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    sort_by = get_folder_sort_preference(user["id"], folder_id)
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    sort_by = settings_service.get_sort_preference(user["id"], folder_id)
     return {"sort_by": sort_by}
 
 
@@ -300,9 +302,9 @@ def set_default_folder_route(request: Request, folder_id: str):
     if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    success = set_user_default_folder(user["id"], folder_id)
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to set default folder")
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    settings_service.set_default_folder(user["id"], folder_id)
     
     return {"status": "ok"}
 
@@ -311,7 +313,10 @@ def set_default_folder_route(request: Request, folder_id: str):
 def get_default_folder_route(request: Request):
     """Get user's default folder ID."""
     user = require_user(request)
-    default_folder_id = get_user_default_folder(user["id"])
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    default_folder_id = settings_service.get_default_folder(user["id"])
     return {"default_folder_id": default_folder_id}
 
 
@@ -319,8 +324,10 @@ def get_default_folder_route(request: Request):
 def get_collapsed_folders_route(request: Request):
     """Get list of collapsed folder IDs for current user."""
     user = require_user(request)
-    from ..database import get_collapsed_folders
-    collapsed = get_collapsed_folders(user["id"])
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    collapsed = settings_service.get_collapsed_folders(user["id"])
     return {"collapsed_folders": collapsed}
 
 
@@ -328,8 +335,10 @@ def get_collapsed_folders_route(request: Request):
 def toggle_collapse_route(request: Request, folder_id: str):
     """Toggle folder collapsed state. Returns new state."""
     user = require_user(request)
-    from ..database import toggle_folder_collapsed
-    is_collapsed = toggle_folder_collapsed(user["id"], folder_id)
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    is_collapsed = settings_service.toggle_collapsed_folder(user["id"], folder_id)
     return {"collapsed": is_collapsed}
 
 
