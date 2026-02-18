@@ -38,6 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatibility: sync APIs still work unchanged
   - True non-blocking I/O for better concurrency under load
 
+### Added (Internal)
+- **Service Layer Extraction (Issue #16 - Partial)**
+  - New `app/application/services/` module for business logic
+  - Created 4 application services:
+    - `UploadService` - File uploads, thumbnails, encryption
+    - `FolderService` - Folder CRUD and hierarchy management  
+    - `PermissionService` - Access control and sharing
+    - `SafeService` - Encrypted vault operations
+  - Refactored `app/routes/folders.py` to use services
+  - Business logic now testable without FastAPI dependencies
+  - Clean separation: HTTP handling in routes, business logic in services
+
 ### Migration for Developers
 ```python
 # Old way (still works):
@@ -58,6 +70,14 @@ from app.database import get_async_db
 async def create_user(username: str, db = Depends(get_async_db)):
     repo = AsyncUserRepository(db)
     return await repo.create(username, "pass", username)
+
+# New service layer way (for complex operations):
+from app.application.services import FolderService
+from app.infrastructure.repositories import FolderRepository
+from app.database import get_db
+
+service = FolderService(FolderRepository(get_db()))
+folder = service.create_folder("My Folder", user_id=1)
 ```
 
 ## [0.8.5] - 2026-02-16
