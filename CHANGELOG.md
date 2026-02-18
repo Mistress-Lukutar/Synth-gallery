@@ -39,14 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - True non-blocking I/O for better concurrency under load
 
 ### Added (Internal)
-- **Service Layer Extraction (Issue #16 - Partial)**
+- **Service Layer Extraction (Issue #16 - In Progress)**
   - New `app/application/services/` module for business logic
   - Created 4 application services:
     - `UploadService` - File uploads, thumbnails, encryption
     - `FolderService` - Folder CRUD and hierarchy management  
     - `PermissionService` - Access control and sharing
     - `SafeService` - Encrypted vault operations
-  - Refactored `app/routes/folders.py` to use services
+  - Refactored `app/routes/folders.py` to use FolderService
+  - Refactored `/upload` endpoint to use UploadService with PhotoRepository
+  - Fixed `PhotoRepository.create()` signature to accept optional `photo_id` parameter
   - Business logic now testable without FastAPI dependencies
   - Clean separation: HTTP handling in routes, business logic in services
 
