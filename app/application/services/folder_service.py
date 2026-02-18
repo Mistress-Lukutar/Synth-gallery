@@ -305,7 +305,7 @@ class FolderService:
         Returns:
             List of folder dicts with metadata
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         # Cleanup expired safe sessions first
         if self.safe_repo:
@@ -374,7 +374,7 @@ class FolderService:
         Raises:
             HTTPException: If no access to folder
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         # Check access
         folder = self.folder_repo.get_by_id(folder_id)
