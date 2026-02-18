@@ -14,7 +14,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 |----------|-------|----------|--------|--------|
 | 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large | ✅ **DONE** |
 | 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | Async Database (aiosqlite) | Medium | ✅ **DONE** |
-| 🟡 High | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction | Medium | 🔄 In Progress |
+| 🟡 High | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction | Medium | ✅ **DONE** |
 | 🟡 High | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic | Large | 🔲 Planned |
 | 🟡 High | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions | Medium | 🔲 Planned |
 | 🟢 Medium | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local) | Medium | 🔲 Planned |
@@ -181,8 +181,8 @@ folder = service.update_folder(folder_id, data.name, user["id"])
 - [x] Add comprehensive service layer unit tests (30 tests total)
 
 **Next Steps:**
-- [ ] Refactor safe routes to use SafeService
-- [ ] Extract remaining business logic from envelope.py
+- [x] Refactor safe routes to use SafeService
+- [x] Extract remaining business logic from envelope.py
 
 ---
 

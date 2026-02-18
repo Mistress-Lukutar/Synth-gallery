@@ -8,24 +8,17 @@ These endpoints support client-side encryption by managing:
 import json
 from pydantic import BaseModel
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 
 from ..database import (
-    get_db,
-    create_photo_key, get_photo_key, set_photo_shared_key, 
-    get_photo_shared_key, remove_photo_shared_key, get_photo_shared_users,
-    set_photo_storage_mode, get_photo_storage_mode,
-    create_folder_key, get_folder_key, update_folder_key,
-    set_user_public_key, get_user_public_key,
-    get_photos_needing_migration, get_migration_status,
-    can_access_photo, can_delete_photo, can_access_folder, can_edit_folder,
-    get_photo_by_id, get_folder
+    can_access_photo, can_access_folder,
+    get_photo_by_id, get_folder, get_user_by_id,
+    get_user_encryption_keys
 )
 from ..services.envelope_encryption import EnvelopeEncryptionService
-from ..dependencies import get_csrf_token, require_user, get_current_user
+from ..dependencies import require_user
 
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
+
 
 # =============================================================================
 # Request/Response Models
@@ -66,12 +59,14 @@ class MigrationBatch(BaseModel):
 def get_my_public_key(request: Request):
     """Get current user's public key."""
     user = require_user(request)
-    public_key = get_user_public_key(user["id"])
+    
+    public_key = EnvelopeEncryptionService.get_user_public_key(user["id"])
     
     if not public_key:
-        return JSONResponse(
-            {"has_key": False, "message": "No public key set. Upload one to enable sharing."}
-        )
+        return {
+            "has_key": False,
+            "message": "No public key set. Upload one to enable sharing."
+        }
     
     import base64
     return {
@@ -95,7 +90,7 @@ def upload_public_key(request: Request, data: PublicKeyUpload):
     if len(public_key) < 32:  # Minimum reasonable key size
         raise HTTPException(status_code=400, detail="Public key too short")
     
-    success = set_user_public_key(user["id"], public_key)
+    success = EnvelopeEncryptionService.set_user_public_key(user["id"], public_key)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to store public key")
     
@@ -111,9 +106,7 @@ def get_my_encrypted_dek(request: Request):
     """
     user = require_user(request)
     
-    from ..database import get_user_encryption_keys
     import base64
-    
     enc_keys = get_user_encryption_keys(user["id"])
     
     if not enc_keys:
@@ -138,7 +131,7 @@ def get_user_public_key_endpoint(user_id: int, request: Request):
     # Require authentication but not necessarily access to specific resources
     require_user(request)
     
-    public_key = get_user_public_key(user_id)
+    public_key = EnvelopeEncryptionService.get_user_public_key(user_id)
     if not public_key:
         raise HTTPException(status_code=404, detail="User has no public key")
     
@@ -181,35 +174,19 @@ def get_photo_key_endpoint(photo_id: str, request: Request):
             "message": "Photo uses legacy encryption. Migrate to envelope encryption."
         }
     
-    # Get envelope key
-    key_data = get_photo_key(photo_id)
+    # Get envelope key using service
+    key_data = EnvelopeEncryptionService.get_photo_key(photo_id, user["id"])
     if not key_data:
         raise HTTPException(status_code=404, detail="Encryption key not found")
     
     import base64
-    is_owner = photo.get("user_id") == user["id"]
     
-    if is_owner:
-        encrypted_ck = key_data["encrypted_ck"]
-        thumb_ck = key_data.get("thumbnail_encrypted_ck")
-        return {
-            "storage_mode": "envelope",
-            "is_owner": True,
-            "encrypted_ck": base64.b64encode(encrypted_ck).decode(),
-            "thumbnail_encrypted_ck": base64.b64encode(thumb_ck).decode() if thumb_ck else None
-        }
-    else:
-        # Check for shared key
-        shared_ck = get_photo_shared_key(photo_id, user["id"])
-        if shared_ck:
-            return {
-                "storage_mode": "envelope",
-                "is_owner": False,
-                "encrypted_ck": base64.b64encode(shared_ck).decode(),
-                "thumbnail_encrypted_ck": None
-            }
-        else:
-            raise HTTPException(status_code=403, detail="No shared key for this user")
+    return {
+        "storage_mode": "envelope",
+        "is_owner": key_data["is_owner"],
+        "encrypted_ck": base64.b64encode(key_data["encrypted_ck"]).decode(),
+        "thumbnail_encrypted_ck": base64.b64encode(key_data["thumbnail_encrypted_ck"]).decode() if key_data["thumbnail_encrypted_ck"] else None
+    }
 
 
 @router.post("/photos/{photo_id}/key")
@@ -235,30 +212,15 @@ def upload_photo_key(photo_id: str, data: PhotoKeyUpload, request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 encoding")
     
-    # Store the key
-    success = create_photo_key(photo_id, encrypted_ck, thumbnail_encrypted_ck)
+    # Store the key using service
+    success = EnvelopeEncryptionService.create_photo_key(
+        photo_id, encrypted_ck, thumbnail_encrypted_ck
+    )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to store key")
     
     # Update storage mode
-    set_photo_storage_mode(photo_id, "envelope")
-    
-    return {"success": True, "message": "Encryption key stored"}
-    
-    import base64
-    try:
-        encrypted_ck = base64.b64decode(data.encrypted_ck)
-        thumbnail_encrypted_ck = base64.b64decode(data.thumbnail_encrypted_ck) if data.thumbnail_encrypted_ck else None
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid base64 encoding")
-    
-    # Store the key
-    success = create_photo_key(photo_id, encrypted_ck, thumbnail_encrypted_ck)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to store key")
-    
-    # Update storage mode
-    set_photo_storage_mode(photo_id, "envelope")
+    EnvelopeEncryptionService.set_photo_storage_mode(photo_id, "envelope")
     
     return {"success": True, "message": "Encryption key stored"}
 
@@ -274,7 +236,7 @@ def share_photo_key(photo_id: str, data: SharePhotoKey, request: Request):
         raise HTTPException(status_code=403, detail="Only owner can share")
     
     # Check storage mode
-    if get_photo_storage_mode(photo_id) != "envelope":
+    if EnvelopeEncryptionService.get_photo_storage_mode(photo_id) != "envelope":
         raise HTTPException(status_code=400, detail="Photo must use envelope encryption")
     
     import base64
@@ -283,8 +245,10 @@ def share_photo_key(photo_id: str, data: SharePhotoKey, request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid base64 encoding")
     
-    # Store shared key
-    success = set_photo_shared_key(photo_id, data.user_id, encrypted_ck_for_user)
+    # Store shared key using service
+    success = EnvelopeEncryptionService.share_photo_key(
+        photo_id, user["id"], data.user_id, encrypted_ck_for_user
+    )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to store shared key")
     
@@ -301,7 +265,9 @@ def revoke_photo_share(photo_id: str, target_user_id: int, request: Request):
     if not photo or photo.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Only owner can revoke access")
     
-    success = remove_photo_shared_key(photo_id, target_user_id)
+    success = EnvelopeEncryptionService.revoke_photo_share(
+        photo_id, user["id"], target_user_id
+    )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to revoke access")
     
@@ -318,10 +284,9 @@ def list_photo_shares(photo_id: str, request: Request):
     if not photo or photo.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Only owner can view shares")
     
-    shared_users = get_photo_shared_users(photo_id)
+    shared_users = EnvelopeEncryptionService.get_photo_shared_users(photo_id)
     
     # Get user details
-    from ..database import get_user_by_id
     shares = []
     for uid in shared_users:
         u = get_user_by_id(uid)
@@ -348,7 +313,7 @@ def get_folder_key_endpoint(folder_id: str, request: Request):
     if not can_access_folder(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    folder_key = get_folder_key(folder_id)
+    folder_key = EnvelopeEncryptionService.get_folder_key_full(folder_id)
     if not folder_key:
         raise HTTPException(status_code=404, detail="Folder key not found")
     
@@ -377,7 +342,7 @@ def create_folder_key_endpoint(folder_id: str, data: FolderKeyCreate, request: R
         raise HTTPException(status_code=403, detail="Only owner can create folder key")
     
     # Check if already exists
-    existing = get_folder_key(folder_id)
+    existing = EnvelopeEncryptionService.get_folder_key(folder_id)
     if existing:
         raise HTTPException(status_code=400, detail="Folder key already exists")
     
@@ -392,7 +357,9 @@ def create_folder_key_endpoint(folder_id: str, data: FolderKeyCreate, request: R
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid data")
     
-    success = create_folder_key(folder_id, user["id"], data.encrypted_folder_dek)
+    success = EnvelopeEncryptionService.create_folder_key(
+        folder_id, user["id"], data.encrypted_folder_dek
+    )
     if not success:
         raise HTTPException(status_code=500, detail="Failed to create folder key")
     
@@ -409,7 +376,7 @@ def share_folder_key(folder_id: str, data: FolderKeyShare, request: Request):
     if not folder or folder["user_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Only owner can share folder key")
     
-    folder_key = get_folder_key(folder_id)
+    folder_key = EnvelopeEncryptionService.get_folder_key(folder_id)
     if not folder_key:
         raise HTTPException(status_code=404, detail="Folder key not found")
     
@@ -419,7 +386,9 @@ def share_folder_key(folder_id: str, data: FolderKeyShare, request: Request):
         encrypted_map = json.loads(folder_key["encrypted_folder_dek"])
         encrypted_map[str(data.user_id)] = base64.b64decode(data.encrypted_folder_dek_for_user).hex()
         
-        success = update_folder_key(folder_id, json.dumps(encrypted_map))
+        success = EnvelopeEncryptionService.update_folder_key(
+            folder_id, json.dumps(encrypted_map)
+        )
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update folder key")
         
@@ -436,7 +405,7 @@ def share_folder_key(folder_id: str, data: FolderKeyShare, request: Request):
 def get_user_migration_status(request: Request):
     """Get migration status for current user."""
     user = require_user(request)
-    status = get_migration_status(user["id"])
+    status = EnvelopeEncryptionService.get_migration_status(user["id"])
     return status
 
 
@@ -444,10 +413,13 @@ def get_user_migration_status(request: Request):
 def get_pending_migration_photos(request: Request):
     """Get list of photos needing migration."""
     user = require_user(request)
-    photos = get_photos_needing_migration(user["id"])
+    photos = EnvelopeEncryptionService.get_photos_needing_migration(user["id"])
     return {
         "count": len(photos),
-        "photos": [{"id": p["id"], "filename": p["filename"], "original_name": p["original_name"]} for p in photos]
+        "photos": [
+            {"id": p["id"], "filename": p["filename"], "original_name": p["original_name"]}
+            for p in photos
+        ]
     }
 
 
@@ -473,28 +445,46 @@ def batch_migrate_photos(data: MigrationBatch, request: Request):
         thumbnail_encrypted_ck_b64 = item.get("thumbnail_encrypted_ck")
         
         if not photo_id or not encrypted_ck_b64:
-            results.append({"photo_id": photo_id, "success": False, "error": "Missing data"})
+            results.append({
+                "photo_id": photo_id, 
+                "success": False, 
+                "error": "Missing data"
+            })
             continue
         
         # Verify ownership
         photo = get_photo_by_id(photo_id)
         if not photo or photo.get("user_id") != user["id"]:
-            results.append({"photo_id": photo_id, "success": False, "error": "Not owner"})
+            results.append({
+                "photo_id": photo_id, 
+                "success": False, 
+                "error": "Not owner"
+            })
             continue
         
         try:
             encrypted_ck = base64.b64decode(encrypted_ck_b64)
             thumbnail_encrypted_ck = base64.b64decode(thumbnail_encrypted_ck_b64) if thumbnail_encrypted_ck_b64 else None
             
-            # Store new key
-            success = create_photo_key(photo_id, encrypted_ck, thumbnail_encrypted_ck)
+            # Store new key using service
+            success = EnvelopeEncryptionService.create_photo_key(
+                photo_id, encrypted_ck, thumbnail_encrypted_ck
+            )
             if success:
-                set_photo_storage_mode(photo_id, "envelope")
+                EnvelopeEncryptionService.set_photo_storage_mode(photo_id, "envelope")
                 results.append({"photo_id": photo_id, "success": True})
             else:
-                results.append({"photo_id": photo_id, "success": False, "error": "Database error"})
+                results.append({
+                    "photo_id": photo_id, 
+                    "success": False, 
+                    "error": "Database error"
+                })
         except Exception as e:
-            results.append({"photo_id": photo_id, "success": False, "error": str(e)})
+            results.append({
+                "photo_id": photo_id, 
+                "success": False, 
+                "error": str(e)
+            })
     
     success_count = sum(1 for r in results if r["success"])
     return {

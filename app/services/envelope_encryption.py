@@ -495,3 +495,157 @@ class EnvelopeEncryptionService:
         ).fetchone()
         
         return result and result["storage_mode"] == 'envelope'
+
+    @staticmethod
+    def get_photo_shared_users(photo_id: str) -> list[int]:
+        """Get list of user IDs that have shared access to a photo.
+        
+        Args:
+            photo_id: UUID of the photo
+            
+        Returns:
+            List of user IDs with shared access
+        """
+        db = get_db()
+        result = db.execute(
+            "SELECT shared_ck_map FROM photo_keys WHERE photo_id = ?",
+            (photo_id,)
+        ).fetchone()
+        
+        if not result:
+            return []
+        
+        shared_map = json.loads(result["shared_ck_map"])
+        return [int(uid) for uid in shared_map.keys()]
+
+    @staticmethod
+    def set_photo_storage_mode(photo_id: str, storage_mode: str) -> bool:
+        """Set storage mode for a photo.
+        
+        Args:
+            photo_id: UUID of the photo
+            storage_mode: Storage mode ('legacy', 'envelope', etc.)
+            
+        Returns:
+            True if successful
+        """
+        db = get_db()
+        try:
+            db.execute(
+                "UPDATE photos SET storage_mode = ? WHERE id = ?",
+                (storage_mode, photo_id)
+            )
+            db.commit()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def get_photo_storage_mode(photo_id: str) -> Optional[str]:
+        """Get storage mode for a photo.
+        
+        Args:
+            photo_id: UUID of the photo
+            
+        Returns:
+            Storage mode string, or None if not found
+        """
+        db = get_db()
+        result = db.execute(
+            "SELECT storage_mode FROM photos WHERE id = ?",
+            (photo_id,)
+        ).fetchone()
+        
+        return result["storage_mode"] if result else None
+
+    @staticmethod
+    def update_folder_key(folder_id: str, encrypted_folder_dek_map: str) -> bool:
+        """Update folder key encrypted map.
+        
+        Args:
+            folder_id: UUID of the folder
+            encrypted_folder_dek_map: JSON string of {user_id: encrypted_dek_hex}
+            
+        Returns:
+            True if successful
+        """
+        db = get_db()
+        try:
+            db.execute(
+                "UPDATE folder_keys SET encrypted_folder_dek = ? WHERE folder_id = ?",
+                (encrypted_folder_dek_map, folder_id)
+            )
+            db.commit()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def get_migration_status(user_id: int) -> dict:
+        """Get migration status for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Dict with migration status info
+        """
+        db = get_db()
+        
+        # Count legacy photos
+        legacy_count = db.execute(
+            """SELECT COUNT(*) as count FROM photos 
+               WHERE user_id = ? AND (storage_mode IS NULL OR storage_mode = 'legacy')""",
+            (user_id,)
+        ).fetchone()["count"]
+        
+        # Count envelope photos
+        envelope_count = db.execute(
+            """SELECT COUNT(*) as count FROM photos 
+               WHERE user_id = ? AND storage_mode = 'envelope'""",
+            (user_id,)
+        ).fetchone()["count"]
+        
+        return {
+            "legacy_count": legacy_count,
+            "envelope_count": envelope_count,
+            "total_photos": legacy_count + envelope_count,
+            "migration_complete": legacy_count == 0
+        }
+
+    @staticmethod
+    def get_photos_needing_migration(user_id: int) -> list:
+        """Get photos that need migration to envelope encryption.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of photo records needing migration
+        """
+        return EnvelopeEncryptionService.get_user_legacy_photos(user_id)
+
+    @staticmethod
+    def get_folder_key_full(folder_id: str) -> Optional[dict]:
+        """Get full folder key record including created_by.
+        
+        Args:
+            folder_id: UUID of the folder
+            
+        Returns:
+            Dict with encrypted_folder_dek and created_by, or None
+        """
+        db = get_db()
+        result = db.execute(
+            "SELECT * FROM folder_keys WHERE folder_id = ?",
+            (folder_id,)
+        ).fetchone()
+        
+        if not result:
+            return None
+        
+        return {
+            "folder_id": result["folder_id"],
+            "encrypted_folder_dek": result["encrypted_folder_dek"],
+            "created_by": result["created_by"]
+        }

@@ -101,6 +101,20 @@ class SafeRepository(Repository):
         )
         return self._row_to_dict(cursor.fetchone())
     
+    # Alias for compatibility with async version
+    get_by_folder_id = get_by_folder
+    
+    def is_safe_folder(self, folder_id: str) -> bool:
+        """Check if folder is in a safe.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            True if folder is in a safe
+        """
+        return self.get_by_folder(folder_id) is not None
+    
     def list_by_user(self, user_id: int) -> list[dict]:
         """Get all safes for user with counts.
         
@@ -171,6 +185,54 @@ class SafeRepository(Repository):
         
         # Delete safe
         cursor = self._execute("DELETE FROM safes WHERE id = ?", (safe_id,))
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def set_password_enabled(self, folder_id: str, enabled: bool) -> bool:
+        """Enable/disable password unlock (sync version - folder-based).
+        
+        Note: This is a compatibility method. The actual implementation
+        uses safe_id based on current schema.
+        
+        Args:
+            folder_id: Folder ID (which is the safe folder)
+            enabled: True to enable password unlock
+            
+        Returns:
+            True if updated
+        """
+        safe = self.get_by_folder(folder_id)
+        if not safe:
+            return False
+        
+        cursor = self._execute(
+            "UPDATE safes SET password_enabled = ? WHERE id = ?",
+            (enabled, safe["id"])
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def set_hardware_key_enabled(self, folder_id: str, enabled: bool) -> bool:
+        """Enable/disable hardware key unlock (sync version - folder-based).
+        
+        Note: This is a compatibility method. The actual implementation
+        uses safe_id based on current schema.
+        
+        Args:
+            folder_id: Folder ID (which is the safe folder)
+            enabled: True to enable hardware key unlock
+            
+        Returns:
+            True if updated
+        """
+        safe = self.get_by_folder(folder_id)
+        if not safe:
+            return False
+        
+        cursor = self._execute(
+            "UPDATE safes SET hardware_key_enabled = ? WHERE id = ?",
+            (enabled, safe["id"])
+        )
         self._commit()
         return cursor.rowcount > 0
     

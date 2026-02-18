@@ -5,6 +5,8 @@ from .folder_service import FolderService
 from .permission_service import PermissionService
 from .safe_service import SafeService
 from .photo_service import PhotoService
+from .safe_file_service import SafeFileService
+from .envelope_service import EnvelopeService
 
 __all__ = [
     "UploadService",
@@ -12,4 +14,6 @@ __all__ = [
     "PermissionService", 
     "SafeService",
     "PhotoService",
+    "SafeFileService",
+    "EnvelopeService",
 ]
