@@ -437,6 +437,9 @@ def get_upload(request: Request, filename: str):
     """Serves original photo (protected by auth + folder access)."""
     user = require_user(request)
 
+    # Import config here to respect test patches (Issue #16)
+    from ..config import UPLOADS_DIR
+    
     # Validate path to prevent directory traversal
     file_path = (UPLOADS_DIR / filename).resolve()
     if not file_path.is_relative_to(UPLOADS_DIR):
@@ -530,6 +533,9 @@ def get_thumbnail(request: Request, filename: str):
     """
     user = require_user(request)
 
+    # Import config here to respect test patches (Issue #16)
+    from ..config import THUMBNAILS_DIR, UPLOADS_DIR
+    
     # Validate path to prevent directory traversal
     file_path = (THUMBNAILS_DIR / filename).resolve()
     if not file_path.is_relative_to(THUMBNAILS_DIR):
@@ -1106,6 +1112,9 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
     if not can_edit_folder(data.folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Cannot copy to this folder")
 
+    # Import config here to respect test patches (Issue #16)
+    from ..config import UPLOADS_DIR, THUMBNAILS_DIR
+    
     db = get_db()
     copied_photos = 0
     copied_albums = 0

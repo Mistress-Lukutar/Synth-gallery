@@ -169,6 +169,44 @@ class PhotoRepository(Repository):
             tuple(params)
         )
         return [dict(row) for row in cursor.fetchall()]
+    
+    def delete(self, photo_id: str) -> dict | None:
+        """Delete photo and return info for file cleanup.
+        
+        Args:
+            photo_id: Photo ID
+            
+        Returns:
+            Photo dict (with filename for cleanup) or None
+        """
+        # Get photo info before delete
+        photo = self.get_by_id(photo_id)
+        if not photo:
+            return None
+        
+        self._execute("DELETE FROM photos WHERE id = ?", (photo_id,))
+        self._commit()
+        return photo
+    
+    def delete_by_folder(self, folder_id: str) -> list[str]:
+        """Delete all photos in folder.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            List of filenames for cleanup
+        """
+        # Get filenames before delete
+        cursor = self._execute(
+            "SELECT filename FROM photos WHERE folder_id = ?",
+            (folder_id,)
+        )
+        filenames = [row["filename"] for row in cursor.fetchall()]
+        
+        self._execute("DELETE FROM photos WHERE folder_id = ?", (folder_id,))
+        self._commit()
+        return filenames
 
 
 # =============================================================================
