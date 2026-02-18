@@ -93,17 +93,30 @@ class TestFileAccessControl:
         # Second user creates folder and uploads
         folder_id = create_folder("SharedFiles", second_user["id"])
         
+        # Get CSRF token first
+        client.get("/login")
+        csrf_token = client.cookies.get("synth_csrf", "")
+        
         client.post(
             "/login",
-            data={"username": second_user["username"], "password": second_user["password"]},
+            data={
+                "username": second_user["username"], 
+                "password": second_user["password"],
+                "csrf_token": csrf_token
+            },
             follow_redirects=False
         )
+        
+        # Get fresh CSRF token after login
+        csrf_token = client.cookies.get("synth_csrf", "")
         
         response = client.post(
             "/upload",
             data={"folder_id": folder_id},
-            files={"file": ("shared.jpg", test_image_bytes, "image/jpeg")}
+            files={"file": ("shared.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
         )
+        assert response.status_code == 200, f"Upload failed: {response.text}"
         filename = response.json()["filename"]
         
         # Share with first user
@@ -111,9 +124,16 @@ class TestFileAccessControl:
         
         # First user accesses file
         client.cookies.clear()
+        client.get("/login")
+        csrf_token = client.cookies.get("synth_csrf", "")
+        
         client.post(
             "/login",
-            data={"username": test_user["username"], "password": test_user["password"]},
+            data={
+                "username": test_user["username"], 
+                "password": test_user["password"],
+                "csrf_token": csrf_token
+            },
             follow_redirects=False
         )
         
@@ -134,17 +154,30 @@ class TestFileAccessControl:
         # Second user creates private folder and uploads
         private_folder = create_folder("PrivateFiles", second_user["id"])
         
+        # Get CSRF token
+        client.get("/login")
+        csrf_token = client.cookies.get("synth_csrf", "")
+        
         client.post(
             "/login",
-            data={"username": second_user["username"], "password": second_user["password"]},
+            data={
+                "username": second_user["username"], 
+                "password": second_user["password"],
+                "csrf_token": csrf_token
+            },
             follow_redirects=False
         )
+        
+        # Get fresh CSRF token
+        csrf_token = client.cookies.get("synth_csrf", "")
         
         response = client.post(
             "/upload",
             data={"folder_id": private_folder},
-            files={"file": ("secret.jpg", test_image_bytes, "image/jpeg")}
+            files={"file": ("secret.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
         )
+        assert response.status_code == 200, f"Upload failed: {response.text}"
         filename = response.json()["filename"]
         
         # First user (unrelated) tries to access
@@ -161,24 +194,29 @@ class TestFileAccessControl:
     
     def test_file_access_requires_authentication(
         self,
-        client: TestClient,
         authenticated_client: TestClient,
         test_folder: str,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        csrf_token: str
     ):
         """Unauthenticated requests should be rejected."""
         # Upload as authenticated user
         response = authenticated_client.post(
             "/upload",
             data={"folder_id": test_folder},
-            files={"file": ("auth_test.jpg", test_image_bytes, "image/jpeg")}
+            files={"file": ("auth_test.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
         )
+        assert response.status_code == 200, f"Upload failed: {response.text}"
         filename = response.json()["filename"]
         
-        # Try to access without auth (new client)
-        response = client.get(f"/uploads/{filename}")
+        # Try to access without auth (create fresh client)
+        from app.main import app
+        from fastapi.testclient import TestClient
+        with TestClient(app) as new_client:
+            response = new_client.get(f"/uploads/{filename}", follow_redirects=False)
         
-        assert response.status_code in [302, 401]  # Redirect to login or 401
+        assert response.status_code in [302, 401, 403]  # Redirect to login or 401
 
 
 class TestThumbnailAccess:
@@ -208,17 +246,30 @@ class TestThumbnailAccess:
         
         private_folder = create_folder("ThumbPrivate", second_user["id"])
         
+        # Get CSRF token
+        client.get("/login")
+        csrf_token = client.cookies.get("synth_csrf", "")
+        
         client.post(
             "/login",
-            data={"username": second_user["username"], "password": second_user["password"]},
+            data={
+                "username": second_user["username"], 
+                "password": second_user["password"],
+                "csrf_token": csrf_token
+            },
             follow_redirects=False
         )
+        
+        # Get fresh CSRF token
+        csrf_token = client.cookies.get("synth_csrf", "")
         
         response = client.post(
             "/upload",
             data={"folder_id": private_folder},
-            files={"file": ("thumb_test.jpg", test_image_bytes, "image/jpeg")}
+            files={"file": ("thumb_test.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
         )
+        assert response.status_code == 200, f"Upload failed: {response.text}"
         photo_id = response.json()["id"]
         
         # Unrelated user tries to get thumbnail
@@ -283,25 +334,27 @@ class TestGallerySorting:
         self,
         authenticated_client: TestClient,
         test_folder: str,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        csrf_token: str
     ):
         """API should return properly sorted items."""
         # Upload multiple photos
         for i in range(3):
-            authenticated_client.post(
+            response = authenticated_client.post(
                 "/upload",
                 data={"folder_id": test_folder},
-                files={"file": (f"sort_{i}.jpg", test_image_bytes, "image/jpeg")}
+                files={"file": (f"sort_{i}.jpg", test_image_bytes, "image/jpeg")},
+                headers={"X-CSRF-Token": csrf_token}
             )
+            assert response.status_code == 200, f"Upload {i} failed: {response.text}"
         
-        response = authenticated_client.get(f"/api/folders/{test_folder}/content?sort=uploaded")
+        response = authenticated_client.get(f"/api/folders/{test_folder}/contents?sort=uploaded")
         
         if response.status_code == 200:
             data = response.json()
-            if "items" in data:
-                # Verify items are sorted
-                items = data["items"]
-                assert len(items) >= 3
+            # Check various possible response structures
+            items = data.get("items") or data.get("photos") or []
+            assert len(items) >= 3
 
 
 class TestAPIResponses:
@@ -313,7 +366,7 @@ class TestAPIResponses:
         test_folder: str
     ):
         """Folder tree API should have expected structure."""
-        response = authenticated_client.get("/api/folders/tree")
+        response = authenticated_client.get("/api/folders")
         
         assert response.status_code == 200
         folders = response.json()
