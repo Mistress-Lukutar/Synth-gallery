@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
-from ..database import get_db
+from ..database import create_connection
 from ..infrastructure.repositories import (
     UserRepository, SessionRepository, WebAuthnRepository
 )
@@ -65,7 +65,7 @@ def _get_current_user_required(request: Request) -> dict:
     if not session_id:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    db = get_db()
+    db = create_connection()
     try:
         session_repo = SessionRepository(db)
         session = session_repo.get_valid(session_id)
@@ -90,7 +90,7 @@ def register_begin(request: Request, user: dict = Depends(_get_current_user_requ
     # Get RP ID and origin from request
     rp_id, origin = _get_webauthn_params(request)
 
-    db = get_db()
+    db = create_connection()
     try:
         # Get existing credential IDs to exclude
         webauthn_repo = WebAuthnRepository(db)
@@ -154,7 +154,7 @@ def register_complete(
         )
         encrypted_dek = EncryptionService.encrypt_dek(user_dek, cred_key)
 
-    db = get_db()
+    db = create_connection()
     try:
         # Store credential
         webauthn_repo = WebAuthnRepository(db)
@@ -183,7 +183,7 @@ def authenticate_begin(request: Request, username: str = None):
     # Get RP ID and origin from request
     rp_id, origin = _get_webauthn_params(request)
 
-    db = get_db()
+    db = create_connection()
     try:
         if username:
             # Get user
@@ -235,7 +235,7 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
         raw_id_b64 += "=" * padding
     credential_id = base64.urlsafe_b64decode(raw_id_b64)
 
-    db = get_db()
+    db = create_connection()
     try:
         # Find credential in database
         webauthn_repo = WebAuthnRepository(db)
@@ -293,7 +293,7 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
 @router.get("/credentials")
 def list_credentials(user: dict = Depends(_get_current_user_required)):
     """List all registered credentials for current user."""
-    db = get_db()
+    db = create_connection()
     try:
         webauthn_repo = WebAuthnRepository(db)
         credentials = webauthn_repo.get_for_user(user["id"])
@@ -318,7 +318,7 @@ def delete_credential(
     user: dict = Depends(_get_current_user_required)
 ):
     """Delete a registered credential."""
-    db = get_db()
+    db = create_connection()
     try:
         webauthn_repo = WebAuthnRepository(db)
         success = webauthn_repo.delete(credential_id, user["id"])
@@ -340,7 +340,7 @@ def rename_credential(
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Name cannot be empty")
 
-    db = get_db()
+    db = create_connection()
     try:
         webauthn_repo = WebAuthnRepository(db)
         success = webauthn_repo.rename(credential_id, user["id"], body.name.strip())
@@ -357,7 +357,7 @@ def rename_credential(
 @router.get("/check/{username}")
 def check_user_has_keys(username: str):
     """Check if a user has registered hardware keys (for login page)."""
-    db = get_db()
+    db = create_connection()
     try:
         user_repo = UserRepository(db)
         user = user_repo.get_by_username(username)
@@ -381,7 +381,7 @@ def settings_page(request: Request):
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
-    db = get_db()
+    db = create_connection()
     try:
         session_repo = SessionRepository(db)
         session = session_repo.get_valid(session_id)

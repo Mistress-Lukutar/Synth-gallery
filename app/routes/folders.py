@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
-from ..database import get_db
+from ..database import create_connection
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 from ..dependencies import require_user
 
@@ -44,7 +44,7 @@ class SortPreference(BaseModel):
 # Service factory functions
 def get_folder_service() -> FolderService:
     """Create FolderService with repositories."""
-    db = get_db()
+    db = create_connection()
     return FolderService(
         folder_repository=FolderRepository(db),
         safe_repository=SafeRepository(db)
@@ -53,7 +53,7 @@ def get_folder_service() -> FolderService:
 
 def get_user_settings_service() -> UserSettingsService:
     """Create UserSettingsService with repositories."""
-    db = get_db()
+    db = create_connection()
     return UserSettingsService(
         folder_repository=FolderRepository(db),
         permission_repository=PermissionRepository(db)
@@ -62,7 +62,7 @@ def get_user_settings_service() -> UserSettingsService:
 
 def get_permission_service() -> PermissionService:
     """Create PermissionService with repositories."""
-    db = get_db()
+    db = create_connection()
     return PermissionService(
         permission_repository=PermissionRepository(db),
         folder_repository=FolderRepository(db)
@@ -86,7 +86,7 @@ def create_new_folder(request: Request, data: FolderCreate):
     """Create a new folder."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Handle safe folder creation
         if data.safe_id:
@@ -190,7 +190,7 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
     """Add permission for a user on a folder (owner only)."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Using service layer (Issue #16)
         service = PermissionService(
@@ -223,7 +223,7 @@ def update_folder_permission_route(
     """Update permission for a user on a folder (owner only)."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Using service layer (Issue #16)
         service = PermissionService(
@@ -255,7 +255,7 @@ def remove_folder_permission_route(
     """Remove permission for a user on a folder (owner only)."""
     user = require_user(request)
     
-    db = get_db()
+    db = create_connection()
     try:
         # Using service layer (Issue #16)
         service = PermissionService(
@@ -376,7 +376,7 @@ def search_users_route(request: Request, q: str = ""):
     if len(q) < 2:
         return {"users": []}
     
-    db = get_db()
+    db = create_connection()
     try:
         user_repo = UserRepository(db)
         users = user_repo.search(q, exclude_user_id=user["id"], limit=10)

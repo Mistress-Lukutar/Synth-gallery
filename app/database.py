@@ -127,7 +127,11 @@ def _backup_before_migration():
 
 
 def get_db() -> sqlite3.Connection:
-    """Get thread-local database connection"""
+    """Get thread-local database connection.
+    
+    WARNING: Do NOT close this connection! It's reused across the thread.
+    For contexts where you need to close the connection, use create_connection().
+    """
     if not hasattr(_local, 'connection') or _local.connection is None:
         _local.connection = sqlite3.connect(
             DATABASE_PATH,
@@ -135,6 +139,31 @@ def get_db() -> sqlite3.Connection:
         )
         _local.connection.row_factory = sqlite3.Row
     return _local.connection
+
+
+def create_connection() -> sqlite3.Connection:
+    """Create a new database connection.
+    
+    Use this when you need a connection that you can safely close.
+    Always close this connection when done using it.
+    
+    Example:
+        db = create_connection()
+        try:
+            repo = UserRepository(db)
+            user = repo.get_by_id(1)
+        finally:
+            db.close()
+    
+    Returns:
+        New sqlite3.Connection with row_factory set
+    """
+    conn = sqlite3.connect(
+        DATABASE_PATH,
+        detect_types=sqlite3.PARSE_DECLTYPES
+    )
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():

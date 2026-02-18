@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Request, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
-from ..database import get_db
+from ..database import create_connection
 from ..infrastructure.repositories import SafeRepository, PhotoRepository, PermissionRepository
 from ..application.services import SafeFileService
 from ..dependencies import require_user
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/safe-files", tags=["safe-files"])
 
 def get_safe_file_service() -> SafeFileService:
     """Get configured SafeFileService instance."""
-    db = get_db()
+    db = create_connection()
     safe_repo = SafeRepository(db)
     photo_repo = PhotoRepository(db)
     return SafeFileService(safe_repo, photo_repo)
@@ -28,7 +28,7 @@ def get_safe_photo_key(photo_id: str, request: Request):
     user = require_user(request)
     service = get_safe_file_service()
     
-    db = get_db()
+    db = create_connection()
     try:
         perm_repo = PermissionRepository(db)
         return service.get_photo_key(
@@ -49,7 +49,7 @@ def get_safe_photo_file(photo_id: str, request: Request):
     user = require_user(request)
     service = get_safe_file_service()
     
-    db = get_db()
+    db = create_connection()
     try:
         perm_repo = PermissionRepository(db)
         file_path = service.get_photo_file_path(
@@ -85,7 +85,7 @@ def get_safe_photo_thumbnail(photo_id: str, request: Request):
     user = require_user(request)
     service = get_safe_file_service()
     
-    db = get_db()
+    db = create_connection()
     try:
         perm_repo = PermissionRepository(db)
         result = service.get_photo_thumbnail_path(
@@ -143,7 +143,7 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
     # Read thumbnail content
     thumb_content = await thumbnail.read()
     
-    db = get_db()
+    db = create_connection()
     try:
         perm_repo = PermissionRepository(db)
         photo_repo = PhotoRepository(db)
