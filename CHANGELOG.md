@@ -39,14 +39,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - True non-blocking I/O for better concurrency under load
 
 ### Added (Internal)
-- **Service Layer Extraction (Issue #16 - In Progress)**
+- **Service Layer Extraction (Issue #16 - Completed)**
   - New `app/application/services/` module for business logic
-  - Created 5 application services:
+  - Created 7 application services:
     - `UploadService` - File uploads, thumbnails, encryption, batch operations
     - `FolderService` - Folder CRUD and hierarchy management  
     - `PermissionService` - Access control and sharing
-    - `SafeService` - Encrypted vault operations
+    - `SafeService` - Encrypted vault operations (safe CRUD, unlock/lock, sessions)
     - `PhotoService` - Photo/album move operations and album management
+    - `SafeFileService` - File operations in encrypted safes (NEW)
+    - `EnvelopeService` - Envelope encryption operations (NEW)
   - Refactored `app/routes/folders.py` to use FolderService
   - Refactored upload endpoints to use UploadService:
     - `/upload` - Single file upload with encryption support
@@ -61,12 +63,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `/api/albums/{id}/photos` - Add/remove photos from album
     - `/api/albums/{id}/reorder` - Reorder photos in album
     - `/api/albums/{id}/cover` - Set album cover photo
+  - Refactored `app/routes/safes.py` to use SafeService (NEW)
+  - Refactored `app/routes/safe_files.py` to use SafeFileService (NEW)
+  - Refactored `app/routes/envelope.py` to use EnvelopeEncryptionService (NEW)
   - Fixed `PhotoRepository.create()` signature to accept optional `photo_id` parameter
   - Fixed Python 3.12 datetime adapter deprecation warning
   - Fixed test isolation issues with UPLOADS_DIR/THUMBNAILS_DIR imports
   - Fixed safe upload file extension preservation (.png instead of .jpg)
   - Fixed missing `delete` method in sync PhotoRepository
-  - Added 32 unit tests for service layer (2 for delete photo validation)
+  - Added missing methods to SafeRepository for service layer:
+    - `get_by_folder_id` (alias for `get_by_folder`)
+    - `is_safe_folder`
+    - `set_password_enabled`
+    - `set_hardware_key_enabled`
+  - Extended EnvelopeEncryptionService with:
+    - `get_photo_shared_users`
+    - `set_photo_storage_mode`
+    - `get_photo_storage_mode`
+    - `update_folder_key`
+    - `get_migration_status`
+    - `get_photos_needing_migration`
+    - `get_folder_key_full`
   - Business logic now testable without FastAPI dependencies
   - Clean separation: HTTP handling in routes, business logic in services
 
