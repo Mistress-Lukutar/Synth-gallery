@@ -36,7 +36,7 @@ from ..services.metadata import extract_taken_date
 from ..services.encryption import EncryptionService, dek_cache
 
 # Service layer imports (Issue #16)
-from ..infrastructure.repositories import PhotoRepository
+from ..infrastructure.repositories import PhotoRepository, FolderRepository, PermissionRepository
 from ..application.services import UploadService, PhotoService
 
 router = APIRouter()
@@ -51,6 +51,16 @@ def get_upload_service() -> UploadService:
         photo_repository=PhotoRepository(db),
         uploads_dir=UPLOADS_DIR,
         thumbnails_dir=THUMBNAILS_DIR
+    )
+
+
+def get_photo_service() -> PhotoService:
+    """Create PhotoService with repositories."""
+    db = get_db()
+    return PhotoService(
+        photo_repository=PhotoRepository(db),
+        folder_repository=FolderRepository(db),
+        permission_repository=PermissionRepository(db)
     )
 
 

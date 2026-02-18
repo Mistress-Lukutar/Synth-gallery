@@ -7,7 +7,7 @@ from typing import Optional, List, Dict
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import PermissionRepository, FolderRepository
+from ...infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository
 
 
 class PermissionService:
@@ -26,10 +26,12 @@ class PermissionService:
     def __init__(
         self,
         permission_repository: PermissionRepository,
-        folder_repository: FolderRepository
+        folder_repository: FolderRepository,
+        photo_repository: PhotoRepository = None
     ):
         self.perm_repo = permission_repository
         self.folder_repo = folder_repository
+        self.photo_repo = photo_repository
     
     def grant_permission(
         self,
@@ -279,3 +281,184 @@ class PermissionService:
             )
         
         return self.perm_repo.transfer_ownership(folder_id, new_owner_id)
+    
+    # =========================================================================
+    # Photo & Album Permission Checks
+    # =========================================================================
+    
+    def can_access_photo(self, photo_id: str, user_id: int) -> bool:
+        """Check if user can access photo.
+        
+        Args:
+            photo_id: Photo ID
+            user_id: User ID
+            
+        Returns:
+            True if user can access the photo
+        """
+        if not self.photo_repo:
+            raise RuntimeError("PhotoRepository not configured")
+        
+        photo = self.photo_repo.get_by_id(photo_id)
+        if not photo:
+            return False
+        
+        # Owner always has access
+        if photo["user_id"] == user_id:
+            return True
+        
+        # Check folder access if photo is in a folder
+        if photo.get("folder_id"):
+            return self.can_access(photo["folder_id"], user_id)
+        
+        # Check album's folder if photo is in album
+        if photo.get("album_id"):
+            album = self.album_repo.get_by_id(photo["album_id"]) if self.album_repo else None
+            if album:
+                if album["user_id"] == user_id:
+                    return True
+                if album.get("folder_id"):
+                    return self.can_access(album["folder_id"], user_id)
+        
+        # Legacy photos without folder/user - accessible to all authenticated users
+        if photo.get("folder_id") is None and photo.get("user_id") is None:
+            return True
+        
+        return False
+    
+    def can_delete_photo(self, photo_id: str, user_id: int) -> bool:
+        """Check if user can delete photo.
+        
+        Rules:
+        - Photo owner can always delete
+        - Folder owner can delete any photo in their folder
+        - Editor can only delete photos they uploaded
+        - Viewer cannot delete
+        
+        Args:
+            photo_id: Photo ID
+            user_id: User ID
+            
+        Returns:
+            True if user can delete the photo
+        """
+        if not self.photo_repo:
+            raise RuntimeError("PhotoRepository not configured")
+        
+        photo = self.photo_repo.get_by_id(photo_id)
+        if not photo:
+            return False
+        
+        # Photo owner can always delete
+        if photo["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions
+        if photo.get("folder_id"):
+            folder = self.folder_repo.get_by_id(photo["folder_id"])
+            if folder:
+                # Folder owner can delete any photo
+                if folder["user_id"] == user_id:
+                    return True
+                
+                # Editor can only delete their own uploads
+                perm = self.perm_repo.get_permission(photo["folder_id"], user_id)
+                if perm == "editor":
+                    return False  # Editor can't delete others' photos
+        
+        return False
+    
+    def can_access_album(self, album_id: str, user_id: int) -> bool:
+        """Check if user can access album.
+        
+        Args:
+            album_id: Album ID
+            user_id: User ID
+            
+        Returns:
+            True if user can access the album
+        """
+        if not self.photo_repo:
+            raise RuntimeError("PhotoRepository not configured")
+        
+        album = self.photo_repo.get_album(album_id)
+        if not album:
+            return False
+        
+        # Owner always has access
+        if album["user_id"] == user_id:
+            return True
+        
+        # Check folder access
+        if album.get("folder_id"):
+            return self.can_access(album["folder_id"], user_id)
+        
+        # Legacy albums without folder/user - accessible to all
+        if album.get("folder_id") is None and album.get("user_id") is None:
+            return True
+        
+        return False
+    
+    def can_delete_album(self, album_id: str, user_id: int) -> bool:
+        """Check if user can delete album.
+        
+        Rules:
+        - Album owner can always delete
+        - Folder owner can delete any album in their folder
+        - Editor can only delete albums they created
+        - Viewer cannot delete
+        
+        Args:
+            album_id: Album ID
+            user_id: User ID
+            
+        Returns:
+            True if user can delete the album
+        """
+        if not self.photo_repo:
+            raise RuntimeError("PhotoRepository not configured")
+        
+        album = self.photo_repo.get_album(album_id)
+        if not album:
+            return False
+        
+        # Album owner can always delete
+        if album["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions
+        if album.get("folder_id"):
+            folder = self.folder_repo.get_by_id(album["folder_id"])
+            if folder:
+                # Folder owner can delete any album
+                if folder["user_id"] == user_id:
+                    return True
+        
+        return False
+    
+    def can_edit_album(self, album_id: str, user_id: int) -> bool:
+        """Check if user can edit album (add/remove photos, rename).
+        
+        Args:
+            album_id: Album ID
+            user_id: User ID
+            
+        Returns:
+            True if user can edit the album
+        """
+        if not self.photo_repo:
+            raise RuntimeError("PhotoRepository not configured")
+        
+        album = self.photo_repo.get_album(album_id)
+        if not album:
+            return False
+        
+        # Album owner can always edit
+        if album["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions - editor can edit albums in shared folders
+        if album.get("folder_id"):
+            return self.can_edit(album["folder_id"], user_id)
+        
+        return False

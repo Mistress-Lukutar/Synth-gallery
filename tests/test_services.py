@@ -440,7 +440,7 @@ class TestPhotoService:
     def test_move_album_not_found(self, photo_service, mock_photo_repo):
         """Test moving non-existent album fails."""
         # Arrange
-        mock_photo_repo._execute.return_value.fetchone.return_value = None
+        mock_photo_repo.get_album.return_value = None
         
         # Act & Assert
         from fastapi import HTTPException
