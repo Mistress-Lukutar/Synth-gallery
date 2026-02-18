@@ -25,7 +25,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 
 ## Detailed Issues
 
-### Issue #14: God Module Refactoring 🔴
+### Issue #1: God Module Refactoring 🔴
 
 **Problem:**  
 The `app/database.py` file has grown to 2100+ lines, containing schema definitions, migrations, CRUD operations for all entities, business logic, and encryption key management. This creates:
