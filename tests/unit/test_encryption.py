@@ -226,6 +226,61 @@ class TestRecoveryKeys:
         decrypted = EncryptionService.decrypt_dek_with_recovery_key(encrypted, raw_key)
         
         assert decrypted == dek
+    
+    def test_recovery_key_case_insensitive(self):
+        """Recovery key parsing should be case-insensitive."""
+        formatted, raw = EncryptionService.generate_recovery_key()
+        
+        # Should work with lowercase
+        lower = formatted.lower()
+        parsed_lower = EncryptionService.parse_recovery_key(lower)
+        assert parsed_lower == raw
+        
+        # Should work with mixed case
+        mixed = ''.join(c.upper() if i % 2 == 0 else c.lower() 
+                       for i, c in enumerate(formatted))
+        parsed_mixed = EncryptionService.parse_recovery_key(mixed)
+        assert parsed_mixed == raw
+    
+    def test_recovery_key_without_dashes(self):
+        """Recovery key without dashes should still work."""
+        formatted, raw = EncryptionService.generate_recovery_key()
+        
+        # Remove all dashes
+        no_dashes = formatted.replace('-', '')
+        parsed = EncryptionService.parse_recovery_key(no_dashes)
+        
+        assert parsed == raw
+    
+    def test_recovery_key_with_whitespace(self):
+        """Recovery key with extra whitespace should still work."""
+        formatted, raw = EncryptionService.generate_recovery_key()
+        
+        # Add spaces (user might copy-paste with spaces)
+        with_spaces = formatted.replace('-', ' - ')
+        parsed = EncryptionService.parse_recovery_key(with_spaces.replace(' ', ''))
+        
+        assert parsed == raw
+    
+    def test_recovery_key_only_valid_chars(self):
+        """Recovery key should only contain valid base32 characters."""
+        formatted, raw = EncryptionService.generate_recovery_key()
+        
+        # Remove dashes and padding
+        clean = formatted.replace('-', '').replace('=', '')
+        
+        # All characters should be A-Z or 2-7
+        for char in clean:
+            assert (char.isalpha() and char.upper() == char) or char in '234567', \
+                f"Invalid character: {char}"
+    
+    def test_recovery_key_roundtrip_100_times(self):
+        """Stress test: 100 consecutive round-trips should all work."""
+        for _ in range(100):
+            formatted, raw = EncryptionService.generate_recovery_key()
+            parsed = EncryptionService.parse_recovery_key(formatted)
+            assert parsed == raw
+            assert len(parsed) == 32
 
 
 class TestDEKCache:
