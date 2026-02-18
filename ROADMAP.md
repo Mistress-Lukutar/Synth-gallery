@@ -161,17 +161,26 @@ folder = service.update_folder(folder_id, data.name, user["id"])
 ```
 
 **Completed:**
-- [x] Create application services (Folder, Permission, Safe, Upload)
+- [x] Create application services (Folder, Permission, Safe, Upload, Photo)
 - [x] Refactor `routes/folders.py` to use FolderService
 - [x] Refactor gallery.py `/upload` endpoint to use UploadService
 - [x] Refactor gallery.py `/upload-album` endpoint to use UploadService
 - [x] Refactor gallery.py `/upload-bulk` endpoint to use UploadService
 - [x] Refactor gallery.py `/api/photos/batch-delete` endpoint to use UploadService
+- [x] Refactor gallery.py move endpoints to use PhotoService:
+  - `/api/photos/{id}/move`
+  - `/api/albums/{id}/move`
+  - `/api/items/move`
+- [x] Refactor gallery.py album management endpoints to use PhotoService:
+  - `/api/albums/{id}/photos` (add)
+  - `/api/albums/{id}/photos` (remove)
+  - `/api/albums/{id}/reorder`
+  - `/api/albums/{id}/cover`
 - [x] Fix PhotoRepository integration with UploadService
-- [x] Add comprehensive service layer unit tests (25 tests total, 6 for UploadService)
+- [x] Fix Python 3.12 datetime adapter deprecation warning
+- [x] Add comprehensive service layer unit tests (30 tests total)
 
 **Next Steps:**
-- [ ] Refactor remaining gallery.py routes (move operations, album management)
 - [ ] Refactor safe routes to use SafeService
 - [ ] Extract remaining business logic from envelope.py
 

@@ -2,13 +2,34 @@
 
 Provides async database connectivity using aiosqlite.
 """
-import aiosqlite
+import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import asyncio
 
+import aiosqlite
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 DATABASE_PATH = BASE_DIR / "gallery.db"
+
+
+# =============================================================================
+# SQLite3 datetime adapter (Python 3.12 compatibility)
+# =============================================================================
+# Note: These are also registered in app.database, but we register them here
+# as well to ensure they're available when this module is imported first.
+def _adapt_datetime(dt: datetime) -> str:
+    """Adapt datetime to ISO 8601 string for SQLite."""
+    return dt.isoformat()
+
+def _convert_datetime(val: bytes) -> datetime:
+    """Convert ISO 8601 string from SQLite to datetime."""
+    return datetime.fromisoformat(val.decode())
+
+sqlite3.register_adapter(datetime, _adapt_datetime)
+sqlite3.register_converter("DATETIME", _convert_datetime)
+sqlite3.register_converter("TIMESTAMP", _convert_datetime)
 
 # Global connection pool reference
 _pool: Optional['AsyncConnectionPool'] = None
@@ -38,7 +59,10 @@ can be shared across coroutines, but we provide a pool interface
                     return self._connections.pop()
             
             # Create new connection
-            conn = await aiosqlite.connect(self.db_path)
+            conn = await aiosqlite.connect(
+                self.db_path,
+                detect_types=sqlite3.PARSE_DECLTYPES
+            )
             conn.row_factory = aiosqlite.Row
             return conn
     

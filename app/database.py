@@ -2,12 +2,32 @@ import sqlite3
 import secrets
 import threading
 import warnings
+from datetime import datetime
 from pathlib import Path
 
 import bcrypt
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATABASE_PATH = BASE_DIR / "gallery.db"
+
+
+# =============================================================================
+# SQLite3 datetime adapter (Python 3.12 compatibility)
+# =============================================================================
+# Python 3.12 deprecated the default datetime adapter. We register an explicit
+# adapter to suppress the DeprecationWarning and ensure future compatibility.
+def _adapt_datetime(dt: datetime) -> str:
+    """Adapt datetime to ISO 8601 string for SQLite."""
+    return dt.isoformat()
+
+def _convert_datetime(val: bytes) -> datetime:
+    """Convert ISO 8601 string from SQLite to datetime."""
+    return datetime.fromisoformat(val.decode())
+
+sqlite3.register_adapter(datetime, _adapt_datetime)
+sqlite3.register_converter("DATETIME", _convert_datetime)
+# Also register for TIMESTAMP which SQLite uses internally
+sqlite3.register_converter("TIMESTAMP", _convert_datetime)
 
 
 # =============================================================================
@@ -109,7 +129,10 @@ def _backup_before_migration():
 def get_db() -> sqlite3.Connection:
     """Get thread-local database connection"""
     if not hasattr(_local, 'connection') or _local.connection is None:
-        _local.connection = sqlite3.connect(DATABASE_PATH)
+        _local.connection = sqlite3.connect(
+            DATABASE_PATH,
+            detect_types=sqlite3.PARSE_DECLTYPES
+        )
         _local.connection.row_factory = sqlite3.Row
     return _local.connection
 

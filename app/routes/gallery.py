@@ -37,12 +37,12 @@ from ..services.encryption import EncryptionService, dek_cache
 
 # Service layer imports (Issue #16)
 from ..infrastructure.repositories import PhotoRepository
-from ..application.services import UploadService
+from ..application.services import UploadService, PhotoService
 
 router = APIRouter()
 
 
-# Service factory function
+# Service factory functions
 def get_upload_service() -> UploadService:
     """Create UploadService with repositories."""
     db = get_db()
@@ -52,6 +52,12 @@ def get_upload_service() -> UploadService:
         uploads_dir=UPLOADS_DIR,
         thumbnails_dir=THUMBNAILS_DIR
     )
+
+
+def get_photo_service() -> PhotoService:
+    """Create PhotoService with repositories."""
+    db = get_db()
+    return PhotoService(photo_repository=PhotoRepository(db))
 
 
 @router.get("/")
@@ -950,14 +956,10 @@ def get_available_photos(album_id: str, request: Request):
 def add_photos_to_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Request):
     """Add photos to album."""
     user = require_user(request)
-
-    if not can_edit_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot edit this album")
-
-    if not data.photo_ids:
-        raise HTTPException(status_code=400, detail="No photos specified")
-
-    added = add_photos_to_album(album_id, data.photo_ids)
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    added = service.add_photos_to_album(album_id, data.photo_ids, user["id"])
     return {"status": "ok", "added": added}
 
 
@@ -965,14 +967,10 @@ def add_photos_to_album_endpoint(album_id: str, data: AlbumPhotosInput, request:
 def remove_photos_from_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Request):
     """Remove photos from album. Photos stay in folder."""
     user = require_user(request)
-
-    if not can_edit_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot edit this album")
-
-    if not data.photo_ids:
-        raise HTTPException(status_code=400, detail="No photos specified")
-
-    removed = remove_photos_from_album(album_id, data.photo_ids)
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    removed = service.remove_photos_from_album(album_id, data.photo_ids, user["id"])
     return {"status": "ok", "removed": removed}
 
 
@@ -980,33 +978,20 @@ def remove_photos_from_album_endpoint(album_id: str, data: AlbumPhotosInput, req
 def reorder_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Request):
     """Reorder photos in album."""
     user = require_user(request)
-
-    if not can_edit_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot edit this album")
-
-    if not data.photo_ids:
-        raise HTTPException(status_code=400, detail="No photos specified")
-
-    success = reorder_album_photos(album_id, data.photo_ids)
-    if not success:
-        raise HTTPException(status_code=400, detail="Invalid photo IDs")
-
-    return {"status": "ok"}
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    return service.reorder_album_photos(album_id, data.photo_ids, user["id"])
 
 
 @router.put("/api/albums/{album_id}/cover")
 def set_album_cover_endpoint(album_id: str, data: AlbumCoverInput, request: Request):
     """Set album cover photo. Pass null photo_id to reset to default."""
     user = require_user(request)
-
-    if not can_edit_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot edit this album")
-
-    success = set_album_cover(album_id, data.photo_id)
-    if not success and data.photo_id:
-        raise HTTPException(status_code=400, detail="Photo not in album")
-
-    return {"status": "ok"}
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    return service.set_album_cover(album_id, data.photo_id, user["id"])
 
 
 # === Move Operations ===
@@ -1029,39 +1014,10 @@ def move_photo_endpoint(photo_id: str, data: MoveInput, request: Request):
     Requires edit permission on destination folder.
     """
     user = require_user(request)
-
-    db = get_db()
-
-    # Get photo info
-    photo = db.execute(
-        "SELECT folder_id, album_id, user_id FROM photos WHERE id = ?",
-        (photo_id,)
-    ).fetchone()
-
-    if not photo:
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    if photo["album_id"]:
-        raise HTTPException(status_code=400, detail="Cannot move photo in album. Move the album instead.")
-
-    # Check source folder permission - need edit/delete rights to move
-    if not can_delete_photo(photo_id, user["id"]):
-        raise HTTPException(status_code=403, detail="No permission to move this photo")
-
-    # Check destination folder edit permission
-    if not can_edit_folder(data.folder_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot move to this folder")
-
-    # Check if moving to same folder
-    if photo["folder_id"] == data.folder_id:
-        return {"status": "ok", "message": "Photo already in this folder"}
-
-    # Move photo
-    success = move_photo_to_folder(photo_id, data.folder_id)
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to move photo")
-
-    return {"status": "ok"}
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    return service.move_photo(photo_id, data.folder_id, user["id"])
 
 
 @router.put("/api/albums/{album_id}/move")
@@ -1071,36 +1027,10 @@ def move_album_endpoint(album_id: str, data: MoveInput, request: Request):
     Requires edit permission on destination folder.
     """
     user = require_user(request)
-
-    db = get_db()
-
-    # Get album info
-    album = db.execute(
-        "SELECT folder_id, user_id FROM albums WHERE id = ?",
-        (album_id,)
-    ).fetchone()
-
-    if not album:
-        raise HTTPException(status_code=404, detail="Album not found")
-
-    # Check source album permission - need edit/delete rights to move
-    if not can_delete_album(album_id, user["id"]):
-        raise HTTPException(status_code=403, detail="No permission to move this album")
-
-    # Check destination folder edit permission
-    if not can_edit_folder(data.folder_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot move to this folder")
-
-    # Check if moving to same folder
-    if album["folder_id"] == data.folder_id:
-        return {"status": "ok", "message": "Album already in this folder"}
-
-    # Move album
-    success = move_album_to_folder(album_id, data.folder_id)
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to move album")
-
-    return {"status": "ok"}
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    return service.move_album(album_id, data.folder_id, user["id"])
 
 
 @router.put("/api/items/move")
@@ -1110,78 +1040,15 @@ def batch_move_items(data: BatchMoveInput, request: Request):
     Only moves standalone photos (not in albums).
     """
     user = require_user(request)
-
-    # Check destination folder edit permission
-    if not can_edit_folder(data.folder_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Cannot move to this folder")
-
-    db = get_db()
-    moved_photos = 0
-    moved_albums = 0
-    skipped_photos = 0
-    skipped_albums = 0
-
-    # Move photos
-    for photo_id in data.photo_ids:
-        photo = db.execute(
-            "SELECT folder_id, album_id FROM photos WHERE id = ?",
-            (photo_id,)
-        ).fetchone()
-
-        if not photo:
-            skipped_photos += 1
-            continue
-
-        if photo["album_id"]:
-            skipped_photos += 1
-            continue
-
-        # Check edit/delete permission on source - need rights to move
-        if not can_delete_photo(photo_id, user["id"]):
-            skipped_photos += 1
-            continue
-
-        # Skip if already in target folder
-        if photo["folder_id"] == data.folder_id:
-            continue
-
-        if move_photo_to_folder(photo_id, data.folder_id):
-            moved_photos += 1
-        else:
-            skipped_photos += 1
-
-    # Move albums
-    for album_id in data.album_ids:
-        album = db.execute(
-            "SELECT folder_id FROM albums WHERE id = ?",
-            (album_id,)
-        ).fetchone()
-
-        if not album:
-            skipped_albums += 1
-            continue
-
-        # Check edit/delete permission on source album - need rights to move
-        if not can_delete_album(album_id, user["id"]):
-            skipped_albums += 1
-            continue
-
-        # Skip if already in target folder
-        if album["folder_id"] == data.folder_id:
-            continue
-
-        if move_album_to_folder(album_id, data.folder_id):
-            moved_albums += 1
-        else:
-            skipped_albums += 1
-
-    return {
-        "status": "ok",
-        "moved_photos": moved_photos,
-        "moved_albums": moved_albums,
-        "skipped_photos": skipped_photos,
-        "skipped_albums": skipped_albums
-    }
+    
+    # Use PhotoService (Issue #16)
+    service = get_photo_service()
+    return service.batch_move(
+        photo_ids=data.photo_ids,
+        album_ids=data.album_ids,
+        dest_folder_id=data.folder_id,
+        user_id=user["id"]
+    )
 
 
 def _copy_and_reencrypt_file(
