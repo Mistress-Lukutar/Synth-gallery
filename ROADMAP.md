@@ -140,10 +140,12 @@ app/application/
 
 **Results:**
 - ✅ 4 application services created
-- ✅ Routes refactored to use services (folders.py)
+- ✅ `routes/folders.py` fully refactored to use FolderService
+- ✅ Upload endpoint refactored to use UploadService with PhotoRepository
+- ✅ Fixed PhotoRepository.create() signature to accept optional photo_id
 - ✅ Business logic separated from HTTP handling
 - ✅ Services testable in isolation (no FastAPI dependencies)
-- ✅ All 96 existing tests pass
+- ✅ All 108 existing tests pass
 
 **Migration Example:**
 ```python
@@ -158,8 +160,14 @@ service = get_folder_service()
 folder = service.update_folder(folder_id, data.name, user["id"])
 ```
 
+**Completed:**
+- [x] Create application services (Folder, Permission, Safe, Upload)
+- [x] Refactor `routes/folders.py` to use FolderService
+- [x] Refactor gallery.py `/upload` endpoint to use UploadService
+- [x] Fix PhotoRepository integration with UploadService
+
 **Next Steps:**
-- [ ] Refactor gallery.py routes to use UploadService
+- [ ] Refactor remaining gallery.py routes (bulk upload, album management)
 - [ ] Refactor safe routes to use SafeService
 - [ ] Add comprehensive service layer unit tests
 - [ ] Extract remaining business logic from envelope.py

@@ -34,6 +34,7 @@ class PhotoRepository(Repository):
         filename: str,
         folder_id: str,
         user_id: int,
+        photo_id: str = None,
         original_name: str = None,
         media_type: str = "image",
         album_id: str = None,
@@ -50,6 +51,7 @@ class PhotoRepository(Repository):
             filename: Stored filename (UUID + ext)
             folder_id: Parent folder ID
             user_id: Uploading user ID
+            photo_id: Optional photo UUID (generated if not provided)
             original_name: Original filename
             media_type: 'image' or 'video'
             album_id: Album ID (if in album)
@@ -63,7 +65,8 @@ class PhotoRepository(Repository):
         Returns:
             New photo UUID
         """
-        photo_id = str(uuid.uuid4())
+        if photo_id is None:
+            photo_id = str(uuid.uuid4())
         
         self._execute(
             """INSERT INTO photos 

@@ -99,14 +99,14 @@ class UploadService:
             )
             is_encrypted = user_dek is not None
         
-        # Create database record
+        # Create database record with pre-generated photo_id
         self.photo_repo.create(
             photo_id=photo_id,
             filename=filename,
-            original_name=file.filename,
-            media_type=media_type,
             folder_id=folder_id,
             user_id=user_id,
+            original_name=file.filename,
+            media_type=media_type,
             taken_at=taken_at,
             is_encrypted=is_encrypted,
             thumb_width=thumb_w,
@@ -258,3 +258,64 @@ class UploadService:
                 return create_thumbnail_bytes(file_content)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Processing error: {e}")
+    
+    async def upload_album(
+        self,
+        files: list,
+        folder_id: str,
+        user_id: int,
+        user_dek: Optional[bytes] = None
+    ) -> dict:
+        """Upload multiple files as an album.
+        
+        Args:
+            files: List of uploaded files
+            folder_id: Target folder ID
+            user_id: Uploading user ID
+            user_dek: User's Data Encryption Key
+            
+        Returns:
+            Dict with album info and uploaded photos
+        """
+        if len(files) < 2:
+            raise HTTPException(status_code=400, detail="Album requires at least 2 items")
+        
+        # Create album
+        album_id = str(uuid.uuid4())
+        from ...database import get_db
+        db = get_db()
+        db.execute(
+            "INSERT INTO albums (id, folder_id, user_id) VALUES (?, ?, ?)",
+            (album_id, folder_id, user_id)
+        )
+        
+        uploaded_photos = []
+        for position, file in enumerate(files):
+            try:
+                result = await self.upload_single(
+                    file=file,
+                    folder_id=folder_id,
+                    user_id=user_id,
+                    user_dek=user_dek,
+                    is_safe=False
+                )
+                result['position'] = position
+                result['album_id'] = album_id
+                uploaded_photos.append(result)
+                
+                # Link photo to album
+                db.execute(
+                    "UPDATE photos SET album_id = ?, position = ? WHERE id = ?",
+                    (album_id, position, result['id'])
+                )
+            except HTTPException:
+                # Skip invalid files
+                continue
+        
+        db.commit()
+        
+        return {
+            "album_id": album_id,
+            "photos": uploaded_photos,
+            "photo_count": len(uploaded_photos)
+        }
