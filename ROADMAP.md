@@ -14,7 +14,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 |----------|-------|----------|--------|--------|
 | 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large | ✅ **DONE** |
 | 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | Async Database (aiosqlite) | Medium | ✅ **DONE** |
-| 🟡 High | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction | Medium | 🔲 Planned |
+| 🟡 High | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction | Medium | 🔄 In Progress |
 | 🟡 High | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic | Large | 🔲 Planned |
 | 🟡 High | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions | Medium | 🔲 Planned |
 | 🟢 Medium | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local) | Medium | 🔲 Planned |
@@ -116,7 +116,9 @@ async def get_user(user_id: int, db = Depends(get_async_db)):
 
 ## Planned Issues
 
-### Issue #16: Service Layer Extraction 🟡
+### Issue #16: Service Layer Extraction 🟡 🔄
+
+**Status:** **IN PROGRESS** - 2026-02-18
 
 **Problem:**  
 Business logic is embedded directly in FastAPI route handlers:
@@ -124,16 +126,43 @@ Business logic is embedded directly in FastAPI route handlers:
 - Upload logic duplicated between single/bulk/album
 - HTTP concerns mixed with business rules
 
-**Proposed Solution:**
-Introduce Application Service Layer:
+**Solution Implemented:**
 ```
 app/application/
+├── __init__.py
 ├── services/
-│   ├── upload_service.py      # FileUploadService
-│   ├── folder_service.py      # FolderManagementService
-│   ├── permission_service.py  # AccessControlService
-│   └── encryption_service.py  # EncryptionOrchestrator
+│   ├── __init__.py
+│   ├── upload_service.py      ✅ UploadService
+│   ├── folder_service.py      ✅ FolderService
+│   ├── permission_service.py  ✅ PermissionService
+│   └── safe_service.py        ✅ SafeService
 ```
+
+**Results:**
+- ✅ 4 application services created
+- ✅ Routes refactored to use services (folders.py)
+- ✅ Business logic separated from HTTP handling
+- ✅ Services testable in isolation (no FastAPI dependencies)
+- ✅ All 96 existing tests pass
+
+**Migration Example:**
+```python
+# Before (in route):
+folder = get_folder(folder_id)
+if folder["user_id"] != user["id"]:
+    raise HTTPException(403, "Access denied")
+update_folder(folder_id, data.name)
+
+# After (using service):
+service = get_folder_service()
+folder = service.update_folder(folder_id, data.name, user["id"])
+```
+
+**Next Steps:**
+- [ ] Refactor gallery.py routes to use UploadService
+- [ ] Refactor safe routes to use SafeService
+- [ ] Add comprehensive service layer unit tests
+- [ ] Extract remaining business logic from envelope.py
 
 ---
 
