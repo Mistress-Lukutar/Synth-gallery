@@ -35,7 +35,23 @@ from ..services.media import (
 from ..services.metadata import extract_taken_date
 from ..services.encryption import EncryptionService, dek_cache
 
+# Service layer imports (Issue #16)
+from ..infrastructure.repositories import PhotoRepository
+from ..application.services import UploadService
+
 router = APIRouter()
+
+
+# Service factory function
+def get_upload_service() -> UploadService:
+    """Create UploadService with repositories."""
+    db = get_db()
+    from ..config import UPLOADS_DIR, THUMBNAILS_DIR
+    return UploadService(
+        photo_repository=PhotoRepository(db),
+        uploads_dir=UPLOADS_DIR,
+        thumbnails_dir=THUMBNAILS_DIR
+    )
 
 
 @router.get("/")
@@ -584,7 +600,6 @@ async def upload_photo(
     file: UploadFile = None, 
     folder_id: str = Form(None),
     encrypted_ck: str = Form(None),  # For client-side encrypted uploads (safes/envelope)
-    safe_id: str = Form(None),  # If uploading to a safe
     thumbnail: UploadFile = None,  # Client-side encrypted thumbnail (for safes)
     thumb_width: int = Form(0),  # Thumbnail width from client
     thumb_height: int = Form(0)  # Thumbnail height from client
@@ -604,138 +619,47 @@ async def upload_photo(
 
     # Check if folder is in a safe
     folder_safe_id = get_folder_safe_id(folder_id)
+    is_safe = False
     if folder_safe_id:
         # Verify safe is unlocked
         if not is_safe_unlocked_for_user(folder_safe_id, user["id"]):
             raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
-        safe_id = folder_safe_id
+        is_safe = True
         
         # For safe uploads, client must encrypt the file
         if not encrypted_ck:
             raise HTTPException(status_code=400, detail="Client-side encryption required for safe uploads. Please ensure the safe is unlocked in your browser.")
 
-    # Check file type
-    # For client-side encrypted uploads (safes), check extension instead of content-type
-    # because encrypted files have content-type 'application/octet-stream'
-    file_ext = Path(file.filename).suffix.lower()
-    
-    if encrypted_ck:
-        # Check file extension for encrypted uploads
-        allowed_exts = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.webm'}
-        if file_ext not in allowed_exts:
-            raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
-        media_type = 'video' if file_ext in {'.mp4', '.webm'} else 'image'
-    else:
-        # Regular upload - check content-type
-        if file.content_type not in ALLOWED_MEDIA_TYPES:
-            raise HTTPException(status_code=400, detail="Images and videos only (jpg, png, gif, webp, mp4, webm)")
-        media_type = get_media_type(file.content_type)
-
-    # Generate unique name
-    photo_id = str(uuid.uuid4())
-    ext = file_ext or (".mp4" if media_type == "video" else ".jpg")
-    filename = f"{photo_id}{ext}"
-
     # Get user's DEK for encryption (for regular folders)
     dek = dek_cache.get(user["id"])
-    is_encrypted = dek is not None or encrypted_ck is not None or safe_id is not None
 
-    # Read file content into memory for processing
-    file_content = await file.read()
-
-    # For client-side encrypted uploads (envelope encryption / safes), skip thumbnail generation
-    # The client should provide thumbnail separately
-    thumb_w, thumb_h = 0, 0
-    
-    if not encrypted_ck:
-        # Server-side processing only for legacy uploads
-        # Extract taken date from metadata before encryption
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(file_content)
-            tmp_path = Path(tmp.name)
-
-        try:
-            taken_at = extract_taken_date(tmp_path)
-            if taken_at is None:
-                taken_at = datetime.now()
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-        # Create thumbnail from bytes
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-        try:
-            if media_type == "video":
-                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
-            else:
-                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Processing error: {e}")
-
-        # Encrypt and save files if DEK available
-        file_path = UPLOADS_DIR / filename
-        if is_encrypted and dek:
-            encrypted_content = EncryptionService.encrypt_file(file_content, dek)
-            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-
-            with open(file_path, "wb") as f:
-                f.write(encrypted_content)
-            with open(thumb_path, "wb") as f:
-                f.write(encrypted_thumb)
-        else:
-            # Save unencrypted (fallback for users without DEK)
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_bytes)
-    else:
-        # Client-side encrypted upload (envelope encryption / safe)
-        # Save file as-is (already encrypted)
-        file_path = UPLOADS_DIR / filename
-        with open(file_path, "wb") as f:
-            f.write(file_content)
-        
-        # Save client-provided thumbnail (encrypted) for safe uploads
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-        print(f"[DEBUG] Safe upload: photo_id={photo_id}, thumbnail={thumbnail}, thumb_width={thumb_width}, thumb_height={thumb_height}")
-        if thumbnail:
-            # Client provided encrypted thumbnail - save as-is
-            thumb_content = await thumbnail.read()
-            print(f"[DEBUG] Thumbnail received: {len(thumb_content)} bytes, saving to {thumb_path}")
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_content)
-            thumb_w, thumb_h = thumb_width, thumb_height
-            print(f"[DEBUG] Thumbnail saved successfully")
-        else:
-            # No thumbnail provided - create placeholder or skip
-            # For safes, we can't generate thumbnail on server, so we'll leave it empty
-            # The client will need to handle missing thumbnails gracefully
-            print(f"[DEBUG] No thumbnail provided for safe upload")
-            thumb_w, thumb_h = 0, 0
-        
-        # Default taken_at for encrypted uploads
-        taken_at = datetime.now()
-
-    # Save to database with folder, user, and safe_id if applicable
-    db = get_db()
-    db.execute(
-        """INSERT INTO photos 
-           (id, filename, original_name, media_type, folder_id, user_id, taken_at, 
-            is_encrypted, thumb_width, thumb_height, safe_id) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (photo_id, filename, file.filename, media_type, folder_id, user["id"], taken_at, 
-         1 if is_encrypted else 0, thumb_w, thumb_h, safe_id)
+    # Use UploadService (Issue #16)
+    service = get_upload_service()
+    result = await service.upload_single(
+        file=file,
+        folder_id=folder_id,
+        user_id=user["id"],
+        user_dek=dek,
+        is_safe=is_safe,
+        client_thumbnail=thumbnail,
+        thumb_dimensions=(thumb_width, thumb_height)
     )
-    db.commit()
-
-    return {"id": photo_id, "filename": filename, "media_type": media_type, "taken_at": taken_at.isoformat()}
+    
+    # Update safe_id for safe uploads
+    if folder_safe_id:
+        db = get_db()
+        db.execute(
+            "UPDATE photos SET safe_id = ? WHERE id = ?",
+            (folder_safe_id, result["id"])
+        )
+        db.commit()
+    
+    return result
 
 
 @router.post("/upload-album")
 async def upload_album(request: Request, files: list[UploadFile], folder_id: str = Form(None)):
     """Upload multiple photos/videos as an album to specified folder."""
-    import tempfile
-
     user = require_user(request)
 
     if not folder_id:
@@ -750,84 +674,19 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
     if folder_safe_id:
         raise HTTPException(status_code=400, detail="Albums are not supported in safes. Please upload files individually.")
 
-    if len(files) < 2:
-        raise HTTPException(status_code=400, detail="Album requires at least 2 items")
-
     # Get user's DEK for encryption
     dek = dek_cache.get(user["id"])
-    is_encrypted = dek is not None
 
-    # Create album with folder and user
-    album_id = str(uuid.uuid4())
-    db = get_db()
-    db.execute("INSERT INTO albums (id, folder_id, user_id) VALUES (?, ?, ?)", (album_id, folder_id, user["id"]))
-
-    uploaded_photos = []
-    for position, file in enumerate(files):
-        if file.content_type not in ALLOWED_MEDIA_TYPES:
-            continue
-
-        media_type = get_media_type(file.content_type)
-        photo_id = str(uuid.uuid4())
-        ext = Path(file.filename).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
-        filename = f"{photo_id}{ext}"
-
-        # Read file content
-        file_content = await file.read()
-
-        # Extract metadata from temp file
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(file_content)
-            tmp_path = Path(tmp.name)
-
-        try:
-            taken_at = extract_taken_date(tmp_path)
-            if taken_at is None:
-                taken_at = datetime.now()
-        finally:
-            tmp_path.unlink(missing_ok=True)
-
-        # Create thumbnail
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
-        try:
-            if media_type == "video":
-                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
-            else:
-                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
-        except Exception:
-            continue
-
-        # Save files (encrypted if DEK available)
-        file_path = UPLOADS_DIR / filename
-        if is_encrypted:
-            encrypted_content = EncryptionService.encrypt_file(file_content, dek)
-            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-            with open(file_path, "wb") as f:
-                f.write(encrypted_content)
-            with open(thumb_path, "wb") as f:
-                f.write(encrypted_thumb)
-        else:
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_bytes)
-
-        # Save to database with album, folder and user reference
-        db.execute(
-            "INSERT INTO photos (id, filename, original_name, album_id, position, media_type, folder_id, user_id, taken_at, is_encrypted, thumb_width, thumb_height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (photo_id, filename, file.filename, album_id, position, media_type, folder_id, user["id"], taken_at, 1 if is_encrypted else 0, thumb_w, thumb_h)
-        )
-        uploaded_photos.append({"id": photo_id, "filename": filename, "media_type": media_type})
-
-    db.commit()
-
-    if not uploaded_photos:
-        # No media was successfully uploaded, delete the album
-        db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
-        db.commit()
-        raise HTTPException(status_code=400, detail="No valid media files were uploaded")
-
-    return {"album_id": album_id, "photos": uploaded_photos}
+    # Use UploadService (Issue #16)
+    service = get_upload_service()
+    result = await service.upload_album(
+        files=files,
+        folder_id=folder_id,
+        user_id=user["id"],
+        user_dek=dek
+    )
+    
+    return result
 
 
 @router.post("/upload-bulk")
