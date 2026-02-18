@@ -248,7 +248,8 @@ def test_image_bytes() -> bytes:
 def uploaded_photo(
     authenticated_client: TestClient,
     test_folder: str,
-    test_image_bytes: bytes
+    test_image_bytes: bytes,
+    csrf_token: str
 ) -> Dict:
     """Upload a test photo and return its metadata.
     
@@ -258,7 +259,8 @@ def uploaded_photo(
     response = authenticated_client.post(
         "/upload",
         data={"folder_id": test_folder},
-        files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+        files={"file": ("test.jpg", test_image_bytes, "image/jpeg")},
+        headers={"X-CSRF-Token": csrf_token}
     )
     
     assert response.status_code == 200, f"Upload failed: {response.text}"
