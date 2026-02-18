@@ -7,6 +7,7 @@ from .safe_service import SafeService
 from .photo_service import PhotoService
 from .safe_file_service import SafeFileService
 from .envelope_service import EnvelopeService
+from .user_settings_service import UserSettingsService
 
 __all__ = [
     "UploadService",
@@ -16,4 +17,5 @@ __all__ = [
     "PhotoService",
     "SafeFileService",
     "EnvelopeService",
+    "UserSettingsService",
 ]

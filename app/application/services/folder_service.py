@@ -286,3 +286,146 @@ class FolderService:
             current_id = folder.get("parent_id")
         
         return False
+    
+    # =========================================================================
+    # Folder Tree & Contents
+    # =========================================================================
+    
+    def get_folder_tree(self, user_id: int) -> List[dict]:
+        """Get folder tree for sidebar with metadata.
+        
+        Returns folders with:
+        - Photo counts (recursive)
+        - Permission info
+        - Safe info (if in safe)
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of folder dicts with metadata
+        """
+        db = self.folder_repo._db
+        
+        # Cleanup expired safe sessions first
+        if self.safe_repo:
+            self.safe_repo.cleanup_expired_sessions()
+            unlocked_safes = self.safe_repo.list_unlocked(user_id)
+        else:
+            unlocked_safes = []
+        
+        # Build safe placeholder
+        safe_placeholder = ','.join(['?'] * len(unlocked_safes)) if unlocked_safes else 'NULL'
+        
+        folders = db.execute(f"""
+            SELECT f.*, u.display_name as owner_name,
+                   (
+                       SELECT COUNT(*) FROM photos p
+                       WHERE p.folder_id IN (
+                           WITH RECURSIVE subfolder_tree AS (
+                               SELECT id FROM folders WHERE id = f.id
+                               UNION ALL
+                               SELECT child.id FROM folders child
+                               JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                           )
+                           SELECT id FROM subfolder_tree
+                       )
+                   ) as photo_count,
+                   CASE
+                       WHEN f.user_id = ? THEN 'owner'
+                       ELSE (SELECT permission FROM folder_permissions WHERE folder_id = f.id AND user_id = ?)
+                   END as permission,
+                   -- For owned folders: check sharing status
+                   CASE
+                       WHEN f.user_id != ? THEN NULL
+                       WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id AND permission = 'editor') THEN 'has_editors'
+                       WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id) THEN 'has_viewers'
+                       ELSE 'private'
+                   END as share_status,
+                   -- Safe info
+                   f.safe_id,
+                   s.name as safe_name,
+                   s.unlock_type as safe_unlock_type,
+                   CASE WHEN f.safe_id IN ({safe_placeholder}) THEN 1 ELSE 0 END as safe_is_unlocked
+            FROM folders f
+            JOIN users u ON f.user_id = u.id
+            LEFT JOIN safes s ON f.safe_id = s.id
+            WHERE (f.user_id = ? OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?))
+              -- Only show folders in safes if safe is unlocked
+              AND (f.safe_id IS NULL OR f.safe_id IN (SELECT id FROM safes WHERE user_id = ?))
+            ORDER BY 
+                CASE WHEN f.safe_id IS NULL THEN 0 ELSE 1 END,
+                COALESCE(s.name, ''),
+                f.name
+        """, (user_id, user_id, user_id) + tuple(unlocked_safes) + (user_id, user_id, user_id)).fetchall()
+        
+        return [dict(f) for f in folders]
+    
+    def get_folder_contents(self, folder_id: str, user_id: int) -> dict:
+        """Get contents of a folder (subfolders, albums, photos).
+        
+        Args:
+            folder_id: Folder ID
+            user_id: User ID
+            
+        Returns:
+            Dict with subfolders, albums, photos
+            
+        Raises:
+            HTTPException: If no access to folder
+        """
+        db = self.folder_repo._db
+        
+        # Check access
+        folder = self.folder_repo.get_by_id(folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+        
+        # Check permission
+        has_access = False
+        if folder["user_id"] == user_id:
+            has_access = True
+        else:
+            # Check explicit permission
+            perm = db.execute(
+                "SELECT permission FROM folder_permissions WHERE folder_id = ? AND user_id = ?",
+                (folder_id, user_id)
+            ).fetchone()
+            if perm:
+                has_access = True
+        
+        if not has_access:
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get subfolders
+        subfolders = db.execute("""
+            SELECT * FROM folders
+            WHERE parent_id = ? AND (
+                user_id = ?
+                OR id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+            )
+            ORDER BY name
+        """, (folder_id, user_id, user_id)).fetchall()
+        
+        # Get albums
+        albums = db.execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY album_position LIMIT 1) as cover_photo_id
+            FROM albums a
+            WHERE a.folder_id = ?
+            ORDER BY a.created_at DESC
+        """, (folder_id,)).fetchall()
+        
+        # Get standalone photos
+        photos = db.execute("""
+            SELECT * FROM photos
+            WHERE folder_id = ? AND album_id IS NULL
+            ORDER BY uploaded_at DESC
+        """, (folder_id,)).fetchall()
+        
+        return {
+            "subfolders": [dict(f) for f in subfolders],
+            "albums": [dict(a) for a in albums],
+            "photos": [dict(p) for p in photos]
+        }
