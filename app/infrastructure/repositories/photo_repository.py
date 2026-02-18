@@ -207,6 +207,159 @@ class PhotoRepository(Repository):
         self._execute("DELETE FROM photos WHERE folder_id = ?", (folder_id,))
         self._commit()
         return filenames
+    
+    # =========================================================================
+    # Album Operations
+    # =========================================================================
+    
+    def get_album(self, album_id: str) -> dict | None:
+        """Get album by ID.
+        
+        Args:
+            album_id: Album UUID
+            
+        Returns:
+            Album dict or None
+        """
+        cursor = self._execute(
+            """SELECT a.*, 
+                   (SELECT COUNT(*) FROM photos p WHERE p.album_id = a.id) as photo_count,
+                   (SELECT filename FROM photos p WHERE p.id = a.cover_photo_id) as cover_filename
+               FROM albums a WHERE a.id = ?""",
+            (album_id,)
+        )
+        return self._row_to_dict(cursor.fetchone())
+    
+    def set_album_cover(self, album_id: str, photo_id: str | None) -> bool:
+        """Set album cover photo.
+        
+        Args:
+            album_id: Album ID
+            photo_id: Photo ID (None to clear)
+            
+        Returns:
+            True if updated
+        """
+        cursor = self._execute(
+            "UPDATE albums SET cover_photo_id = ? WHERE id = ?",
+            (photo_id, album_id)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def get_album_photos(self, album_id: str) -> list[dict]:
+        """Get all photos in album with position ordering.
+        
+        Args:
+            album_id: Album ID
+            
+        Returns:
+            List of photo dicts
+        """
+        cursor = self._execute(
+            """SELECT * FROM photos 
+               WHERE album_id = ? 
+               ORDER BY COALESCE(album_position, 999999), uploaded_at""",
+            (album_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def add_to_album(self, photo_id: str, album_id: str, position: int = None) -> bool:
+        """Add photo to album.
+        
+        Args:
+            photo_id: Photo ID
+            album_id: Album ID
+            position: Position in album (None for append)
+            
+        Returns:
+            True if added
+        """
+        if position is None:
+            # Get next position
+            cursor = self._execute(
+                "SELECT MAX(COALESCE(album_position, 0)) as max_pos FROM photos WHERE album_id = ?",
+                (album_id,)
+            )
+            row = cursor.fetchone()
+            position = (row["max_pos"] or 0) + 1
+        
+        cursor = self._execute(
+            "UPDATE photos SET album_id = ?, album_position = ? WHERE id = ?",
+            (album_id, position, photo_id)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def remove_from_album(self, photo_id: str) -> bool:
+        """Remove photo from album.
+        
+        Args:
+            photo_id: Photo ID
+            
+        Returns:
+            True if removed
+        """
+        cursor = self._execute(
+            "UPDATE photos SET album_id = NULL, album_position = NULL WHERE id = ?",
+            (photo_id,)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def reorder_album(self, album_id: str, photo_ids: list[str]) -> bool:
+        """Reorder photos in album.
+        
+        Args:
+            album_id: Album ID
+            photo_ids: Ordered list of photo IDs
+            
+        Returns:
+            True if reordered
+        """
+        try:
+            for i, photo_id in enumerate(photo_ids):
+                self._execute(
+                    "UPDATE photos SET album_position = ? WHERE id = ? AND album_id = ?",
+                    (i, photo_id, album_id)
+                )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def get_available_for_album(self, album_id: str, user_id: int) -> list[dict]:
+        """Get photos available to add to album.
+        
+        Photos in the same folder that aren't in this album yet.
+        
+        Args:
+            album_id: Album ID
+            user_id: User ID (for access check)
+            
+        Returns:
+            List of photo dicts
+        """
+        # Get album's folder
+        cursor = self._execute(
+            "SELECT folder_id FROM albums WHERE id = ?",
+            (album_id,)
+        )
+        album = cursor.fetchone()
+        if not album or not album["folder_id"]:
+            return []
+        
+        folder_id = album["folder_id"]
+        
+        cursor = self._execute(
+            """SELECT * FROM photos 
+               WHERE folder_id = ? 
+                 AND (album_id IS NULL OR album_id != ?)
+                 AND user_id = ?
+               ORDER BY uploaded_at DESC""",
+            (folder_id, album_id, user_id)
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
 
 # =============================================================================
