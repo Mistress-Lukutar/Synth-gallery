@@ -16,6 +16,7 @@ from .session_repository import SessionRepository
 from .folder_repository import FolderRepository
 from .permission_repository import PermissionRepository
 from .photo_repository import PhotoRepository
+from .safe_repository import SafeRepository
 
 __all__ = [
     "Repository",
@@ -25,4 +26,5 @@ __all__ = [
     "FolderRepository",
     "PermissionRepository",
     "PhotoRepository",
+    "SafeRepository",
 ]
