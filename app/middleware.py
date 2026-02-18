@@ -1,4 +1,5 @@
 """Application middleware."""
+import sqlite3
 import secrets
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -9,7 +10,17 @@ from .config import (
     CSRF_TOKEN_NAME, CSRF_HEADER_NAME, CSRF_COOKIE_NAME,
     ROOT_PATH
 )
-from .database import get_session
+from .infrastructure.repositories import SessionRepository
+
+
+# Get database path from config or database module
+def _get_db_path():
+    """Get database path from app configuration."""
+    try:
+        from .database import DATABASE_PATH
+        return DATABASE_PATH
+    except ImportError:
+        return "gallery.db"
 
 
 def strip_root_path(path: str) -> str:
@@ -40,18 +51,24 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if check_path.startswith("/api/webauthn/authenticate/") or check_path.startswith("/api/webauthn/check/"):
             return await call_next(request)
 
-        # Check session cookie
+        # Check session cookie - use separate connection to avoid conflicts
         session_id = request.cookies.get(SESSION_COOKIE)
         if session_id:
-            session = get_session(session_id)
-            if session:
-                # Valid session - attach user info to request state
-                request.state.user = {
-                    "id": session["user_id"],
-                    "username": session["username"],
-                    "display_name": session["display_name"]
-                }
-                return await call_next(request)
+            conn = sqlite3.connect(_get_db_path())
+            conn.row_factory = sqlite3.Row
+            try:
+                session_repo = SessionRepository(conn)
+                session = session_repo.get_valid(session_id)
+                if session:
+                    # Valid session - attach user info to request state
+                    request.state.user = {
+                        "id": session["user_id"],
+                        "username": session["username"],
+                        "display_name": session["display_name"]
+                    }
+                    return await call_next(request)
+            finally:
+                conn.close()
 
         # No valid session - redirect to login
         if request.method == "GET":

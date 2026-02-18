@@ -2,10 +2,8 @@
 from fastapi import APIRouter, Request, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
-from ..database import (
-    get_db, can_access_photo, update_photo_thumbnail_dimensions
-)
-from ..infrastructure.repositories import SafeRepository, PhotoRepository
+from ..database import get_db
+from ..infrastructure.repositories import SafeRepository, PhotoRepository, PermissionRepository
 from ..application.services import SafeFileService
 from ..dependencies import require_user
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
@@ -30,11 +28,16 @@ def get_safe_photo_key(photo_id: str, request: Request):
     user = require_user(request)
     service = get_safe_file_service()
     
-    return service.get_photo_key(
-        photo_id=photo_id,
-        user_id=user["id"],
-        can_access_photo_fn=can_access_photo
-    )
+    db = get_db()
+    try:
+        perm_repo = PermissionRepository(db)
+        return service.get_photo_key(
+            photo_id=photo_id,
+            user_id=user["id"],
+            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid)
+        )
+    finally:
+        db.close()
 
 
 @router.get("/photos/{photo_id}/file")
@@ -46,20 +49,29 @@ def get_safe_photo_file(photo_id: str, request: Request):
     user = require_user(request)
     service = get_safe_file_service()
     
-    file_path = service.get_photo_file_path(
-        photo_id=photo_id,
-        user_id=user["id"],
-        can_access_photo_fn=can_access_photo
-    )
-    
-    # Return file with header indicating it's encrypted
-    return FileResponse(
-        file_path,
-        headers={
-            "X-Encryption": "e2e",
-            "X-Safe-Id": service.photo_repo.get_by_id(photo_id).get("safe_id", "")
-        }
-    )
+    db = get_db()
+    try:
+        perm_repo = PermissionRepository(db)
+        file_path = service.get_photo_file_path(
+            photo_id=photo_id,
+            user_id=user["id"],
+            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid)
+        )
+        
+        # Get safe_id for header
+        photo_repo = PhotoRepository(db)
+        safe_id = photo_repo.get_by_id(photo_id).get("safe_id", "")
+        
+        # Return file with header indicating it's encrypted
+        return FileResponse(
+            file_path,
+            headers={
+                "X-Encryption": "e2e",
+                "X-Safe-Id": safe_id
+            }
+        )
+    finally:
+        db.close()
 
 
 @router.get("/photos/{photo_id}/thumbnail")
@@ -73,32 +85,37 @@ def get_safe_photo_thumbnail(photo_id: str, request: Request):
     user = require_user(request)
     service = get_safe_file_service()
     
-    result = service.get_photo_thumbnail_path(
-        photo_id=photo_id,
-        user_id=user["id"],
-        can_access_photo_fn=can_access_photo
-    )
-    
-    if not result["exists"]:
-        # Return 202 Accepted with special header to trigger client-side regeneration
-        return Response(
-            status_code=202,
+    db = get_db()
+    try:
+        perm_repo = PermissionRepository(db)
+        result = service.get_photo_thumbnail_path(
+            photo_id=photo_id,
+            user_id=user["id"],
+            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid)
+        )
+        
+        if not result["exists"]:
+            # Return 202 Accepted with special header to trigger client-side regeneration
+            return Response(
+                status_code=202,
+                headers={
+                    "X-Regenerate-Thumbnail": "true",
+                    "X-Photo-Id": result["photo_id"],
+                    "X-Safe-Id": result["safe_id"],
+                    "X-Original-Endpoint": result["original_endpoint"]
+                }
+            )
+        
+        # Thumbnail exists - return it
+        return FileResponse(
+            result["path"],
             headers={
-                "X-Regenerate-Thumbnail": "true",
-                "X-Photo-Id": result["photo_id"],
-                "X-Safe-Id": result["safe_id"],
-                "X-Original-Endpoint": result["original_endpoint"]
+                "X-Encryption": "e2e",
+                "X-Safe-Id": result["safe_id"]
             }
         )
-    
-    # Thumbnail exists - return it
-    return FileResponse(
-        result["path"],
-        headers={
-            "X-Encryption": "e2e",
-            "X-Safe-Id": result["safe_id"]
-        }
-    )
+    finally:
+        db.close()
 
 
 @router.post("/photos/{photo_id}/thumbnail")
@@ -126,12 +143,19 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
     # Read thumbnail content
     thumb_content = await thumbnail.read()
     
-    return service.upload_thumbnail(
-        photo_id=photo_id,
-        user_id=user["id"],
-        thumbnail_content=thumb_content,
-        thumb_width=thumb_width,
-        thumb_height=thumb_height,
-        can_access_photo_fn=can_access_photo,
-        update_dimensions_fn=update_photo_thumbnail_dimensions
-    )
+    db = get_db()
+    try:
+        perm_repo = PermissionRepository(db)
+        photo_repo = PhotoRepository(db)
+        
+        return service.upload_thumbnail(
+            photo_id=photo_id,
+            user_id=user["id"],
+            thumbnail_content=thumb_content,
+            thumb_width=thumb_width,
+            thumb_height=thumb_height,
+            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid),
+            update_dimensions_fn=lambda pid, w, h: photo_repo.update_thumbnail_dimensions(pid, w, h)
+        )
+    finally:
+        db.close()
