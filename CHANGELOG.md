@@ -38,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatibility: sync APIs still work unchanged
   - True non-blocking I/O for better concurrency under load
 
+### Deprecated
+- **Legacy database.py functions will be removed in v1.0**
+  - All proxy functions in `app/database.py` now emit `DeprecationWarning`
+  - Migration path: Use Repository classes from `app.infrastructure.repositories`
+  - Example: `from app.database import create_user` → `from app.infrastructure.repositories import UserRepository`
+  - Full list of deprecated functions: all CRUD operations (create_user, get_user_by_id, etc.)
+  - Timeline: Legacy functions will be removed in v1.0 release
+
 ### Added (Internal)
 - **Service Layer Extraction (Issue #16 - Completed)**
   - New `app/application/services/` module for business logic
