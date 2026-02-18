@@ -164,12 +164,15 @@ folder = service.update_folder(folder_id, data.name, user["id"])
 - [x] Create application services (Folder, Permission, Safe, Upload)
 - [x] Refactor `routes/folders.py` to use FolderService
 - [x] Refactor gallery.py `/upload` endpoint to use UploadService
+- [x] Refactor gallery.py `/upload-album` endpoint to use UploadService
+- [x] Refactor gallery.py `/upload-bulk` endpoint to use UploadService
+- [x] Refactor gallery.py `/api/photos/batch-delete` endpoint to use UploadService
 - [x] Fix PhotoRepository integration with UploadService
+- [x] Add comprehensive service layer unit tests (25 tests total, 6 for UploadService)
 
 **Next Steps:**
-- [ ] Refactor remaining gallery.py routes (bulk upload, album management)
+- [ ] Refactor remaining gallery.py routes (move operations, album management)
 - [ ] Refactor safe routes to use SafeService
-- [ ] Add comprehensive service layer unit tests
 - [ ] Extract remaining business logic from envelope.py
 
 ---
