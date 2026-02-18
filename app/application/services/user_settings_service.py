@@ -45,7 +45,7 @@ class UserSettingsService:
         Returns:
             Default folder ID
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         settings = db.execute(
             "SELECT default_folder_id FROM user_settings WHERE user_id = ?",
@@ -83,7 +83,7 @@ class UserSettingsService:
         if not self._can_access_folder(folder_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot access this folder")
         
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         # Check if user has settings row
         existing = db.execute(
@@ -124,7 +124,7 @@ class UserSettingsService:
         Returns:
             List of folder IDs
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         settings = db.execute(
             "SELECT collapsed_folders FROM user_settings WHERE user_id = ?",
@@ -148,7 +148,7 @@ class UserSettingsService:
         Returns:
             True if successful
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         collapsed_json = json.dumps(folder_ids)
         
@@ -208,7 +208,7 @@ class UserSettingsService:
         Returns:
             Sort preference ('uploaded_at' or 'taken_at')
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         settings = db.execute(
             """SELECT sort_by FROM user_folder_preferences 
@@ -234,7 +234,7 @@ class UserSettingsService:
         if sort_by not in ("uploaded_at", "taken_at"):
             raise HTTPException(status_code=400, detail="Invalid sort option")
         
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         # Check if preference exists
         existing = db.execute(
@@ -272,7 +272,7 @@ class UserSettingsService:
         Returns:
             Dict with encrypted_dek, dek_salt, etc. or None
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         row = db.execute(
             """SELECT encrypted_dek, dek_salt, encryption_version,
@@ -307,7 +307,7 @@ class UserSettingsService:
         Returns:
             True if successful
         """
-        db = self.folder_repo._db
+        db = self.folder_repo._conn
         
         # Check if user has settings row
         existing = db.execute(
