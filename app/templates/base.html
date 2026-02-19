@@ -2045,14 +2045,9 @@
                 }
             }
             
-            // Handle subfolders - insert before gallery (gallery.html compatibility)
-            let subfoldersSection = document.querySelector('.subfolders-section');
+            // Handle subfolders - use existing container
+            const subfoldersSection = document.getElementById('subfolders-section');
             if (data.subfolders && data.subfolders.length > 0) {
-                if (!subfoldersSection) {
-                    subfoldersSection = document.createElement('div');
-                    subfoldersSection.className = 'subfolders-section';
-                    gallery.parentNode.insertBefore(subfoldersSection, gallery);
-                }
                 let html = '<div class="subfolders-grid">';
                 data.subfolders.forEach(folder => {
                     html += `
@@ -2081,12 +2076,12 @@
             
             items.forEach(item => {
                 if (item.type === 'album') {
-                    const album = item.data;
-                    const coverId = album.effective_cover_photo_id || album.cover_photo_id;
+                    const album = item;
+                    const coverId = album.cover_photo_id;
                     const safeIdAttr = album.safe_id ? `data-safe-id="${album.safe_id}"` : '';
-                    const hasDims = album.cover_thumb_width && album.cover_thumb_height;
-                    const dimsAttr = hasDims ? `data-thumb-width="${album.cover_thumb_width}" data-thumb-height="${album.cover_thumb_height}"` : '';
-                    const aspectStyle = hasDims ? `style="aspect-ratio: ${album.cover_thumb_width} / ${album.cover_thumb_height};"` : '';
+                    const hasDims = album.thumb_width && album.thumb_height;
+                    const dimsAttr = hasDims ? `data-thumb-width="${album.thumb_width}" data-thumb-height="${album.thumb_height}"` : '';
+                    const aspectStyle = hasDims ? `style="aspect-ratio: ${album.thumb_width} / ${album.thumb_height};"` : '';
                     html += `
                         <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                              ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
@@ -2123,7 +2118,7 @@
                         </div>
                     `;
                 } else if (item.type === 'photo') {
-                    const photo = item.data;
+                    const photo = item;
                     const safeId = photo.safe_id;
                     const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                     const mediaType = photo.media_type || 'image';
