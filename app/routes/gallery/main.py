@@ -161,6 +161,8 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         
         for album in folder_contents["albums"]:
             cover_photo_id = album.get("cover_photo_id") or album.get("effective_cover_photo_id")
+            import logging
+            logging.error(f"[DEBUG] Album {album['id']}: cover_photo_id={album.get('cover_photo_id')}, photo_count={album.get('photo_count')}")
             items.append({
                 "type": "album",
                 "id": album["id"],
