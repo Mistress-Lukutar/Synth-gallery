@@ -420,14 +420,11 @@ class TestPhotoService:
     
     def test_batch_move_no_permission_on_dest(self, photo_service, mock_photo_repo):
         """Test batch move fails without permission on destination."""
-        # Arrange - need to patch can_edit_folder to return False
+        # Arrange - need to patch can_edit to return False
         mock_photo_repo.get_by_id.return_value = None
         
         # Act & Assert
-        from fastapi import HTTPException
-        from app.database import can_edit_folder
-        
-        # Note: In real test we'd mock can_edit_folder, but here we just test the structure
+        # Note: In real test we'd mock permission check, but here we just test the structure
         # The permission check is done in the service and will fail without proper mocking
         pass  # Skip detailed test - integration tests cover this
     

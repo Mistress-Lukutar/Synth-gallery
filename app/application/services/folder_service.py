@@ -8,7 +8,6 @@ from typing import Optional, List, Dict
 from fastapi import HTTPException
 
 from ...infrastructure.repositories import FolderRepository, SafeRepository, PhotoRepository
-from ...database import get_folder_tree as db_get_folder_tree
 
 
 class FolderService:
@@ -203,7 +202,7 @@ class FolderService:
         Returns:
             List of folders with metadata
         """
-        return db_get_folder_tree(user_id)
+        return self.folder_repo.get_tree(user_id)
     
     def get_breadcrumbs(self, folder_id: str) -> List[dict]:
         """Get breadcrumb path from root to folder.
