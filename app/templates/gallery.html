@@ -908,7 +908,8 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
     });
 
     // Select all (only visible items)
-    document.getElementById('select-all-btn').addEventListener('click', () => {
+    const selectAllBtn = document.getElementById('select-all-btn');
+    if (selectAllBtn) selectAllBtn.addEventListener('click', () => {
         allItems.forEach(item => {
             if (item.dataset.hidden !== 'true') {
                 if (item.dataset.itemType === 'album') {
@@ -922,7 +923,8 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
     });
 
     // Deselect all
-    document.getElementById('deselect-all-btn').addEventListener('click', () => {
+    const deselectAllBtn = document.getElementById('deselect-all-btn');
+    if (deselectAllBtn) deselectAllBtn.addEventListener('click', () => {
         selectedPhotos.clear();
         selectedAlbums.clear();
         updateSelectionUI();
@@ -964,7 +966,8 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
     });
 
     // Download selected
-    document.getElementById('download-selected-btn').addEventListener('click', async () => {
+    const downloadSelectedBtn = document.getElementById('download-selected-btn');
+    if (downloadSelectedBtn) downloadSelectedBtn.addEventListener('click', async () => {
         if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
         const btn = document.getElementById('download-selected-btn');
@@ -1858,6 +1861,8 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
 
     // Render preset tags by category
     function renderPresets(presetsData) {
+        if (!presetsContainer) return; // Element not present
+        
         if (presetsData.length === 0) {
             presetsContainer.innerHTML = '<p class="no-presets">No matching tags found</p>';
             return;
@@ -1952,6 +1957,7 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
 
     // Update preset button states
     function updatePresetButtons() {
+        if (!presetsContainer) return;
         presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
             const tagName = btn.dataset.tagName;
             const isSelected = editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase());
@@ -2060,33 +2066,37 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
     };
 
     // Search functionality
-    let searchTimeout;
-    tagSearch.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        const query = tagSearch.value.trim();
+    if (tagSearch) {
+        let searchTimeout;
+        tagSearch.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            const query = tagSearch.value.trim();
 
-        searchTimeout = setTimeout(async () => {
-            const presets = await loadTagPresets(query);
+            searchTimeout = setTimeout(async () => {
+                const presets = await loadTagPresets(query);
 
-            if (query.length > 0) {
-                const hasExactMatch = presets.some(cat =>
-                    cat.tags.some(t => t.name.toLowerCase() === query.toLowerCase())
-                );
+                if (query.length > 0 && addNewTagSection) {
+                    const hasExactMatch = presets.some(cat =>
+                        cat.tags.some(t => t.name.toLowerCase() === query.toLowerCase())
+                    );
 
-                if (!hasExactMatch) {
-                    document.getElementById('new-tag-name').textContent = query;
-                    addNewTagSection.classList.remove('hidden');
-                    selectedCategoryId = null;
-                    document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('selected'));
-                    document.getElementById('add-new-tag-btn').disabled = true;
-                } else {
+                    const addBtn = document.getElementById('add-new-tag-btn');
+                    if (!hasExactMatch) {
+                        const newTagName = document.getElementById('new-tag-name');
+                        if (newTagName) newTagName.textContent = query;
+                        addNewTagSection.classList.remove('hidden');
+                        selectedCategoryId = null;
+                        document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('selected'));
+                        if (addBtn) addBtn.disabled = true;
+                    } else {
+                        addNewTagSection.classList.add('hidden');
+                    }
+                } else if (addNewTagSection) {
                     addNewTagSection.classList.add('hidden');
                 }
-            } else {
-                addNewTagSection.classList.add('hidden');
-            }
-        }, 300);
-    });
+            }, 300);
+        });
+    }
 
     // Handle ESC key in tag editor
     document.addEventListener('keydown', (e) => {
