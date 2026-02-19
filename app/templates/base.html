@@ -7,6 +7,17 @@
     <title>{% block title %}Synth{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
     <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    
+    <!-- Global config -->
+    <script>
+        window.SYNTH_BASE_URL = '{{ base_url }}';
+        {% if user %}
+        window.SYNTH_USER_ID = {{ user.id }};
+        {% endif %}
+    </script>
+    
+    <!-- Core utilities -->
+    <script src="{{ base_url }}/static/js/core.js"></script>
 </head>
 <body>
     <div class="app-layout">
@@ -364,30 +375,7 @@
     </div>
 
     <script>
-        // CSRF protection helper
-        function getCsrfToken() {
-            // First try meta tag
-            const meta = document.querySelector('meta[name="csrf-token"]');
-            if (meta) return meta.getAttribute('content');
-            // Fallback to cookie
-            const match = document.cookie.match(/synth_csrf=([^;]+)/);
-            return match ? match[1] : '';
-        }
-
-        // Enhanced fetch with CSRF token
-        async function csrfFetch(url, options = {}) {
-            const csrfToken = getCsrfToken();
-            const headers = options.headers || {};
-
-            // Add CSRF header for mutating requests
-            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
-                headers['X-CSRF-Token'] = csrfToken;
-            }
-
-            return fetch(url, { ...options, headers });
-        }
-
-        // Get current folder ID from URL
+        // Get current folder ID from URL (will be moved to init.js in Phase 7)
         const urlParams = new URLSearchParams(window.location.search);
         window.currentFolderId = urlParams.get('folder_id');
         console.log('[DEBUG] Current folder ID:', window.currentFolderId);
@@ -1583,12 +1571,6 @@
                     </div>
                 </div>
             `;
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
 
         // SPA Navigation: Load folder content without page reload
