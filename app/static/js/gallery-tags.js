@@ -113,12 +113,19 @@
         await window.loadTagPresets?.();
 
         tagEditorPanel.classList.add('open');
+        
+        // Add panel-open class to lightbox for layout adjustments
+        const lightbox = document.getElementById('lightbox');
+        if (lightbox) lightbox.classList.add('panel-open');
     };
 
     window.closeTagEditor = function() {
         if (tagEditorPanel) {
             tagEditorPanel.classList.remove('open');
         }
+        // Remove panel-open class from lightbox
+        const lightbox = document.getElementById('lightbox');
+        if (lightbox) lightbox.classList.remove('panel-open');
         currentPhotoId = null;
     };
 
