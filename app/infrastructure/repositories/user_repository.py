@@ -217,6 +217,95 @@ class UserRepository(Repository):
         self._commit()
         return cursor.rowcount > 0
     
+    # Encryption key management
+    
+    def get_encryption_keys(self, user_id: int) -> dict | None:
+        """Get user's encryption keys (DEK and salt).
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Dict with encrypted_dek, dek_salt, encryption_version or None
+        """
+        cursor = self._execute(
+            """SELECT encrypted_dek, dek_salt, encryption_version, recovery_encrypted_dek 
+               FROM user_settings WHERE user_id = ?""",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "encrypted_dek": row["encrypted_dek"],
+                "dek_salt": row["dek_salt"],
+                "encryption_version": row["encryption_version"],
+                "recovery_encrypted_dek": row["recovery_encrypted_dek"]
+            }
+        return None
+    
+    def set_encryption_keys(self, user_id: int, encrypted_dek: bytes, dek_salt: bytes) -> bool:
+        """Set user's encryption keys.
+        
+        Args:
+            user_id: User ID
+            encrypted_dek: Encrypted DEK
+            dek_salt: Salt for KEK derivation
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                """INSERT OR REPLACE INTO user_settings 
+                   (user_id, encrypted_dek, dek_salt, encryption_version)
+                   VALUES (?, ?, ?, 1)""",
+                (user_id, encrypted_dek, dek_salt)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def get_recovery_encrypted_dek(self, user_id: int) -> bytes | None:
+        """Get recovery-encrypted DEK.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Recovery-encrypted DEK or None
+        """
+        cursor = self._execute(
+            "SELECT recovery_encrypted_dek FROM user_settings WHERE user_id = ?",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        return row["recovery_encrypted_dek"] if row else None
+    
+    def set_recovery_encrypted_dek(self, user_id: int, recovery_encrypted_dek: bytes) -> bool:
+        """Set recovery-encrypted DEK.
+        
+        Args:
+            user_id: User ID
+            recovery_encrypted_dek: DEK encrypted with recovery key
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                """INSERT OR REPLACE INTO user_settings 
+                   (user_id, recovery_encrypted_dek)
+                   VALUES (?, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET 
+                   recovery_encrypted_dek = excluded.recovery_encrypted_dek""",
+                (user_id, recovery_encrypted_dek)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
     # Private helper methods
     
     def _hash_password(self, password: str) -> tuple[str, str]:

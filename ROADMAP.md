@@ -10,16 +10,16 @@ This document tracks planned architectural improvements, refactoring goals, and 
 
 ## Quick Overview
 
-| Priority | Issue | Solution | Effort | Status |
-|----------|-------|----------|--------|--------|
-| 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large | ✅ **DONE** |
-| 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | ~~Async Database (aiosqlite)~~ | Medium | ❌ **REVERTED** |
-| 🟡 High | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction | Medium | ✅ **DONE** |
-| 🟡 High | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic | Large | 🔲 Planned |
-| 🟡 High | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions | Medium | 🔲 Planned |
-| 🟢 Medium | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local) | Medium | 🔲 Planned |
-| 🟢 Medium | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings | Small | 🔲 Planned |
-| 🔵 Low | [#21](https://github.com/Nate-go/Synth-Gallery/issues/21) | Request Validation Models | Small | 🔲 Planned |
+| Priority    | Issue                                                     | Solution                        | Effort | Status         |
+|-------------|-----------------------------------------------------------|---------------------------------|--------|----------------|
+| 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large  | ✅ **DONE**     |
+| 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | ~~Async Database (aiosqlite)~~  | Medium | ❌ **REVERTED** |
+| 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
+| 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
+| 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
+| 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | 🔲 Planned     |
+| 🟢 Medium   | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings          | Small  | 🔲 Planned     |
+| 🔵 Low      | [#21](https://github.com/Nate-go/Synth-Gallery/issues/21) | Request Validation Models       | Small  | 🔲 Planned     |
 
 ---
 
