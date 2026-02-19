@@ -115,6 +115,22 @@ class SafeRepository(Repository):
         """
         return self.get_by_folder(folder_id) is not None
     
+    def get_safe_id_for_folder(self, folder_id: str) -> str | None:
+        """Get safe_id for a folder if it's inside a safe.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            Safe ID or None if folder is not in a safe
+        """
+        cursor = self._execute(
+            "SELECT safe_id FROM folders WHERE id = ?",
+            (folder_id,)
+        )
+        row = cursor.fetchone()
+        return row["safe_id"] if row else None
+    
     def list_by_user(self, user_id: int) -> list[dict]:
         """Get all safes for user with counts.
         

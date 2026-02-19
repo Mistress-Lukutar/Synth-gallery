@@ -401,3 +401,105 @@ class PhotoService:
             raise HTTPException(status_code=400, detail="Photo not in album")
         
         return {"status": "ok"}
+    
+    def move_photos_to_folder(
+        self, 
+        photo_ids: list[str], 
+        folder_id: str, 
+        user_id: int
+    ) -> dict:
+        """Move multiple photos to a folder.
+        
+        Args:
+            photo_ids: List of photo UUIDs
+            folder_id: Target folder ID
+            user_id: User performing the action
+            
+        Returns:
+            Dict with status and count
+            
+        Raises:
+            HTTPException: If no edit permission
+        """
+        if not self.perm_repo:
+            raise HTTPException(status_code=500, detail="Permission repository not configured")
+        
+        if not self.perm_repo.can_edit(folder_id, user_id):
+            raise HTTPException(status_code=403, detail="Cannot edit this folder")
+        
+        moved = 0
+        failed = []
+        
+        for photo_id in photo_ids:
+            photo = self.photo_repo.get_by_id(photo_id)
+            if not photo:
+                failed.append({"photo_id": photo_id, "error": "Photo not found"})
+                continue
+            
+            # Check permission on source folder
+            if photo.get("folder_id") and not self.perm_repo.can_edit(photo["folder_id"], user_id):
+                failed.append({"photo_id": photo_id, "error": "Cannot move from this folder"})
+                continue
+            
+            try:
+                self.photo_repo.move_to_folder(photo_id, folder_id)
+                moved += 1
+            except Exception as e:
+                failed.append({"photo_id": photo_id, "error": str(e)})
+        
+        return {
+            "status": "ok",
+            "moved": moved,
+            "failed": failed
+        }
+    
+    def move_albums_to_folder(
+        self, 
+        album_ids: list[str], 
+        folder_id: str, 
+        user_id: int
+    ) -> dict:
+        """Move multiple albums to a folder.
+        
+        Args:
+            album_ids: List of album UUIDs
+            folder_id: Target folder ID
+            user_id: User performing the action
+            
+        Returns:
+            Dict with status and count
+            
+        Raises:
+            HTTPException: If no edit permission
+        """
+        if not self.perm_repo or not self.folder_repo:
+            raise HTTPException(status_code=500, detail="Required repositories not configured")
+        
+        if not self.perm_repo.can_edit(folder_id, user_id):
+            raise HTTPException(status_code=403, detail="Cannot edit this folder")
+        
+        moved = 0
+        failed = []
+        
+        for album_id in album_ids:
+            album = self.photo_repo.get_album(album_id)
+            if not album:
+                failed.append({"album_id": album_id, "error": "Album not found"})
+                continue
+            
+            # Check permission on source folder
+            if album.get("folder_id") and not self.perm_repo.can_edit(album["folder_id"], user_id):
+                failed.append({"album_id": album_id, "error": "Cannot move from this folder"})
+                continue
+            
+            try:
+                self.photo_repo.move_album_to_folder(album_id, folder_id)
+                moved += 1
+            except Exception as e:
+                failed.append({"album_id": album_id, "error": str(e)})
+        
+        return {
+            "status": "ok",
+            "moved": moved,
+            "failed": failed
+        }
