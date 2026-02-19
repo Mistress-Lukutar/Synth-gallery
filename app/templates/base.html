@@ -18,6 +18,8 @@
     
     <!-- Core utilities -->
     <script src="{{ base_url }}/static/js/core.js"></script>
+    <!-- Navigation -->
+    <script src="{{ base_url }}/static/js/navigation.js"></script>
 </head>
 <body>
     <div class="app-layout">
@@ -1573,95 +1575,7 @@
             `;
         }
 
-        // SPA Navigation: Load folder content without page reload
-        async function navigateToFolder(folderId, pushState = true, event = null) {
-            console.log('[SPA] Navigating to folder:', folderId);
-            
-            // Prevent default navigation if event provided
-            if (event) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-            
-            // Smooth transition: fade out current gallery
-            const gallery = document.getElementById('gallery');
-            if (gallery) {
-                gallery.style.opacity = '0.5';
-            }
-            
-            try {
-                // Fetch folder content - don't pass sort param to let server use folder's saved preference
-                const resp = await fetch(`{{ base_url }}/api/folders/${folderId}/content`);
-                if (!resp.ok) {
-                    throw new Error('Failed to load folder');
-                }
-                
-                const data = await resp.json();
-                console.log('[SPA] Loaded folder content:', data);
-                
-                // Update URL without reload
-                if (pushState) {
-                    history.pushState({ folderId: folderId }, '', `{{ base_url }}/?folder_id=${folderId}`);
-                }
-                
-                // Update current state
-                window.currentFolderId = folderId;
-                
-                // Update sort from server response (folder-specific sort preference)
-                if (data.sort) {
-                    currentSort = data.sort;
-                    updateSortUI(currentSort);
-                }
-                
-                // Update UI
-                renderFolderContent(data);
-                
-                // Update sidebar active state
-                updateSidebarActiveState(folderId);
-                
-                // Close sidebar on mobile after navigation
-                if (window.innerWidth <= 900) {
-                    closeSidebar();
-                }
-                
-                // Refresh folder tree to update counts
-                loadFolderTree();
-                
-                // Reset folder header buttons (restore from safe view)
-                const folderHeader = document.querySelector('.folder-header');
-                if (folderHeader) {
-                    const shareBtn = folderHeader.querySelector('button[title="Share"]');
-                    const editBtn = folderHeader.querySelector('button[title^="Edit"]');
-                    const sortBtn = folderHeader.querySelector('#sort-btn');
-                    
-                    // Show sort button
-                    if (sortBtn) sortBtn.style.display = '';
-                    
-                    // Show share/edit buttons based on ownership
-                    if (data.folder) {
-                        const canShare = data.folder.user_id === {{ user.id }};
-                        const canEdit = data.folder.permission === 'owner' || data.folder.permission === 'editor';
-                        
-                        if (shareBtn) shareBtn.style.display = canShare ? '' : 'none';
-                        if (editBtn) editBtn.style.display = canEdit ? '' : 'none';
-                        
-                        // Update onclick handlers
-                        if (shareBtn) shareBtn.setAttribute('onclick', `openShareModal('${folderId}')`);
-                        if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${folderId}')`);
-                    }
-                }
-                
-                // Clear currentSafeId since we're now in a specific folder
-                window.currentSafeId = null;
-                
-            } catch (err) {
-                console.error('[SPA] Navigation failed:', err);
-                // Fallback to full reload on error
-                window.location.href = `{{ base_url }}/?folder_id=${folderId}`;
-            }
-            
-            return false;
-        }
+        // navigateToFolder and renderFolderContent moved to navigation.js
         
         // Navigate to safe (show all photos in safe, allow upload to safe root)
         window.navigateToSafe = async function(safeId, pushState = true) {
