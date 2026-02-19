@@ -2081,14 +2081,14 @@ window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
                     );
 
                     const addBtn = document.getElementById('add-new-tag-btn');
-                    if (!hasExactMatch) {
+                    if (!hasExactMatch && addNewTagSection) {
                         const newTagName = document.getElementById('new-tag-name');
                         if (newTagName) newTagName.textContent = query;
                         addNewTagSection.classList.remove('hidden');
                         selectedCategoryId = null;
                         document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('selected'));
                         if (addBtn) addBtn.disabled = true;
-                    } else {
+                    } else if (addNewTagSection) {
                         addNewTagSection.classList.add('hidden');
                     }
                 } else if (addNewTagSection) {
