@@ -9,6 +9,10 @@
     let editingAlbumId = null;
     let availablePhotos = [];
     let selectedPhotosForAlbum = new Set();
+    
+    // Album viewing state
+    let currentAlbumPhotos = [];
+    let currentAlbumIndex = 0;
 
     function init() {
         albumEditorPanel = document.getElementById('album-editor-panel');
@@ -16,9 +20,59 @@
         console.log('[gallery-albums] Initialized');
     }
 
-    window.openAlbum = function(albumId) {
-        // Navigate to album view
-        window.location.href = `${getBaseUrl()}/album/${albumId}`;
+    // Open album in lightbox (view mode)
+    window.openAlbum = async function(albumId, startFromEnd = false) {
+        console.log('[gallery-albums] Opening album:', albumId);
+        
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
+            if (!resp.ok) throw new Error('Failed to load album');
+            
+            const album = await resp.json();
+            console.log('[gallery-albums] Album loaded:', album.name, 'photos:', album.photos?.length);
+            
+            if (!album.photos || album.photos.length === 0) {
+                console.log('[gallery-albums] Album is empty');
+                return;
+            }
+            
+            // Store album photos for navigation
+            currentAlbumPhotos = album.photos.map(p => ({
+                id: p.id,
+                safeId: p.safe_id,
+                original_name: p.original_name,
+                filename: p.filename
+            }));
+            currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
+            
+            const firstPhoto = currentAlbumPhotos[currentAlbumIndex];
+            if (!firstPhoto) return;
+            
+            // Set up lightbox for album viewing
+            window.setAlbumContext(currentAlbumPhotos, currentAlbumIndex);
+            
+            // Load first photo
+            await window.loadPhoto(firstPhoto.id);
+            window.showLightbox();
+            
+        } catch (err) {
+            console.error('[gallery-albums] Failed to open album:', err);
+        }
+    };
+
+    // Navigate within album
+    window.navigateAlbum = function(direction) {
+        if (currentAlbumPhotos.length <= 1) return;
+        
+        currentAlbumIndex += direction;
+        if (currentAlbumIndex < 0) currentAlbumIndex = currentAlbumPhotos.length - 1;
+        if (currentAlbumIndex >= currentAlbumPhotos.length) currentAlbumIndex = 0;
+        
+        const photo = currentAlbumPhotos[currentAlbumIndex];
+        if (photo) {
+            window.loadPhoto(photo.id);
+            window.updateAlbumIndicator?.(currentAlbumIndex, currentAlbumPhotos.length);
+        }
     };
 
     window.openCreateAlbum = function() {
