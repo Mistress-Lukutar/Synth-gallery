@@ -35,11 +35,11 @@ services:
 
 ### Examples
 
-| SYNTH_BASE_URL | Resulting URL |
-|----------------|---------------|
-| (empty) | `http://localhost:8000/login` |
-| `synth` | `http://localhost:8000/synth/login` |
-| `gallery/v2` | `http://localhost:8000/gallery/v2/login` |
+| SYNTH_BASE_URL | Resulting URL                            |
+|----------------|------------------------------------------|
+| (empty)        | `http://localhost:8000/login`            |
+| `synth`        | `http://localhost:8000/synth/login`      |
+| `gallery/v2`   | `http://localhost:8000/gallery/v2/login` |
 
 ### Reverse Proxy Configuration
 
