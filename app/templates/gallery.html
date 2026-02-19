@@ -299,15 +299,9 @@
     <!-- Content loaded via API -->
 </div>
 
-<!-- Initial load script -->
+<!-- Initial folder ID for init.js -->
 <script>
-(function() {
-    const initialFolderId = '{{ initial_folder_id }}';
-    if (initialFolderId) {
-        // Load initial folder content via SPA (no history entry for initial load)
-        navigateToFolder(initialFolderId, false);
-    }
-})();
+window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
 </script>
 {% endblock %}
 
