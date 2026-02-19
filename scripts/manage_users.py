@@ -28,29 +28,19 @@ import sys
 import os
 
 # Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 from pathlib import Path
 
-from app.database import (
-    init_db,
-    create_user,
-    list_users,
-    get_user_by_username,
-    delete_user,
-    update_user_password,
-    update_user_display_name,
-    set_user_admin,
-    is_user_admin,
-    verify_password,
-    get_user_encryption_keys,
-    set_user_encryption_keys,
-    get_user_unencrypted_photos,
-    mark_photo_encrypted,
-    set_recovery_encrypted_dek,
-    get_recovery_encrypted_dek,
-)
+from app.database import init_db, create_connection, verify_password
+from app.infrastructure.repositories import UserRepository, PhotoRepository
 from app.config import UPLOADS_DIR, THUMBNAILS_DIR, BACKUP_PATH
+
+
+def get_db():
+    """Get database connection for CLI operations."""
+    return create_connection()
 
 
 def print_usage():
@@ -69,32 +59,41 @@ def cmd_add(args):
         print("Error: Password must be at least 4 characters")
         return 1
 
-    existing = get_user_by_username(username)
-    if existing:
-        print(f"Error: User '{username}' already exists")
-        return 1
-
+    db = get_db()
     try:
-        user_id = create_user(username, password, display_name)
+        user_repo = UserRepository(db)
+        existing = user_repo.get_by_username(username)
+        if existing:
+            print(f"Error: User '{username}' already exists")
+            return 1
+
+        user_id = user_repo.create(username, password, display_name)
         print(f"User '{username}' created successfully (ID: {user_id})")
         return 0
     except Exception as e:
         print(f"Error creating user: {e}")
         return 1
+    finally:
+        db.close()
 
 
 def cmd_list(args):
-    users = list_users()
-    if not users:
-        print("No users found. Create one with: python manage_users.py add <username> <password> <display_name>")
-        return 0
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        users = user_repo.list_all()
+        if not users:
+            print("No users found. Create one with: python manage_users.py add <username> <password> <display_name>")
+            return 0
 
-    print(f"{'ID':<5} {'Username':<20} {'Display Name':<25} {'Admin':<6} {'Created'}")
-    print("-" * 90)
-    for user in users:
-        admin_flag = "Yes" if is_user_admin(user['id']) else ""
-        print(f"{user['id']:<5} {user['username']:<20} {user['display_name']:<25} {admin_flag:<6} {user['created_at']}")
-    return 0
+        print(f"{'ID':<5} {'Username':<20} {'Display Name':<25} {'Admin':<6} {'Created'}")
+        print("-" * 90)
+        for user in users:
+            admin_flag = "Yes" if user.get('is_admin') else ""
+            print(f"{user['id']:<5} {user['username']:<20} {user['display_name']:<25} {admin_flag:<6} {user['created_at']}")
+        return 0
+    finally:
+        db.close()
 
 
 def cmd_delete(args):
@@ -103,21 +102,26 @@ def cmd_delete(args):
         return 1
 
     username = args[0]
-    user = get_user_by_username(username)
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
 
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
+        if not user:
+            print(f"Error: User '{username}' not found")
+            return 1
 
-    # Confirm deletion
-    confirm = input(f"Delete user '{username}' ({user['display_name']})? [y/N]: ")
-    if confirm.lower() != 'y':
-        print("Cancelled")
+        # Confirm deletion
+        confirm = input(f"Delete user '{username}' ({user['display_name']})? [y/N]: ")
+        if confirm.lower() != 'y':
+            print("Cancelled")
+            return 0
+
+        user_repo.delete(user['id'])
+        print(f"User '{username}' deleted")
         return 0
-
-    delete_user(user['id'])
-    print(f"User '{username}' deleted")
-    return 0
+    finally:
+        db.close()
 
 
 def cmd_passwd(args):
@@ -131,42 +135,47 @@ def cmd_passwd(args):
         print("Error: Password must be at least 4 characters")
         return 1
 
-    user = get_user_by_username(username)
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
-
-    # Verify old password
-    if not verify_password(old_password, user["password_hash"], user["password_salt"] if "password_salt" in user.keys() else None):
-        print("Error: Old password is incorrect")
-        return 1
-
-    # Check if user has encryption keys
-    enc_keys = get_user_encryption_keys(user["id"])
-    if enc_keys:
-        from app.services.encryption import EncryptionService
-        # Decrypt DEK with old password
-        old_kek = EncryptionService.derive_kek(old_password, enc_keys["dek_salt"])
-        try:
-            dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], old_kek)
-        except Exception as e:
-            print(f"Error: Failed to decrypt encryption key: {e}")
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
+        if not user:
+            print(f"Error: User '{username}' not found")
             return 1
 
-        # Re-encrypt DEK with new password
-        new_salt = EncryptionService.generate_salt()
-        new_kek = EncryptionService.derive_kek(new_password, new_salt)
-        new_encrypted_dek = EncryptionService.encrypt_dek(dek, new_kek)
+        # Verify old password
+        if not verify_password(old_password, user["password_hash"], user.get("password_salt")):
+            print("Error: Old password is incorrect")
+            return 1
 
-        # Update password and encryption keys
-        update_user_password(user['id'], new_password)
-        set_user_encryption_keys(user["id"], new_encrypted_dek, new_salt)
-        print(f"Password and encryption keys updated for '{username}'")
-    else:
-        # No encryption - just update password
-        update_user_password(user['id'], new_password)
-        print(f"Password updated for '{username}'")
-    return 0
+        # Check if user has encryption keys
+        enc_keys = user_repo.get_encryption_keys(user["id"])
+        if enc_keys:
+            from app.infrastructure.services.encryption import EncryptionService
+            # Decrypt DEK with old password
+            old_kek = EncryptionService.derive_kek(old_password, enc_keys["dek_salt"])
+            try:
+                dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], old_kek)
+            except Exception as e:
+                print(f"Error: Failed to decrypt encryption key: {e}")
+                return 1
+
+            # Re-encrypt DEK with new password
+            new_salt = EncryptionService.generate_salt()
+            new_kek = EncryptionService.derive_kek(new_password, new_salt)
+            new_encrypted_dek = EncryptionService.encrypt_dek(dek, new_kek)
+
+            # Update password and encryption keys
+            user_repo.update_password(user['id'], new_password)
+            user_repo.set_encryption_keys(user["id"], new_encrypted_dek, new_salt)
+            print(f"Password and encryption keys updated for '{username}'")
+        else:
+            # No encryption - just update password
+            user_repo.update_password(user['id'], new_password)
+            print(f"Password updated for '{username}'")
+        return 0
+    finally:
+        db.close()
 
 
 def cmd_rename(args):
@@ -176,14 +185,19 @@ def cmd_rename(args):
 
     username, new_display_name = args[0], args[1]
 
-    user = get_user_by_username(username)
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
+        if not user:
+            print(f"Error: User '{username}' not found")
+            return 1
 
-    update_user_display_name(user['id'], new_display_name)
-    print(f"Display name for '{username}' changed to '{new_display_name}'")
-    return 0
+        user_repo.update_display_name(user['id'], new_display_name)
+        print(f"Display name for '{username}' changed to '{new_display_name}'")
+        return 0
+    finally:
+        db.close()
 
 
 def cmd_admin(args):
@@ -192,19 +206,24 @@ def cmd_admin(args):
         return 1
 
     username = args[0]
-    user = get_user_by_username(username)
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
 
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
+        if not user:
+            print(f"Error: User '{username}' not found")
+            return 1
 
-    if is_user_admin(user['id']):
-        print(f"User '{username}' is already an admin")
+        if user.get('is_admin'):
+            print(f"User '{username}' is already an admin")
+            return 0
+
+        user_repo.set_admin(user['id'], True)
+        print(f"User '{username}' is now an admin")
         return 0
-
-    set_user_admin(user['id'], True)
-    print(f"User '{username}' is now an admin")
-    return 0
+    finally:
+        db.close()
 
 
 def cmd_unadmin(args):
@@ -213,19 +232,24 @@ def cmd_unadmin(args):
         return 1
 
     username = args[0]
-    user = get_user_by_username(username)
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
 
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
+        if not user:
+            print(f"Error: User '{username}' not found")
+            return 1
 
-    if not is_user_admin(user['id']):
-        print(f"User '{username}' is not an admin")
+        if not user.get('is_admin'):
+            print(f"User '{username}' is not an admin")
+            return 0
+
+        user_repo.set_admin(user['id'], False)
+        print(f"Admin rights revoked from '{username}'")
         return 0
-
-    set_user_admin(user['id'], False)
-    print(f"Admin rights revoked from '{username}'")
-    return 0
+    finally:
+        db.close()
 
 
 def cmd_encrypt_files(args):
@@ -237,83 +261,90 @@ def cmd_encrypt_files(args):
 
     username, password = args[0], args[1]
 
-    user = get_user_by_username(username)
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
+    db = get_db()
+    try:
+        user_repo = UserRepository(db)
+        photo_repo = PhotoRepository(db)
 
-    # Verify password
-    if not verify_password(password, user["password_hash"], user["password_salt"] or ""):
-        print("Error: Invalid password")
-        return 1
-
-    from app.services.encryption import EncryptionService
-
-    # Get or create DEK
-    enc_keys = get_user_encryption_keys(user["id"])
-    if enc_keys:
-        # Decrypt existing DEK
-        kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
-        try:
-            dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
-        except Exception:
-            print("Error: Could not decrypt existing key. Password may be incorrect.")
+        user = user_repo.get_by_username(username)
+        if not user:
+            print(f"Error: User '{username}' not found")
             return 1
-    else:
-        # Generate new DEK
-        print("Generating new encryption key for user...")
-        dek = EncryptionService.generate_dek()
-        salt = EncryptionService.generate_salt()
-        kek = EncryptionService.derive_kek(password, salt)
-        encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
-        set_user_encryption_keys(user["id"], encrypted_dek, salt)
 
-    # Get unencrypted photos
-    photos = get_user_unencrypted_photos(user["id"])
+        # Verify password
+        if not verify_password(password, user["password_hash"], user.get("password_salt") or ""):
+            print("Error: Invalid password")
+            return 1
 
-    if not photos:
-        print("No unencrypted files found for this user")
+        from app.infrastructure.services.encryption import EncryptionService
+
+        # Get or create DEK
+        enc_keys = user_repo.get_encryption_keys(user["id"])
+        if enc_keys:
+            # Decrypt existing DEK
+            kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
+            try:
+                dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
+            except Exception:
+                print("Error: Could not decrypt existing key. Password may be incorrect.")
+                return 1
+        else:
+            # Generate new DEK
+            print("Generating new encryption key for user...")
+            dek = EncryptionService.generate_dek()
+            salt = EncryptionService.generate_salt()
+            kek = EncryptionService.derive_kek(password, salt)
+            encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
+            user_repo.set_encryption_keys(user["id"], encrypted_dek, salt)
+
+        # Get unencrypted photos
+        photos = photo_repo.get_unencrypted_by_user(user["id"])
+
+        if not photos:
+            print("No unencrypted files found for this user")
+            return 0
+
+        print(f"Found {len(photos)} unencrypted files")
+        confirm = input("Proceed with encryption? [y/N]: ")
+        if confirm.lower() != 'y':
+            print("Cancelled")
+            return 0
+
+        encrypted = 0
+        failed = 0
+
+        for photo in photos:
+            try:
+                # Encrypt original
+                orig_path = UPLOADS_DIR / photo["filename"]
+                if orig_path.exists():
+                    with open(orig_path, "rb") as f:
+                        data = f.read()
+                    encrypted_data = EncryptionService.encrypt_file(data, dek)
+                    with open(orig_path, "wb") as f:
+                        f.write(encrypted_data)
+
+                # Encrypt thumbnail
+                thumb_path = THUMBNAILS_DIR / f"{photo['id']}.jpg"
+                if thumb_path.exists():
+                    with open(thumb_path, "rb") as f:
+                        data = f.read()
+                    encrypted_data = EncryptionService.encrypt_file(data, dek)
+                    with open(thumb_path, "wb") as f:
+                        f.write(encrypted_data)
+
+                photo_repo.mark_encrypted(photo["id"])
+                encrypted += 1
+                print(f"  Encrypted: {photo['id']}")
+
+            except Exception as e:
+                failed += 1
+                print(f"  Failed: {photo['id']} - {e}")
+
+        print(f"\nComplete: {encrypted} encrypted, {failed} failed")
         return 0
-
-    print(f"Found {len(photos)} unencrypted files")
-    confirm = input("Proceed with encryption? [y/N]: ")
-    if confirm.lower() != 'y':
-        print("Cancelled")
-        return 0
-
-    encrypted = 0
-    failed = 0
-
-    for photo in photos:
-        try:
-            # Encrypt original
-            orig_path = UPLOADS_DIR / photo["filename"]
-            if orig_path.exists():
-                with open(orig_path, "rb") as f:
-                    data = f.read()
-                encrypted_data = EncryptionService.encrypt_file(data, dek)
-                with open(orig_path, "wb") as f:
-                    f.write(encrypted_data)
-
-            # Encrypt thumbnail
-            thumb_path = THUMBNAILS_DIR / f"{photo['id']}.jpg"
-            if thumb_path.exists():
-                with open(thumb_path, "rb") as f:
-                    data = f.read()
-                encrypted_data = EncryptionService.encrypt_file(data, dek)
-                with open(thumb_path, "wb") as f:
-                    f.write(encrypted_data)
-
-            mark_photo_encrypted(photo["id"])
-            encrypted += 1
-            print(f"  Encrypted: {photo['id']}")
-
-        except Exception as e:
-            failed += 1
-            print(f"  Failed: {photo['id']} - {e}")
-
-    print(f"\nComplete: {encrypted} encrypted, {failed} failed")
-    return 0
+    finally:
+        db.close()
 
 
 # =============================================================================
@@ -322,7 +353,7 @@ def cmd_encrypt_files(args):
 
 def cmd_backup(args):
     """Create a full backup of database and media files."""
-    from app.services.backup import FullBackupService
+    from app.infrastructure.services.backup import FullBackupService
 
     print("Creating full backup...")
     print(f"Backup path: {BACKUP_PATH}")
@@ -348,7 +379,7 @@ def cmd_backup(args):
 
 def cmd_backup_list(args):
     """List all available backups."""
-    from app.services.backup import FullBackupService
+    from app.infrastructure.services.backup import FullBackupService
 
     backups = FullBackupService.list_full_backups()
 
@@ -370,7 +401,7 @@ def cmd_backup_list(args):
 
 def cmd_restore(args):
     """Restore from a backup file."""
-    from app.services.backup import FullBackupService
+    from app.infrastructure.services.backup import FullBackupService
 
     if len(args) < 1:
         print("Error: restore requires <filename>")
@@ -423,7 +454,7 @@ def cmd_restore(args):
 
 def cmd_verify(args):
     """Verify backup integrity."""
-    from app.services.backup import FullBackupService
+    from app.infrastructure.services.backup import FullBackupService
 
     if len(args) < 1:
         print("Error: verify requires <filename>")
@@ -471,62 +502,67 @@ def cmd_recovery_key(args):
 
     username, password = args[0], args[1]
 
-    user = get_user_by_username(username)
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
-
-    # Verify password
-    if not verify_password(password, user["password_hash"], user["password_salt"] or ""):
-        print("Error: Invalid password")
-        return 1
-
-    from app.services.encryption import EncryptionService
-
-    # Get existing DEK
-    enc_keys = get_user_encryption_keys(user["id"])
-    if not enc_keys:
-        print("Error: User has no encryption keys. Encrypt files first.")
-        return 1
-
-    # Decrypt DEK with password
+    db = get_db()
     try:
-        kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
-        dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
-    except Exception:
-        print("Error: Could not decrypt encryption key. Password may be incorrect.")
-        return 1
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
+        if not user:
+            print(f"Error: User '{username}' not found")
+            return 1
 
-    # Check if recovery key already exists
-    existing_recovery = get_recovery_encrypted_dek(user["id"])
-    if existing_recovery:
-        confirm = input("User already has a recovery key. Generate a new one? [y/N]: ")
-        if confirm.lower() != 'y':
-            print("Cancelled")
-            return 0
+        # Verify password
+        if not verify_password(password, user["password_hash"], user.get("password_salt") or ""):
+            print("Error: Invalid password")
+            return 1
 
-    # Generate recovery key and encrypt DEK with it
-    formatted_key, raw_key = EncryptionService.generate_recovery_key()
-    recovery_encrypted_dek = EncryptionService.encrypt_dek_with_recovery_key(dek, raw_key)
+        from app.infrastructure.services.encryption import EncryptionService
 
-    # Store in database
-    set_recovery_encrypted_dek(user["id"], recovery_encrypted_dek)
+        # Get existing DEK
+        enc_keys = user_repo.get_encryption_keys(user["id"])
+        if not enc_keys:
+            print("Error: User has no encryption keys. Encrypt files first.")
+            return 1
 
-    print("\n" + "=" * 60)
-    print("RECOVERY KEY GENERATED")
-    print("=" * 60)
-    print(f"\nUser: {username}")
-    print(f"\nRecovery Key:\n")
-    print(f"  {formatted_key}")
-    print("\n" + "-" * 60)
-    print("IMPORTANT:")
-    print("  - Save this key in a secure location!")
-    print("  - This key is shown ONLY ONCE!")
-    print("  - If you lose both your password AND this key,")
-    print("    your encrypted files will be UNRECOVERABLE!")
-    print("=" * 60 + "\n")
+        # Decrypt DEK with password
+        try:
+            kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
+            dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
+        except Exception:
+            print("Error: Could not decrypt encryption key. Password may be incorrect.")
+            return 1
 
-    return 0
+        # Check if recovery key already exists
+        existing_recovery = user_repo.get_recovery_encrypted_dek(user["id"])
+        if existing_recovery:
+            confirm = input("User already has a recovery key. Generate a new one? [y/N]: ")
+            if confirm.lower() != 'y':
+                print("Cancelled")
+                return 0
+
+        # Generate recovery key and encrypt DEK with it
+        formatted_key, raw_key = EncryptionService.generate_recovery_key()
+        recovery_encrypted_dek = EncryptionService.encrypt_dek_with_recovery_key(dek, raw_key)
+
+        # Store in database
+        user_repo.set_recovery_encrypted_dek(user["id"], recovery_encrypted_dek)
+
+        print("\n" + "=" * 60)
+        print("RECOVERY KEY GENERATED")
+        print("=" * 60)
+        print(f"\nUser: {username}")
+        print(f"\nRecovery Key:\n")
+        print(f"  {formatted_key}")
+        print("\n" + "-" * 60)
+        print("IMPORTANT:")
+        print("  - Save this key in a secure location!")
+        print("  - This key is shown ONLY ONCE!")
+        print("  - If you lose both your password AND this key,")
+        print("    your encrypted files will be UNRECOVERABLE!")
+        print("=" * 60 + "\n")
+
+        return 0
+    finally:
+        db.close()
 
 
 def cmd_recover(args):
@@ -540,52 +576,57 @@ def cmd_recover(args):
     # Join remaining args in case key was split
     recovery_key = ''.join(args[1:])
 
-    user = get_user_by_username(username)
-    if not user:
-        print(f"Error: User '{username}' not found")
-        return 1
-
-    from app.services.encryption import EncryptionService
-
-    # Get recovery-encrypted DEK
-    recovery_encrypted_dek = get_recovery_encrypted_dek(user["id"])
-    if not recovery_encrypted_dek:
-        print("Error: No recovery key configured for this user.")
-        return 1
-
-    # Try to decrypt DEK with recovery key
+    db = get_db()
     try:
-        raw_key = EncryptionService.parse_recovery_key(recovery_key)
-        dek = EncryptionService.decrypt_dek_with_recovery_key(recovery_encrypted_dek, raw_key)
-    except Exception as e:
-        print(f"Error: Invalid recovery key - {e}")
-        return 1
+        user_repo = UserRepository(db)
+        user = user_repo.get_by_username(username)
+        if not user:
+            print(f"Error: User '{username}' not found")
+            return 1
 
-    print("Recovery key valid! DEK recovered successfully.")
+        from app.infrastructure.services.encryption import EncryptionService
 
-    # Ask for new password
-    new_password = input("\nEnter new password: ")
-    if len(new_password) < 4:
-        print("Error: Password must be at least 4 characters")
-        return 1
+        # Get recovery-encrypted DEK
+        recovery_encrypted_dek = user_repo.get_recovery_encrypted_dek(user["id"])
+        if not recovery_encrypted_dek:
+            print("Error: No recovery key configured for this user.")
+            return 1
 
-    confirm_password = input("Confirm new password: ")
-    if new_password != confirm_password:
-        print("Error: Passwords do not match")
-        return 1
+        # Try to decrypt DEK with recovery key
+        try:
+            raw_key = EncryptionService.parse_recovery_key(recovery_key)
+            dek = EncryptionService.decrypt_dek_with_recovery_key(recovery_encrypted_dek, raw_key)
+        except Exception as e:
+            print(f"Error: Invalid recovery key - {e}")
+            return 1
 
-    # Re-encrypt DEK with new password
-    salt = EncryptionService.generate_salt()
-    kek = EncryptionService.derive_kek(new_password, salt)
-    encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
+        print("Recovery key valid! DEK recovered successfully.")
 
-    # Update password and encryption keys
-    update_user_password(user["id"], new_password)
-    set_user_encryption_keys(user["id"], encrypted_dek, salt)
+        # Ask for new password
+        new_password = input("\nEnter new password: ")
+        if len(new_password) < 4:
+            print("Error: Password must be at least 4 characters")
+            return 1
 
-    print(f"\nPassword reset successfully for '{username}'!")
-    print("You can now log in with your new password.")
-    return 0
+        confirm_password = input("Confirm new password: ")
+        if new_password != confirm_password:
+            print("Error: Passwords do not match")
+            return 1
+
+        # Re-encrypt DEK with new password
+        salt = EncryptionService.generate_salt()
+        kek = EncryptionService.derive_kek(new_password, salt)
+        encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
+
+        # Update password and encryption keys
+        user_repo.update_password(user["id"], new_password)
+        user_repo.set_encryption_keys(user["id"], encrypted_dek, salt)
+
+        print(f"\nPassword reset successfully for '{username}'!")
+        print("You can now log in with your new password.")
+        return 0
+    finally:
+        db.close()
 
 
 def main():
