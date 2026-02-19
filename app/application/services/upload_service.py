@@ -290,11 +290,9 @@ class UploadService:
         if len(files) < 2:
             raise HTTPException(status_code=400, detail="Album requires at least 2 items")
         
-        # Create album
+        # Create album - use the repository's connection to avoid lock conflicts
         album_id = str(uuid.uuid4())
-        from ...database import get_db
-        db = get_db()
-        db.execute(
+        self.photo_repo._execute(
             "INSERT INTO albums (id, folder_id, user_id) VALUES (?, ?, ?)",
             (album_id, folder_id, user_id)
         )
@@ -313,8 +311,8 @@ class UploadService:
                 result['album_id'] = album_id
                 uploaded_photos.append(result)
                 
-                # Link photo to album
-                db.execute(
+                # Link photo to album - use repository's connection
+                self.photo_repo._execute(
                     "UPDATE photos SET album_id = ?, position = ? WHERE id = ?",
                     (album_id, position, result['id'])
                 )
@@ -322,7 +320,7 @@ class UploadService:
                 # Skip invalid files
                 continue
         
-        db.commit()
+        self.photo_repo._commit()
         
         return {
             "album_id": album_id,

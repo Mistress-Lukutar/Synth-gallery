@@ -445,6 +445,29 @@ class SafeService:
             return self.safe_repo.is_safe_folder(folder_id)
         return self.safe_repo.get_by_folder_id(folder_id) is not None
     
+    def is_unlocked(self, safe_id: str, user_id: int) -> bool:
+        """Check if safe is unlocked for user.
+        
+        Args:
+            safe_id: Safe ID
+            user_id: User ID
+            
+        Returns:
+            True if safe has an active unlock session
+        """
+        return self.safe_repo.is_unlocked(safe_id, user_id)
+    
+    def get_safe_folder_id(self, folder_id: str) -> Optional[str]:
+        """Get safe_id for a folder if it's in a safe.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            Safe ID or None
+        """
+        return self.safe_repo.get_safe_id_for_folder(folder_id)
+    
     def get_user_safes(self, user_id: int) -> List[dict]:
         """Get all safes for a user.
         
