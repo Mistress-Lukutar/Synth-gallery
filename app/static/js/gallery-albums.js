@@ -71,6 +71,10 @@
             await loadCoverPhotos(album.photos || []);
             
             albumEditorPanel.classList.add('open');
+            
+            // Add panel-open class to lightbox for layout adjustments
+            const lightbox = document.getElementById('lightbox');
+            if (lightbox) lightbox.classList.add('panel-open');
         } catch (err) {
             console.error('Failed to open album editor:', err);
         }
@@ -78,6 +82,9 @@
 
     window.closeAlbumEditor = function() {
         if (albumEditorPanel) albumEditorPanel.classList.remove('open');
+        // Remove panel-open class from lightbox
+        const lightbox = document.getElementById('lightbox');
+        if (lightbox) lightbox.classList.remove('panel-open');
         editingAlbumId = null;
         selectedPhotosForAlbum.clear();
     };

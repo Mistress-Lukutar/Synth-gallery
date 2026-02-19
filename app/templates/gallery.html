@@ -37,38 +37,83 @@
             </div>
         </div>
     </div>
-</div>
-
-<!-- Album Editor Panel -->
-<div id="album-editor-panel" class="album-editor-panel">
-    <div class="album-editor-header">
-        <h3>Edit Album</h3>
-        <button class="album-editor-close" onclick="closeAlbumEditor()">&times;</button>
+    
+    <!-- Tag Editor Panel - inside lightbox for proper positioning -->
+    <div id="tag-editor-panel" class="tag-editor-panel">
+        <div class="tag-editor-header">
+            <h3>Edit Tags</h3>
+            <button class="tag-editor-close" onclick="closeTagEditor()">&times;</button>
+        </div>
+        <div class="tag-editor-body">
+            <!-- AI Analysis button -->
+            <div class="ai-analysis-section">
+                <button id="request-ai-btn" class="btn btn-secondary btn-block" onclick="requestAIAnalysis()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                        <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
+                        <circle cx="12" cy="20" r="2"/>
+                        <path d="M12 18v-2"/>
+                    </svg>
+                    Request AI Analysis
+                </button>
+            </div>
+            <!-- Current tags -->
+            <div class="current-tags-section">
+                <label>Selected:</label>
+                <div id="current-tags-container" class="selected-tags-container">
+                    <span class="no-tags-hint">No tags selected</span>
+                </div>
+            </div>
+            <div class="tag-search-container">
+                <input type="text" id="tag-search" placeholder="Search or add new tag..." autocomplete="off">
+            </div>
+            <div id="tag-presets-container" class="tag-presets"></div>
+            <div id="add-new-tag-section" class="add-new-tag-section hidden">
+                <p>Tag "<span id="new-tag-name"></span>" not found</p>
+                <div class="category-select">
+                    <label>Select category:</label>
+                    <div id="category-buttons" class="category-buttons"></div>
+                </div>
+                <button id="add-new-tag-btn" class="btn btn-small" disabled onclick="addNewTag()">Add to Library</button>
+            </div>
+        </div>
+        <div class="tag-editor-footer">
+            <button class="btn btn-secondary" onclick="closeTagEditor()">Cancel</button>
+            <button id="save-tags-btn" class="btn" onclick="saveTagChanges()">Save Changes</button>
+        </div>
     </div>
-    <div class="album-editor-body">
-        <!-- Cover photo selection -->
-        <div class="album-editor-section">
-            <label>Cover Photo</label>
-            <div id="album-cover-grid" class="album-cover-grid"></div>
+    
+    <!-- Album Editor Panel - inside lightbox for proper positioning -->
+    <div id="album-editor-panel" class="album-editor-panel">
+        <div class="album-editor-header">
+            <h3>Edit Album</h3>
+            <button class="album-editor-close" onclick="closeAlbumEditor()">&times;</button>
         </div>
-        <!-- Current photos (draggable) -->
-        <div class="album-editor-section">
-            <label>Photos <span id="album-photo-count">(0)</span></label>
-            <div id="album-photos-list" class="album-photos-list"></div>
+        <div class="album-editor-body">
+            <!-- Cover photo selection -->
+            <div class="album-editor-section">
+                <label>Cover Photo</label>
+                <div id="album-cover-grid" class="album-cover-grid"></div>
+            </div>
+            <!-- Current photos (draggable) -->
+            <div class="album-editor-section">
+                <label>Photos <span id="album-photo-count">(0)</span></label>
+                <div id="album-photos-list" class="album-photos-list"></div>
+            </div>
+            <!-- Add photos button -->
+            <div class="album-editor-section">
+                <button id="open-add-photos-btn" class="btn btn-secondary btn-block" onclick="openAddPhotosModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Add Photos
+                </button>
+            </div>
         </div>
-        <!-- Add photos button -->
-        <div class="album-editor-section">
-            <button id="open-add-photos-btn" class="btn btn-secondary btn-block" onclick="openAddPhotosModal()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Add Photos
-            </button>
+        <div class="album-editor-footer">
+            <button class="btn btn-secondary" onclick="closeAlbumEditor()">Close</button>
         </div>
-    </div>
-    <div class="album-editor-footer">
-        <button class="btn btn-secondary" onclick="closeAlbumEditor()">Close</button>
     </div>
 </div>
 
@@ -87,51 +132,6 @@
             <button class="btn btn-secondary" onclick="closeAddPhotosModal()">Cancel</button>
             <button class="btn" id="confirm-add-btn" onclick="confirmAddPhotos()" disabled>Add Selected</button>
         </div>
-    </div>
-</div>
-
-<!-- Tag Editor Panel -->
-<div id="tag-editor-panel" class="tag-editor-panel">
-    <div class="tag-editor-header">
-        <h3>Edit Tags</h3>
-        <button class="tag-editor-close" onclick="closeTagEditor()">&times;</button>
-    </div>
-    <div class="tag-editor-body">
-        <!-- AI Analysis button -->
-        <div class="ai-analysis-section">
-            <button id="request-ai-btn" class="btn btn-secondary btn-block" onclick="requestAIAnalysis()">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                    <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
-                    <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
-                    <circle cx="12" cy="20" r="2"/>
-                    <path d="M12 18v-2"/>
-                </svg>
-                Request AI Analysis
-            </button>
-        </div>
-        <!-- Current tags -->
-        <div class="current-tags-section">
-            <label>Selected:</label>
-            <div id="current-tags-container" class="selected-tags-container">
-                <span class="no-tags-hint">No tags selected</span>
-            </div>
-        </div>
-        <div class="tag-search-container">
-            <input type="text" id="tag-search" placeholder="Search or add new tag..." autocomplete="off">
-        </div>
-        <div id="tag-presets-container" class="tag-presets"></div>
-        <div id="add-new-tag-section" class="add-new-tag-section hidden">
-            <p>Tag "<span id="new-tag-name"></span>" not found</p>
-            <div class="category-select">
-                <label>Select category:</label>
-                <div id="category-buttons" class="category-buttons"></div>
-            </div>
-            <button id="add-new-tag-btn" class="btn btn-small" disabled onclick="addNewTag()">Add to Library</button>
-        </div>
-    </div>
-    <div class="tag-editor-footer">
-        <button class="btn btn-secondary" onclick="closeTagEditor()">Cancel</button>
-        <button id="save-tags-btn" class="btn" onclick="saveTagChanges()">Save Changes</button>
     </div>
 </div>
 
