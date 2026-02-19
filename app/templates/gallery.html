@@ -291,113 +291,24 @@
 </div>
 {% endif %}
 
-<!-- Subfolders section (separate from gallery grid) -->
-{% if subfolders %}
-<div class="subfolders-section">
-    <div class="subfolders-grid">
-        {% for folder in subfolders %}
-        <a href="{{ base_url }}/?folder_id={{ folder.id }}" class="subfolder-tile" data-folder-id="{{ folder.id }}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('{{ folder.id }}'); return false;">
-            <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            </svg>
-            <span class="subfolder-name">{{ folder.name }}</span>
-            <span class="subfolder-count">{{ folder.photo_count }}</span>
-        </a>
-        {% endfor %}
-    </div>
-</div>
-{% endif %}
+<!-- Subfolders section (SPA rendered) -->
+<div class="subfolders-section" id="subfolders-section" style="display: none;"></div>
 
+<!-- Gallery grid (SPA rendered) -->
 <div class="gallery" id="gallery" style="opacity: 0; transition: opacity 0.15s;">
-    {% if items %}
-        {% for item in items %}
-            {% if item.type == 'folder' %}
-            <!-- Skip folders - they are displayed above -->
-            {% elif item.type == 'album' %}
-            <div class="gallery-item album-item" data-album-id="{{ item.id }}" data-item-type="album"
-                 {% if item.cover_photo_id %}data-cover-photo-id="{{ item.cover_photo_id }}"{% endif %}
-                 {% if item.thumb_width and item.thumb_height %}
-                 data-thumb-width="{{ item.thumb_width }}" data-thumb-height="{{ item.thumb_height }}"
-                 {% endif %}>
-                <div class="gallery-link" onclick="openAlbum('{{ item.id }}')"
-                     {% if item.thumb_width and item.thumb_height %}
-                     style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
-                     {% endif %}>
-                    {% if item.cover_photo_id %}
-                    <div class="gallery-placeholder"></div>
-                    <img src="{{ base_url }}/thumbnails/{{ item.cover_photo_id }}.jpg"
-                         alt="{{ item.name }}"
-                         loading="lazy"
-                         onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                         style="opacity: 0;">
-                    {% else %}
-                    <div class="album-placeholder">
-                        <span>Empty Album</span>
-                    </div>
-                    {% endif %}
-                    <div class="album-badge">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
-                            <rect x="3" y="3" width="7" height="7" rx="1"/>
-                            <rect x="14" y="3" width="7" height="7" rx="1"/>
-                            <rect x="3" y="14" width="7" height="7" rx="1"/>
-                            <rect x="14" y="14" width="7" height="7" rx="1"/>
-                        </svg>
-                        <span>{{ item.photo_count }}</span>
-                    </div>
-                </div>
-                <div class="select-indicator" title="Select">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                </div>
-            </div>
-            {% else %}
-            <div class="gallery-item" data-photo-id="{{ item.id }}" data-item-type="photo" data-media-type="{{ item.media_type or 'image' }}"
-                 {% if item.thumb_width and item.thumb_height %}
-                 data-thumb-width="{{ item.thumb_width }}" data-thumb-height="{{ item.thumb_height }}"
-                 {% endif %}
-                 {% if item.safe_id %}data-safe-id="{{ item.safe_id }}"{% endif %}>
-                <div class="gallery-link" onclick="openPhoto('{{ item.id }}')"
-                     {% if item.thumb_width and item.thumb_height %}
-                     style="aspect-ratio: {{ item.thumb_width }} / {{ item.thumb_height }};"
-                     {% endif %}>
-                    <div class="gallery-placeholder"></div>
-                    {% if item.safe_id %}
-                    <img data-safe-thumbnail="{{ item.id }}"
-                         data-safe-id="{{ item.safe_id }}"
-                         alt="{{ item.original_name }}"
-                         loading="lazy"
-                         style="opacity: 0;">
-                    {% else %}
-                    <img src="{{ base_url }}/thumbnails/{{ item.id }}.jpg"
-                         alt="{{ item.original_name }}"
-                         loading="lazy"
-                         onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                         style="opacity: 0;">
-                    {% endif %}
-                    {% if item.media_type == 'video' %}
-                    <div class="video-badge">
-                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                        </svg>
-                    </div>
-                    {% endif %}
-                </div>
-                <div class="select-indicator" title="Select">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                </div>
-            </div>
-            {% endif %}
-        {% endfor %}
-    {% else %}
-        <div class="empty-state">
-            <p>No photos yet</p>
-            <p>Click "Upload" to add your first photos</p>
-        </div>
-    {% endif %}
+    <!-- Content loaded via API -->
 </div>
+
+<!-- Initial load script -->
+<script>
+(function() {
+    const initialFolderId = '{{ initial_folder_id }}';
+    if (initialFolderId) {
+        // Load initial folder content via SPA (no history entry for initial load)
+        navigateToFolder(initialFolderId, false);
+    }
+})();
+</script>
 {% endblock %}
 
 {% block scripts %}
