@@ -6,6 +6,7 @@
 (function() {
     let folderTree = [];
     let collapsedFolders = new Set();
+    let userSafes = [];
 
     // Get sidebar elements (some may be null if DOM not ready)
     const sidebar = document.getElementById('sidebar');
@@ -50,22 +51,49 @@
             return;
         }
 
-        // Use cache
+        // Load collapsed state
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/folders/user/collapsed`);
+            const data = await resp.json();
+            collapsedFolders = new Set(data.collapsed_folders || []);
+        } catch (err) {
+            console.log('[sidebar.js] Could not load collapsed state');
+        }
+
+        // Use cache for immediate display
         const cached = sessionStorage.getItem('folderTreeCache');
+        let hasCache = false;
         if (cached) {
             try {
                 folderTree = JSON.parse(cached);
+                hasCache = true;
                 renderFolderTree();
             } catch (e) {}
         }
 
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/folders`);
-            const freshData = await resp.json();
+            // Load folders and safes in parallel
+            const [foldersResp, safesResp] = await Promise.all([
+                fetch(`${getBaseUrl()}/api/folders`),
+                fetch(`${getBaseUrl()}/api/safes`).catch(() => null)
+            ]);
+            
+            const freshData = await foldersResp.json();
             sessionStorage.setItem('folderTreeCache', JSON.stringify(freshData));
 
-            if (JSON.stringify(freshData) !== JSON.stringify(folderTree)) {
-                folderTree = freshData;
+            // Parse safes response
+            if (safesResp && safesResp.ok) {
+                const safesData = await safesResp.json();
+                userSafes = safesData.safes || [];
+            } else {
+                userSafes = [];
+            }
+
+            const dataChanged = JSON.stringify(freshData) !== JSON.stringify(folderTree);
+            folderTree = freshData;
+            
+            // Render if: no cache, or data changed, or no safes rendered yet
+            if (!hasCache || dataChanged || userSafes.length > 0) {
                 renderFolderTree();
             }
         } catch (err) {
@@ -104,7 +132,10 @@
 
         const myFolders = folderTree.filter(f => f.permission === 'owner');
         
-        let html = '<div class="folder-section">';
+        let html = '';
+        
+        // My Folders section
+        html += '<div class="folder-section">';
         html += '<div class="folder-section-header">My Folders</div>';
         
         if (myFolders.length > 0) {
@@ -126,6 +157,57 @@
             </div>
         `;
         html += '</div>';
+        
+        // Safes section (always show, even if empty)
+        html += '<div class="folder-section">';
+        html += '<div class="folder-section-header">Safes</div>';
+        
+        if (userSafes.length > 0) {
+            userSafes.forEach(safe => {
+                const isUnlocked = safe.is_unlocked;
+                html += `
+                    <div class="folder-item-wrapper">
+                        <span class="folder-expand-placeholder"></span>
+                        <div class="folder-item safe-item ${isUnlocked ? 'unlocked' : 'locked'}"
+                             data-safe-id="${safe.id}"
+                             onclick="${isUnlocked ? `navigateToSafe('${safe.id}')` : `openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}')`}">
+                            <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            </svg>
+                            <span class="folder-name">${escapeHtml(safe.name)}</span>
+                            <span class="folder-count">${safe.photo_count || 0}</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        // Create safe button (always show)
+        html += `
+            <div class="folder-item-wrapper">
+                <span class="folder-expand-placeholder"></span>
+                <div class="folder-item add-folder-item" onclick="openCreateSafe()">
+                    <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="5" y="11" width="14" height="10" rx="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        <line x1="12" y1="14" x2="12" y2="17"/>
+                        <line x1="9" y1="15.5" x2="15" y2="15.5"/>
+                    </svg>
+                    <span class="folder-name">create safe</span>
+                </div>
+            </div>
+        `;
+        html += '</div>';
+        
+        // Shared with me section
+        const sharedFolders = folderTree.filter(f => f.permission !== 'owner');
+        if (sharedFolders.length > 0) {
+            html += '<div class="folder-section">';
+            html += '<div class="folder-section-header">Shared with me</div>';
+            html += buildTreeHTML(null, 0, sharedFolders);
+            html += '</div>';
+        }
 
         folderTreeContainer.innerHTML = html;
     }
@@ -142,6 +224,22 @@
             const isCollapsed = collapsedFolders.has(folder.id);
             const photoCount = folder.photo_count || 0;
             
+            // Determine folder class based on permission/share status
+            let folderClass = '';
+            if (folder.permission === 'owner') {
+                if (folder.share_status === 'has_editors') {
+                    folderClass = 'shared-editors';
+                } else if (folder.share_status === 'has_viewers') {
+                    folderClass = 'shared-viewers';
+                } else {
+                    folderClass = 'private';
+                }
+            } else if (folder.permission === 'editor') {
+                folderClass = 'incoming-editor';
+            } else {
+                folderClass = 'incoming-viewer';
+            }
+            
             const expandArrow = hasChildren ? `
                 <button class="folder-expand-btn ${isCollapsed ? 'collapsed' : ''}"
                         onclick="toggleFolderCollapse('${folder.id}', event)">
@@ -154,7 +252,7 @@
             return `
                 <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
                     ${expandArrow}
-                    <div class="folder-item ${isActive ? 'active' : ''}"
+                    <div class="folder-item ${folderClass} ${isActive ? 'active' : ''}"
                          data-folder-id="${folder.id}"
                          onclick="navigateToFolder('${folder.id}', true, event)">
                         <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -212,10 +310,16 @@
     // For manual testing via console
     window.renderFolderTree = renderFolderTree;
 
+    // Getter for userSafes (returns current value, not snapshot)
+    Object.defineProperty(window, 'userSafes', {
+        get: function() { return userSafes; }
+    });
+
     // Export
     window.folderTree = folderTree;
     window.loadFolderTree = loadFolderTree;
     window.toggleFolderCollapse = toggleFolderCollapse;
+    window.openCreateFolder = openCreateFolder;
 
     console.log('[sidebar.js] Loaded');
 })();
