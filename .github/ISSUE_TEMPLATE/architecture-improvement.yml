@@ -1,5 +1,5 @@
 name: Architecture Improvement
- description: Propose a structural change or refactoring
+description: Propose a structural change or refactoring
 title: "[ARCH] "
 labels: ["architecture", "refactoring"]
 body:

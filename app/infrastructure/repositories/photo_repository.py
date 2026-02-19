@@ -615,6 +615,23 @@ class PhotoRepository(Repository):
             "unencrypted": total - encrypted
         }
     
+    def get_unencrypted_by_user(self, user_id: int) -> list[dict]:
+        """Get all unencrypted photos for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of unencrypted photo dicts
+        """
+        cursor = self._execute(
+            """SELECT id, filename 
+               FROM photos 
+               WHERE user_id = ? AND is_encrypted = 0""",
+            (user_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    
     def get_untagged(self, limit: int = 10) -> list[dict]:
         """Get photos without tags (for AI processing).
         
