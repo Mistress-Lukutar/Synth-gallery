@@ -160,29 +160,48 @@
         items.forEach(item => {
             if (item.type === 'album') {
                 const album = item;
-                const coverId = album.cover_photo_id;
-                const safeIdAttr = album.safe_id ? `data-safe-id="${album.safe_id}"` : '';
+                const coverId = album.cover_photo_id || album.effective_cover_photo_id;
+                const safeId = album.safe_id;
+                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const hasDims = album.thumb_width && album.thumb_height;
                 const dimsAttr = hasDims ? `data-thumb-width="${album.thumb_width}" data-thumb-height="${album.thumb_height}"` : '';
                 const aspectStyle = hasDims ? `style="aspect-ratio: ${album.thumb_width} / ${album.thumb_height};"` : '';
+                
+                // Handle safe thumbnails like photos
+                let imgHtml;
+                if (safeId && coverId) {
+                    imgHtml = `
+                        <div class="gallery-placeholder"></div>
+                        <img data-safe-thumbnail="${coverId}"
+                             data-safe-id="${safeId}"
+                             alt="${escapeHtml(album.name)}"
+                             loading="lazy"
+                             style="opacity: 0;">
+                    `;
+                } else if (coverId) {
+                    imgHtml = `
+                        <div class="gallery-placeholder"></div>
+                        <img src="${getBaseUrl()}/thumbnails/${coverId}.jpg" 
+                             alt="${escapeHtml(album.name)}"
+                             loading="lazy"
+                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                             style="opacity: 0;">
+                    `;
+                } else {
+                    imgHtml = `
+                        <div class="album-placeholder">
+                            <span>Empty Album</span>
+                        </div>
+                    `;
+                }
+                
                 html += `
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
                          ${safeIdAttr}>
                         <div class="gallery-link" onclick="openAlbum('${album.id}')" ${aspectStyle}>
-                            ${coverId ? `
-                                <div class="gallery-placeholder"></div>
-                                <img src="${getBaseUrl()}/thumbnails/${coverId}.jpg" 
-                                     alt="${escapeHtml(album.name)}"
-                                     loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
-                                     style="opacity: 0;">
-                            ` : `
-                                <div class="album-placeholder">
-                                    <span>Empty Album</span>
-                                </div>
-                            `}
+                            ${imgHtml}
                             <div class="album-badge">
                                 <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
                                     <rect x="3" y="3" width="7" height="7" rx="1"/>

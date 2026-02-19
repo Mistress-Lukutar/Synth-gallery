@@ -147,7 +147,6 @@
         const tagsEl = document.getElementById('lightbox-tags');
         const albumIndicator = document.getElementById('lightbox-album-indicator');
         const albumBars = document.getElementById('lightbox-album-bars');
-        const albumText = document.getElementById('lightbox-album-text');
         const editAlbumBtn = document.getElementById('lightbox-edit-album');
         const editTagsBtn = document.getElementById('lightbox-edit-tags');
 
@@ -195,7 +194,6 @@
             // Album indicator - show if in album context
             if (albumContext) {
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
-                if (albumText) albumText.textContent = `Album (${albumContext.index + 1}/${albumContext.photos.length})`;
                 if (albumBars) {
                     albumBars.innerHTML = albumContext.photos.map((p, i) => 
                         `<div class="album-bar ${i === albumContext.index ? 'active' : ''}" onclick="window.loadPhoto('${p.id}'); window.setAlbumContext(albumContext.photos, ${i});"></div>`
@@ -205,7 +203,6 @@
             } else if (photo.album) {
                 // Photo is part of an album
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
-                if (albumText) albumText.textContent = `${photo.album.name} (${photo.album.current}/${photo.album.total})`;
                 if (albumBars) {
                     albumBars.innerHTML = photo.album.photo_ids.map((id, i) => 
                         `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}" onclick="window.loadPhoto('${id}')"></div>`
@@ -232,10 +229,8 @@
     };
 
     window.updateAlbumIndicator = function(index, total) {
-        const albumText = document.getElementById('lightbox-album-text');
         const albumBars = document.getElementById('lightbox-album-bars');
         
-        if (albumText) albumText.textContent = `Album (${index + 1}/${total})`;
         if (albumBars && albumContext) {
             albumBars.innerHTML = albumContext.photos.map((p, i) => 
                 `<div class="album-bar ${i === index ? 'active' : ''}" onclick="window.loadPhoto('${p.id}'); window.setAlbumContext(albumContext.photos, ${i});"></div>`
