@@ -32,31 +32,31 @@ Instead, contact us privately:
 ### Encryption Algorithms
 
 #### Server-Side Encryption (Standard Media)
-| Component | Algorithm | Details |
-|-----------|-----------|---------|
-| File Encryption | **AES-256-GCM** | Authenticated encryption (AEAD) |
-| Key Encryption Key (KEK) | **PBKDF2-HMAC-SHA256** | 600,000 iterations (OWASP recommendation) |
-| Data Encryption Key (DEK) | **256-bit random** | Generated via `os.urandom(32)` |
-| Salt | **256-bit** | 32 bytes per-user |
-| Nonce/IV | **96-bit** | 12 bytes, unique per encryption |
-| Password Hashing | **bcrypt** | Adaptive hashing with automatic salt |
-| Recovery Keys | **256-bit** | Base64url-encoded, 43 characters |
+| Component                 | Algorithm              | Details                                   |
+|---------------------------|------------------------|-------------------------------------------|
+| File Encryption           | **AES-256-GCM**        | Authenticated encryption (AEAD)           |
+| Key Encryption Key (KEK)  | **PBKDF2-HMAC-SHA256** | 600,000 iterations (OWASP recommendation) |
+| Data Encryption Key (DEK) | **256-bit random**     | Generated via `os.urandom(32)`            |
+| Salt                      | **256-bit**            | 32 bytes per-user                         |
+| Nonce/IV                  | **96-bit**             | 12 bytes, unique per encryption           |
+| Password Hashing          | **bcrypt**             | Adaptive hashing with automatic salt      |
+| Recovery Keys             | **256-bit**            | Base64url-encoded, 43 characters          |
 
 #### Client-Side Encryption (Safes/Vaults)
-| Component | Algorithm | Details |
-|-----------|-----------|---------|
-| File Encryption | **AES-256-GCM** | Via Web Crypto API |
-| Key Derivation | **PBKDF2-HMAC-SHA256** | 600,000 iterations |
-| Safe DEK | **AES-256-GCM** | Generated via `crypto.subtle.generateKey` |
-| Session Key | **256-bit random** | Ephemeral, memory-only storage |
+| Component       | Algorithm              | Details                                   |
+|-----------------|------------------------|-------------------------------------------|
+| File Encryption | **AES-256-GCM**        | Via Web Crypto API                        |
+| Key Derivation  | **PBKDF2-HMAC-SHA256** | 600,000 iterations                        |
+| Safe DEK        | **AES-256-GCM**        | Generated via `crypto.subtle.generateKey` |
+| Session Key     | **256-bit random**     | Ephemeral, memory-only storage            |
 
 #### WebAuthn / FIDO2 Authentication
-| Component | Algorithm | Details |
-|-----------|-----------|---------|
-| Signature Algorithms | **ECDSA with SHA-256** | COSE Algorithm -7 |
-| | **RSASSA-PKCS1-v1_5 with SHA-256** | COSE Algorithm -257 |
-| Challenge Storage | **Ephemeral** | 5-minute expiration |
-| User Verification | **Preferred** | Supports PIN/biometrics on hardware keys |
+| Component            | Algorithm                          | Details                                  |
+|----------------------|------------------------------------|------------------------------------------|
+| Signature Algorithms | **ECDSA with SHA-256**             | COSE Algorithm -7                        |
+|                      | **RSASSA-PKCS1-v1_5 with SHA-256** | COSE Algorithm -257                      |
+| Challenge Storage    | **Ephemeral**                      | 5-minute expiration                      |
+| User Verification    | **Preferred**                      | Supports PIN/biometrics on hardware keys |
 
 ### Session Security
 
@@ -108,14 +108,14 @@ DEK Cache TTL: Matches session (7 days)
 
 ### Storage Security
 
-| Data Type | Storage | Protection |
-|-----------|---------|------------|
-| Password hashes | SQLite | bcrypt hashed |
-| Encrypted DEKs | SQLite | AES-256-GCM encrypted with KEK |
-| File content | Filesystem | AES-256-GCM encrypted |
-| Session tokens | SQLite | Random tokens, 7-day expiry |
-| Safe DEKs | Memory only | Never persisted server-side |
-| Thumbnails | Filesystem | Regenerated from encrypted content |
+| Data Type       | Storage     | Protection                         |
+|-----------------|-------------|------------------------------------|
+| Password hashes | SQLite      | bcrypt hashed                      |
+| Encrypted DEKs  | SQLite      | AES-256-GCM encrypted with KEK     |
+| File content    | Filesystem  | AES-256-GCM encrypted              |
+| Session tokens  | SQLite      | Random tokens, 7-day expiry        |
+| Safe DEKs       | Memory only | Never persisted server-side        |
+| Thumbnails      | Filesystem  | Regenerated from encrypted content |
 
 ### Backup Security
 

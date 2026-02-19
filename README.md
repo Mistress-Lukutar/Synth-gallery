@@ -130,14 +130,14 @@ BACKUP_ROTATION_COUNT=5        # number of backups to keep
 
 ## Security Model
 
-| Layer | Protection |
-|-------|------------|
-| Files at rest | AES-256-GCM per-user encryption |
-| Safes (Vaults) | Additional AES-256-GCM with independent keys |
-| Password | bcrypt + PBKDF2-SHA256 key derivation |
-| Sessions | HTTP-only cookies, 7-day expiry |
-| API | CSRF tokens, API key auth for external services |
-| Login | Password or WebAuthn hardware keys |
+| Layer          | Protection                                      |
+|----------------|-------------------------------------------------|
+| Files at rest  | AES-256-GCM per-user encryption                 |
+| Safes (Vaults) | Additional AES-256-GCM with independent keys    |
+| Password       | bcrypt + PBKDF2-SHA256 key derivation           |
+| Sessions       | HTTP-only cookies, 7-day expiry                 |
+| API            | CSRF tokens, API key auth for external services |
+| Login          | Password or WebAuthn hardware keys              |
 
 ## Tech Stack
 

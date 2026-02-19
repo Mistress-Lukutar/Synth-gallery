@@ -330,3 +330,103 @@ class FolderRepository(Repository):
             f"DELETE FROM folders WHERE id IN ({placeholders})",
             tuple(folder_ids)
         )
+    
+    # =========================================================================
+    # Folder Key Operations (Envelope Encryption)
+    # =========================================================================
+    
+    def get_folder_key(self, folder_id: str) -> dict | None:
+        """Get folder encryption key data.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            Dict with encrypted_folder_dek, created_by or None
+        """
+        cursor = self._execute(
+            """SELECT folder_id, encrypted_folder_dek, created_by, created_at
+               FROM folder_keys WHERE folder_id = ?""",
+            (folder_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "folder_id": row["folder_id"],
+                "encrypted_folder_dek": row["encrypted_folder_dek"],
+                "created_by": row["created_by"],
+                "created_at": row["created_at"]
+            }
+        return None
+    
+    def create_folder_key(
+        self,
+        folder_id: str,
+        created_by: int,
+        encrypted_folder_dek_b64: str
+    ) -> bool:
+        """Create folder encryption key.
+        
+        Args:
+            folder_id: Folder ID
+            created_by: User ID creating the key
+            encrypted_folder_dek_b64: Base64-encoded JSON with encrypted DEK per user
+            
+        Returns:
+            True if successful
+        """
+        try:
+            import base64
+            # Decode the base64 to get the JSON string
+            encrypted_folder_dek = base64.b64decode(encrypted_folder_dek_b64).decode('utf-8')
+            
+            self._execute(
+                """INSERT INTO folder_keys (folder_id, encrypted_folder_dek, created_by)
+                   VALUES (?, ?, ?)""",
+                (folder_id, encrypted_folder_dek, created_by)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def update_folder_key(self, folder_id: str, encrypted_folder_dek_json: str) -> bool:
+        """Update folder encryption key.
+        
+        Args:
+            folder_id: Folder ID
+            encrypted_folder_dek_json: JSON string with encrypted DEK map
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                """UPDATE folder_keys 
+                   SET encrypted_folder_dek = ?
+                   WHERE folder_id = ?""",
+                (encrypted_folder_dek_json, folder_id)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def delete_folder_key(self, folder_id: str) -> bool:
+        """Delete folder encryption key.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                "DELETE FROM folder_keys WHERE folder_id = ?",
+                (folder_id,)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False

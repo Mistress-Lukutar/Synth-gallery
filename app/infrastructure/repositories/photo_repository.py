@@ -651,3 +651,288 @@ class PhotoRepository(Repository):
             (limit,)
         )
         return [dict(row) for row in cursor.fetchall()]
+    
+    # =========================================================================
+    # Envelope Encryption Operations
+    # =========================================================================
+    
+    def get_photo_key(self, photo_id: str) -> dict | None:
+        """Get photo encryption key data.
+        
+        Args:
+            photo_id: Photo ID
+            
+        Returns:
+            Dict with encrypted_ck, thumbnail_encrypted_ck, shared_ck_map or None
+        """
+        cursor = self._execute(
+            """SELECT encrypted_ck, thumbnail_encrypted_ck, shared_ck_map
+               FROM photo_keys WHERE photo_id = ?""",
+            (photo_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return {
+                "encrypted_ck": row["encrypted_ck"],
+                "thumbnail_encrypted_ck": row["thumbnail_encrypted_ck"],
+                "shared_ck_map": row["shared_ck_map"]
+            }
+        return None
+    
+    def create_photo_key(
+        self,
+        photo_id: str,
+        encrypted_ck: bytes,
+        thumbnail_encrypted_ck: bytes | None = None
+    ) -> bool:
+        """Create photo encryption key.
+        
+        Args:
+            photo_id: Photo ID
+            encrypted_ck: Encrypted content key
+            thumbnail_encrypted_ck: Encrypted thumbnail content key (optional)
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                """INSERT OR REPLACE INTO photo_keys 
+                   (photo_id, encrypted_ck, thumbnail_encrypted_ck, updated_at)
+                   VALUES (?, ?, ?, datetime('now'))""",
+                (photo_id, encrypted_ck, thumbnail_encrypted_ck)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def get_storage_mode(self, photo_id: str) -> str:
+        """Get storage mode for a photo.
+        
+        Args:
+            photo_id: Photo ID
+            
+        Returns:
+            Storage mode ('legacy' or 'envelope')
+        """
+        cursor = self._execute(
+            "SELECT storage_mode FROM photos WHERE id = ?",
+            (photo_id,)
+        )
+        row = cursor.fetchone()
+        return row["storage_mode"] if row else "legacy"
+    
+    def set_storage_mode(self, photo_id: str, mode: str) -> bool:
+        """Set storage mode for a photo.
+        
+        Args:
+            photo_id: Photo ID
+            mode: Storage mode ('legacy' or 'envelope')
+            
+        Returns:
+            True if successful
+        """
+        try:
+            cursor = self._execute(
+                "UPDATE photos SET storage_mode = ? WHERE id = ?",
+                (mode, photo_id)
+            )
+            self._commit()
+            return cursor.rowcount > 0
+        except Exception:
+            return False
+    
+    def get_photo_shared_key(self, photo_id: str, user_id: int) -> bytes | None:
+        """Get shared key for a specific user.
+        
+        Args:
+            photo_id: Photo ID
+            user_id: User ID
+            
+        Returns:
+            Shared encrypted CK bytes or None
+        """
+        cursor = self._execute(
+            "SELECT shared_ck_map FROM photo_keys WHERE photo_id = ?",
+            (photo_id,)
+        )
+        row = cursor.fetchone()
+        if row and row["shared_ck_map"]:
+            import json
+            try:
+                shared_map = json.loads(row["shared_ck_map"])
+                key_hex = shared_map.get(str(user_id))
+                if key_hex:
+                    return bytes.fromhex(key_hex)
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return None
+    
+    def set_photo_shared_key(
+        self,
+        photo_id: str,
+        user_id: int,
+        encrypted_ck: bytes
+    ) -> bool:
+        """Set shared key for a specific user.
+        
+        Args:
+            photo_id: Photo ID
+            user_id: User ID
+            encrypted_ck: Encrypted CK for the user
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Get current shared map
+            cursor = self._execute(
+                "SELECT shared_ck_map FROM photo_keys WHERE photo_id = ?",
+                (photo_id,)
+            )
+            row = cursor.fetchone()
+            
+            import json
+            if row and row["shared_ck_map"]:
+                shared_map = json.loads(row["shared_ck_map"])
+            else:
+                shared_map = {}
+            
+            # Add/update the shared key
+            shared_map[str(user_id)] = encrypted_ck.hex()
+            
+            self._execute(
+                """UPDATE photo_keys 
+                   SET shared_ck_map = ?, updated_at = datetime('now')
+                   WHERE photo_id = ?""",
+                (json.dumps(shared_map), photo_id)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def remove_photo_shared_key(self, photo_id: str, user_id: int) -> bool:
+        """Remove shared key for a specific user.
+        
+        Args:
+            photo_id: Photo ID
+            user_id: User ID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Get current shared map
+            cursor = self._execute(
+                "SELECT shared_ck_map FROM photo_keys WHERE photo_id = ?",
+                (photo_id,)
+            )
+            row = cursor.fetchone()
+            
+            if not row or not row["shared_ck_map"]:
+                return False
+            
+            import json
+            shared_map = json.loads(row["shared_ck_map"])
+            
+            # Remove the user
+            if str(user_id) in shared_map:
+                del shared_map[str(user_id)]
+                
+                self._execute(
+                    """UPDATE photo_keys 
+                       SET shared_ck_map = ?, updated_at = datetime('now')
+                       WHERE photo_id = ?""",
+                    (json.dumps(shared_map), photo_id)
+                )
+                self._commit()
+                return True
+            return False
+        except Exception:
+            return False
+    
+    def get_photo_shared_users(self, photo_id: str) -> list[int]:
+        """Get list of user IDs who have shared access to this photo.
+        
+        Args:
+            photo_id: Photo ID
+            
+        Returns:
+            List of user IDs
+        """
+        cursor = self._execute(
+            "SELECT shared_ck_map FROM photo_keys WHERE photo_id = ?",
+            (photo_id,)
+        )
+        row = cursor.fetchone()
+        
+        if row and row["shared_ck_map"]:
+            import json
+            try:
+                shared_map = json.loads(row["shared_ck_map"])
+                return [int(uid) for uid in shared_map.keys()]
+            except (json.JSONDecodeError, ValueError):
+                pass
+        return []
+    
+    def get_migration_status(self, user_id: int) -> dict:
+        """Get migration status for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Migration status dict
+        """
+        # Count total photos
+        cursor = self._execute(
+            "SELECT COUNT(*) as count FROM photos WHERE user_id = ?",
+            (user_id,)
+        )
+        total = cursor.fetchone()["count"]
+        
+        # Count envelope photos
+        cursor = self._execute(
+            """SELECT COUNT(*) as count FROM photos 
+               WHERE user_id = ? AND storage_mode = 'envelope'""",
+            (user_id,)
+        )
+        envelope = cursor.fetchone()["count"]
+        
+        # Count legacy encrypted photos
+        cursor = self._execute(
+            """SELECT COUNT(*) as count FROM photos 
+               WHERE user_id = ? AND storage_mode = 'legacy' AND is_encrypted = 1""",
+            (user_id,)
+        )
+        legacy_encrypted = cursor.fetchone()["count"]
+        
+        return {
+            "total_photos": total,
+            "envelope_photos": envelope,
+            "legacy_encrypted_photos": legacy_encrypted,
+            "unencrypted_photos": total - envelope - legacy_encrypted,
+            "needs_migration": legacy_encrypted > 0
+        }
+    
+    def get_photos_needing_migration(self, user_id: int) -> list[dict]:
+        """Get photos that need migration to envelope encryption.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of photo dicts needing migration
+        """
+        cursor = self._execute(
+            """SELECT id, filename, original_name 
+               FROM photos 
+               WHERE user_id = ? 
+                 AND storage_mode = 'legacy' 
+                 AND is_encrypted = 1
+               ORDER BY uploaded_at DESC""",
+            (user_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
