@@ -266,15 +266,6 @@
         }).join('');
     }
 
-    // Open create folder modal
-    window.openCreateFolder = function() {
-        const modal = document.getElementById('folder-modal');
-        const nameInput = document.getElementById('folder-name-input');
-        
-        if (nameInput) nameInput.value = '';
-        if (modal) modal.classList.remove('hidden');
-    };
-
     // Init sidebar toggle
     if (sidebarToggle) {
         sidebarToggle.onclick = () => {
@@ -315,11 +306,12 @@
         get: function() { return userSafes; }
     });
 
-    // Export
-    window.folderTree = folderTree;
+    // Export - use getter for folderTree to always return current value
+    Object.defineProperty(window, 'folderTree', {
+        get: function() { return folderTree; }
+    });
     window.loadFolderTree = loadFolderTree;
     window.toggleFolderCollapse = toggleFolderCollapse;
-    window.openCreateFolder = openCreateFolder;
 
     console.log('[sidebar.js] Loaded');
 })();

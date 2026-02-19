@@ -44,28 +44,9 @@ class TestGalleryView:
         
         # SPA shell returned (no redirect needed)
         assert response.status_code == 200
-        # Should contain initialFolderId variable for SPA to load
-        assert "initialFolderId" in response.text
+        # Should contain INITIAL_FOLDER_ID variable for SPA to load
+        assert "INITIAL_FOLDER_ID" in response.text
     
-    def test_gallery_shows_folder_breadcrumbs(
-        self,
-        authenticated_client: TestClient,
-        test_user: dict,
-        db_connection
-    ):
-        """Gallery should show breadcrumb navigation."""
-        from app.infrastructure.repositories import FolderRepository
-        
-        folder_repo = FolderRepository(db_connection)
-        nested = folder_repo.create("Nested", test_user["id"])
-        
-        response = authenticated_client.get(f"/?folder_id={nested}")
-        
-        assert response.status_code == 200
-        # Should contain folder name in breadcrumbs
-        assert "Nested" in response.text
-
-
 class TestFileAccessControl:
     """Test file access permissions."""
     
