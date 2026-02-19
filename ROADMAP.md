@@ -3,7 +3,7 @@
 This document tracks planned architectural improvements, refactoring goals, and technical debt resolution.
 
 > **Last Updated:** 2026-02-18  
-> **Status:** Active Development  
+> **Status:** v1.0 Release Preparation  
 > **Priority Legend:** 🔴 Critical | 🟡 High | 🟢 Medium | 🔵 Low
 
 ---
@@ -13,7 +13,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | Priority | Issue | Solution | Effort | Status |
 |----------|-------|----------|--------|--------|
 | 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large | ✅ **DONE** |
-| 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | Async Database (aiosqlite) | Medium | ✅ **DONE** |
+| 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | ~~Async Database (aiosqlite)~~ | Medium | ❌ **REVERTED** |
 | 🟡 High | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction | Medium | ✅ **DONE** |
 | 🟡 High | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic | Large | 🔲 Planned |
 | 🟡 High | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions | Medium | 🔲 Planned |
@@ -68,84 +68,88 @@ user_id = repo.create(...)
 
 ---
 
-### Issue #15: Async Database Layer 🔴 ✅
+### Issue #15: Async Database Layer 🔴 ❌
+
+**Status:** **REVERTED** - 2026-02-18
+
+**Original Problem:**  
+FastAPI is an async framework, but database operations use synchronous SQLite (`sqlite3` module), potentially blocking the event loop.
+
+**Original Solution (Implemented & Reverted):**
+- ✅ Added `aiosqlite` for async SQLite operations
+- ✅ Created `app/infrastructure/database/` with async connection pool
+- ✅ Added `AsyncRepository` base class with async execute/fetch methods
+- ✅ Created async versions of all 6 repositories
+- ✅ Added `get_async_db()` FastAPI dependency
+
+**Why Reverted:**
+1. **No production usage** - All route handlers continued using sync repositories
+2. **Code complexity** - Maintaining both sync and async versions doubled codebase
+3. **No measurable benefit** - SQLite is file-based; async doesn't improve I/O
+4. **Issue #17 (SQLAlchemy)** - Planned migration to SQLAlchemy Core will provide better async ORM
+5. **YAGNI principle** - Added complexity without actual need
+
+**Lessons Learned:**
+- Don't add async "just because FastAPI supports it"
+- For file-based databases (SQLite), async provides minimal benefit
+- Wait for actual performance bottlenecks before optimizing
+- SQLAlchemy 2.0+ provides better async abstraction than raw aiosqlite
+
+**Current State:**
+- ❌ `app/infrastructure/database/` removed
+- ❌ All `Async*Repository` classes removed
+- ✅ Only sync repositories remain (cleaner codebase)
+- ✅ Routes use `create_connection()` with explicit close
+
+---
+
+### Issue #16: Service Layer Extraction 🟡 ✅
 
 **Status:** **COMPLETED** - 2026-02-18
 
 **Problem:**  
-FastAPI is an async framework, but all database operations use synchronous SQLite (`sqlite3` module). This blocks the event loop during file uploads and complex queries.
-
-**Solution Implemented:**
-```
-app/
-└── infrastructure/
-    ├── database/
-    │   ├── connection.py    # Async connection pool (aiosqlite)
-    │   └── pool.py          # Connection pool management
-    └── repositories/
-        ├── base.py          # AsyncRepository base class
-        ├── user_repository.py      ✅ AsyncUserRepository
-        ├── session_repository.py   ✅ AsyncSessionRepository  
-        ├── folder_repository.py    ✅ AsyncFolderRepository
-        ├── permission_repository.py ✅ AsyncPermissionRepository
-        ├── photo_repository.py     ✅ AsyncPhotoRepository
-        └── safe_repository.py      ✅ AsyncSafeRepository
-```
-
-**Results:**
-- ✅ All 6 repositories have async versions
-- ✅ Async connection pool with configurable max connections
-- ✅ FastAPI dependency `get_async_db()` for async endpoints
-- ✅ 12 async repository tests passing
-- ✅ Full backward compatibility (sync APIs unchanged)
-- ✅ No event loop blocking during database operations
-
-**Migration Example:**
-```python
-# New async way:
-from app.infrastructure.repositories import AsyncUserRepository
-from app.database import get_async_db
-
-@app.get("/api/users/{user_id}")
-async def get_user(user_id: int, db = Depends(get_async_db)):
-    repo = AsyncUserRepository(db)
-    return await repo.get_by_id(user_id)
-```
-
----
-
-## Planned Issues
-
-### Issue #16: Service Layer Extraction 🟡 🔄
-
-**Status:** **IN PROGRESS** - 2026-02-18
-
-**Problem:**  
-Business logic is embedded directly in FastAPI route handlers:
-- `app/routes/gallery.py` (1000+ lines)
+Business logic embedded directly in FastAPI route handlers:
+- `app/routes/gallery.py` (1400+ lines)
 - Upload logic duplicated between single/bulk/album
 - HTTP concerns mixed with business rules
+- No separation between web layer and domain logic
 
 **Solution Implemented:**
 ```
 app/application/
 ├── __init__.py
-├── services/
-│   ├── __init__.py
-│   ├── upload_service.py      ✅ UploadService
-│   ├── folder_service.py      ✅ FolderService
-│   ├── permission_service.py  ✅ PermissionService
-│   └── safe_service.py        ✅ SafeService
+└── services/
+    ├── __init__.py
+    ├── auth_service.py          ✅ AuthService
+    ├── folder_service.py        ✅ FolderService
+    ├── permission_service.py    ✅ PermissionService
+    ├── photo_service.py         ✅ PhotoService
+    ├── safe_service.py          ✅ SafeService
+    ├── safe_file_service.py     ✅ SafeFileService
+    ├── upload_service.py        ✅ UploadService
+    ├── user_settings_service.py ✅ UserSettingsService
+    └── envelope_service.py      ✅ EnvelopeService
 ```
 
+**Routes Migrated:**
+- ✅ `auth.py` - AuthService + UserSettingsService
+- ✅ `admin.py` - UserRepository
+- ✅ `folders.py` - FolderService + PermissionService + UserSettingsService
+- ✅ `gallery.py` - PhotoService + UploadService + PermissionService
+- ✅ `safes.py` - SafeService + WebAuthnRepository
+- ✅ `safe_files.py` - SafeFileService
+- ✅ `webauthn.py` - WebAuthnRepository + SessionRepository
+- ✅ `envelope.py` - EnvelopeService
+- ✅ `middleware.py` - SessionRepository
+
 **Results:**
-- ✅ 4 application services created
-- ✅ `routes/folders.py` fully refactored to use FolderService
-- ✅ Upload endpoint refactored to use UploadService with PhotoRepository
-- ✅ Fixed PhotoRepository.create() signature to accept optional photo_id
-- ✅ Business logic separated from HTTP handling
-- ✅ Services testable in isolation (no FastAPI dependencies)
-- ✅ All 108 existing tests pass
+- ✅ 9 application services created
+- ✅ 7 repositories implemented
+- ✅ `database.py` reduced from 2282 to ~450 lines (-80%)
+- ✅ All routes use `create_connection()` pattern
+- ✅ 128 tests passing (100% pass rate)
+- ✅ No deprecated database functions in production code
+- ✅ Clean separation: Routes → Services → Repositories → DB
 
 **Migration Example:**
 ```python
