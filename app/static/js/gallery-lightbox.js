@@ -137,11 +137,11 @@
             
             if (photo.media_type === 'video') {
                 mediaContainer.innerHTML = `
-                    <video controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}"></video>
+                    <video class="lightbox-video" controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}"></video>
                 `;
             } else {
                 mediaContainer.innerHTML = `
-                    <img src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}" alt="${escapeHtml(photo.original_name || '')}">
+                    <img class="lightbox-image" src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}" alt="${escapeHtml(photo.original_name || '')}">
                 `;
             }
 
