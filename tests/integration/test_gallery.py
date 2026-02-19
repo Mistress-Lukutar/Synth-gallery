@@ -50,12 +50,14 @@ class TestGalleryView:
     def test_gallery_shows_folder_breadcrumbs(
         self,
         authenticated_client: TestClient,
-        test_user: dict
+        test_user: dict,
+        db_connection
     ):
         """Gallery should show breadcrumb navigation."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        nested = create_folder("Nested", test_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        nested = folder_repo.create("Nested", test_user["id"])
         
         response = authenticated_client.get(f"/?folder_id={nested}")
         
@@ -82,16 +84,16 @@ class TestFileAccessControl:
         client: TestClient,
         test_user: dict,
         second_user: dict,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        db_connection
     ):
         """Viewer of shared folder can access files."""
-        from app.database import (
-            create_folder, add_folder_permission, 
-            create_user  # Ensure second user exists
-        )
+        from app.infrastructure.repositories import FolderRepository, PermissionRepository
         
         # Second user creates folder and uploads
-        folder_id = create_folder("SharedFiles", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        perm_repo = PermissionRepository(db_connection)
+        folder_id = folder_repo.create("SharedFiles", second_user["id"])
         
         # Get CSRF token first
         client.get("/login")
@@ -120,7 +122,7 @@ class TestFileAccessControl:
         filename = response.json()["filename"]
         
         # Share with first user
-        add_folder_permission(folder_id, test_user["id"], "viewer", second_user["id"])
+        perm_repo.grant(folder_id, test_user["id"], "viewer", second_user["id"])
         
         # First user accesses file
         client.cookies.clear()
@@ -146,13 +148,15 @@ class TestFileAccessControl:
         client: TestClient,
         test_user: dict,
         second_user: dict,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        db_connection
     ):
         """User without permission cannot access others' files."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
         # Second user creates private folder and uploads
-        private_folder = create_folder("PrivateFiles", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        private_folder = folder_repo.create("PrivateFiles", second_user["id"])
         
         # Get CSRF token
         client.get("/login")
@@ -239,12 +243,14 @@ class TestThumbnailAccess:
         client: TestClient,
         test_user: dict,
         second_user: dict,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        db_connection
     ):
         """Thumbnail access should follow same rules as original."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        private_folder = create_folder("ThumbPrivate", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        private_folder = folder_repo.create("ThumbPrivate", second_user["id"])
         
         # Get CSRF token
         client.get("/login")
@@ -310,21 +316,23 @@ class TestThumbnailAccess:
 class TestGallerySorting:
     """Test photo/album sorting options."""
     
-    def test_sort_by_upload_date(self, authenticated_client: TestClient, test_user: dict):
+    def test_sort_by_upload_date(self, authenticated_client: TestClient, test_user: dict, db_connection):
         """Photos can be sorted by upload date."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        folder_id = create_folder("SortTest", test_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        folder_id = folder_repo.create("SortTest", test_user["id"])
         
         response = authenticated_client.get(f"/?folder_id={folder_id}&sort=uploaded")
         
         assert response.status_code == 200
     
-    def test_sort_by_taken_date(self, authenticated_client: TestClient, test_user: dict):
+    def test_sort_by_taken_date(self, authenticated_client: TestClient, test_user: dict, db_connection):
         """Photos can be sorted by capture date (EXIF)."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        folder_id = create_folder("SortTaken", test_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        folder_id = folder_repo.create("SortTaken", test_user["id"])
         
         response = authenticated_client.get(f"/?folder_id={folder_id}&sort=taken")
         

@@ -46,12 +46,15 @@ class TestSingleFileUpload:
     def test_upload_with_encryption_enabled(
         self,
         client: TestClient,
-        encrypted_user: dict
+        encrypted_user: dict,
+        db_connection
     ):
         """Upload with server-side encryption (user has DEK in cache)."""
-        from app.database import create_folder, get_db
+        from app.infrastructure.repositories import FolderRepository
+        from app.database import get_db
         
-        folder_id = create_folder("Encrypted Folder", encrypted_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        folder_id = folder_repo.create("Encrypted Folder", encrypted_user["id"])
         
         # Create test image
         from PIL import Image
@@ -113,13 +116,15 @@ class TestSingleFileUpload:
         client: TestClient,
         test_user: dict,
         second_user: dict,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        db_connection
     ):
         """User without edit permission cannot upload to folder."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
         # Create folder as second user
-        folder_id = create_folder("Private Folder", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        folder_id = folder_repo.create("Private Folder", second_user["id"])
         
         # Try to upload as first user (no permission)
         # Get CSRF token first

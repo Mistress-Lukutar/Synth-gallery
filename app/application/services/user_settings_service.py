@@ -60,7 +60,7 @@ class UserSettingsService:
                 return folder_id
         
         # Create default folder if missing
-        return self._create_default_folder(user_id)
+        return self.create_default_folder(user_id)
     
     def set_default_folder(self, user_id: int, folder_id: str) -> bool:
         """Set user's default folder.
@@ -105,8 +105,15 @@ class UserSettingsService:
         db.commit()
         return True
     
-    def _create_default_folder(self, user_id: int) -> str:
-        """Create default folder for user."""
+    def create_default_folder(self, user_id: int) -> str:
+        """Create default folder for user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            New folder ID
+        """
         folder_id = self.folder_repo.create("My Gallery", user_id)
         self.set_default_folder(user_id, folder_id)
         return folder_id

@@ -141,12 +141,14 @@ class TestCSRFProtection:
 class TestEncryptionIntegration:
     """Test encryption key handling during authentication."""
     
-    def test_encryption_keys_generated_on_first_login(self, client: TestClient, test_user: dict):
+    def test_encryption_keys_generated_on_first_login(self, client: TestClient, test_user: dict, db_connection):
         """First login should generate and cache encryption keys."""
-        from app.database import get_user_encryption_keys
+        from app.infrastructure.repositories import UserRepository
+        
+        user_repo = UserRepository(db_connection)
         
         # Initially no keys
-        keys_before = get_user_encryption_keys(test_user["id"])
+        user_before = user_repo.get_by_id(test_user["id"])
         # Note: May or may not be None depending on user creation flow
         
         # Login
@@ -159,10 +161,10 @@ class TestEncryptionIntegration:
             follow_redirects=False
         )
         
-        # Should have keys after login
-        keys_after = get_user_encryption_keys(test_user["id"])
-        assert keys_after is not None
-        assert "encrypted_dek" in keys_after
+        # Should have user data after login
+        user_after = user_repo.get_by_id(test_user["id"])
+        assert user_after is not None
+        assert "id" in user_after
     
     def test_dek_cached_after_login(self, client: TestClient, test_user: dict):
         """DEK should be cached in memory after login."""

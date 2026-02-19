@@ -75,13 +75,15 @@ class TestFolderPermissions:
         self,
         client: TestClient,
         test_user: dict,
-        second_user: dict
+        second_user: dict,
+        db_connection
     ):
         """User without permission cannot access another's folder."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
         # Second user creates folder
-        private_folder = create_folder("Private", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        private_folder = folder_repo.create("Private", second_user["id"])
         
         # First user tries to access
         client.post(
@@ -99,14 +101,17 @@ class TestFolderPermissions:
         self,
         client: TestClient,
         test_user: dict,
-        second_user: dict
+        second_user: dict,
+        db_connection
     ):
         """Shared folder should be accessible to viewer."""
-        from app.database import create_folder, add_folder_permission
+        from app.infrastructure.repositories import FolderRepository, PermissionRepository
         
         # Second user creates and shares folder
-        shared_folder = create_folder("Shared", second_user["id"])
-        add_folder_permission(shared_folder, test_user["id"], "viewer", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        perm_repo = PermissionRepository(db_connection)
+        shared_folder = folder_repo.create("Shared", second_user["id"])
+        perm_repo.grant(shared_folder, test_user["id"], "viewer", second_user["id"])
         
         # First user accesses
         client.post(
@@ -124,16 +129,19 @@ class TestFolderPermissions:
         client: TestClient,
         test_user: dict,
         second_user: dict,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        db_connection
     ):
         """Viewer permission should not allow uploads."""
-        from app.database import create_folder, add_folder_permission
+        from app.infrastructure.repositories import FolderRepository, PermissionRepository
         from PIL import Image
         import io
         
         # Setup: second user shares folder as viewer-only
-        shared_folder = create_folder("View Only", second_user["id"])
-        add_folder_permission(shared_folder, test_user["id"], "viewer", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        perm_repo = PermissionRepository(db_connection)
+        shared_folder = folder_repo.create("View Only", second_user["id"])
+        perm_repo.grant(shared_folder, test_user["id"], "viewer", second_user["id"])
         
         # First user tries to upload
         client.post(
@@ -155,14 +163,17 @@ class TestFolderPermissions:
         client: TestClient,
         test_user: dict,
         second_user: dict,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        db_connection
     ):
         """Editor permission should allow uploads."""
-        from app.database import create_folder, add_folder_permission
+        from app.infrastructure.repositories import FolderRepository, PermissionRepository
         
         # Setup: second user shares folder as editor
-        shared_folder = create_folder("Editable", second_user["id"])
-        add_folder_permission(shared_folder, test_user["id"], "editor", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        perm_repo = PermissionRepository(db_connection)
+        shared_folder = folder_repo.create("Editable", second_user["id"])
+        perm_repo.grant(shared_folder, test_user["id"], "editor", second_user["id"])
         
         # First user uploads - get CSRF token first
         client.get("/login")
@@ -197,14 +208,16 @@ class TestFolderHierarchy:
     def test_nested_folder_creation(
         self,
         authenticated_client: TestClient,
-        test_user: dict
+        test_user: dict,
+        db_connection
     ):
         """Create nested folder structure."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        parent = create_folder("Parent", test_user["id"])
-        child = create_folder("Child", test_user["id"], parent)
-        grandchild = create_folder("Grandchild", test_user["id"], child)
+        folder_repo = FolderRepository(db_connection)
+        parent = folder_repo.create("Parent", test_user["id"])
+        child = folder_repo.create("Child", test_user["id"], parent)
+        grandchild = folder_repo.create("Grandchild", test_user["id"], child)
         
         # All should be accessible
         for folder_id in [parent, child, grandchild]:
@@ -214,13 +227,15 @@ class TestFolderHierarchy:
     def test_folder_tree_shows_hierarchy(
         self,
         authenticated_client: TestClient,
-        test_user: dict
+        test_user: dict,
+        db_connection
     ):
         """Folder tree should reflect parent-child relationships."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        parent = create_folder("TreeParent", test_user["id"])
-        child = create_folder("TreeChild", test_user["id"], parent)
+        folder_repo = FolderRepository(db_connection)
+        parent = folder_repo.create("TreeParent", test_user["id"])
+        child = folder_repo.create("TreeChild", test_user["id"], parent)
         
         response = authenticated_client.get("/api/folders")
         assert response.status_code == 200
@@ -240,13 +255,16 @@ class TestFolderDeletion:
         authenticated_client: TestClient,
         test_user: dict,
         test_image_bytes: bytes,
-        csrf_token: str
+        csrf_token: str,
+        db_connection
     ):
         """Deleting folder should remove photos from database."""
-        from app.database import create_folder, delete_folder, get_db
+        from app.infrastructure.repositories import FolderRepository
+        from app.database import get_db
         
         # Create folder with photo
-        folder_id = create_folder("ToDelete", test_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        folder_id = folder_repo.create("ToDelete", test_user["id"])
         
         response = authenticated_client.post(
             "/upload",
@@ -263,7 +281,7 @@ class TestFolderDeletion:
         assert photo is not None
         
         # Delete folder
-        deleted_files = delete_folder(folder_id)
+        deleted_files = folder_repo.delete(folder_id)
         
         # Photo should be removed from database
         photo = db.execute("SELECT * FROM photos WHERE id = ?", (photo_id,)).fetchone()
@@ -276,13 +294,16 @@ class TestFolderDeletion:
         self,
         client: TestClient,
         test_user: dict,
-        second_user: dict
+        second_user: dict,
+        db_connection
     ):
         """Only folder owner can delete it."""
-        from app.database import create_folder, add_folder_permission
+        from app.infrastructure.repositories import FolderRepository, PermissionRepository
         
-        folder_id = create_folder("Protected", second_user["id"])
-        add_folder_permission(folder_id, test_user["id"], "editor", second_user["id"])
+        folder_repo = FolderRepository(db_connection)
+        perm_repo = PermissionRepository(db_connection)
+        folder_id = folder_repo.create("Protected", second_user["id"])
+        perm_repo.grant(folder_id, test_user["id"], "editor", second_user["id"])
         
         # Editor (not owner) tries to delete
         client.post(
@@ -329,14 +350,16 @@ class TestFolderContentAPI:
     def test_breadcrumbs_returned_for_folder(
         self,
         authenticated_client: TestClient,
-        test_user: dict
+        test_user: dict,
+        db_connection
     ):
         """Breadcrumbs should show path from root."""
-        from app.database import create_folder
+        from app.infrastructure.repositories import FolderRepository
         
-        level1 = create_folder("Level1", test_user["id"])
-        level2 = create_folder("Level2", test_user["id"], level1)
-        level3 = create_folder("Level3", test_user["id"], level2)
+        folder_repo = FolderRepository(db_connection)
+        level1 = folder_repo.create("Level1", test_user["id"])
+        level2 = folder_repo.create("Level2", test_user["id"], level1)
+        level3 = folder_repo.create("Level3", test_user["id"], level2)
         
         response = authenticated_client.get(f"/api/folders/{level3}/breadcrumbs")
         
