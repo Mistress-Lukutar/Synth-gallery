@@ -464,6 +464,7 @@ class FolderRepository(Repository):
         Returns:
             List of album dicts with photo_count and cover_photo_id
         """
+        import logging
         cursor = self._execute("""
             SELECT a.*,
                    (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
@@ -472,7 +473,10 @@ class FolderRepository(Repository):
             WHERE a.folder_id = ?
             ORDER BY a.created_at DESC
         """, (folder_id,))
-        return [dict(row) for row in cursor.fetchall()]
+        results = [dict(row) for row in cursor.fetchall()]
+        for r in results:
+            logging.error(f"[REPO DEBUG] Album {r['id']}: photo_count={r['photo_count']}, cover_photo_id={r['cover_photo_id']}")
+        return results
     
     def get_standalone_photos(self, folder_id: str) -> list[dict]:
         """Get standalone photos (not in album) in folder.
