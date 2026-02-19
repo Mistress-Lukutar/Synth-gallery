@@ -158,7 +158,7 @@ def unlock_safe(request: Request, data: SafeUnlock):
         
         elif safe["unlock_type"] == 'webauthn':
             # Return WebAuthn challenge
-            from ..services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
+            from ..infrastructure.services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
             
             scheme = request.headers.get(
                 "x-forwarded-proto", 
@@ -209,7 +209,7 @@ def complete_safe_unlock(request: Request, data: SafeUnlockComplete):
         
         if safe["unlock_type"] == 'webauthn':
             # Verify WebAuthn response
-            from ..services.webauthn import WebAuthnService
+            from ..infrastructure.services.webauthn import WebAuthnService
             
             if not data.credential or not data.challenge:
                 raise HTTPException(

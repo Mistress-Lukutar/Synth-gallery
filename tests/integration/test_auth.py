@@ -168,7 +168,7 @@ class TestEncryptionIntegration:
     
     def test_dek_cached_after_login(self, client: TestClient, test_user: dict):
         """DEK should be cached in memory after login."""
-        from app.services.encryption import dek_cache
+        from app.infrastructure.services.encryption import dek_cache
         
         # Login
         client.post(

@@ -9,7 +9,7 @@ from ..database import create_connection
 from ..infrastructure.repositories import UserRepository, SessionRepository
 from ..application.services import AuthService
 from ..dependencies import get_csrf_token
-from ..services.encryption import EncryptionService, dek_cache
+from ..infrastructure.services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
 

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
 
-from ..config import (
+from ...config import (
     BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR,
     BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE
 )
