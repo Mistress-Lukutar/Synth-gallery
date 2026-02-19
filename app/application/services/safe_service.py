@@ -9,7 +9,6 @@ from typing import Optional, List, Dict
 from fastapi import HTTPException
 
 from ...infrastructure.repositories import SafeRepository, FolderRepository
-from ...infrastructure.services.encryption import EncryptionService
 
 
 class SafeService:

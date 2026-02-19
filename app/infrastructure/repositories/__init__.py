@@ -10,7 +10,7 @@ Migration Guide:
 2. Old: get_user_by_id(user_id)
    New: repo = UserRepository(db); repo.get_by_id(user_id)
 """
-from .base import Repository, ConnectionProtocol
+from .base import Repository
 from .user_repository import UserRepository
 from .session_repository import SessionRepository
 from .folder_repository import FolderRepository
@@ -21,7 +21,6 @@ from .webauthn_repository import WebAuthnRepository
 
 __all__ = [
     "Repository",
-    "ConnectionProtocol",
     "UserRepository",
     "SessionRepository",
     "FolderRepository",

@@ -4,7 +4,7 @@ import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 from PIL import Image
 from PIL.ExifTags import TAGS
@@ -58,7 +58,7 @@ def extract_taken_date(file_path: Path) -> Optional[datetime]:
 def _extract_exif_date(img: Image.Image) -> Optional[datetime]:
     """Extract date from EXIF metadata."""
     try:
-        exif_data = img._getexif()
+        exif_data = img._getexif()  # type: ignore[attr-defined]  # noqa: W0212
         if not exif_data:
             return None
 
@@ -238,9 +238,9 @@ def _parse_flexible_datetime(date_str: str) -> Optional[datetime]:
     return None
 
 
-def get_metadata_summary(file_path: Path) -> dict:
+def get_metadata_summary(file_path: Path) -> dict[str, Any]:
     """Get a summary of image metadata for display purposes."""
-    result = {
+    result: dict[str, Any] = {
         'taken_at': None,
         'camera': None,
         'dimensions': None,
@@ -251,7 +251,7 @@ def get_metadata_summary(file_path: Path) -> dict:
             result['dimensions'] = f"{img.width}x{img.height}"
 
             # Get EXIF data
-            exif_data = img._getexif()
+            exif_data = img._getexif()  # type: ignore[attr-defined]  # noqa: W0212
             if exif_data:
                 exif = {TAGS.get(k, k): v for k, v in exif_data.items()}
 

@@ -1,8 +1,6 @@
 """Authentication service - handles login/logout and session management."""
 from typing import Optional, Tuple
 
-from fastapi import HTTPException
-
 from ...infrastructure.repositories import UserRepository, SessionRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
 
@@ -79,23 +77,15 @@ class AuthService:
         Returns:
             Dict with encrypted_dek, dek_salt, etc. or None
         """
-        db = self.user_repo._conn
-        
-        row = db.execute(
-            """SELECT encrypted_dek, dek_salt, encryption_version,
-                      recovery_encrypted_dek
-               FROM user_settings WHERE user_id = ?""",
-            (user_id,)
-        ).fetchone()
-        
-        if not row or not row["encrypted_dek"]:
+        keys = self.user_repo.get_encryption_keys(user_id)
+        if not keys:
             return None
         
         return {
-            "encrypted_dek": row["encrypted_dek"],
-            "dek_salt": row["dek_salt"],
-            "encryption_version": row["encryption_version"] or 1,
-            "recovery_encrypted_dek": row["recovery_encrypted_dek"]
+            "encrypted_dek": keys["encrypted_dek"],
+            "dek_salt": keys["dek_salt"],
+            "encryption_version": keys.get("encryption_version", 1),
+            "recovery_encrypted_dek": keys.get("recovery_encrypted_dek")
         }
     
     def setup_encryption(
@@ -118,29 +108,7 @@ class AuthService:
         encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
         
         # Store in database
-        db = self.user_repo._conn
-        
-        existing = db.execute(
-            "SELECT user_id FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        
-        if existing:
-            db.execute(
-                """UPDATE user_settings 
-                   SET encrypted_dek = ?, dek_salt = ?, encryption_version = 1
-                   WHERE user_id = ?""",
-                (encrypted_dek, salt, user_id)
-            )
-        else:
-            db.execute(
-                """INSERT INTO user_settings 
-                   (user_id, encrypted_dek, dek_salt, encryption_version)
-                   VALUES (?, ?, ?, 1)""",
-                (user_id, encrypted_dek, salt)
-            )
-        
-        db.commit()
+        self.user_repo.save_encryption_keys(user_id, encrypted_dek, salt)
         
         # Cache DEK
         dek_cache.set(user_id, dek)

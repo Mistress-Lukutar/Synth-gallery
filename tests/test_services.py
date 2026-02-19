@@ -2,8 +2,9 @@
 
 Tests the service layer business logic in isolation.
 """
+from unittest.mock import Mock
+
 import pytest
-from unittest.mock import Mock, MagicMock
 
 from app.application.services import (
     FolderService,
@@ -111,13 +112,13 @@ class TestFolderService:
             "name": "Old Name",
             "user_id": 1
         }
-        mock_folder_repo.update_name.return_value = True
+        mock_folder_repo.update.return_value = True
         
         # Act
         result = folder_service.update_folder("folder-uuid", "New Name", user_id=1)
         
         # Assert
-        mock_folder_repo.update_name.assert_called_once_with("folder-uuid", "New Name")
+        mock_folder_repo.update.assert_called_once_with("folder-uuid", name="New Name")
     
     def test_update_folder_not_owner_fails(self, folder_service, mock_folder_repo):
         """Test that updating another user's folder fails."""
@@ -474,8 +475,8 @@ class TestUploadServiceDeletePhoto:
         2. Files are deleted from disk
         3. Repository delete is called
         """
-        from unittest.mock import Mock, MagicMock
-        
+        from unittest.mock import Mock
+
         # Create temp directories
         uploads_dir = tmp_path / "uploads"
         thumbs_dir = tmp_path / "thumbnails"
@@ -578,7 +579,7 @@ class TestUploadService:
         """Test deleting an album with photos."""
         # Arrange
         album_id = "album-uuid-123"
-        mock_photo_repo._execute.return_value.fetchall.return_value = [
+        mock_photo_repo.delete_album_with_photos.return_value = [
             {"id": "photo-1", "filename": "photo-1.jpg"},
             {"id": "photo-2", "filename": "photo-2.jpg"}
         ]

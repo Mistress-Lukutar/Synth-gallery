@@ -9,7 +9,7 @@ Manages photos and videos including:
 """
 import uuid
 from datetime import datetime
-from typing import Optional
+
 from .base import Repository
 
 
@@ -850,6 +850,183 @@ class PhotoRepository(Repository):
                 self._commit()
                 return True
             return False
+        except Exception:
+            return False
+    
+    # =========================================================================
+    # Album Operations
+    # =========================================================================
+    
+    def create_album(
+        self,
+        album_id: str,
+        folder_id: str,
+        user_id: int,
+        name: str = None
+    ) -> bool:
+        """Create a new album.
+        
+        Args:
+            album_id: Album UUID
+            name: Album name
+            folder_id: Folder ID
+            user_id: User ID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                "INSERT INTO albums (id, name, folder_id, user_id) VALUES (?, ?, ?, ?)",
+                (album_id, name, folder_id, user_id)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def delete_album(self, album_id: str) -> bool:
+        """Delete an album (photos are NOT deleted).
+        
+        Args:
+            album_id: Album ID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            # Remove album_id from photos first
+            self._execute(
+                "UPDATE photos SET album_id = NULL, position = NULL WHERE album_id = ?",
+                (album_id,)
+            )
+            # Delete album
+            self._execute("DELETE FROM albums WHERE id = ?", (album_id,))
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def delete_album_with_photos(self, album_id: str) -> list[dict]:
+        """Delete an album and all its photos.
+        
+        Args:
+            album_id: Album ID
+            
+        Returns:
+            List of deleted photo info (id, filename)
+        """
+        try:
+            # Get all photos in album
+            cursor = self._execute(
+                "SELECT id, filename FROM photos WHERE album_id = ?",
+                (album_id,)
+            )
+            photos = [dict(row) for row in cursor.fetchall()]
+            
+            # Delete photos
+            self._execute("DELETE FROM photos WHERE album_id = ?", (album_id,))
+            # Delete album
+            self._execute("DELETE FROM albums WHERE id = ?", (album_id,))
+            self._commit()
+            
+            return photos
+        except Exception:
+            return []
+    
+    def add_photo_to_album(
+        self,
+        photo_id: str,
+        album_id: str,
+        position: int = 0
+    ) -> bool:
+        """Add photo to album.
+        
+        Args:
+            photo_id: Photo ID
+            album_id: Album ID
+            position: Position in album
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                "UPDATE photos SET album_id = ?, position = ? WHERE id = ?",
+                (album_id, position, photo_id)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def remove_photo_from_album(self, photo_id: str) -> bool:
+        """Remove photo from album.
+        
+        Args:
+            photo_id: Photo ID
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                "UPDATE photos SET album_id = NULL, position = NULL WHERE id = ?",
+                (photo_id,)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
+    def get_album_by_id(self, album_id: str) -> dict | None:
+        """Get album by ID.
+        
+        Args:
+            album_id: Album ID
+            
+        Returns:
+            Album dict or None
+        """
+        cursor = self._execute(
+            "SELECT * FROM albums WHERE id = ?",
+            (album_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    
+    def get_photos_in_album(self, album_id: str) -> list[dict]:
+        """Get all photos in album.
+        
+        Args:
+            album_id: Album ID
+            
+        Returns:
+            List of photo dicts
+        """
+        cursor = self._execute(
+            "SELECT * FROM photos WHERE album_id = ? ORDER BY position",
+            (album_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def update_album_name(self, album_id: str, name: str) -> bool:
+        """Update album name.
+        
+        Args:
+            album_id: Album ID
+            name: New name
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                "UPDATE albums SET name = ? WHERE id = ?",
+                (name, album_id)
+            )
+            self._commit()
+            return True
         except Exception:
             return False
     

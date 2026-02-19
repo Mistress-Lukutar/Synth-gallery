@@ -7,7 +7,6 @@ Verifies:
 - Protected route access
 - CSRF protection
 """
-import pytest
 from fastapi.testclient import TestClient
 
 

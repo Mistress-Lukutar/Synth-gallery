@@ -5,7 +5,6 @@ Manages relationships between users and folders with permission levels:
 - editor: can add/edit/delete content
 - viewer: read-only access
 """
-from typing import Optional
 from .base import Repository
 
 

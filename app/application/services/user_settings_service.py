@@ -6,12 +6,11 @@ This service encapsulates business logic for:
 - Sort preferences
 - User encryption keys
 """
-import json
 from typing import Optional, List
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import FolderRepository, PermissionRepository
+from ...infrastructure.repositories import FolderRepository, PermissionRepository, UserRepository
 
 
 class UserSettingsService:
@@ -27,10 +26,12 @@ class UserSettingsService:
     def __init__(
         self,
         folder_repository: FolderRepository,
-        permission_repository: PermissionRepository = None
+        permission_repository: PermissionRepository = None,
+        user_repository: UserRepository = None
     ):
         self.folder_repo = folder_repository
         self.perm_repo = permission_repository
+        self.user_repo = user_repository
     
     # =========================================================================
     # Default Folder
@@ -45,16 +46,10 @@ class UserSettingsService:
         Returns:
             Default folder ID
         """
-        db = self.folder_repo._conn
+        folder_id = self.user_repo.get_default_folder(user_id) if self.user_repo else None
         
-        settings = db.execute(
-            "SELECT default_folder_id FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        
-        if settings and settings["default_folder_id"]:
+        if folder_id:
             # Verify folder still exists and user has access
-            folder_id = settings["default_folder_id"]
             folder = self.folder_repo.get_by_id(folder_id)
             if folder and self._can_access_folder(folder_id, user_id):
                 return folder_id
@@ -83,27 +78,10 @@ class UserSettingsService:
         if not self._can_access_folder(folder_id, user_id):
             raise HTTPException(status_code=403, detail="Cannot access this folder")
         
-        db = self.folder_repo._conn
+        if not self.user_repo:
+            raise HTTPException(status_code=500, detail="UserRepository not configured")
         
-        # Check if user has settings row
-        existing = db.execute(
-            "SELECT user_id FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        
-        if existing:
-            db.execute(
-                "UPDATE user_settings SET default_folder_id = ? WHERE user_id = ?",
-                (folder_id, user_id)
-            )
-        else:
-            db.execute(
-                "INSERT INTO user_settings (user_id, default_folder_id) VALUES (?, ?)",
-                (user_id, folder_id)
-            )
-        
-        db.commit()
-        return True
+        return self.user_repo.set_default_folder(user_id, folder_id)
     
     def create_default_folder(self, user_id: int) -> str:
         """Create default folder for user.
@@ -131,19 +109,9 @@ class UserSettingsService:
         Returns:
             List of folder IDs
         """
-        db = self.folder_repo._conn
-        
-        settings = db.execute(
-            "SELECT collapsed_folders FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        
-        if settings and settings["collapsed_folders"]:
-            try:
-                return json.loads(settings["collapsed_folders"])
-            except json.JSONDecodeError:
-                return []
-        return []
+        if not self.user_repo:
+            return []
+        return self.user_repo.get_collapsed_folders(user_id)
     
     def set_collapsed_folders(self, user_id: int, folder_ids: List[str]) -> bool:
         """Set list of collapsed folder IDs for a user.
@@ -155,29 +123,9 @@ class UserSettingsService:
         Returns:
             True if successful
         """
-        db = self.folder_repo._conn
-        
-        collapsed_json = json.dumps(folder_ids)
-        
-        # Check if user has settings row
-        existing = db.execute(
-            "SELECT user_id FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        
-        if existing:
-            db.execute(
-                "UPDATE user_settings SET collapsed_folders = ? WHERE user_id = ?",
-                (collapsed_json, user_id)
-            )
-        else:
-            db.execute(
-                "INSERT INTO user_settings (user_id, collapsed_folders) VALUES (?, ?)",
-                (user_id, collapsed_json)
-            )
-        
-        db.commit()
-        return True
+        if not self.user_repo:
+            return False
+        return self.user_repo.set_collapsed_folders(user_id, folder_ids)
     
     def toggle_collapsed_folder(self, user_id: int, folder_id: str) -> bool:
         """Toggle collapsed state for a folder.
@@ -215,17 +163,10 @@ class UserSettingsService:
         Returns:
             Sort preference ('uploaded_at' or 'taken_at')
         """
-        db = self.folder_repo._conn
-        
-        settings = db.execute(
-            """SELECT sort_by FROM user_folder_preferences 
-               WHERE user_id = ? AND folder_id = ?""",
-            (user_id, folder_id)
-        ).fetchone()
-        
-        if settings and settings["sort_by"]:
-            return settings["sort_by"]
-        return "uploaded_at"  # Default
+        if not self.user_repo:
+            return "uploaded_at"
+        sort = self.user_repo.get_sort_preference(user_id, folder_id)
+        return sort if sort else "uploaded_at"
     
     def set_sort_preference(self, user_id: int, folder_id: str, sort_by: str) -> bool:
         """Set sort preference for a folder.
@@ -241,30 +182,10 @@ class UserSettingsService:
         if sort_by not in ("uploaded_at", "taken_at"):
             raise HTTPException(status_code=400, detail="Invalid sort option")
         
-        db = self.folder_repo._conn
+        if not self.user_repo:
+            raise HTTPException(status_code=500, detail="UserRepository not configured")
         
-        # Check if preference exists
-        existing = db.execute(
-            """SELECT 1 FROM user_folder_preferences 
-               WHERE user_id = ? AND folder_id = ?""",
-            (user_id, folder_id)
-        ).fetchone()
-        
-        if existing:
-            db.execute(
-                """UPDATE user_folder_preferences 
-                   SET sort_by = ? WHERE user_id = ? AND folder_id = ?""",
-                (sort_by, user_id, folder_id)
-            )
-        else:
-            db.execute(
-                """INSERT INTO user_folder_preferences (user_id, folder_id, sort_by)
-                   VALUES (?, ?, ?)""",
-                (user_id, folder_id, sort_by)
-            )
-        
-        db.commit()
-        return True
+        return self.user_repo.set_sort_preference(user_id, folder_id, sort_by)
     
     # =========================================================================
     # Encryption Keys
@@ -279,23 +200,18 @@ class UserSettingsService:
         Returns:
             Dict with encrypted_dek, dek_salt, etc. or None
         """
-        db = self.folder_repo._conn
+        if not self.user_repo:
+            return None
         
-        row = db.execute(
-            """SELECT encrypted_dek, dek_salt, encryption_version,
-                      recovery_encrypted_dek
-               FROM user_settings WHERE user_id = ?""",
-            (user_id,)
-        ).fetchone()
-        
-        if not row or not row["encrypted_dek"]:
+        keys = self.user_repo.get_encryption_keys(user_id)
+        if not keys:
             return None
         
         return {
-            "encrypted_dek": row["encrypted_dek"],
-            "dek_salt": row["dek_salt"],
-            "encryption_version": row["encryption_version"] or 1,
-            "recovery_encrypted_dek": row["recovery_encrypted_dek"]
+            "encrypted_dek": keys["encrypted_dek"],
+            "dek_salt": keys["dek_salt"],
+            "encryption_version": keys.get("encryption_version", 1),
+            "recovery_encrypted_dek": keys.get("recovery_encrypted_dek")
         }
     
     def set_encryption_keys(
@@ -314,31 +230,9 @@ class UserSettingsService:
         Returns:
             True if successful
         """
-        db = self.folder_repo._conn
-        
-        # Check if user has settings row
-        existing = db.execute(
-            "SELECT user_id FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        ).fetchone()
-        
-        if existing:
-            db.execute(
-                """UPDATE user_settings 
-                   SET encrypted_dek = ?, dek_salt = ?, encryption_version = 1
-                   WHERE user_id = ?""",
-                (encrypted_dek, dek_salt, user_id)
-            )
-        else:
-            db.execute(
-                """INSERT INTO user_settings 
-                   (user_id, encrypted_dek, dek_salt, encryption_version)
-                   VALUES (?, ?, ?, 1)""",
-                (user_id, encrypted_dek, dek_salt)
-            )
-        
-        db.commit()
-        return True
+        if not self.user_repo:
+            return False
+        return self.user_repo.save_encryption_keys(user_id, encrypted_dek, dek_salt)
     
     # =========================================================================
     # Helper Methods

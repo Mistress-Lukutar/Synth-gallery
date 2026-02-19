@@ -3,7 +3,6 @@
 Tests the safe_files.py routes for accessing encrypted files in safes.
 """
 import pytest
-from fastapi.testclient import TestClient
 
 
 class TestSafeFileAccess:

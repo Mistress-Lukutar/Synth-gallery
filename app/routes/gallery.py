@@ -8,24 +8,17 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request, UploadFile, HTTPException, Form
 from fastapi.responses import FileResponse, RedirectResponse, Response
-
-from ..config import UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES, ROOT_PATH, BASE_DIR
 from fastapi.templating import Jinja2Templates
 
+from ..application.services import UploadService, PhotoService, FolderService, PermissionService
+from ..config import UPLOADS_DIR, ROOT_PATH, BASE_DIR
 # New Repository pattern imports (Issue #16)
 from ..database import create_connection
+from ..dependencies import get_current_user, require_user, get_csrf_token
 from ..infrastructure.repositories import (
     PhotoRepository, FolderRepository, PermissionRepository,
-    UserRepository, SafeRepository
+    SafeRepository, UserRepository
 )
-from ..application.services import UploadService, PhotoService, FolderService, PermissionService
-
-from ..dependencies import get_current_user, require_user, get_csrf_token
-from ..infrastructure.services.media import (
-    create_thumbnail, create_video_thumbnail, get_media_type,
-    create_thumbnail_bytes, create_video_thumbnail_bytes
-)
-from ..infrastructure.services.metadata import extract_taken_date
 from ..infrastructure.services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
@@ -166,7 +159,7 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             if current_folder:
                 current_folder = dict(current_folder)
                 # Add user's permission level for this folder
-                current_folder["permission"] = perm_service.perm_repo.get_permission(folder_id, user["id"])
+                current_folder["permission"] = perm_service.get_user_permission(folder_id, user["id"])
                 breadcrumbs = folder_service.get_breadcrumbs(folder_id)
         else:
             # Redirect to default folder
@@ -180,7 +173,8 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             from ..application.services import UserSettingsService
             user_settings_service = UserSettingsService(
                 folder_repository=folder_repo,
-                permission_repository=perm_service.perm_repo
+                permission_repository=perm_service.perm_repo,
+                user_repository=UserRepository(db)
             )
             default_folder_id = user_settings_service.create_default_folder(user["id"])
             return RedirectResponse(url=f"{ROOT_PATH}/?folder_id={default_folder_id}", status_code=302)
@@ -371,7 +365,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
             raise HTTPException(status_code=404, detail="Folder not found")
         
         current_folder = dict(current_folder)
-        current_folder["permission"] = perm_service.perm_repo.get_permission(folder_id, user["id"])
+        current_folder["permission"] = perm_service.get_user_permission(folder_id, user["id"])
         breadcrumbs = folder_service.get_breadcrumbs(folder_id)
         
         # Get sort preference: use URL param if provided, otherwise use saved preference
@@ -539,7 +533,8 @@ def get_default_folder_api(request: Request):
         from ..application.services import UserSettingsService
         user_settings_service = UserSettingsService(
             folder_repository=folder_repo,
-            permission_repository=perm_service.perm_repo
+            permission_repository=perm_service.perm_repo,
+            user_repository=UserRepository(db)
         )
         folder_id = user_settings_service.create_default_folder(user["id"])
         return {"folder_id": folder_id}
@@ -657,8 +652,8 @@ def get_thumbnail(request: Request, filename: str):
     user = require_user(request)
 
     # Import config here to respect test patches (Issue #16)
-    from ..config import THUMBNAILS_DIR, UPLOADS_DIR
-    
+    from ..config import THUMBNAILS_DIR
+
     # Validate path to prevent directory traversal
     file_path = (THUMBNAILS_DIR / filename).resolve()
     if not file_path.is_relative_to(THUMBNAILS_DIR):
@@ -830,11 +825,16 @@ async def upload_album(request: Request, files: list[UploadFile], folder_id: str
 
         # Use UploadService
         service = get_upload_service(db)
+        # Get album name from form data (default to "Untitled Album")
+        form_data = await request.form()
+        album_name = form_data.get("album_name", "Untitled Album")
+        
         result = await service.upload_album(
             files=files,
             folder_id=folder_id,
             user_id=user["id"],
-            user_dek=dek
+            user_dek=dek,
+            album_name=album_name
         )
         
         return result

@@ -3,8 +3,7 @@
 Sessions are temporary authentication tokens for logged-in users.
 """
 import secrets
-from datetime import datetime, timedelta
-from typing import Optional
+
 from .base import Repository
 
 

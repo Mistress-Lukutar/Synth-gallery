@@ -56,7 +56,8 @@ def get_user_settings_service() -> UserSettingsService:
     db = create_connection()
     return UserSettingsService(
         folder_repository=FolderRepository(db),
-        permission_repository=PermissionRepository(db)
+        permission_repository=PermissionRepository(db),
+        user_repository=UserRepository(db)
     )
 
 
@@ -207,7 +208,7 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
         if not success:
             raise HTTPException(status_code=400, detail="Failed to add permission")
         
-        permissions = service.perm_repo.list_for_folder(folder_id)
+        permissions = service.get_folder_permissions(folder_id, user["id"])
         return {"status": "ok", "permissions": permissions}
     finally:
         db.close()
@@ -240,7 +241,7 @@ def update_folder_permission_route(
         if not success:
             raise HTTPException(status_code=404, detail="Permission not found")
         
-        permissions = service.perm_repo.list_for_folder(folder_id)
+        permissions = service.get_folder_permissions(folder_id, user["id"])
         return {"status": "ok", "permissions": permissions}
     finally:
         db.close()
@@ -271,7 +272,7 @@ def remove_folder_permission_route(
         if not success:
             raise HTTPException(status_code=404, detail="Permission not found")
         
-        permissions = service.perm_repo.list_for_folder(folder_id)
+        permissions = service.get_folder_permissions(folder_id, user["id"])
         return {"status": "ok", "permissions": permissions}
     finally:
         db.close()
