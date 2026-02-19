@@ -174,6 +174,156 @@
         `).join('');
     };
 
+    window.loadCategories = async function() {
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/categories`);
+            if (!resp.ok) return;
+            categories = await resp.json();
+            
+            const container = document.getElementById('category-buttons');
+            if (!container) return;
+            
+            container.innerHTML = categories.map(cat => `
+                <button class="category-btn" data-category-id="${cat.id}" onclick="selectCategory(${cat.id})">
+                    ${escapeHtml(cat.name)}
+                </button>
+            `).join('');
+        } catch (err) {
+            console.error('Failed to load categories:', err);
+        }
+    };
+
+    window.loadTagPresets = async function(query = '') {
+        try {
+            const url = query 
+                ? `${getBaseUrl()}/api/tags/presets?q=${encodeURIComponent(query)}`
+                : `${getBaseUrl()}/api/tags/presets`;
+            const resp = await fetch(url);
+            if (!resp.ok) return;
+            
+            const data = await resp.json();
+            renderTagPresets(data.categories || []);
+            return data.categories;
+        } catch (err) {
+            console.error('Failed to load tag presets:', err);
+        }
+    };
+
+    function renderTagPresets(cats) {
+        if (!presetsContainer) return;
+        
+        if (cats.length === 0) {
+            presetsContainer.innerHTML = '';
+            return;
+        }
+        
+        presetsContainer.innerHTML = cats.map(cat => `
+            <div class="tag-category">
+                <h4>${escapeHtml(cat.name)}</h4>
+                <div class="tag-buttons">
+                    ${(cat.tags || []).map(tag => {
+                        const isSelected = editingTags.find(t => t.name.toLowerCase() === tag.name.toLowerCase());
+                        return `
+                            <button class="tag-btn ${isSelected ? 'selected' : ''}" 
+                                    onclick="window.toggleTag('${escapeHtml(tag.name)}', ${cat.id}, '${tag.color || '#6b7280'}')"
+                                    style="--tag-color: ${tag.color || '#6b7280'}">
+                                ${escapeHtml(tag.name)}
+                            </button>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    window.updatePresetButtons = function() {
+        // Re-render to update selection state
+        window.loadTagPresets?.(tagSearch?.value || '');
+    };
+
+    window.selectCategory = function(categoryId) {
+        selectedCategoryId = categoryId;
+        document.querySelectorAll('.category-btn').forEach(btn => {
+            btn.classList.toggle('selected', parseInt(btn.dataset.categoryId) === categoryId);
+        });
+        const addBtn = document.getElementById('add-new-tag-btn');
+        if (addBtn) addBtn.disabled = !selectedCategoryId;
+    };
+
+    window.requestAIAnalysis = async function() {
+        if (!currentPhotoId) return;
+        
+        const btn = document.getElementById('request-ai-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'Analyzing...';
+        }
+        
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/photos/${currentPhotoId}/analyze`, {
+                method: 'POST'
+            });
+            
+            if (!resp.ok) throw new Error('Analysis failed');
+            
+            const data = await resp.json();
+            if (data.tags) {
+                // Add suggested tags to editing tags
+                data.tags.forEach(tag => {
+                    if (!editingTags.find(t => t.name.toLowerCase() === tag.toLowerCase())) {
+                        editingTags.push({ name: tag, category_id: null, color: '#6b7280' });
+                    }
+                });
+                window.updateCurrentTagsDisplay();
+            }
+        } catch (err) {
+            console.error('AI analysis failed:', err);
+            alert('AI analysis failed: ' + err.message);
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                        <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
+                        <circle cx="12" cy="20" r="2"/>
+                        <path d="M12 18v-2"/>
+                    </svg>
+                    Request AI Analysis
+                `;
+            }
+        }
+    };
+
+    window.addNewTag = async function() {
+        const tagName = document.getElementById('new-tag-name')?.textContent;
+        if (!tagName || !selectedCategoryId) return;
+        
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/tags`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
+            });
+            
+            if (!resp.ok) throw new Error('Failed to add tag');
+            
+            const data = await resp.json();
+            editingTags.push({ name: tagName, category_id: selectedCategoryId, color: data.color || '#6b7280' });
+            window.updateCurrentTagsDisplay();
+            
+            // Clear search
+            if (tagSearch) tagSearch.value = '';
+            if (addNewTagSection) addNewTagSection.classList.add('hidden');
+            
+            // Reload presets
+            await window.loadTagPresets?.();
+        } catch (err) {
+            console.error('Failed to add tag:', err);
+            alert('Failed to add tag: ' + err.message);
+        }
+    };
+
     // Init on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
         init();
