@@ -307,10 +307,17 @@
         gallery.innerHTML = html;
         gallery.style.opacity = '1';
         
-        // Rebuild masonry
-        if (typeof window.rebuildMasonry === 'function') {
-            window.rebuildMasonry(true);
-        }
+        // Rebuild masonry after DOM update
+        console.log('[navigation] About to schedule rebuildMasonry, window.rebuildMasonry:', typeof window.rebuildMasonry);
+        setTimeout(() => {
+            console.log('[navigation] In setTimeout, window.rebuildMasonry:', typeof window.rebuildMasonry);
+            if (typeof window.rebuildMasonry === 'function') {
+                console.log('[navigation] Calling rebuildMasonry, items:', gallery.querySelectorAll('.gallery-item').length);
+                window.rebuildMasonry(true);
+            } else {
+                console.log('[navigation] rebuildMasonry not available');
+            }
+        }, 10);
         
         // Load safe thumbnails (will be defined in safes.js Phase 6)
         if (typeof window.loadSafeThumbnails === 'function') {

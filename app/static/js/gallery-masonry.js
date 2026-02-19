@@ -34,10 +34,19 @@
     };
 
     window.rebuildMasonry = function(forceRebuild = false) {
-        if (!gallery) init();
-        if (!gallery) return;
+        console.log('[gallery-masonry] rebuildMasonry START, gallery:', gallery, 'force:', forceRebuild);
         
-        console.log('[gallery-masonry] rebuildMasonry called, force:', forceRebuild);
+        if (!gallery) {
+            console.log('[gallery-masonry] No gallery, calling init');
+            init();
+        }
+        if (!gallery) {
+            console.log('[gallery-masonry] Still no gallery, cannot rebuild');
+            return;
+        }
+        
+        console.log('[gallery-masonry] Gallery found, continuing...');
+        console.log('[gallery-masonry] gallery HTML length:', gallery.innerHTML.length);
         
         const galleryWidth = gallery.clientWidth || 800;
         const columnCount = Math.max(2, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
