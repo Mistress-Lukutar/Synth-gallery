@@ -78,21 +78,21 @@ No test data persists between tests.
 
 ### Client Fixtures
 
-| Fixture | Description |
-|---------|-------------|
-| `client` | Unauthenticated TestClient |
-| `authenticated_client` | Logged in as `test_user` |
-| `test_user` | User credentials dict |
-| `second_user` | Second user for permission tests |
+| Fixture                | Description                      |
+|------------------------|----------------------------------|
+| `client`               | Unauthenticated TestClient       |
+| `authenticated_client` | Logged in as `test_user`         |
+| `test_user`            | User credentials dict            |
+| `second_user`          | Second user for permission tests |
 
 ### Data Fixtures
 
-| Fixture | Description |
-|---------|-------------|
-| `test_folder` | Folder created for test user |
-| `test_image_bytes` | Valid JPEG in memory |
-| `uploaded_photo` | Photo uploaded during test setup |
-| `encrypted_user` | User with DEK in cache |
+| Fixture            | Description                      |
+|--------------------|----------------------------------|
+| `test_folder`      | Folder created for test user     |
+| `test_image_bytes` | Valid JPEG in memory             |
+| `uploaded_photo`   | Photo uploaded during test setup |
+| `encrypted_user`   | User with DEK in cache           |
 
 ### Context Managers
 
@@ -244,11 +244,11 @@ pytest tests/integration/test_auth.py tests/integration/test_upload.py -q || exi
 
 ## Test Coverage Goals
 
-| Module | Coverage | Notes |
-|--------|----------|-------|
-| `app/routes/` | 80%+ | All endpoints tested |
-| `app/services/encryption.py` | 90%+ | Critical for security |
-| `app/database.py` | 60%+ | Will decrease during refactoring |
+| Module                       | Coverage | Notes                            |
+|------------------------------|----------|----------------------------------|
+| `app/routes/`                | 80%+     | All endpoints tested             |
+| `app/services/encryption.py` | 90%+     | Critical for security            |
+| `app/database.py`            | 60%+     | Will decrease during refactoring |
 
 ## Migration Checklist
 

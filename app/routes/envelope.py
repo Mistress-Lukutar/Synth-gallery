@@ -11,8 +11,24 @@ from fastapi import APIRouter, Request, HTTPException
 
 from ..database import create_connection
 from ..infrastructure.repositories import UserRepository, PhotoRepository, FolderRepository, PermissionRepository
-from ..application.services import EnvelopeService
+from ..application.services import EnvelopeService, PermissionService
 from ..dependencies import require_user
+
+
+def get_envelope_service(db) -> EnvelopeService:
+    """Create EnvelopeService with repositories."""
+    photo_repo = PhotoRepository(db)
+    folder_repo = FolderRepository(db)
+    user_repo = UserRepository(db)
+    perm_repo = PermissionRepository(db)
+    perm_service = PermissionService(perm_repo, folder_repo, photo_repo)
+    
+    return EnvelopeService(
+        photo_repository=photo_repo,
+        folder_repository=folder_repo,
+        user_repository=user_repo,
+        permission_service=perm_service
+    )
 
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
 
@@ -59,7 +75,7 @@ def get_my_public_key(request: Request):
     
     db = create_connection()
     try:
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         public_key = envelope_service.get_user_public_key(user["id"])
         
         if not public_key:
@@ -94,7 +110,7 @@ def upload_public_key(request: Request, data: PublicKeyUpload):
     
     db = create_connection()
     try:
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         success = envelope_service.set_user_public_key(user["id"], public_key)
         if not success:
             raise HTTPException(status_code=500, detail="Failed to store public key")
@@ -145,7 +161,7 @@ def get_user_public_key_endpoint(user_id: int, request: Request):
     
     db = create_connection()
     try:
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         public_key = envelope_service.get_user_public_key(user_id)
         if not public_key:
             raise HTTPException(status_code=404, detail="User has no public key")
@@ -196,7 +212,7 @@ def get_photo_key_endpoint(photo_id: str, request: Request):
             }
         
         # Get envelope key using service
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         key_data = envelope_service.get_photo_key(photo_id, user["id"])
         if not key_data:
             raise HTTPException(status_code=404, detail="Encryption key not found")
@@ -240,7 +256,7 @@ def upload_photo_key(photo_id: str, data: PhotoKeyUpload, request: Request):
             raise HTTPException(status_code=400, detail="Invalid base64 encoding")
         
         # Store the key using service
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         success = envelope_service.create_photo_key(
             photo_id, encrypted_ck, thumbnail_encrypted_ck
         )
@@ -269,7 +285,7 @@ def share_photo_key(photo_id: str, data: SharePhotoKey, request: Request):
             raise HTTPException(status_code=403, detail="Only owner can share")
         
         # Check storage mode
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         if envelope_service.get_photo_storage_mode(photo_id) != "envelope":
             raise HTTPException(status_code=400, detail="Photo must use envelope encryption")
         
@@ -304,7 +320,7 @@ def revoke_photo_share(photo_id: str, target_user_id: int, request: Request):
         if not photo or photo.get("user_id") != user["id"]:
             raise HTTPException(status_code=403, detail="Only owner can revoke access")
         
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         success = envelope_service.revoke_photo_share(
             photo_id, user["id"], target_user_id
         )
@@ -329,7 +345,7 @@ def list_photo_shares(photo_id: str, request: Request):
         if not photo or photo.get("user_id") != user["id"]:
             raise HTTPException(status_code=403, detail="Only owner can view shares")
         
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         shared_users = envelope_service.get_photo_shared_users(photo_id)
         
         # Get user details
@@ -365,7 +381,7 @@ def get_folder_key_endpoint(folder_id: str, request: Request):
         if not perm_repo.can_access_folder(folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         folder_key = envelope_service.get_folder_key_full(folder_id)
         if not folder_key:
             raise HTTPException(status_code=404, detail="Folder key not found")
@@ -400,7 +416,7 @@ def create_folder_key_endpoint(folder_id: str, data: FolderKeyCreate, request: R
             raise HTTPException(status_code=403, detail="Only owner can create folder key")
         
         # Check if already exists
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         existing = envelope_service.get_folder_key(folder_id)
         if existing:
             raise HTTPException(status_code=400, detail="Folder key already exists")
@@ -440,7 +456,7 @@ def share_folder_key(folder_id: str, data: FolderKeyShare, request: Request):
         if not folder or folder["user_id"] != user["id"]:
             raise HTTPException(status_code=403, detail="Only owner can share folder key")
         
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         folder_key = envelope_service.get_folder_key(folder_id)
         if not folder_key:
             raise HTTPException(status_code=404, detail="Folder key not found")
@@ -474,7 +490,7 @@ def get_user_migration_status(request: Request):
     user = require_user(request)
     db = create_connection()
     try:
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         status = envelope_service.get_migration_status(user["id"])
         return status
     finally:
@@ -487,7 +503,7 @@ def get_pending_migration_photos(request: Request):
     user = require_user(request)
     db = create_connection()
     try:
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         photos = envelope_service.get_photos_needing_migration(user["id"])
         return {
             "count": len(photos),
@@ -518,7 +534,7 @@ def batch_migrate_photos(data: MigrationBatch, request: Request):
         results = []
         import base64
         photo_repo = PhotoRepository(db)
-        envelope_service = EnvelopeService(db)
+        envelope_service = get_envelope_service(db)
         
         for item in data.photo_keys:
             photo_id = item.get("photo_id")

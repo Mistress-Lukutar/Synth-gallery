@@ -306,6 +306,44 @@ class UserRepository(Repository):
         except Exception:
             return False
     
+    def get_public_key(self, user_id: int) -> bytes | None:
+        """Get user's public key for envelope encryption.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            Public key bytes or None
+        """
+        cursor = self._execute(
+            "SELECT public_key FROM user_public_keys WHERE user_id = ?",
+            (user_id,)
+        )
+        row = cursor.fetchone()
+        return row["public_key"] if row else None
+    
+    def set_public_key(self, user_id: int, public_key: bytes) -> bool:
+        """Set user's public key for envelope encryption.
+        
+        Args:
+            user_id: User ID
+            public_key: Public key bytes
+            
+        Returns:
+            True if successful
+        """
+        try:
+            self._execute(
+                """INSERT OR REPLACE INTO user_public_keys 
+                   (user_id, public_key, updated_at)
+                   VALUES (?, ?, datetime('now'))""",
+                (user_id, public_key)
+            )
+            self._commit()
+            return True
+        except Exception:
+            return False
+    
     # Private helper methods
     
     def _hash_password(self, password: str) -> tuple[str, str]:
