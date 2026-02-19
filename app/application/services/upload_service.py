@@ -3,7 +3,6 @@
 This service encapsulates the business logic for uploading photos and videos,
 including thumbnail generation, encryption, and database storage.
 """
-import json
 import tempfile
 import uuid
 from collections import defaultdict
@@ -14,12 +13,12 @@ from typing import Optional, Tuple, List
 from fastapi import UploadFile, HTTPException
 
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES
+from ...infrastructure.repositories import PhotoRepository
+from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.services.media import (
     create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type
 )
 from ...infrastructure.services.metadata import extract_taken_date
-from ...infrastructure.services.encryption import EncryptionService
-from ...infrastructure.repositories import PhotoRepository
 
 
 class UploadService:
@@ -274,7 +273,8 @@ class UploadService:
         files: list,
         folder_id: str,
         user_id: int,
-        user_dek: Optional[bytes] = None
+        user_dek: Optional[bytes] = None,
+        album_name: str = None
     ) -> dict:
         """Upload multiple files as an album.
         
@@ -290,12 +290,9 @@ class UploadService:
         if len(files) < 2:
             raise HTTPException(status_code=400, detail="Album requires at least 2 items")
         
-        # Create album - use the repository's connection to avoid lock conflicts
+        # Create album
         album_id = str(uuid.uuid4())
-        self.photo_repo._execute(
-            "INSERT INTO albums (id, folder_id, user_id) VALUES (?, ?, ?)",
-            (album_id, folder_id, user_id)
-        )
+        self.photo_repo.create_album(album_id, folder_id, user_id, album_name)
         
         uploaded_photos = []
         for position, file in enumerate(files):
@@ -311,16 +308,11 @@ class UploadService:
                 result['album_id'] = album_id
                 uploaded_photos.append(result)
                 
-                # Link photo to album - use repository's connection
-                self.photo_repo._execute(
-                    "UPDATE photos SET album_id = ?, position = ? WHERE id = ?",
-                    (album_id, position, result['id'])
-                )
+                # Link photo to album
+                self.photo_repo.add_photo_to_album(result['id'], album_id, position)
             except HTTPException:
                 # Skip invalid files
                 continue
-        
-        self.photo_repo._commit()
         
         return {
             "album_id": album_id,
@@ -396,11 +388,7 @@ class UploadService:
         # Process each subfolder as an album
         for album_name, album_files in groups.items():
             album_id = str(uuid.uuid4())
-            self.photo_repo._execute(
-                "INSERT INTO albums (id, name, folder_id, user_id) VALUES (?, ?, ?, ?)",
-                (album_id, album_name, folder_id, user_id)
-            )
-            self.photo_repo._commit()
+            self.photo_repo.create_album(album_id, album_name, folder_id, user_id)
             
             photos_uploaded = 0
             for position, (file, path) in enumerate(album_files):
@@ -424,8 +412,7 @@ class UploadService:
                 })
             else:
                 # No photos uploaded, delete empty album
-                self.photo_repo._execute("DELETE FROM albums WHERE id = ?", (album_id,))
-                self.photo_repo._commit()
+                self.photo_repo.delete_album(album_id)
         
         return {
             "status": "ok",
@@ -466,11 +453,8 @@ class UploadService:
         Returns:
             Tuple of (deleted_photos_count, deleted_album_count)
         """
-        # Get all photos in album
-        photos = self.photo_repo._execute(
-            "SELECT id, filename FROM photos WHERE album_id = ?",
-            (album_id,)
-        ).fetchall()
+        # Delete album with photos using repository method
+        photos = self.photo_repo.delete_album_with_photos(album_id)
         
         deleted_photos = 0
         for photo in photos:
@@ -481,14 +465,7 @@ class UploadService:
             thumb_path.unlink(missing_ok=True)
             deleted_photos += 1
         
-        # Delete photos from database
-        self.photo_repo._execute("DELETE FROM photos WHERE album_id = ?", (album_id,))
-        
-        # Delete album
-        self.photo_repo._execute("DELETE FROM albums WHERE id = ?", (album_id,))
-        self.photo_repo._commit()
-        
-        return (deleted_photos, 1)
+        return deleted_photos, 1
     
     async def _process_bulk_file(
         self,

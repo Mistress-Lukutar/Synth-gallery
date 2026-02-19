@@ -4,8 +4,8 @@ Encryption service unit tests.
 Tests cryptographic primitives in isolation.
 No database or filesystem dependencies.
 """
-import base64
 import pytest
+
 from app.infrastructure.services.encryption import EncryptionService, DEKCache
 
 

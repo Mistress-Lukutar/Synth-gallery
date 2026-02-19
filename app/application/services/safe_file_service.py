@@ -5,7 +5,7 @@ in end-to-end encrypted safes.
 """
 import base64
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, Callable
 
 from fastapi import HTTPException
 
@@ -35,7 +35,7 @@ class SafeFileService:
         self,
         photo_id: str,
         user_id: int,
-        can_access_photo_fn: callable
+        can_access_photo_fn: Callable[[str, int], bool]
     ) -> Dict:
         """Get encrypted content key for a photo in a safe.
         
@@ -101,7 +101,7 @@ class SafeFileService:
         self,
         photo_id: str,
         user_id: int,
-        can_access_photo_fn: callable
+        can_access_photo_fn: Callable[[str, int], bool]
     ) -> Path:
         """Get file path for a photo in a safe.
         
@@ -153,7 +153,7 @@ class SafeFileService:
         self,
         photo_id: str,
         user_id: int,
-        can_access_photo_fn: callable
+        can_access_photo_fn: Callable[[str, int], bool]
     ) -> Dict:
         """Get thumbnail info for a photo in a safe.
         
@@ -230,8 +230,8 @@ class SafeFileService:
         thumbnail_content: bytes,
         thumb_width: int,
         thumb_height: int,
-        can_access_photo_fn: callable,
-        update_dimensions_fn: callable
+        can_access_photo_fn: Callable[[str, int], bool],
+        update_dimensions_fn: Callable[[str, int, int], bool]
     ) -> Dict:
         """Upload a thumbnail for a photo in a safe.
         

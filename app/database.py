@@ -9,7 +9,6 @@ This module contains only essential database utilities:
 All CRUD operations have been moved to repositories in infrastructure/repositories/.
 """
 import sqlite3
-import secrets
 import threading
 from datetime import datetime
 from pathlib import Path

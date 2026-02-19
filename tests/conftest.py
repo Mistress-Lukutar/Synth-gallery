@@ -7,11 +7,9 @@ This module provides isolated test environments:
 """
 import os
 import sys
-import tempfile
-import shutil
-from pathlib import Path
-from typing import Generator, Dict
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Generator, Dict, Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,9 +26,8 @@ os.environ["WEBAUTHN_RP_NAME"] = "Test Synth Gallery"
 from app.infrastructure.repositories import (
     UserRepository,
     FolderRepository,
-    PermissionRepository,
 )
-from app.database import create_connection, init_db
+from app.database import init_db
 
 
 @pytest.fixture(scope="session")
@@ -158,13 +155,13 @@ def client(fresh_database: Path) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture(scope="function")
-def test_user(db_connection) -> Dict:
+def test_user(db_connection) -> Dict[str, any]:
     """Create a test user and return credentials.
     
     Returns:
         Dict with: id, username, password, display_name
     """
-    credentials = {
+    credentials: Dict[str, any] = {
         "username": "testuser",
         "password": "TestPass123!",
         "display_name": "Test User"
@@ -181,9 +178,9 @@ def test_user(db_connection) -> Dict:
 
 
 @pytest.fixture(scope="function")
-def second_user(db_connection) -> Dict:
+def second_user(db_connection) -> Dict[str, any]:
     """Create a second user for permission testing."""
-    credentials = {
+    credentials: Dict[str, any] = {
         "username": "seconduser",
         "password": "SecondPass123!",
         "display_name": "Second User"
@@ -294,12 +291,12 @@ def uploaded_photo(
 
 
 @pytest.fixture(scope="function")
-def encrypted_user(db_connection, client: TestClient) -> Dict:
+def encrypted_user(db_connection, client: TestClient) -> Dict[str, Any]:
     """Create user with encryption enabled (DEK in cache).
     
     This simulates production setup where encryption is enabled.
     """
-    credentials = {
+    credentials: Dict[str, Any] = {
         "username": "encrypteduser",
         "password": "EncryptPass123!",
         "display_name": "Encrypted User"

@@ -24,14 +24,12 @@ Usage:
         python manage_users.py recover <username> <recovery_key>   - recover with key
 """
 
-import sys
 import os
+import sys
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
-
-from pathlib import Path
 
 from app.database import init_db, create_connection, verify_password
 from app.infrastructure.repositories import UserRepository, PhotoRepository

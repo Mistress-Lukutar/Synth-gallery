@@ -1,7 +1,6 @@
 """WebAuthn service for hardware key authentication."""
-import secrets
-from typing import Optional
 
+import json
 from webauthn import (
     generate_registration_options,
     verify_registration_response,
@@ -9,6 +8,7 @@ from webauthn import (
     verify_authentication_response,
     options_to_json,
 )
+from webauthn.helpers.cose import COSEAlgorithmIdentifier
 from webauthn.helpers.structs import (
     PublicKeyCredentialDescriptor,
     AuthenticatorSelectionCriteria,
@@ -17,7 +17,6 @@ from webauthn.helpers.structs import (
     AuthenticatorAttachment,
     AttestationConveyancePreference,
 )
-from webauthn.helpers.cose import COSEAlgorithmIdentifier
 
 from ...config import WEBAUTHN_RP_NAME
 
@@ -100,7 +99,7 @@ class WebAuthnService:
         challenge = options.challenge
         cls._challenges[challenge] = (user_id, rp_id, origin, time.time() + 300)
 
-        return options_to_json(options), challenge
+        return json.loads(options_to_json(options)), challenge
 
     @classmethod
     def verify_registration(
@@ -180,7 +179,7 @@ class WebAuthnService:
         challenge = options.challenge
         cls._challenges[challenge] = (user_id, rp_id, origin, time.time() + 300)
 
-        return options_to_json(options), challenge
+        return json.loads(options_to_json(options)), challenge
 
     @classmethod
     def generate_authentication_options_discoverable(
@@ -207,7 +206,7 @@ class WebAuthnService:
         challenge = options.challenge
         cls._challenges[challenge] = (None, rp_id, origin, time.time() + 300)
 
-        return options_to_json(options), challenge
+        return json.loads(options_to_json(options)), challenge
 
     @classmethod
     def verify_authentication(

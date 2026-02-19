@@ -4,7 +4,7 @@ Folders form a hierarchical structure with parent-child relationships.
 Operations support recursive queries for subtree operations.
 """
 import uuid
-from typing import Optional
+
 from .base import Repository
 
 
@@ -430,3 +430,115 @@ class FolderRepository(Repository):
             return True
         except Exception:
             return False
+    
+    # =========================================================================
+    # Folder Contents Operations
+    # =========================================================================
+    
+    def get_subfolders(self, folder_id: str, user_id: int) -> list[dict]:
+        """Get subfolders accessible by user.
+        
+        Args:
+            folder_id: Parent folder ID
+            user_id: User ID
+            
+        Returns:
+            List of subfolder dicts
+        """
+        cursor = self._execute("""
+            SELECT * FROM folders
+            WHERE parent_id = ? AND (
+                user_id = ?
+                OR id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+            )
+            ORDER BY name
+        """, (folder_id, user_id, user_id))
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def get_albums_in_folder(self, folder_id: str) -> list[dict]:
+        """Get albums in folder with photo counts.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            List of album dicts with photo_count and cover_photo_id
+        """
+        cursor = self._execute("""
+            SELECT a.*,
+                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+                   (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1) as cover_photo_id
+            FROM albums a
+            WHERE a.folder_id = ?
+            ORDER BY a.created_at DESC
+        """, (folder_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def get_standalone_photos(self, folder_id: str) -> list[dict]:
+        """Get standalone photos (not in album) in folder.
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            List of photo dicts
+        """
+        cursor = self._execute("""
+            SELECT * FROM photos
+            WHERE folder_id = ? AND album_id IS NULL
+            ORDER BY uploaded_at DESC
+        """, (folder_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def list_with_metadata(self, user_id: int, unlocked_safe_ids: list[str] = None) -> list[dict]:
+        """Get all folders accessible by user with metadata.
+        
+        Args:
+            user_id: User ID
+            unlocked_safe_ids: List of unlocked safe IDs for safe unlocked status
+            
+        Returns:
+            List of folder dicts with metadata
+        """
+        # Base query with photo count and permission
+        safe_placeholder = ','.join(['?'] * len(unlocked_safe_ids)) if unlocked_safe_ids else 'NULL'
+        
+        query = f"""
+            SELECT f.*, u.display_name as owner_name,
+                   (
+                       SELECT COUNT(*) FROM photos p
+                       WHERE p.folder_id IN (
+                           WITH RECURSIVE subfolder_tree AS (
+                               SELECT id FROM folders WHERE id = f.id
+                               UNION ALL
+                               SELECT child.id FROM folders child
+                               JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                           )
+                           SELECT id FROM subfolder_tree
+                       )
+                   ) as photo_count,
+                   CASE
+                       WHEN f.user_id = ? THEN 'owner'
+                       ELSE (SELECT permission FROM folder_permissions WHERE folder_id = f.id AND user_id = ?)
+                   END as permission,
+                   CASE
+                       WHEN f.user_id != ? THEN NULL
+                       WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id AND permission = 'editor') THEN 'has_editors'
+                       WHEN EXISTS(SELECT 1 FROM folder_permissions WHERE folder_id = f.id AND permission = 'viewer') THEN 'has_viewers'
+                       ELSE 'private'
+                   END as share_status,
+                   CASE
+                       WHEN f.safe_id IS NULL THEN 'no_safe'
+                       WHEN f.safe_id IN ({safe_placeholder}) THEN 'unlocked'
+                       ELSE 'locked'
+                   END as safe_status
+            FROM folders f
+            JOIN users u ON f.user_id = u.id
+            WHERE f.user_id = ?
+               OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+            ORDER BY f.name
+        """
+        
+        params = [user_id, user_id, user_id] + (unlocked_safe_ids or []) + [user_id, user_id]
+        cursor = self._execute(query, tuple(params))
+        return [dict(row) for row in cursor.fetchall()]
