@@ -177,8 +177,12 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
                 if folder and perm_service.can_access(default_folder_id, user["id"]):
                     return RedirectResponse(url=f"{ROOT_PATH}/?folder_id={default_folder_id}", status_code=302)
             # Create default folder if missing
-            from ..database import create_default_folder
-            default_folder_id = create_default_folder(user["id"])
+            from ..application.services import UserSettingsService
+            user_settings_service = UserSettingsService(
+                folder_repository=folder_repo,
+                permission_repository=perm_service.perm_repo
+            )
+            default_folder_id = user_settings_service.create_default_folder(user["id"])
             return RedirectResponse(url=f"{ROOT_PATH}/?folder_id={default_folder_id}", status_code=302)
 
         # Get sort preference: use URL param if provided, otherwise use saved preference
@@ -532,8 +536,12 @@ def get_default_folder_api(request: Request):
                 return {"folder_id": folder_id}
         
         # Create default folder if missing
-        from ..database import create_default_folder
-        folder_id = create_default_folder(user["id"])
+        from ..application.services import UserSettingsService
+        user_settings_service = UserSettingsService(
+            folder_repository=folder_repo,
+            permission_repository=perm_service.perm_repo
+        )
+        folder_id = user_settings_service.create_default_folder(user["id"])
         return {"folder_id": folder_id}
     finally:
         db.close()

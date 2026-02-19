@@ -24,6 +24,14 @@ os.environ["SYNTH_BASE_URL"] = ""
 os.environ["BACKUP_PATH"] = ""
 os.environ["WEBAUTHN_RP_NAME"] = "Test Synth Gallery"
 
+# Import repositories
+from app.infrastructure.repositories import (
+    UserRepository,
+    FolderRepository,
+    PermissionRepository,
+)
+from app.database import create_connection, init_db
+
 
 @pytest.fixture(scope="session")
 def test_data_dir() -> Path:
@@ -92,7 +100,6 @@ def fresh_database(patched_config: Dict):
     After refactoring to Repository pattern, this fixture should
     still work - just change how it initializes the schema.
     """
-    from app.database import init_db
     import app.database as db_module
     
     # Reset any existing thread-local connections
@@ -120,6 +127,22 @@ def fresh_database(patched_config: Dict):
 
 
 @pytest.fixture(scope="function")
+def db_connection(fresh_database: Path):
+    """Provide a database connection for repositories.
+    
+    Uses the app's thread-local connection to ensure consistency
+    with the application's database access pattern.
+    
+    Returns:
+        sqlite3.Connection with row_factory set
+    """
+    from app.database import get_db
+    conn = get_db()
+    yield conn
+    # Don't close - get_db() manages its own connection lifecycle
+
+
+@pytest.fixture(scope="function")
 def client(fresh_database: Path) -> Generator[TestClient, None, None]:
     """Create test client with fresh isolated environment.
     
@@ -135,21 +158,19 @@ def client(fresh_database: Path) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture(scope="function")
-def test_user(client: TestClient) -> Dict:
+def test_user(db_connection) -> Dict:
     """Create a test user and return credentials.
     
     Returns:
         Dict with: id, username, password, display_name
     """
-    from app.database import create_user
-    
     credentials = {
         "username": "testuser",
         "password": "TestPass123!",
         "display_name": "Test User"
     }
     
-    user_id = create_user(
+    user_id = UserRepository(db_connection).create(
         credentials["username"],
         credentials["password"],
         credentials["display_name"]
@@ -160,17 +181,15 @@ def test_user(client: TestClient) -> Dict:
 
 
 @pytest.fixture(scope="function")
-def second_user(client: TestClient) -> Dict:
+def second_user(db_connection) -> Dict:
     """Create a second user for permission testing."""
-    from app.database import create_user
-    
     credentials = {
         "username": "seconduser",
         "password": "SecondPass123!",
         "display_name": "Second User"
     }
     
-    user_id = create_user(
+    user_id = UserRepository(db_connection).create(
         credentials["username"],
         credentials["password"],
         credentials["display_name"]
@@ -216,15 +235,15 @@ def csrf_token(authenticated_client: TestClient) -> str:
 
 
 @pytest.fixture(scope="function")
-def test_folder(authenticated_client: TestClient, test_user: Dict) -> str:
+def test_folder(db_connection, test_user: Dict) -> str:
     """Create a test folder and return its ID.
     
-    Uses direct DB call (will need updating when refactoring to Repository).
-    During refactoring, replace with API call once folder creation endpoint exists.
+    Uses Repository pattern for folder creation.
     """
-    from app.database import create_folder
-    
-    folder_id = create_folder("Test Folder", test_user["id"])
+    folder_id = FolderRepository(db_connection).create(
+        "Test Folder", 
+        test_user["id"]
+    )
     return folder_id
 
 
@@ -275,20 +294,18 @@ def uploaded_photo(
 
 
 @pytest.fixture(scope="function")
-def encrypted_user(client: TestClient) -> Dict:
+def encrypted_user(db_connection, client: TestClient) -> Dict:
     """Create user with encryption enabled (DEK in cache).
     
     This simulates production setup where encryption is enabled.
     """
-    from app.database import create_user
-    
     credentials = {
         "username": "encrypteduser",
         "password": "EncryptPass123!",
         "display_name": "Encrypted User"
     }
     
-    user_id = create_user(
+    user_id = UserRepository(db_connection).create(
         credentials["username"],
         credentials["password"],
         credentials["display_name"]
@@ -341,19 +358,18 @@ def login_as(client: TestClient, username: str, password: str):
 
 
 @contextmanager
-def temp_folder(client: TestClient, user_id: int, name: str = "Temp Folder"):
+def temp_folder(db_connection, client: TestClient, user_id: int, name: str = "Temp Folder"):
     """Context manager that creates and cleans up a folder.
     
     Usage:
-        with temp_folder(client, user_id, "My Folder") as folder_id:
+        with temp_folder(db_connection, client, user_id, "My Folder") as folder_id:
             # use folder_id
             pass
         # folder is automatically deleted
     """
-    from app.database import create_folder, delete_folder
-    
-    folder_id = create_folder(name, user_id)
+    folder_repo = FolderRepository(db_connection)
+    folder_id = folder_repo.create(name, user_id)
     try:
         yield folder_id
     finally:
-        delete_folder(folder_id)
+        folder_repo.delete(folder_id)
