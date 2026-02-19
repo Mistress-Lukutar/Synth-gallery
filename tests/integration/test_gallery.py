@@ -39,12 +39,13 @@ class TestGalleryView:
         authenticated_client: TestClient,
         test_user: dict
     ):
-        """Gallery without folder_id should redirect to default folder."""
+        """Gallery without folder_id should return SPA shell with default folder."""
         response = authenticated_client.get("/", follow_redirects=False)
         
-        # Should redirect to folder
-        assert response.status_code == 302
-        assert "folder_id=" in response.headers.get("location", "")
+        # SPA shell returned (no redirect needed)
+        assert response.status_code == 200
+        # Should contain initialFolderId variable for SPA to load
+        assert "initialFolderId" in response.text
     
     def test_gallery_shows_folder_breadcrumbs(
         self,
