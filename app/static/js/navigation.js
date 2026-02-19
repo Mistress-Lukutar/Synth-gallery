@@ -98,7 +98,6 @@
     // Render folder content in gallery
     window.renderFolderContent = function(data) {
         console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'items:', data.items?.length);
-        console.log('[renderFolderContent] Items:', data.items?.map(i => ({ type: i.type, name: i.name || i.original_name, cover_photo_id: i.cover_photo_id, safe_id: i.safe_id })));
         
         const gallery = document.getElementById('gallery');
         
