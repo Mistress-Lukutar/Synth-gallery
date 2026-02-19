@@ -3,20 +3,31 @@ from fastapi import APIRouter, Request, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from ..database import create_connection
-from ..infrastructure.repositories import SafeRepository, PhotoRepository, PermissionRepository
-from ..application.services import SafeFileService
+from ..infrastructure.repositories import SafeRepository, PhotoRepository
+from ..application.services import SafeFileService, PermissionService
+from ..dependencies import require_user
+from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 from ..dependencies import require_user
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 
 router = APIRouter(prefix="/api/safe-files", tags=["safe-files"])
 
 
-def get_safe_file_service() -> SafeFileService:
+def get_safe_file_service(db) -> SafeFileService:
     """Get configured SafeFileService instance."""
-    db = create_connection()
     safe_repo = SafeRepository(db)
     photo_repo = PhotoRepository(db)
     return SafeFileService(safe_repo, photo_repo)
+
+
+def get_permission_service(db) -> PermissionService:
+    """Get configured PermissionService instance."""
+    from ..infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository
+    return PermissionService(
+        permission_repository=PermissionRepository(db),
+        folder_repository=FolderRepository(db),
+        photo_repository=PhotoRepository(db)
+    )
 
 
 @router.get("/photos/{photo_id}/key")
@@ -26,15 +37,15 @@ def get_safe_photo_key(photo_id: str, request: Request):
     The client must have an active safe session to retrieve the key.
     """
     user = require_user(request)
-    service = get_safe_file_service()
     
     db = create_connection()
     try:
-        perm_repo = PermissionRepository(db)
+        service = get_safe_file_service(db)
+        perm_service = get_permission_service(db)
         return service.get_photo_key(
             photo_id=photo_id,
             user_id=user["id"],
-            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid)
+            can_access_photo_fn=lambda pid, uid: perm_service.can_access_photo(pid, uid)
         )
     finally:
         db.close()
@@ -47,15 +58,15 @@ def get_safe_photo_file(photo_id: str, request: Request):
     Returns the file as-is (encrypted), client must decrypt.
     """
     user = require_user(request)
-    service = get_safe_file_service()
     
     db = create_connection()
     try:
-        perm_repo = PermissionRepository(db)
+        service = get_safe_file_service(db)
+        perm_service = get_permission_service(db)
         file_path = service.get_photo_file_path(
             photo_id=photo_id,
             user_id=user["id"],
-            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid)
+            can_access_photo_fn=lambda pid, uid: perm_service.can_access_photo(pid, uid)
         )
         
         # Get safe_id for header
@@ -83,15 +94,15 @@ def get_safe_photo_thumbnail(photo_id: str, request: Request):
     to signal the client that it should regenerate and upload the thumbnail.
     """
     user = require_user(request)
-    service = get_safe_file_service()
     
     db = create_connection()
     try:
-        perm_repo = PermissionRepository(db)
+        service = get_safe_file_service(db)
+        perm_service = get_permission_service(db)
         result = service.get_photo_thumbnail_path(
             photo_id=photo_id,
             user_id=user["id"],
-            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid)
+            can_access_photo_fn=lambda pid, uid: perm_service.can_access_photo(pid, uid)
         )
         
         if not result["exists"]:
@@ -129,7 +140,6 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
     The thumbnail must be encrypted with the safe's DEK (same as the main file).
     """
     user = require_user(request)
-    service = get_safe_file_service()
     
     # Get form data
     form = await request.form()
@@ -145,7 +155,8 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
     
     db = create_connection()
     try:
-        perm_repo = PermissionRepository(db)
+        service = get_safe_file_service(db)
+        perm_service = get_permission_service(db)
         photo_repo = PhotoRepository(db)
         
         return service.upload_thumbnail(
@@ -154,7 +165,7 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
             thumbnail_content=thumb_content,
             thumb_width=thumb_width,
             thumb_height=thumb_height,
-            can_access_photo_fn=lambda pid, uid: perm_repo.can_access_photo(pid, uid),
+            can_access_photo_fn=lambda pid, uid: perm_service.can_access_photo(pid, uid),
             update_dimensions_fn=lambda pid, w, h: photo_repo.update_thumbnail_dimensions(pid, w, h)
         )
     finally:
