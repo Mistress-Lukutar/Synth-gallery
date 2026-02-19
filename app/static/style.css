@@ -376,8 +376,14 @@ main {
 }
 
 /* Fallback aspect-ratio for items without stored dimensions */
-.gallery-link:not([style*="aspect-ratio"]) {
+/* Only apply to photos, not albums - albums should use natural aspect ratio */
+.gallery-item:not(.album-item) .gallery-link:not([style*="aspect-ratio"]) {
     aspect-ratio: 1;
+}
+
+/* Albums without explicit aspect-ratio should use their cover image natural ratio */
+.album-item .gallery-link:not([style*="aspect-ratio"]) {
+    aspect-ratio: auto;
 }
 
 /* Placeholder for loading images */
