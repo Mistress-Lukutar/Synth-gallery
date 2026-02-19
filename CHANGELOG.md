@@ -7,44 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Breaking) - v1.0 Release Preparation
+- **Major Architecture Refactoring: Repository Pattern Complete**
+  - ✅ Split `app/database.py` (2282 lines) into 7 focused Repository classes
+  - ✅ Reduced `database.py` to ~450 lines (-80% reduction)
+  - ✅ Removed all deprecated proxy functions (was: ~100 functions with warnings)
+  - ✅ Removed `app/database_minimal.py` (redundant with cleaned database.py)
+  - ✅ All routes now use explicit `create_connection()` pattern
+  - ✅ All 128 tests passing (100% pass rate)
+  - ✅ Zero deprecated database functions in production code
+
+### Removed
+- **Async Database Layer (Issue #15 - Reverted)**
+  - ❌ Removed `app/infrastructure/database/` module
+  - ❌ Removed all `Async*Repository` classes (AsyncUserRepository, etc.)
+  - ❌ Removed `aiosqlite` dependency
+  - ❌ Removed async wrapper functions from database.py
+  - ❌ Removed `tests/test_async_repositories.py`
+  - **Reason:** No production usage, added complexity without benefit, Issue #17 (SQLAlchemy) will provide better async abstraction
+
+### Added (Internal) - Service Layer Complete
+- **Application Services (Issue #16 - Completed)**
+  - ✅ 9 services in `app/application/services/`:
+    - `AuthService` - Authentication and session management
+    - `FolderService` - Folder CRUD and tree operations
+    - `PermissionService` - Access control (can_access, can_edit, etc.)
+    - `PhotoService` - Photo/album operations (move, cover, reorder)
+    - `UploadService` - File uploads with encryption
+    - `SafeService` - Encrypted vault operations
+    - `SafeFileService` - File access in safes
+    - `EnvelopeService` - Envelope encryption key management
+    - `UserSettingsService` - User preferences (default folder, sort, collapsed)
+  - ✅ All routes migrated to services:
+    - `auth.py`, `admin.py`, `middleware.py`
+    - `folders.py`, `gallery.py`
+    - `safes.py`, `safe_files.py`, `webauthn.py`
+    - `envelope.py`
+
+### Added (Internal) - New Repositories
+- **WebAuthnRepository** - Hardware key credential management
+- **SafeRepository enhancements:**
+  - `get_safe_id_for_folder()` - Check if folder is in safe
+  - `is_unlocked()` - Check safe unlock status
+- **PhotoRepository enhancements:**
+  - `move_album_to_folder()` - Move album between folders
+  - `get_available_for_album()` - Photos available to add to album
+
 ### Changed (Internal)
-- **Major Architecture Refactoring: God Module Elimination**
-  - Split `app/database.py` (2100+ lines) into 6 focused Repository classes
-  - New structure in `app/infrastructure/repositories/`:
-    - `UserRepository` - User CRUD and authentication
-    - `SessionRepository` - Session management and lifecycle
-    - `FolderRepository` - Folder hierarchy and tree operations
-    - `PermissionRepository` - Access control and sharing
-    - `PhotoRepository` - Photo/video management and albums
-    - `SafeRepository` - Encrypted vault operations
-  - Reduced database.py from 2100+ to ~900 lines (-57%)
-  - All existing functionality preserved via backward-compatible proxy functions
-  - Added comprehensive test suite (39 tests, 38 passing)
-  - No breaking changes for existing code
-  - Fixes TemplateResponse deprecation warnings (FastAPI 0.100+ API)
-
-### Added (Internal)
-- **Async Database Layer (Issue #15)**
-  - Migrated from synchronous sqlite3 to async aiosqlite
-  - New `app/infrastructure/database/` module with async connection pool
-  - Async versions of all 6 repositories:
-    - `AsyncUserRepository` - Async user operations
-    - `AsyncSessionRepository` - Async session management
-    - `AsyncFolderRepository` - Async folder operations
-    - `AsyncPermissionRepository` - Async permission handling
-    - `AsyncPhotoRepository` - Async photo operations
-    - `AsyncSafeRepository` - Async safe operations
-  - FastAPI dependency `get_async_db()` for async endpoints
-  - Backward compatibility: sync APIs still work unchanged
-  - True non-blocking I/O for better concurrency under load
-
-### Deprecated
-- **Legacy database.py functions will be removed in v1.0**
-  - All proxy functions in `app/database.py` now emit `DeprecationWarning`
-  - Migration path: Use Repository classes from `app.infrastructure.repositories`
-  - Example: `from app.database import create_user` → `from app.infrastructure.repositories import UserRepository`
-  - Full list of deprecated functions: all CRUD operations (create_user, get_user_by_id, etc.)
-  - Timeline: Legacy functions will be removed in v1.0 release
+- **Connection Management**
+  - Routes now use `create_connection()` with explicit `try/finally: db.close()`
+  - Prevents "closed database" errors from thread-local connection reuse
+  - `get_db()` kept for legacy code (doesn't close connection)
 
 ### Added (Internal)
 - **Service Layer Extraction (Issue #16 - Completed)**
@@ -104,35 +117,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Business logic now testable without FastAPI dependencies
   - Clean separation: HTTP handling in routes, business logic in services
 
-### Migration for Developers
+### Migration for Developers (v1.0)
+
+**Before (v0.8.x - deprecated):**
 ```python
-# Old way (still works):
 from app.database import create_user, get_folder
 create_user("john", "pass", "John")
+```
 
-# New recommended sync way:
+**After (v1.0 - current):**
+```python
+# Repository pattern (for simple CRUD):
 from app.infrastructure.repositories import UserRepository
-from app.database import get_db
-repo = UserRepository(get_db())
-repo.create("john", "pass", "John")
+from app.database import create_connection
 
-# New async way (for new endpoints):
-from app.infrastructure.repositories import AsyncUserRepository
-from app.database import get_async_db
+db = create_connection()
+try:
+    repo = UserRepository(db)
+    repo.create("john", "pass", "John")
+finally:
+    db.close()
 
-@app.post("/api/users")
-async def create_user(username: str, db = Depends(get_async_db)):
-    repo = AsyncUserRepository(db)
-    return await repo.create(username, "pass", username)
-
-# New service layer way (for complex operations):
+# Service layer (for complex operations):
 from app.application.services import FolderService
 from app.infrastructure.repositories import FolderRepository
-from app.database import get_db
+from app.database import create_connection
 
-service = FolderService(FolderRepository(get_db()))
-folder = service.create_folder("My Folder", user_id=1)
+db = create_connection()
+try:
+    service = FolderService(FolderRepository(db))
+    folder = service.create_folder("My Folder", user_id=1)
+finally:
+    db.close()
 ```
+
+**Key Changes:**
+1. ❌ `get_db()` → ✅ `create_connection()` (explicit close required)
+2. ❌ Direct database functions → ✅ Repositories
+3. ❌ Async repositories → ✅ Only sync repositories (wait for Issue #17)
+4. ✅ Use services for business logic (validation, permissions, etc.)
 
 ## [0.8.5] - 2026-02-16
 
