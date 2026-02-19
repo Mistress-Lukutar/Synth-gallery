@@ -312,9 +312,9 @@
             window.rebuildMasonry(true);
         }
         
-        // Load safe thumbnails
-        if (typeof loadSafeThumbnails === 'function') {
-            loadSafeThumbnails();
+        // Load safe thumbnails (will be defined in safes.js Phase 6)
+        if (typeof window.loadSafeThumbnails === 'function') {
+            window.loadSafeThumbnails();
         }
     };
 
