@@ -3,7 +3,7 @@
 This service encapsulates business logic for folder permissions,
 including granting/revoking access and checking permissions.
 """
-from typing import Optional, List, Dict
+from typing import Optional, List
 
 from fastapi import HTTPException
 
@@ -232,7 +232,7 @@ class PermissionService:
                 detail="Only folder owner can view permissions"
             )
         
-        return self.perm_repo.list_for_folder(folder_id)
+        return self.perm_repo.list_permissions(folder_id)
     
     def get_shared_folders(self, user_id: int) -> List[dict]:
         """Get folders shared with user.
@@ -243,7 +243,7 @@ class PermissionService:
         Returns:
             List of folders with permission info
         """
-        return self.perm_repo.list_for_user(user_id)
+        return self.perm_repo.list_accessible_folders(user_id, include_owned=False, include_shared=True)
     
     def transfer_ownership(
         self,
@@ -312,13 +312,14 @@ class PermissionService:
             return self.can_access(photo["folder_id"], user_id)
         
         # Check album's folder if photo is in album
-        if photo.get("album_id"):
-            album = self.album_repo.get_by_id(photo["album_id"]) if self.album_repo else None
-            if album:
-                if album["user_id"] == user_id:
-                    return True
-                if album.get("folder_id"):
-                    return self.can_access(album["folder_id"], user_id)
+        # Note: Album repository not yet implemented in v1.0
+        # if photo.get("album_id"):
+        #     album = self.album_repo.get_by_id(photo["album_id"]) if self.album_repo else None
+        #     if album:
+        #         if album["user_id"] == user_id:
+        #             return True
+        #         if album.get("folder_id"):
+        #             return self.can_access(album["folder_id"], user_id)
         
         # Legacy photos without folder/user - accessible to all authenticated users
         if photo.get("folder_id") is None and photo.get("user_id") is None:

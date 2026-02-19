@@ -2,13 +2,10 @@
 from fastapi import APIRouter, Request, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
-from ..database import create_connection
-from ..infrastructure.repositories import SafeRepository, PhotoRepository
 from ..application.services import SafeFileService, PermissionService
+from ..database import create_connection
 from ..dependencies import require_user
-from ..config import UPLOADS_DIR, THUMBNAILS_DIR
-from ..dependencies import require_user
-from ..config import UPLOADS_DIR, THUMBNAILS_DIR
+from ..infrastructure.repositories import SafeRepository, PhotoRepository
 
 router = APIRouter(prefix="/api/safe-files", tags=["safe-files"])
 

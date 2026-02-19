@@ -30,6 +30,14 @@ def get_envelope_service(db) -> EnvelopeService:
         permission_service=perm_service
     )
 
+
+def get_permission_service(db) -> PermissionService:
+    """Create PermissionService with repositories."""
+    photo_repo = PhotoRepository(db)
+    folder_repo = FolderRepository(db)
+    perm_repo = PermissionRepository(db)
+    return PermissionService(perm_repo, folder_repo, photo_repo)
+
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
 
 
@@ -76,20 +84,7 @@ def get_my_public_key(request: Request):
     db = create_connection()
     try:
         envelope_service = get_envelope_service(db)
-        public_key = envelope_service.get_user_public_key(user["id"])
-        
-        if not public_key:
-            return {
-                "has_key": False,
-                "message": "No public key set. Upload one to enable sharing."
-            }
-        
-        import base64
-        return {
-            "has_key": True,
-            "public_key": base64.b64encode(public_key).decode(),
-            "key_version": 1
-        }
+        return envelope_service.get_user_public_key(user["id"])
     finally:
         db.close()
 
@@ -159,14 +154,14 @@ def get_user_public_key_endpoint(user_id: int, request: Request):
     # Require authentication but not necessarily access to specific resources
     require_user(request)
     
+    import base64
     db = create_connection()
     try:
-        envelope_service = get_envelope_service(db)
-        public_key = envelope_service.get_user_public_key(user_id)
+        user_repo = UserRepository(db)
+        public_key = user_repo.get_public_key(user_id)
         if not public_key:
             raise HTTPException(status_code=404, detail="User has no public key")
         
-        import base64
         return {
             "user_id": user_id,
             "public_key": base64.b64encode(public_key).decode()
@@ -192,8 +187,8 @@ def get_photo_key_endpoint(photo_id: str, request: Request):
     db = create_connection()
     try:
         # Check access
-        perm_repo = PermissionRepository(db)
-        if not perm_repo.can_access_photo(photo_id, user["id"]):
+        perm_service = get_permission_service(db)
+        if not perm_service.can_access_photo(photo_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
         
         photo_repo = PhotoRepository(db)
@@ -296,7 +291,7 @@ def share_photo_key(photo_id: str, data: SharePhotoKey, request: Request):
             raise HTTPException(status_code=400, detail="Invalid base64 encoding")
         
         # Store shared key using service
-        success = envelope_service.share_photo_key(
+        success = envelope_service.share_photo(
             photo_id, user["id"], data.user_id, encrypted_ck_for_user
         )
         if not success:
@@ -377,12 +372,12 @@ def get_folder_key_endpoint(folder_id: str, request: Request):
     db = create_connection()
     try:
         # Check access
-        perm_repo = PermissionRepository(db)
-        if not perm_repo.can_access_folder(folder_id, user["id"]):
+        perm_service = get_permission_service(db)
+        if not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
         
         envelope_service = get_envelope_service(db)
-        folder_key = envelope_service.get_folder_key_full(folder_id)
+        folder_key = envelope_service.get_folder_key(folder_id)
         if not folder_key:
             raise HTTPException(status_code=404, detail="Folder key not found")
         

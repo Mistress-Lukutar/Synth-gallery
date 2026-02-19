@@ -3,13 +3,12 @@ import base64
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..database import create_connection
-from ..infrastructure.repositories import SafeRepository, WebAuthnRepository
 from ..application.services import SafeService
+from ..database import create_connection
 from ..dependencies import require_user
+from ..infrastructure.repositories import SafeRepository, WebAuthnRepository
 
 router = APIRouter(prefix="/api/safes", tags=["safes"])
 

@@ -4,7 +4,7 @@ Safes are independent encrypted containers with separate keys.
 Each safe can be unlocked via password or WebAuthn hardware key.
 """
 import uuid
-from typing import Optional
+
 from .base import Repository
 
 

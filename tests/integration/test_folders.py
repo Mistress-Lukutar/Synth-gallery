@@ -7,7 +7,6 @@ Verifies:
 - Folder tree structure
 - Sharing functionality
 """
-from typing import Dict
 
 import pytest
 from fastapi.testclient import TestClient
@@ -134,9 +133,7 @@ class TestFolderPermissions:
     ):
         """Viewer permission should not allow uploads."""
         from app.infrastructure.repositories import FolderRepository, PermissionRepository
-        from PIL import Image
-        import io
-        
+
         # Setup: second user shares folder as viewer-only
         folder_repo = FolderRepository(db_connection)
         perm_repo = PermissionRepository(db_connection)

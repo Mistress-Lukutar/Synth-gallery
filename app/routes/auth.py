@@ -1,15 +1,14 @@
 """Authentication routes."""
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
-
-from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
 from fastapi.templating import Jinja2Templates
 
-from ..database import create_connection
-from ..infrastructure.repositories import UserRepository, SessionRepository
 from ..application.services import AuthService
+from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
+from ..database import create_connection
 from ..dependencies import get_csrf_token
-from ..infrastructure.services.encryption import EncryptionService, dek_cache
+from ..infrastructure.repositories import UserRepository, SessionRepository
+from ..infrastructure.services.encryption import dek_cache
 
 router = APIRouter()
 

@@ -1,11 +1,12 @@
 """WebAuthn routes for hardware key authentication."""
 import base64
+
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
-from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
@@ -13,7 +14,6 @@ from ..database import create_connection
 from ..infrastructure.repositories import (
     UserRepository, SessionRepository, WebAuthnRepository
 )
-from ..dependencies import get_current_user
 from ..infrastructure.services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
 from ..infrastructure.services.encryption import EncryptionService, dek_cache
 from ..dependencies import get_csrf_token

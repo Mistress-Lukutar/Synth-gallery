@@ -7,7 +7,6 @@ Verifies:
 - Thumbnail generation
 - Sort order
 """
-import pytest
 from fastapi.testclient import TestClient
 
 

@@ -146,7 +146,7 @@ class DEKCache:
                     del self._cache[user_id]
         return None
 
-    def set(self, user_id: int, dek: bytes, ttl_seconds: int = 7 * 24 * 3600):
+    def set(self, user_id: int, dek: bytes, ttl_seconds: float = 7 * 24 * 3600):
         """Cache DEK with TTL (default 7 days to match session)."""
         with self._lock:
             expires_at = time.time() + ttl_seconds

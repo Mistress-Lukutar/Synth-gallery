@@ -2,15 +2,7 @@
 
 This module defines the interface that all repositories must implement.
 """
-from typing import Protocol, Optional, Any
 import sqlite3
-
-
-class ConnectionProtocol(Protocol):
-    """Protocol for database connection."""
-    
-    def execute(self, sql: str, parameters: tuple = ...) -> sqlite3.Cursor: ...
-    def commit(self) -> None: ...
 
 
 class Repository:
@@ -26,11 +18,11 @@ class Repository:
                     return dict(row) if row else None
     """
     
-    def __init__(self, connection: ConnectionProtocol):
+    def __init__(self, connection: sqlite3.Connection):
         """Initialize repository with database connection.
         
         Args:
-            connection: Database connection (sqlite3.Connection or compatible)
+            connection: Database connection (sqlite3.Connection)
         """
         self._conn = connection
     

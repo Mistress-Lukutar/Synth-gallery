@@ -8,9 +8,7 @@ Verifies:
 - Access control for uploads
 - Download/retrieval of uploaded files
 """
-import pytest
 from fastapi.testclient import TestClient
-from pathlib import Path
 
 
 def _csrf_headers(client: TestClient) -> dict:

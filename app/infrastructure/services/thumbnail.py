@@ -1,12 +1,11 @@
 """Thumbnail management service - regeneration, cleanup, statistics."""
-from pathlib import Path
 
-from ...database import get_db
+from .encryption import EncryptionService, dek_cache
 from .media import (
     create_thumbnail, create_video_thumbnail,
     create_thumbnail_bytes, create_video_thumbnail_bytes
 )
-from .encryption import EncryptionService, dek_cache
+from ...database import get_db
 
 
 def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:

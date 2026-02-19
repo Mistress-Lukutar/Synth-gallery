@@ -6,7 +6,8 @@ This service encapsulates business logic for:
 - Album cover management
 - Batch operations on photos and albums
 """
-from typing import Optional, Tuple
+from typing import Optional
+
 from fastapi import HTTPException
 
 from ...infrastructure.repositories import PhotoRepository, FolderRepository, PermissionRepository
@@ -103,28 +104,11 @@ class PhotoService:
     
     def _move_photo_to_folder(self, photo_id: str, folder_id: str) -> bool:
         """Move photo to folder."""
-        # Update folder_id directly
-        try:
-            self.photo_repo._execute(
-                "UPDATE photos SET folder_id = ? WHERE id = ?",
-                (folder_id, photo_id)
-            )
-            self.photo_repo._commit()
-            return True
-        except Exception:
-            return False
+        return self.photo_repo.move_to_folder(photo_id, folder_id)
     
     def _move_album_to_folder(self, album_id: str, folder_id: str) -> bool:
         """Move album to folder."""
-        try:
-            self.photo_repo._execute(
-                "UPDATE albums SET folder_id = ? WHERE id = ?",
-                (folder_id, album_id)
-            )
-            self.photo_repo._commit()
-            return True
-        except Exception:
-            return False
+        return self.photo_repo.move_album_to_folder(album_id, folder_id)
     
     def move_photo(self, photo_id: str, dest_folder_id: str, user_id: int) -> dict:
         """Move a standalone photo to another folder.
