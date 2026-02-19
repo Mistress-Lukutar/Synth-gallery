@@ -8,6 +8,9 @@
     let currentPhotoId = null;
     let currentPhotos = [];
     let currentIndex = 0;
+    
+    // Album context
+    let albumContext = null; // { photos: [], index: 0 }
 
     function init() {
         lightbox = document.getElementById('lightbox');
@@ -50,9 +53,26 @@
         if (closeBtn) closeBtn.addEventListener('click', window.closeLightbox);
     }
 
+    // Set album context for navigation
+    window.setAlbumContext = function(photos, startIndex = 0) {
+        albumContext = {
+            photos: photos,
+            index: startIndex
+        };
+        console.log('[gallery-lightbox] Album context set:', photos.length, 'photos');
+    };
+
+    // Clear album context
+    window.clearAlbumContext = function() {
+        albumContext = null;
+    };
+
     window.openPhoto = async function(photoId) {
         if (!lightbox) init();
         if (!lightbox) return;
+        
+        // Clear album context when opening single photo
+        window.clearAlbumContext();
         
         currentPhotoId = photoId;
         
@@ -73,13 +93,6 @@
         window.showLightbox();
     };
 
-    window.openAlbum = async function(albumId) {
-        // Navigate to album view
-        if (typeof navigateToAlbum === 'function') {
-            navigateToAlbum(albumId);
-        }
-    };
-
     window.showLightbox = function() {
         if (!lightbox) return;
         lightbox.classList.remove('hidden');
@@ -90,9 +103,30 @@
         if (!lightbox) return;
         lightbox.classList.add('hidden');
         document.body.style.overflow = '';
+        // Also close any open panels
+        window.closeTagEditor?.();
+        window.closeAlbumEditor?.();
+        // Clear album context
+        window.clearAlbumContext();
     };
 
     window.navigateLightbox = function(direction) {
+        // If in album context, use album navigation
+        if (albumContext) {
+            let newIndex = albumContext.index + direction;
+            if (newIndex < 0) newIndex = albumContext.photos.length - 1;
+            if (newIndex >= albumContext.photos.length) newIndex = 0;
+            
+            albumContext.index = newIndex;
+            const photo = albumContext.photos[newIndex];
+            if (photo) {
+                window.loadPhoto(photo.id);
+                window.updateAlbumIndicator?.(newIndex, albumContext.photos.length);
+            }
+            return;
+        }
+        
+        // Otherwise use gallery navigation
         if (currentPhotos.length <= 1) return;
         
         currentIndex += direction;
@@ -158,13 +192,23 @@
                 ).join('');
             }
 
-            // Album indicator
-            if (photo.album) {
+            // Album indicator - show if in album context
+            if (albumContext) {
+                if (albumIndicator) albumIndicator.classList.remove('hidden');
+                if (albumText) albumText.textContent = `Album (${albumContext.index + 1}/${albumContext.photos.length})`;
+                if (albumBars) {
+                    albumBars.innerHTML = albumContext.photos.map((p, i) => 
+                        `<div class="album-bar ${i === albumContext.index ? 'active' : ''}" onclick="window.loadPhoto('${p.id}'); window.setAlbumContext(albumContext.photos, ${i});"></div>`
+                    ).join('');
+                }
+                if (editAlbumBtn) editAlbumBtn.classList.remove('hidden');
+            } else if (photo.album) {
+                // Photo is part of an album
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
                 if (albumText) albumText.textContent = `${photo.album.name} (${photo.album.current}/${photo.album.total})`;
                 if (albumBars) {
                     albumBars.innerHTML = photo.album.photo_ids.map((id, i) => 
-                        `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}" onclick="window.openPhoto('${id}')"></div>`
+                        `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}" onclick="window.loadPhoto('${id}')"></div>`
                     ).join('');
                 }
                 if (editAlbumBtn) {
@@ -184,6 +228,18 @@
         } catch (err) {
             console.error('Failed to load photo:', err);
             mediaContainer.innerHTML = '<p>Error loading photo</p>';
+        }
+    };
+
+    window.updateAlbumIndicator = function(index, total) {
+        const albumText = document.getElementById('lightbox-album-text');
+        const albumBars = document.getElementById('lightbox-album-bars');
+        
+        if (albumText) albumText.textContent = `Album (${index + 1}/${total})`;
+        if (albumBars && albumContext) {
+            albumBars.innerHTML = albumContext.photos.map((p, i) => 
+                `<div class="album-bar ${i === index ? 'active' : ''}" onclick="window.loadPhoto('${p.id}'); window.setAlbumContext(albumContext.photos, ${i});"></div>`
+            ).join('');
         }
     };
 
