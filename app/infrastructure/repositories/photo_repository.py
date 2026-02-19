@@ -818,6 +818,23 @@ class AsyncPhotoRepository(AsyncRepository):
         self._commit()
         return cursor.rowcount > 0
     
+    def move_album_to_folder(self, album_id: str, folder_id: str) -> bool:
+        """Move album to different folder.
+        
+        Args:
+            album_id: Album ID
+            folder_id: Target folder ID
+            
+        Returns:
+            True if successful
+        """
+        cursor = self._execute(
+            "UPDATE albums SET folder_id = ? WHERE id = ?",
+            (folder_id, album_id)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
     def add_to_album(self, photo_id: str, album_id: str, position: int = None) -> bool:
         """Add photo to album.
         
