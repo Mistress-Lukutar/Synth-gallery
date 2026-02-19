@@ -6,14 +6,44 @@
 (function() {
     let userSafes = [];
 
-    // Load safe thumbnails (placeholder for E2E decryption)
-    window.loadSafeThumbnails = function() {
-        document.querySelectorAll('img[data-safe-thumbnail]').forEach(img => {
+    // Load safe thumbnails
+    window.loadSafeThumbnails = async function() {
+        const images = document.querySelectorAll('img[data-safe-thumbnail]');
+        if (images.length === 0) return;
+        
+        console.log('[safes.js] Loading', images.length, 'safe thumbnails');
+        
+        for (const img of images) {
             const photoId = img.dataset.safeThumbnail;
             const safeId = img.dataset.safeId;
-            // E2E decryption would happen here
-            console.log('[safes.js] Would load safe thumbnail for', photoId);
-        });
+            
+            if (!photoId || !safeId) continue;
+            
+            try {
+                // Check if safe is unlocked via SafeCrypto
+                if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(safeId)) {
+                    // Safe is unlocked, fetch decrypted thumbnail
+                    const resp = await fetch(`${getBaseUrl()}/thumbnails/${photoId}.jpg?safe=${safeId}`);
+                    if (resp.ok) {
+                        const blob = await resp.blob();
+                        img.src = URL.createObjectURL(blob);
+                        img.style.opacity = '1';
+                        if (img.previousElementSibling?.classList.contains('gallery-placeholder')) {
+                            img.previousElementSibling.style.display = 'none';
+                        }
+                        continue;
+                    }
+                }
+                
+                // Safe locked or failed to load - show placeholder or lock icon
+                console.log('[safes.js] Safe locked or failed for photo:', photoId);
+                img.style.opacity = '0.3';
+                
+            } catch (err) {
+                console.error('[safes.js] Failed to load safe thumbnail:', err);
+                img.style.opacity = '0.3';
+            }
+        }
     };
 
     // Navigate to safe
