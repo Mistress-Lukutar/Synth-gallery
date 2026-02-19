@@ -21,12 +21,12 @@ from ..infrastructure.repositories import (
 from ..application.services import UploadService, PhotoService, FolderService, PermissionService
 
 from ..dependencies import get_current_user, require_user, get_csrf_token
-from ..services.media import (
+from ..infrastructure.services.media import (
     create_thumbnail, create_video_thumbnail, get_media_type,
     create_thumbnail_bytes, create_video_thumbnail_bytes
 )
-from ..services.metadata import extract_taken_date
-from ..services.encryption import EncryptionService, dek_cache
+from ..infrastructure.services.metadata import extract_taken_date
+from ..infrastructure.services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
 
@@ -677,7 +677,7 @@ def get_thumbnail(request: Request, filename: str):
 
         # If thumbnail missing, try to regenerate from original
         if not file_path.exists():
-            from ..services.thumbnail import regenerate_thumbnail
+            from ..infrastructure.services.thumbnail import regenerate_thumbnail
             if not regenerate_thumbnail(photo_id, user["id"]):
                 raise HTTPException(status_code=404)
 

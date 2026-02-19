@@ -14,11 +14,11 @@ from typing import Optional, Tuple, List
 from fastapi import UploadFile, HTTPException
 
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES
-from ...services.media import (
+from ...infrastructure.services.media import (
     create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type
 )
-from ...services.metadata import extract_taken_date
-from ...services.encryption import EncryptionService
+from ...infrastructure.services.metadata import extract_taken_date
+from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.repositories import PhotoRepository
 
 

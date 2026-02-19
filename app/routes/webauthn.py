@@ -14,8 +14,8 @@ from ..infrastructure.repositories import (
     UserRepository, SessionRepository, WebAuthnRepository
 )
 from ..dependencies import get_current_user
-from ..services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
-from ..services.encryption import EncryptionService, dek_cache
+from ..infrastructure.services.webauthn import WebAuthnService, get_rp_id_from_origin, get_origin_from_host
+from ..infrastructure.services.encryption import EncryptionService, dek_cache
 from ..dependencies import get_csrf_token
 
 router = APIRouter(prefix="/api/webauthn", tags=["webauthn"])

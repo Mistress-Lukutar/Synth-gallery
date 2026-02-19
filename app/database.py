@@ -85,7 +85,7 @@ def _backup_before_migration():
         return
 
     try:
-        from .services.backup import create_backup
+        from .infrastructure.services.backup import create_backup
         if DATABASE_PATH.exists():
             create_backup("pre-migration")
             _migration_backup_done = True

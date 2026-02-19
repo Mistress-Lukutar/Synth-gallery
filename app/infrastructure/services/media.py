@@ -7,7 +7,7 @@ from pathlib import Path
 import cv2
 from PIL import Image, ImageOps
 
-from ..config import ALLOWED_VIDEO_TYPES
+from ...config import ALLOWED_VIDEO_TYPES
 
 
 def create_thumbnail(source_path: Path, thumb_path: Path, size: tuple[int, int] = (400, 400)):
