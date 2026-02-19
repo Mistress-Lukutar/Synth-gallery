@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import FolderRepository, SafeRepository, PhotoRepository
+from ...infrastructure.repositories import FolderRepository, SafeRepository, PhotoRepository, PermissionRepository
 
 
 class FolderService:
@@ -24,11 +24,13 @@ class FolderService:
         self,
         folder_repository: FolderRepository,
         safe_repository: Optional[SafeRepository] = None,
-        photo_repository: Optional[PhotoRepository] = None
+        photo_repository: Optional[PhotoRepository] = None,
+        permission_repository: Optional[PermissionRepository] = None
     ):
         self.folder_repo = folder_repository
         self.safe_repo = safe_repository
         self.photo_repo = photo_repository
+        self.perm_repo = permission_repository
     
     def create_folder(
         self,
