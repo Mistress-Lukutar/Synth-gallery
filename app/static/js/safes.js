@@ -53,6 +53,65 @@
         if (modal) modal.classList.add('hidden');
     };
 
+    // Create safe form handler - attach after DOM ready
+    document.addEventListener('DOMContentLoaded', () => {
+        const safeForm = document.getElementById('safe-form');
+        if (safeForm) {
+            safeForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                
+                const nameInput = document.getElementById('safe-name-input');
+                const passwordInput = document.getElementById('safe-password-input');
+                const submitBtn = document.getElementById('safe-submit-btn');
+                
+                const name = nameInput?.value.trim();
+                const password = passwordInput?.value;
+                
+                if (!name) {
+                    alert('Please enter a safe name');
+                    return;
+                }
+                if (!password || password.length < 8) {
+                    alert('Password must be at least 8 characters');
+                    return;
+                }
+                
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Creating...';
+                }
+                
+                try {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/safes`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: name,
+                            password: password,
+                            unlock_type: 'password'
+                        })
+                    });
+                    
+                    if (!resp.ok) throw new Error('Failed to create safe');
+                    
+                    closeSafeModal();
+                    // Reload to show new safe
+                    if (typeof loadFolderTree === 'function') {
+                        loadFolderTree();
+                    }
+                } catch (err) {
+                    console.error('Failed to create safe:', err);
+                    alert('Failed to create safe: ' + err.message);
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = 'Create Safe';
+                    }
+                }
+            });
+        }
+    });
+
     // Export
     window.userSafes = userSafes;
 
