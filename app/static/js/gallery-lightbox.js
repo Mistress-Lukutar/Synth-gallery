@@ -111,6 +111,11 @@
         const mediaContainer = lightbox.querySelector('.lightbox-media');
         const datesEl = document.getElementById('lightbox-dates');
         const tagsEl = document.getElementById('lightbox-tags');
+        const albumIndicator = document.getElementById('lightbox-album-indicator');
+        const albumBars = document.getElementById('lightbox-album-bars');
+        const albumText = document.getElementById('lightbox-album-text');
+        const editAlbumBtn = document.getElementById('lightbox-edit-album');
+        const editTagsBtn = document.getElementById('lightbox-edit-tags');
 
         if (!mediaContainer) return;
 
@@ -120,14 +125,23 @@
             
             const photo = await resp.json();
             
-            // Render media
+            // Render media - use original extension from filename
+            let ext = '.jpg';
+            if (photo.filename) {
+                const match = photo.filename.match(/\.([^.]+)$/);
+                if (match) ext = '.' + match[1].toLowerCase();
+            } else if (photo.original_name) {
+                const match = photo.original_name.match(/\.([^.]+)$/);
+                if (match) ext = '.' + match[1].toLowerCase();
+            }
+            
             if (photo.media_type === 'video') {
                 mediaContainer.innerHTML = `
-                    <video controls autoplay src="${getBaseUrl()}/uploads/${photoId}${photo.safe_id ? '?safe=' + photo.safe_id : ''}"></video>
+                    <video controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}"></video>
                 `;
             } else {
                 mediaContainer.innerHTML = `
-                    <img src="${getBaseUrl()}/uploads/${photoId}.jpg${photo.safe_id ? '?safe=' + photo.safe_id : ''}" alt="${photo.original_name}">
+                    <img src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}" alt="${escapeHtml(photo.original_name || '')}">
                 `;
             }
 
@@ -140,8 +154,31 @@
 
             if (tagsEl) {
                 tagsEl.innerHTML = (photo.tags || []).map(tag => 
-                    `<span class="tag">${escapeHtml(tag)}</span>`
+                    `<span class="tag" style="--tag-color: ${tag.color || '#6b7280'}">${escapeHtml(tag.tag || tag.name || tag)}</span>`
                 ).join('');
+            }
+
+            // Album indicator
+            if (photo.album) {
+                if (albumIndicator) albumIndicator.classList.remove('hidden');
+                if (albumText) albumText.textContent = `${photo.album.name} (${photo.album.current}/${photo.album.total})`;
+                if (albumBars) {
+                    albumBars.innerHTML = photo.album.photo_ids.map((id, i) => 
+                        `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}" onclick="window.openPhoto('${id}')"></div>`
+                    ).join('');
+                }
+                if (editAlbumBtn) {
+                    editAlbumBtn.classList.remove('hidden');
+                    editAlbumBtn.onclick = () => window.openAlbumEditor?.(photo.album.id);
+                }
+            } else {
+                if (albumIndicator) albumIndicator.classList.add('hidden');
+                if (editAlbumBtn) editAlbumBtn.classList.add('hidden');
+            }
+
+            // Edit tags button
+            if (editTagsBtn) {
+                editTagsBtn.onclick = () => window.openTagEditor?.(photoId);
             }
 
         } catch (err) {

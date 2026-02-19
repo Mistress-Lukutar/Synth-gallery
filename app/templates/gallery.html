@@ -11,12 +11,81 @@
     <div class="lightbox-main">
         <div class="lightbox-content">
             <div class="lightbox-media" id="lightbox-media"></div>
+            <div class="lightbox-album-indicator hidden" id="lightbox-album-indicator">
+                <div class="album-indicator-bars" id="lightbox-album-bars"></div>
+                <div class="album-indicator-text" id="lightbox-album-text"></div>
+            </div>
         </div>
         <div class="lightbox-info">
             <div class="lightbox-meta">
                 <div class="lightbox-dates" id="lightbox-dates"></div>
                 <div class="lightbox-tags" id="lightbox-tags"></div>
             </div>
+            <div class="lightbox-edit-buttons">
+                <button id="lightbox-edit-tags" class="lightbox-edit-btn" onclick="openTagEditor()" title="Edit Tags">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                        <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <button id="lightbox-edit-album" class="lightbox-edit-btn hidden" onclick="openAlbumEditor()" title="Edit Album">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                        <path d="m15 5 4 4"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Album Editor Panel -->
+<div id="album-editor-panel" class="album-editor-panel">
+    <div class="album-editor-header">
+        <h3>Edit Album</h3>
+        <button class="album-editor-close" onclick="closeAlbumEditor()">&times;</button>
+    </div>
+    <div class="album-editor-body">
+        <!-- Cover photo selection -->
+        <div class="album-editor-section">
+            <label>Cover Photo</label>
+            <div id="album-cover-grid" class="album-cover-grid"></div>
+        </div>
+        <!-- Current photos (draggable) -->
+        <div class="album-editor-section">
+            <label>Photos <span id="album-photo-count">(0)</span></label>
+            <div id="album-photos-list" class="album-photos-list"></div>
+        </div>
+        <!-- Add photos button -->
+        <div class="album-editor-section">
+            <button id="open-add-photos-btn" class="btn btn-secondary btn-block" onclick="openAddPhotosModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add Photos
+            </button>
+        </div>
+    </div>
+    <div class="album-editor-footer">
+        <button class="btn btn-secondary" onclick="closeAlbumEditor()">Close</button>
+    </div>
+</div>
+
+<!-- Add Photos Modal -->
+<div id="add-photos-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Add Photos to Album</h3>
+            <button class="close" onclick="closeAddPhotosModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="available-photos-grid" id="available-photos-grid"></div>
+            <div class="selected-count" id="selected-photos-count">0 selected</div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeAddPhotosModal()">Cancel</button>
+            <button class="btn" id="confirm-add-btn" onclick="confirmAddPhotos()" disabled>Add Selected</button>
         </div>
     </div>
 </div>
@@ -25,9 +94,22 @@
 <div id="tag-editor-panel" class="tag-editor-panel">
     <div class="tag-editor-header">
         <h3>Edit Tags</h3>
-        <button class="tag-editor-close" id="tag-editor-close">&times;</button>
+        <button class="tag-editor-close" onclick="closeTagEditor()">&times;</button>
     </div>
     <div class="tag-editor-body">
+        <!-- AI Analysis button -->
+        <div class="ai-analysis-section">
+            <button id="request-ai-btn" class="btn btn-secondary btn-block" onclick="requestAIAnalysis()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
+                    <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
+                    <circle cx="12" cy="20" r="2"/>
+                    <path d="M12 18v-2"/>
+                </svg>
+                Request AI Analysis
+            </button>
+        </div>
+        <!-- Current tags -->
         <div class="current-tags-section">
             <label>Selected:</label>
             <div id="current-tags-container" class="selected-tags-container">
@@ -44,12 +126,12 @@
                 <label>Select category:</label>
                 <div id="category-buttons" class="category-buttons"></div>
             </div>
-            <button id="add-new-tag-btn" class="btn btn-small" disabled>Add to Library</button>
+            <button id="add-new-tag-btn" class="btn btn-small" disabled onclick="addNewTag()">Add to Library</button>
         </div>
     </div>
     <div class="tag-editor-footer">
-        <button class="btn btn-secondary">Cancel</button>
-        <button id="save-tags-btn" class="btn">Save Changes</button>
+        <button class="btn btn-secondary" onclick="closeTagEditor()">Cancel</button>
+        <button id="save-tags-btn" class="btn" onclick="saveTagChanges()">Save Changes</button>
     </div>
 </div>
 
