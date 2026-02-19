@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 from fastapi import HTTPException
 
 from ...infrastructure.repositories import UserRepository, SessionRepository
-from ...services.encryption import EncryptionService, dek_cache
+from ...infrastructure.services.encryption import EncryptionService, dek_cache
 
 
 class AuthService:

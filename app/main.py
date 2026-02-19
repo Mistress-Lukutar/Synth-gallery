@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import BASE_DIR, ROOT_PATH
 from .database import init_db, cleanup_expired_sessions
 from .middleware import AuthMiddleware, CSRFMiddleware
-from .services.backup import backup_scheduler
+from .infrastructure.services.backup import backup_scheduler
 
 # Import routers
 from .routes.auth import router as auth_router

@@ -12,12 +12,12 @@ templates.env.globals["base_url"] = ROOT_PATH
 from ..database import create_connection
 from ..infrastructure.repositories import UserRepository
 from ..dependencies import get_current_user, require_user, get_csrf_token
-from ..services.backup import (
+from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,
     restore_backup, delete_backup,
     FullBackupService, backup_scheduler
 )
-from ..services.thumbnail import (
+from ..infrastructure.services.thumbnail import (
     cleanup_orphaned_thumbnails, regenerate_missing_thumbnails,
     get_thumbnail_stats
 )

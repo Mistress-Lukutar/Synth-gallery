@@ -6,7 +6,7 @@ No database or filesystem dependencies.
 """
 import base64
 import pytest
-from app.services.encryption import EncryptionService, DEKCache
+from app.infrastructure.services.encryption import EncryptionService, DEKCache
 
 
 class TestKeyDerivation:
