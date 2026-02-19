@@ -112,6 +112,81 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
 
         folder_contents = folder_service.get_folder_contents(folder_id, user["id"])
 
+        # Build items list for template (subfolders + albums + photos) - flat structure
+        items = []
+        api_items = []  # Nested structure for SPA API
+        
+        # Add subfolders first
+        for folder in folder_contents["subfolders"]:
+            items.append({
+                "type": "folder",
+                "id": folder["id"],
+                "name": folder["name"],
+            })
+            api_items.append({
+                "type": "folder",
+                "data": {
+                    "id": folder["id"],
+                    "name": folder["name"],
+                    "photo_count": folder.get("photo_count", 0),
+                    "user_id": folder["user_id"],
+                }
+            })
+        
+        # Add albums and photos with sort_date
+        for album in folder_contents["albums"]:
+            cover_photo_id = album.get("cover_photo_id") or album.get("effective_cover_photo_id")
+            thumb_width = album.get("cover_thumb_width") or album.get("thumb_width")
+            thumb_height = album.get("cover_thumb_height") or album.get("thumb_height")
+            items.append({
+                "type": "album",
+                "id": album["id"],
+                "name": album["name"],
+                "photo_count": album.get("photo_count", 0),
+                "cover_photo_id": cover_photo_id,
+                "thumb_width": thumb_width,
+                "thumb_height": thumb_height,
+                "sort_date": album.get("created_at"),
+            })
+            api_items.append({
+                "type": "album",
+                "data": {
+                    "id": album["id"],
+                    "name": album["name"],
+                    "photo_count": album.get("photo_count", 0),
+                    "cover_photo_id": cover_photo_id,
+                    "thumb_width": thumb_width,
+                    "thumb_height": thumb_height,
+                }
+            })
+        
+        for photo in folder_contents["photos"]:
+            items.append({
+                "type": "photo",
+                "id": photo["id"],
+                "filename": photo["filename"],
+                "original_name": photo["original_name"],
+                "media_type": photo.get("media_type", "image"),
+                "uploaded_at": photo["uploaded_at"],
+                "taken_at": photo["taken_at"],
+                "safe_id": photo.get("safe_id"),
+                "sort_date": photo["taken_at"] if sort == "taken" and photo["taken_at"] else photo["uploaded_at"],
+                "thumb_width": photo.get("thumb_width"),
+                "thumb_height": photo.get("thumb_height"),
+            })
+            api_items.append({
+                "type": "photo",
+                "data": {
+                    "id": photo["id"],
+                    "filename": photo["filename"],
+                    "original_name": photo["original_name"],
+                    "media_type": photo.get("media_type", "image"),
+                    "thumb_width": photo.get("thumb_width"),
+                    "thumb_height": photo.get("thumb_height"),
+                    "safe_id": photo.get("safe_id"),
+                }
+            })
+
         safe_folders = {
             folder["id"]: {
                 "safe_name": safe_repo.get_by_id(folder["safe_id"])["name"] if safe_repo.get_by_id(folder["safe_id"]) else "Unknown Safe",
@@ -130,6 +205,7 @@ def gallery(request: Request, folder_id: str = None, sort: str = None):
             "subfolders": folder_contents["subfolders"],
             "albums": folder_contents["albums"],
             "photos": folder_contents["photos"],
+            "items": items,
             "sort": sort,
             "safe_folders": safe_folders,
             "dek_in_cache": dek_cache.get(user["id"]) is not None,
@@ -160,6 +236,47 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
 
         folder_contents = folder_service.get_folder_contents(folder_id, user["id"])
         
+        # Build items list for SPA (structure expected by renderFolderContent)
+        items = []
+        for folder in folder_contents["subfolders"]:
+            items.append({
+                "type": "folder",
+                "data": {
+                    "id": folder["id"],
+                    "name": folder["name"],
+                }
+            })
+        for album in folder_contents["albums"]:
+            items.append({
+                "type": "album",
+                "data": {
+                    "id": album["id"],
+                    "name": album["name"],
+                    "photo_count": album.get("photo_count", 0),
+                    "cover_photo_id": album.get("cover_photo_id"),
+                    "effective_cover_photo_id": album.get("effective_cover_photo_id") or album.get("cover_photo_id"),
+                    "cover_thumb_width": album.get("cover_thumb_width"),
+                    "cover_thumb_height": album.get("cover_thumb_height"),
+                    "safe_id": album.get("safe_id"),
+                    "sort_date": album.get("created_at"),
+                }
+            })
+        for photo in folder_contents["photos"]:
+            items.append({
+                "type": "photo",
+                "data": {
+                    "id": photo["id"],
+                    "filename": photo["filename"],
+                    "original_name": photo["original_name"],
+                    "media_type": photo.get("media_type", "image"),
+                    "uploaded_at": photo["uploaded_at"],
+                    "taken_at": photo["taken_at"],
+                    "safe_id": photo.get("safe_id"),
+                    "thumb_width": photo.get("thumb_width"),
+                    "thumb_height": photo.get("thumb_height"),
+                }
+            })
+        
         # Get folder tree for sidebar  
         folder_tree = folder_service.get_folder_tree(user["id"])
         
@@ -185,8 +302,10 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
             "subfolders": folder_contents["subfolders"],
             "albums": folder_contents["albums"],
             "photos": folder_contents["photos"],
+            "items": items,
             "sort": sort,
-            "current_folder": current_folder,
+            "folder": current_folder,  # for SPA compatibility
+            "breadcrumbs": breadcrumbs if folder_id else [],
         }
     finally:
         db.close()
