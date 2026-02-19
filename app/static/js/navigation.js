@@ -100,7 +100,6 @@
         console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'items:', data.items?.length);
         
         const gallery = document.getElementById('gallery');
-        const breadcrumbs = document.getElementById('folder-breadcrumbs');
         
         if (!gallery) {
             console.error('[renderFolderContent] Gallery element not found!');
@@ -129,26 +128,6 @@
             
             if (shareBtn) shareBtn.setAttribute('onclick', `openShareModal('${data.folder.id}')`);
             if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${data.folder.id}')`);
-        }
-        
-        // Update breadcrumbs
-        if (breadcrumbs) {
-            if (data.breadcrumbs && data.breadcrumbs.length > 0) {
-                let html = `<a href="${getBaseUrl()}/" onclick="event.preventDefault(); event.stopPropagation(); navigateToDefaultFolder(); return false;">Home</a>`;
-                data.breadcrumbs.forEach((crumb, index) => {
-                    const isLast = index === data.breadcrumbs.length - 1;
-                    if (isLast) {
-                        html += ` <span class="separator">/</span> <span>${escapeHtml(crumb.name)}</span>`;
-                    } else {
-                        html += ` <span class="separator">/</span> <a href="${getBaseUrl()}/?folder_id=${crumb.id}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('${crumb.id}'); return false;">${escapeHtml(crumb.name)}</a>`;
-                    }
-                });
-                breadcrumbs.innerHTML = html;
-                breadcrumbs.style.display = '';
-            } else {
-                breadcrumbs.innerHTML = '';
-                breadcrumbs.style.display = 'none';
-            }
         }
         
         // Handle subfolders
@@ -325,11 +304,12 @@
         }
     };
 
-    // Update sort UI
+    // Update sort UI - update tooltip only, SVG icon stays unchanged
     function updateSortUI(sort) {
         const sortBtn = document.getElementById('sort-btn');
         if (sortBtn) {
-            sortBtn.textContent = sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
+            const sortLabel = sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
+            sortBtn.setAttribute('title', sortLabel);
         }
     }
 

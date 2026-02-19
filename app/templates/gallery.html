@@ -57,65 +57,111 @@
 <div class="folder-header">
     <div class="folder-header-left">
         <button id="sidebar-toggle" class="sidebar-toggle" title="Toggle folders">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M3 7h18M3 12h18M3 17h18"/>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 12h18M3 6h18M3 18h18"/>
             </svg>
         </button>
         <div class="folder-title">
             <h2>Gallery</h2>
-            <div class="folder-breadcrumbs" id="folder-breadcrumbs"></div>
+        </div>
+        <div class="folder-actions">
+            <button id="folder-upload-btn" class="folder-action-btn" title="Upload" onclick="openUploadModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+            </button>
+            <div class="sort-dropdown">
+                <button id="sort-btn" class="folder-action-btn" title="Sort by">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                        <path d="M7 4v16M7 4l-4 4M7 4l4 4"/>
+                        <path d="M17 20V4M17 20l-4-4M17 20l4-4"/>
+                    </svg>
+                </button>
+                <div id="sort-menu" class="sort-menu hidden">
+                    <button class="sort-option" data-sort="taken">Capture date</button>
+                    <button class="sort-option active" data-sort="uploaded">Upload date</button>
+                </div>
+            </div>
+            <button class="folder-action-btn" title="Share" onclick="openShareModal()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <circle cx="18" cy="5" r="3"/>
+                    <circle cx="6" cy="12" r="3"/>
+                    <circle cx="18" cy="19" r="3"/>
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+            </button>
+            <button class="folder-action-btn" title="Edit folder" onclick="openEditFolder()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+            </button>
         </div>
     </div>
     <div class="folder-header-right">
-        <button id="folder-upload-btn" class="folder-action-btn" title="Upload" onclick="openUploadModal()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="17 8 12 3 7 8"/>
-                <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-        </button>
-        <button class="folder-action-btn" title="Share" onclick="openShareModal()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="18" cy="5" r="3"/>
-                <circle cx="6" cy="12" r="3"/>
-                <circle cx="18" cy="19" r="3"/>
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-            </svg>
-        </button>
-        <button class="folder-action-btn" title="Edit folder" onclick="openEditFolder()">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
-            </svg>
-        </button>
-        <button id="sort-btn" class="folder-action-btn" title="Sort by">Sort</button>
+        <div id="download-progress" class="download-progress hidden">
+            <div class="download-progress-bar">
+                <div id="download-progress-fill" class="download-progress-fill"></div>
+            </div>
+            <span id="download-progress-text">Preparing...</span>
+        </div>
+        <div class="search-container">
+            <input type="text" id="tag-search-input" placeholder="Search..." autocomplete="off">
+            <div id="tag-suggestions" class="suggestions hidden"></div>
+        </div>
     </div>
 </div>
 
 <!-- Selection Menu -->
 <div id="selection-menu" class="selection-menu hidden">
-    <span id="selection-count">0</span> selected
-    <button id="select-all-btn" class="selection-action-btn" title="Select All">All</button>
-    <button id="deselect-all-btn" class="selection-action-btn" title="Deselect All">None</button>
+    <span id="selection-count">0</span>
+    <button id="select-all-btn" class="selection-action-btn" title="Select All">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18">
+            <rect x="5" y="5" width="14" height="14" rx="2" stroke-width="2.5"/>
+            <rect x="2" y="2" width="14" height="14" rx="2" stroke-dasharray="3 2" stroke-width="1.5"/>
+        </svg>
+    </button>
+    <button id="deselect-all-btn" class="selection-action-btn" title="Deselect All">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="18" height="18">
+            <line x1="6" y1="6" x2="18" y2="18"/>
+            <line x1="18" y1="6" x2="6" y2="18"/>
+        </svg>
+    </button>
     <button id="download-selected-btn" class="selection-action-btn" title="Download">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
     </button>
-    <button id="delete-selected-btn" class="selection-action-btn" title="Delete">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+    <button id="move-selected-btn" class="selection-action-btn" title="Move to folder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            <polyline points="12 11 12 17"/>
+            <polyline points="9 14 12 11 15 14"/>
+        </svg>
+    </button>
+    <button id="copy-selected-btn" class="selection-action-btn" title="Copy to folder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+    </button>
+    <button id="ai-selected-btn" class="selection-action-btn" title="Generate AI Tags">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+            <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+    </button>
+    <button id="delete-selected-btn" class="selection-action-btn selection-action-btn--danger" title="Delete">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
         </svg>
     </button>
-</div>
-
-<!-- Search -->
-<div class="search-container">
-    <input type="text" id="tag-search-input" placeholder="Search..." autocomplete="off">
-    <div id="tag-suggestions" class="suggestions hidden"></div>
 </div>
 
 <!-- Subfolders section (SPA rendered) -->

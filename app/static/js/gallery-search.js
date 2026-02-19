@@ -23,6 +23,51 @@
     function setupEventListeners() {
         let searchTimeout;
 
+        // Sort dropdown toggle
+        const sortBtn = document.getElementById('sort-btn');
+        const sortMenu = document.getElementById('sort-menu');
+        if (sortBtn && sortMenu) {
+            sortBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                sortMenu.classList.toggle('hidden');
+            });
+
+            // Sort option selection
+            sortMenu.querySelectorAll('.sort-option').forEach(option => {
+                option.addEventListener('click', async () => {
+                    const sort = option.dataset.sort;
+                    sortMenu.classList.add('hidden');
+                    
+                    // Update active state
+                    sortMenu.querySelectorAll('.sort-option').forEach(o => o.classList.remove('active'));
+                    option.classList.add('active');
+                    
+                    // Update tooltip
+                    sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
+                    
+                    // Reload current folder with new sort
+                    if (window.currentFolderId) {
+                        try {
+                            const resp = await fetch(`${getBaseUrl()}/api/folders/${window.currentFolderId}/content?sort=${sort}`);
+                            if (resp.ok) {
+                                const data = await resp.json();
+                                window.renderFolderContent(data);
+                            }
+                        } catch (err) {
+                            console.error('Sort failed:', err);
+                        }
+                    }
+                });
+            });
+
+            // Close sort menu on click outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.sort-dropdown')) {
+                    sortMenu.classList.add('hidden');
+                }
+            });
+        }
+
         searchInput.addEventListener('input', (e) => {
             clearTimeout(searchTimeout);
             const query = e.target.value.trim();
