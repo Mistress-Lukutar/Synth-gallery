@@ -168,14 +168,45 @@
                 if (match) ext = '.' + match[1].toLowerCase();
             }
             
-            if (photo.media_type === 'video') {
-                mediaContainer.innerHTML = `
-                    <video class="lightbox-video" controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}"></video>
-                `;
+            // Handle safe files (need decryption)
+            if (photo.safe_id && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(photo.safe_id)) {
+                try {
+                    // Fetch encrypted file
+                    const fileResp = await fetch(`${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`);
+                    if (!fileResp.ok) throw new Error('Failed to fetch encrypted file');
+                    
+                    const encryptedBlob = await fileResp.blob();
+                    const mimeType = photo.media_type === 'video' ? 'video/mp4' : `image/${ext.slice(1) || 'jpeg'}`;
+                    
+                    // Decrypt
+                    const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
+                        encryptedBlob,
+                        photo.safe_id,
+                        mimeType
+                    );
+                    
+                    const objectUrl = URL.createObjectURL(decryptedBlob);
+                    
+                    if (photo.media_type === 'video') {
+                        mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${objectUrl}"></video>`;
+                    } else {
+                        mediaContainer.innerHTML = `<img class="lightbox-image" src="${objectUrl}" alt="${escapeHtml(photo.original_name || '')}">`;
+                    }
+                } catch (err) {
+                    console.error('[lightbox] Decrypt failed:', err);
+                    mediaContainer.innerHTML = '<p>Error: Failed to decrypt image</p>';
+                }
             } else {
-                mediaContainer.innerHTML = `
-                    <img class="lightbox-image" src="${getBaseUrl()}/uploads/${photoId}${ext}${photo.safe_id ? '?safe=' + photo.safe_id : ''}" alt="${escapeHtml(photo.original_name || '')}">
-                `;
+                // Regular file (no safe)
+                if (photo.media_type === 'video') {
+                    mediaContainer.innerHTML = `
+                        <video class="lightbox-video" controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}"></video>
+                    `;
+                } else {
+                    mediaContainer.innerHTML = `
+                        <img class="lightbox-image" src="${getBaseUrl()}/uploads/${photoId}${ext}" alt="${escapeHtml(photo.original_name || '')}">
+                    `;
+                }
             }
 
             // Update info
