@@ -6,21 +6,35 @@
 // CSRF protection helper
 function getCsrfToken() {
     const meta = document.querySelector('meta[name="csrf-token"]');
-    if (meta) return meta.getAttribute('content');
+    console.log('[CSRF] Meta tag:', meta);
+    if (meta) {
+        const content = meta.getAttribute('content');
+        console.log('[CSRF] Meta content:', content);
+        return content;
+    }
     const match = document.cookie.match(/synth_csrf=([^;]+)/);
+    console.log('[CSRF] Cookie match:', match);
     return match ? match[1] : '';
 }
 
-// Enhanced fetch with CSRF token
+// Enhanced fetch with CSRF token and credentials
 async function csrfFetch(url, options = {}) {
     const csrfToken = getCsrfToken();
-    const headers = options.headers || {};
+    
+    // Merge headers: options.headers first, then CSRF token
+    const headers = {
+        ...options.headers,
+    };
 
     if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
         headers['X-CSRF-Token'] = csrfToken;
     }
 
-    return fetch(url, { ...options, headers });
+    return fetch(url, { 
+        ...options, 
+        credentials: 'include',  // Important: send session cookies
+        headers
+    });
 }
 
 // Escape HTML to prevent XSS

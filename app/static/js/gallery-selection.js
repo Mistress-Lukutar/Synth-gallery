@@ -117,17 +117,25 @@
                 if (!targetFolderId) return;
 
                 try {
+                    const payload = {
+                        photo_ids: Array.from(selectedPhotos),
+                        album_ids: Array.from(selectedAlbums),
+                        folder_id: targetFolderId
+                    };
+                    console.log('[Move] Sending:', payload);
+                    
                     const resp = await csrfFetch(`${getBaseUrl()}/api/items/move`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            photo_ids: Array.from(selectedPhotos),
-                            album_ids: Array.from(selectedAlbums),
-                            folder_id: targetFolderId
-                        })
+                        body: JSON.stringify(payload)
                     });
 
-                    if (!resp.ok) throw new Error('Move failed');
+                    console.log('[Move] Response:', resp.status, resp.statusText);
+                    if (!resp.ok) {
+                        const errText = await resp.text();
+                        console.error('[Move] Error response:', errText);
+                        throw new Error('Move failed: ' + resp.status);
+                    }
                     
                     selectedPhotos.clear();
                     selectedAlbums.clear();
@@ -237,23 +245,81 @@
         }
     };
 
+    // Toggle collapse in picker (syncs with sidebar collapsed state)
+    window.togglePickerFolderCollapse = function(folderId, event) {
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
+        // Use same collapsed state as sidebar
+        const collapsed = window.collapsedFolders;
+        if (collapsed.has(folderId)) {
+            collapsed.delete(folderId);
+        } else {
+            collapsed.add(folderId);
+        }
+        
+        // Also update sidebar if visible
+        if (typeof window.loadFolderTree === 'function') {
+            window.loadFolderTree();
+        }
+        
+        // Re-render picker
+        const listEl = document.getElementById('folder-picker-list');
+        if (listEl && window._pickerFolders) {
+            const html = '<div class="folder-section">' + 
+                        buildPickerTreeHTML(null, 0, window._pickerFolders) + '</div>';
+            listEl.innerHTML = html;
+        }
+    };
+
     // Build folder tree HTML for picker (similar to sidebar)
     function buildPickerTreeHTML(parentId, level, folders) {
         const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner');
         if (children.length === 0) return '';
 
+        // Use sidebar collapsed state
+        const collapsed = window.collapsedFolders || new Set();
+
         return children.map(folder => {
             const hasChildren = folders.some(f => f.parent_id === folder.id);
+            const isCollapsed = collapsed.has(folder.id);
             const photoCount = folder.photo_count || 0;
             
+            // Same color logic as sidebar
+            let folderClass = '';
+            if (folder.permission === 'owner') {
+                if (folder.share_status === 'has_editors') {
+                    folderClass = 'shared-editors';
+                } else if (folder.share_status === 'has_viewers') {
+                    folderClass = 'shared-viewers';
+                } else {
+                    folderClass = 'private';
+                }
+            } else if (folder.permission === 'editor') {
+                folderClass = 'incoming-editor';
+            } else {
+                folderClass = 'incoming-viewer';
+            }
+            
             const expandArrow = hasChildren ? `
-                <span class="folder-expand-placeholder"></span>
+                <button class="folder-expand-btn ${isCollapsed ? 'collapsed' : ''}"
+                        onclick="togglePickerFolderCollapse('${folder.id}', event)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
             ` : '<span class="folder-expand-placeholder"></span>';
+            
+            const childrenHtml = hasChildren && !isCollapsed 
+                ? buildPickerTreeHTML(folder.id, level + 1, folders) 
+                : '';
             
             return `
                 <div class="folder-item-wrapper picker-folder-item" style="padding-left: ${level * 16}px">
                     ${expandArrow}
-                    <div class="folder-item"
+                    <div class="folder-item ${folderClass}"
                          data-folder-id="${folder.id}"
                          onclick="selectFolderForPicker('${folder.id}')">
                         <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -263,7 +329,7 @@
                         <span class="folder-count">${photoCount}</span>
                     </div>
                 </div>
-            ` + buildPickerTreeHTML(folder.id, level + 1, folders);
+            ` + childrenHtml;
         }).join('');
     }
 
@@ -305,8 +371,11 @@
                 return null;
             }
 
-            // Build tree like sidebar
-            const html = '<div class="folder-section"><div class="folder-section-header">My Folders</div>' + 
+            // Store folders for re-render on collapse
+            window._pickerFolders = folders;
+            
+            // Build tree like sidebar (no header)
+            const html = '<div class="folder-section">' + 
                         buildPickerTreeHTML(null, 0, folders) + '</div>';
             listEl.innerHTML = html;
         } catch (err) {

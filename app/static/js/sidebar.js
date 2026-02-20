@@ -310,6 +310,10 @@
     Object.defineProperty(window, 'folderTree', {
         get: function() { return folderTree; }
     });
+    // Export collapsed folders for picker sync
+    Object.defineProperty(window, 'collapsedFolders', {
+        get: function() { return collapsedFolders; }
+    });
     window.loadFolderTree = loadFolderTree;
     window.toggleFolderCollapse = toggleFolderCollapse;
 

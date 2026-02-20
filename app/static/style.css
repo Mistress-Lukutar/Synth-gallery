@@ -3830,3 +3830,51 @@ main {
     padding: 0.1rem 0.4rem;
     border-radius: 10px;
 }
+
+/* ============ Folder Picker - Icon Colors (same as sidebar) ============ */
+.folder-picker-list .folder-item.private .folder-icon {
+    stroke: var(--text-muted);
+}
+
+.folder-picker-list .folder-item.shared-viewers .folder-icon {
+    stroke: #10b981;
+}
+
+.folder-picker-list .folder-item.shared-editors .folder-icon {
+    stroke: #f59e0b;
+}
+
+.folder-picker-list .folder-item.incoming-viewer .folder-icon {
+    stroke: #10b981;
+}
+
+.folder-picker-list .folder-item.incoming-editor .folder-icon {
+    stroke: #f59e0b;
+}
+
+/* Expand button in picker */
+.folder-picker-list .folder-expand-btn {
+    background: none;
+    border: none;
+    padding: 0.25rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.folder-picker-list .folder-expand-btn svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.2s;
+}
+
+.folder-picker-list .folder-expand-btn.collapsed svg {
+    transform: rotate(-90deg);
+}
+
+.folder-picker-list .folder-expand-placeholder {
+    width: 24px;
+    flex-shrink: 0;
+}
