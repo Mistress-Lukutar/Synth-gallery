@@ -71,13 +71,50 @@
         if (!lightbox) init();
         if (!lightbox) return;
         
+        // Check access permissions on the gallery item
+        const gallery = document.getElementById('gallery');
+        const galleryItem = gallery?.querySelector(`.gallery-item[data-photo-id="${photoId}"]`);
+        
+        if (galleryItem) {
+            const access = galleryItem.dataset.access;
+            const safeId = galleryItem.dataset.safeId;
+            
+            if (access === 'denied') {
+                // Shared content without access - do nothing
+                console.log('[openPhoto] Access denied for photo:', photoId);
+                return;
+            }
+            
+            if (access === 'locked' && safeId) {
+                // Safe is locked - show unlock modal
+                console.log('[openPhoto] Safe locked, showing unlock modal for:', safeId);
+                
+                // Get safe info from window.userSafes (populated by sidebar.js)
+                let safeName = 'Safe';
+                let unlockType = 'password';
+                if (window.userSafes) {
+                    const safe = window.userSafes.find(s => s.id === safeId);
+                    if (safe) {
+                        safeName = safe.name;
+                        unlockType = safe.unlock_type;
+                    }
+                }
+                
+                if (typeof openSafeUnlock === 'function') {
+                    openSafeUnlock(safeId, safeName, unlockType);
+                } else {
+                    console.error('[openPhoto] openSafeUnlock not available');
+                }
+                return;
+            }
+        }
+        
         // Clear album context when opening single photo
         window.clearAlbumContext();
         
         currentPhotoId = photoId;
         
         // Get all visible photos from gallery
-        const gallery = document.getElementById('gallery');
         if (gallery) {
             currentPhotos = Array.from(gallery.querySelectorAll('.gallery-item[data-item-type="photo"]'))
                 .map(item => ({

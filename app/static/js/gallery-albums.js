@@ -20,6 +20,49 @@
         console.log('[gallery-albums] Initialized');
     }
 
+    // Handle album click with access check
+    window.handleAlbumClick = function(albumId, event) {
+        // Find album element
+        const gallery = document.getElementById('gallery');
+        const albumItem = gallery?.querySelector(`.gallery-item[data-album-id="${albumId}"]`);
+        
+        if (albumItem) {
+            const access = albumItem.dataset.access;
+            const safeId = albumItem.dataset.safeId;
+            
+            if (access === 'denied') {
+                // Shared content without access - do nothing
+                console.log('[handleAlbumClick] Access denied for album:', albumId);
+                return;
+            }
+            
+            if (access === 'locked' && safeId) {
+                // Safe is locked - show unlock modal
+                console.log('[handleAlbumClick] Safe locked, showing unlock modal for:', safeId);
+                
+                let safeName = 'Safe';
+                let unlockType = 'password';
+                if (window.userSafes) {
+                    const safe = window.userSafes.find(s => s.id === safeId);
+                    if (safe) {
+                        safeName = safe.name;
+                        unlockType = safe.unlock_type;
+                    }
+                }
+                
+                if (typeof openSafeUnlock === 'function') {
+                    openSafeUnlock(safeId, safeName, unlockType);
+                } else {
+                    console.error('[handleAlbumClick] openSafeUnlock not available');
+                }
+                return;
+            }
+        }
+        
+        // Access granted - open album
+        openAlbum(albumId);
+    };
+
     // Open album in lightbox (view mode)
     window.openAlbum = async function(albumId, startFromEnd = false) {
         console.log('[gallery-albums] Opening album:', albumId);
