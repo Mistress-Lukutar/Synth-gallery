@@ -150,12 +150,14 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         # Build flat items list for SPA (unified structure)
         items = []
         
+        # Add photo_count to subfolders
         for folder in folder_contents["subfolders"]:
+            folder["photo_count"] = folder_repo.get_photo_count(folder["id"])
             items.append({
                 "type": "folder",
                 "id": folder["id"],
                 "name": folder["name"],
-                "photo_count": folder.get("photo_count", 0),
+                "photo_count": folder["photo_count"],
                 "user_id": folder.get("user_id"),
             })
         
