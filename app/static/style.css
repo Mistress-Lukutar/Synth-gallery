@@ -3759,3 +3759,74 @@ main {
 .folder-picker-item:hover {
     background: var(--bg-secondary);
 }
+
+/* ============ Folder Picker Modal ============ */
+.folder-picker-content {
+    max-width: 400px;
+    max-height: 80vh;
+}
+
+.folder-picker-list {
+    max-height: 50vh;
+    overflow-y: auto;
+    margin: 1rem 0;
+    background: var(--bg);
+    border-radius: 8px;
+    padding: 0.5rem;
+}
+
+.folder-picker-list .folder-section {
+    margin-bottom: 0;
+}
+
+.folder-picker-list .folder-section-header {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 0.5rem 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.folder-picker-list .folder-item-wrapper {
+    display: flex;
+    align-items: center;
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+
+.folder-picker-list .folder-item-wrapper:hover {
+    background: var(--bg-secondary);
+}
+
+.folder-picker-list .folder-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+.folder-picker-list .folder-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    stroke: var(--accent);
+}
+
+.folder-picker-list .folder-name {
+    flex: 1;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-picker-list .folder-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 0.1rem 0.4rem;
+    border-radius: 10px;
+}
