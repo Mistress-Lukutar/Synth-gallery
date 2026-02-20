@@ -106,6 +106,80 @@
             });
         }
 
+        // Move selected
+        const moveBtn = document.getElementById('move-selected-btn');
+        if (moveBtn) {
+            moveBtn.addEventListener('click', async () => {
+                const total = selectedPhotos.size + selectedAlbums.size;
+                if (total === 0) return;
+                
+                const targetFolderId = await showFolderPicker('Move to folder');
+                if (!targetFolderId) return;
+
+                try {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/move`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            photo_ids: Array.from(selectedPhotos),
+                            album_ids: Array.from(selectedAlbums),
+                            folder_id: targetFolderId
+                        })
+                    });
+
+                    if (!resp.ok) throw new Error('Move failed');
+                    
+                    selectedPhotos.clear();
+                    selectedAlbums.clear();
+                    window.updateSelectionUI();
+                    
+                    if (window.currentFolderId && typeof navigateToFolder === 'function') {
+                        navigateToFolder(window.currentFolderId, false);
+                    }
+                } catch (err) {
+                    console.error('Move failed:', err);
+                    alert('Move failed: ' + err.message);
+                }
+            });
+        }
+
+        // Copy selected
+        const copyBtn = document.getElementById('copy-selected-btn');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', async () => {
+                const total = selectedPhotos.size + selectedAlbums.size;
+                if (total === 0) return;
+                
+                const targetFolderId = await showFolderPicker('Copy to folder');
+                if (!targetFolderId) return;
+
+                try {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/copy`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            photo_ids: Array.from(selectedPhotos),
+                            album_ids: Array.from(selectedAlbums),
+                            folder_id: targetFolderId
+                        })
+                    });
+
+                    if (!resp.ok) throw new Error('Copy failed');
+                    
+                    selectedPhotos.clear();
+                    selectedAlbums.clear();
+                    window.updateSelectionUI();
+                    
+                    if (window.currentFolderId && typeof navigateToFolder === 'function') {
+                        navigateToFolder(window.currentFolderId, false);
+                    }
+                } catch (err) {
+                    console.error('Copy failed:', err);
+                    alert('Copy failed: ' + err.message);
+                }
+            });
+        }
+
         // Delete selected
         const deleteBtn = document.getElementById('delete-selected-btn');
         if (deleteBtn) {
@@ -114,31 +188,32 @@
                 if (total === 0) return;
                 if (!confirm(`Delete ${total} items?`)) return;
 
-                // Delete photos
-                for (const photoId of selectedPhotos) {
-                    try {
-                        await csrfFetch(`${getBaseUrl()}/api/photos/${photoId}`, { method: 'DELETE' });
-                    } catch (err) {
-                        console.error('Failed to delete photo:', photoId);
+                try {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/photos/batch-delete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            photo_ids: Array.from(selectedPhotos),
+                            album_ids: Array.from(selectedAlbums)
+                        })
+                    });
+
+                    if (!resp.ok) throw new Error('Delete failed');
+                    
+                    const result = await resp.json();
+                    console.log('Delete result:', result);
+
+                    selectedPhotos.clear();
+                    selectedAlbums.clear();
+                    window.updateSelectionUI();
+
+                    // Refresh gallery
+                    if (window.currentFolderId && typeof navigateToFolder === 'function') {
+                        navigateToFolder(window.currentFolderId, false);
                     }
-                }
-
-                // Delete albums
-                for (const albumId of selectedAlbums) {
-                    try {
-                        await csrfFetch(`${getBaseUrl()}/api/albums/${albumId}`, { method: 'DELETE' });
-                    } catch (err) {
-                        console.error('Failed to delete album:', albumId);
-                    }
-                }
-
-                selectedPhotos.clear();
-                selectedAlbums.clear();
-                window.updateSelectionUI();
-
-                // Refresh gallery
-                if (window.currentFolderId && typeof navigateToFolder === 'function') {
-                    navigateToFolder(window.currentFolderId, false);
+                } catch (err) {
+                    console.error('Delete failed:', err);
+                    alert('Delete failed: ' + err.message);
                 }
             });
         }
@@ -160,6 +235,77 @@
         if (selectionMenu) {
             selectionMenu.classList.toggle('hidden', total === 0);
         }
+    };
+
+    // Show folder picker modal
+    async function showFolderPicker(title) {
+        // Create modal if not exists
+        let modal = document.getElementById('folder-picker-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'folder-picker-modal';
+            modal.className = 'modal hidden';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <span class="close" onclick="closeFolderPicker()">&times;</span>
+                    <h3 id="folder-picker-title">Select Folder</h3>
+                    <div id="folder-picker-list" class="folder-picker-list"></div>
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="closeFolderPicker()">Cancel</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+
+        document.getElementById('folder-picker-title').textContent = title;
+        const listEl = document.getElementById('folder-picker-list');
+        listEl.innerHTML = '<p>Loading folders...</p>';
+        modal.classList.remove('hidden');
+
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/folders`);
+            if (!resp.ok) throw new Error('Failed to load folders');
+            const data = await resp.json();
+            const folders = data.folders || [];
+
+            if (folders.length === 0) {
+                listEl.innerHTML = '<p>No folders available</p>';
+                return null;
+            }
+
+            listEl.innerHTML = folders.map(f => `
+                <div class="folder-picker-item" data-folder-id="${f.id}" onclick="selectFolderForPicker('${f.id}')">
+                    ${f.name}
+                </div>
+            `).join('');
+        } catch (err) {
+            console.error('Failed to load folders:', err);
+            listEl.innerHTML = '<p>Error loading folders</p>';
+        }
+
+        // Return promise that resolves when folder is selected
+        return new Promise((resolve) => {
+            window._folderPickerResolve = resolve;
+        });
+    }
+
+    window.closeFolderPicker = function() {
+        const modal = document.getElementById('folder-picker-modal');
+        if (modal) modal.classList.add('hidden');
+        if (window._folderPickerResolve) {
+            window._folderPickerResolve(null);
+            window._folderPickerResolve = null;
+        }
+    };
+
+    window.selectFolderForPicker = function(folderId) {
+        if (window._folderPickerResolve) {
+            window._folderPickerResolve(folderId);
+            window._folderPickerResolve = null;
+        }
+        const modal = document.getElementById('folder-picker-modal');
+        if (modal) modal.classList.add('hidden');
     };
 
     // Init on DOM ready
