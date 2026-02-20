@@ -237,6 +237,36 @@
         }
     };
 
+    // Build folder tree HTML for picker (similar to sidebar)
+    function buildPickerTreeHTML(parentId, level, folders) {
+        const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner');
+        if (children.length === 0) return '';
+
+        return children.map(folder => {
+            const hasChildren = folders.some(f => f.parent_id === folder.id);
+            const photoCount = folder.photo_count || 0;
+            
+            const expandArrow = hasChildren ? `
+                <span class="folder-expand-placeholder"></span>
+            ` : '<span class="folder-expand-placeholder"></span>';
+            
+            return `
+                <div class="folder-item-wrapper picker-folder-item" style="padding-left: ${level * 16}px">
+                    ${expandArrow}
+                    <div class="folder-item"
+                         data-folder-id="${folder.id}"
+                         onclick="selectFolderForPicker('${folder.id}')">
+                        <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span class="folder-name">${escapeHtml(folder.name)}</span>
+                        <span class="folder-count">${photoCount}</span>
+                    </div>
+                </div>
+            ` + buildPickerTreeHTML(folder.id, level + 1, folders);
+        }).join('');
+    }
+
     // Show folder picker modal
     async function showFolderPicker(title) {
         // Create modal if not exists
@@ -246,7 +276,7 @@
             modal.id = 'folder-picker-modal';
             modal.className = 'modal hidden';
             modal.innerHTML = `
-                <div class="modal-content">
+                <div class="modal-content folder-picker-content">
                     <span class="close" onclick="closeFolderPicker()">&times;</span>
                     <h3 id="folder-picker-title">Select Folder</h3>
                     <div id="folder-picker-list" class="folder-picker-list"></div>
@@ -266,22 +296,22 @@
         try {
             const resp = await fetch(`${getBaseUrl()}/api/folders`);
             if (!resp.ok) throw new Error('Failed to load folders');
-            const data = await resp.json();
-            const folders = data.folders || [];
+            const folders = await resp.json();
+            
+            console.log('[folder picker] Loaded folders:', folders?.length);
 
-            if (folders.length === 0) {
+            if (!folders || folders.length === 0) {
                 listEl.innerHTML = '<p>No folders available</p>';
                 return null;
             }
 
-            listEl.innerHTML = folders.map(f => `
-                <div class="folder-picker-item" data-folder-id="${f.id}" onclick="selectFolderForPicker('${f.id}')">
-                    ${f.name}
-                </div>
-            `).join('');
+            // Build tree like sidebar
+            const html = '<div class="folder-section"><div class="folder-section-header">My Folders</div>' + 
+                        buildPickerTreeHTML(null, 0, folders) + '</div>';
+            listEl.innerHTML = html;
         } catch (err) {
             console.error('Failed to load folders:', err);
-            listEl.innerHTML = '<p>Error loading folders</p>';
+            listEl.innerHTML = '<p>Error loading folders: ' + err.message + '</p>';
         }
 
         // Return promise that resolves when folder is selected
