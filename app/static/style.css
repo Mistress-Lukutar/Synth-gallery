@@ -3775,6 +3775,11 @@ main {
     to { transform: rotate(360deg); }
 }
 
+/* Spinner animation for buttons */
+.spinner {
+    animation: spin 0.8s linear infinite;
+}
+
 /* ============ Folder Picker Modal ============ */
 .folder-picker-list {
     max-height: 300px;

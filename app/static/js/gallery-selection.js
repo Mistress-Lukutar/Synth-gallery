@@ -94,8 +94,9 @@
                 if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
 
                 downloadBtn.disabled = true;
-                const originalText = downloadBtn.textContent;
-                downloadBtn.textContent = 'Preparing...';
+                const originalHTML = downloadBtn.innerHTML;
+                // Show spinner while preparing
+                downloadBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" class="spinner"><circle cx="12" cy="12" r="10" stroke-dasharray="60" stroke-dashoffset="20"/></svg>';
 
                 try {
                     const resp = await csrfFetch(`${getBaseUrl()}/api/photos/batch-download`, {
@@ -120,7 +121,7 @@
                     alert('Download failed: ' + err.message);
                 } finally {
                     downloadBtn.disabled = false;
-                    downloadBtn.textContent = originalText;
+                    downloadBtn.innerHTML = originalHTML;
                 }
             });
         }
