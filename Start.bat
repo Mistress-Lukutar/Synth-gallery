@@ -46,15 +46,15 @@ echo ═════════════════════════
 echo.
 
 :: Check/create virtual environment
-if not exist "venv" (
+if not exist ".venv" (
     echo Creating virtual environment...
-    python -m venv venv
+    python -m venv .venv
     echo.
 )
 
 :: Activate virtual environment
 echo Activating virtual environment...
-call venv\Scripts\activate.bat
+call .venv\Scripts\activate.bat
 
 :: Install/update dependencies
 echo Installing dependencies...

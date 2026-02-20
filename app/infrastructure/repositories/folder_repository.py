@@ -492,6 +492,22 @@ class FolderRepository(Repository):
         """, (folder_id,))
         return [dict(row) for row in cursor.fetchall()]
     
+    def get_photo_count(self, folder_id: str) -> int:
+        """Get total photo count in folder (including albums).
+        
+        Args:
+            folder_id: Folder ID
+            
+        Returns:
+            Total photo count
+        """
+        cursor = self._execute("""
+            SELECT COUNT(*) as count FROM photos
+            WHERE folder_id = ?
+        """, (folder_id,))
+        result = cursor.fetchone()
+        return result["count"] if result else 0
+    
     def list_with_metadata(self, user_id: int, unlocked_safe_ids: list[str] = None) -> list[dict]:
         """Get all folders accessible by user with metadata.
         
