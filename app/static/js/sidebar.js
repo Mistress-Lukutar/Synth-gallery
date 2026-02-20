@@ -130,7 +130,8 @@
             return;
         }
 
-        const myFolders = folderTree.filter(f => f.permission === 'owner');
+        // Filter folders: exclude those in safes (safe_id != null)
+        const myFolders = folderTree.filter(f => f.permission === 'owner' && !f.safe_id);
         
         let html = '';
         
@@ -164,7 +165,11 @@
         
         if (userSafes.length > 0) {
             userSafes.forEach(safe => {
-                const isUnlocked = safe.is_unlocked;
+                // Check if really unlocked - server says unlocked AND client has the key
+                const serverUnlocked = safe.is_unlocked;
+                const clientHasKey = typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(safe.id);
+                const isUnlocked = serverUnlocked && clientHasKey;
+                
                 html += `
                     <div class="folder-item-wrapper">
                         <span class="folder-expand-placeholder"></span>
@@ -180,6 +185,14 @@
                         </div>
                     </div>
                 `;
+                
+                // Show folders inside safe when unlocked
+                if (isUnlocked) {
+                    const safeFolders = folderTree.filter(f => f.safe_id === safe.id && !f.parent_id);
+                    if (safeFolders.length > 0) {
+                        html += buildTreeHTML(null, 1, safeFolders);
+                    }
+                }
             });
         }
         

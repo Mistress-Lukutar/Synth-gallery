@@ -13,6 +13,25 @@
     window.selectedPhotos = selectedPhotos;
     window.selectedAlbums = selectedAlbums;
 
+    // Check if any selected item is from a safe (encrypted content)
+    function checkSafeContent(photos, albums) {
+        // Check photos
+        for (const photoId of photos) {
+            const item = gallery.querySelector(`[data-photo-id="${photoId}"]`);
+            if (item && item.dataset.safeId) {
+                return true;
+            }
+        }
+        // Check albums
+        for (const albumId of albums) {
+            const item = gallery.querySelector(`[data-album-id="${albumId}"]`);
+            if (item && item.dataset.safeId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
@@ -113,14 +132,21 @@
                 const total = selectedPhotos.size + selectedAlbums.size;
                 if (total === 0) return;
                 
-                const targetFolderId = await showFolderPicker('Move to folder');
-                if (!targetFolderId) return;
+                // Check for safe content - block move for encrypted items
+                const hasSafeContent = checkSafeContent(selectedPhotos, selectedAlbums);
+                if (hasSafeContent) {
+                    alert('Cannot move encrypted content. Moving files from safes is not supported in this version.');
+                    return;
+                }
+                
+                const destination = await showFolderPicker('Move to');
+                if (!destination) return;
 
                 try {
                     const payload = {
                         photo_ids: Array.from(selectedPhotos),
                         album_ids: Array.from(selectedAlbums),
-                        folder_id: targetFolderId
+                        folder_id: destination.folder_id
                     };
                     console.log('[Move] Sending:', payload);
                     
@@ -130,11 +156,9 @@
                         body: JSON.stringify(payload)
                     });
 
-                    console.log('[Move] Response:', resp.status, resp.statusText);
                     if (!resp.ok) {
                         const errText = await resp.text();
-                        console.error('[Move] Error response:', errText);
-                        throw new Error('Move failed: ' + resp.status);
+                        throw new Error('Move failed: ' + resp.status + ' - ' + errText);
                     }
                     
                     selectedPhotos.clear();
@@ -158,21 +182,31 @@
                 const total = selectedPhotos.size + selectedAlbums.size;
                 if (total === 0) return;
                 
-                const targetFolderId = await showFolderPicker('Copy to folder');
-                if (!targetFolderId) return;
+                // Check for safe content - block copy for encrypted items
+                const hasSafeContent = checkSafeContent(selectedPhotos, selectedAlbums);
+                if (hasSafeContent) {
+                    alert('Cannot copy encrypted content. Copying files from safes is not supported in this version.');
+                    return;
+                }
+                
+                const destination = await showFolderPicker('Copy to');
+                if (!destination) return;
 
                 try {
+                    const payload = {
+                        photo_ids: Array.from(selectedPhotos),
+                        album_ids: Array.from(selectedAlbums),
+                        folder_id: destination.folder_id
+                    };
+                    console.log('[Copy] Sending:', payload);
+                    
                     const resp = await csrfFetch(`${getBaseUrl()}/api/items/copy`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            photo_ids: Array.from(selectedPhotos),
-                            album_ids: Array.from(selectedAlbums),
-                            folder_id: targetFolderId
-                        })
+                        body: JSON.stringify(payload)
                     });
 
-                    if (!resp.ok) throw new Error('Copy failed');
+                    if (!resp.ok) throw new Error('Copy failed: ' + await resp.text());
                     
                     selectedPhotos.clear();
                     selectedAlbums.clear();
@@ -276,7 +310,8 @@
 
     // Build folder tree HTML for picker (similar to sidebar)
     function buildPickerTreeHTML(parentId, level, folders) {
-        const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner');
+        // Filter: owner only, no safe folders (safe_id is null/undefined)
+        const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner' && !f.safe_id);
         if (children.length === 0) return '';
 
         // Use sidebar collapsed state
@@ -333,8 +368,8 @@
         }).join('');
     }
 
-    // Show folder picker modal
-    async function showFolderPicker(title) {
+    // Show folder picker modal with both folders and safes
+    async function showFolderPicker(title, operation = 'move') {
         // Create modal if not exists
         let modal = document.getElementById('folder-picker-modal');
         if (!modal) {
@@ -344,7 +379,7 @@
             modal.innerHTML = `
                 <div class="modal-content folder-picker-content">
                     <span class="close" onclick="closeFolderPicker()">&times;</span>
-                    <h3 id="folder-picker-title">Select Folder</h3>
+                    <h3 id="folder-picker-title">Select Destination</h3>
                     <div id="folder-picker-list" class="folder-picker-list"></div>
                     <div class="modal-actions">
                         <button class="btn btn-secondary" onclick="closeFolderPicker()">Cancel</button>
@@ -356,38 +391,91 @@
 
         document.getElementById('folder-picker-title').textContent = title;
         const listEl = document.getElementById('folder-picker-list');
-        listEl.innerHTML = '<p>Loading folders...</p>';
+        listEl.innerHTML = '<p>Loading...</p>';
         modal.classList.remove('hidden');
 
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/folders`);
-            if (!resp.ok) throw new Error('Failed to load folders');
-            const folders = await resp.json();
+            // Load folders and safes in parallel
+            const [foldersResp, safesResp] = await Promise.all([
+                fetch(`${getBaseUrl()}/api/folders`),
+                fetch(`${getBaseUrl()}/api/safes`)
+            ]);
             
-            console.log('[folder picker] Loaded folders:', folders?.length);
+            if (!foldersResp.ok || !safesResp.ok) throw new Error('Failed to load destinations');
+            
+            const folders = await foldersResp.json();
+            const safesData = await safesResp.json();
+            const safes = safesData.safes || [];
+            
+            console.log('[folder picker] Folders:', folders?.length, 'Safes:', safes?.length);
 
-            if (!folders || folders.length === 0) {
-                listEl.innerHTML = '<p>No folders available</p>';
-                return null;
-            }
-
-            // Store folders for re-render on collapse
+            // Store for later use
             window._pickerFolders = folders;
+            window._pickerSafes = safes;
             
-            // Build tree like sidebar (no header)
-            const html = '<div class="folder-section">' + 
-                        buildPickerTreeHTML(null, 0, folders) + '</div>';
+            // Build HTML - for now only regular folders (safes not supported for move/copy yet)
+            let html = '';
+            
+            // Regular folders section
+            html += '<div class="folder-section">';
+            html += '<div class="folder-section-header">My Folders</div>';
+            const regularFolders = buildPickerTreeHTML(null, 0, folders);
+            if (regularFolders) {
+                html += regularFolders;
+            } else {
+                html += '<p class="no-folders">No folders</p>';
+            }
+            html += '</div>';
+            
+            // Note: Safes excluded from picker - cross-storage operations need encryption handling
+            
             listEl.innerHTML = html;
         } catch (err) {
-            console.error('Failed to load folders:', err);
-            listEl.innerHTML = '<p>Error loading folders: ' + err.message + '</p>';
+            console.error('Failed to load destinations:', err);
+            listEl.innerHTML = '<p>Error: ' + err.message + '</p>';
         }
 
-        // Return promise that resolves when folder is selected
+        // Return promise that resolves when destination is selected
         return new Promise((resolve) => {
             window._folderPickerResolve = resolve;
         });
     }
+
+    // Build safe picker HTML (only unlocked safes)
+    function buildSafePickerHTML(safes) {
+        const unlockedSafes = safes.filter(s => {
+            const serverUnlocked = s.is_unlocked;
+            const clientHasKey = typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(s.id);
+            return serverUnlocked && clientHasKey;
+        });
+        
+        if (unlockedSafes.length === 0) return '';
+        
+        return unlockedSafes.map(safe => `
+            <div class="folder-item-wrapper picker-folder-item" onclick="selectSafeForPicker('${safe.id}')">
+                <span class="folder-expand-placeholder"></span>
+                <div class="folder-item safe-item unlocked">
+                    <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="5" y="11" width="14" height="10" rx="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    <span class="folder-name">${escapeHtml(safe.name)}</span>
+                    <span class="folder-count">${safe.photo_count || 0}</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Select safe as destination (not used yet - needs server support for cross-storage encryption)
+    window.selectSafeForPicker = function(safeId) {
+        alert('Moving/Copying to safes is not yet supported. Please use regular folders.');
+        if (window._folderPickerResolve) {
+            window._folderPickerResolve(null);
+            window._folderPickerResolve = null;
+        }
+        const modal = document.getElementById('folder-picker-modal');
+        if (modal) modal.classList.add('hidden');
+    };
 
     window.closeFolderPicker = function() {
         const modal = document.getElementById('folder-picker-modal');
@@ -400,7 +488,7 @@
 
     window.selectFolderForPicker = function(folderId) {
         if (window._folderPickerResolve) {
-            window._folderPickerResolve(folderId);
+            window._folderPickerResolve({ folder_id: folderId });
             window._folderPickerResolve = null;
         }
         const modal = document.getElementById('folder-picker-modal');
