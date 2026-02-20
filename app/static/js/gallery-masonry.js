@@ -177,6 +177,16 @@
         }
     };
 
+    // Called when gallery image loads (from inline onload handler)
+    window.onGalleryImageLoad = function(img) {
+        // Small delay to ensure dimensions are available
+        setTimeout(() => {
+            if (typeof window.rebuildMasonry === 'function') {
+                window.rebuildMasonry();
+            }
+        }, 50);
+    };
+
     // Init on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
         init();

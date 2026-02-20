@@ -176,6 +176,7 @@
                              data-safe-id="${safeId}"
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
+                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
                              style="opacity: 0;">
                     `;
                 } else if (coverId) {
@@ -185,6 +186,7 @@
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                             onerror="handleImageError(this, 'access')"
                              style="opacity: 0;">
                     `;
                 } else {
@@ -200,7 +202,7 @@
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
                          ${safeIdAttr}>
-                        <div class="gallery-link" onclick="openAlbum('${album.id}')" ${aspectStyle}>
+                        <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
                             ${imgHtml}
                             <div class="album-badge">
                                 <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
@@ -242,6 +244,7 @@
                                      data-safe-id="${safeId}"
                                      alt="${escapeHtml(photo.original_name)}"
                                      loading="lazy"
+                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
                                      style="opacity: 0;">
                                 ${mediaType === 'video' ? `
                                     <div class="video-badge">
@@ -272,6 +275,7 @@
                                      alt="${escapeHtml(photo.original_name)}"
                                      loading="lazy"
                                      onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                                     onerror="handleImageError(this, 'access')"
                                      style="opacity: 0;">
                                 ${mediaType === 'video' ? `
                                     <div class="video-badge">

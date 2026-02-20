@@ -6,7 +6,7 @@
 (function() {
     let userSafes = [];
 
-    // Load safe thumbnails
+    // Load safe thumbnails - same logic as regular thumbnails, just decrypt first
     window.loadSafeThumbnails = async function() {
         const images = document.querySelectorAll('img[data-safe-thumbnail]');
         if (images.length === 0) return;
@@ -18,6 +18,9 @@
             const safeId = img.dataset.safeId;
             
             if (!photoId || !safeId) continue;
+            
+            // Skip if already handled (error or loaded)
+            if (img.dataset.errorHandled) continue;
             
             try {
                 // Check if safe is unlocked via SafeCrypto
@@ -34,35 +37,41 @@
                                 safeId, 
                                 'image/jpeg'
                             );
+                            // Set src - onload in navigation.js will handle placeholder and masonry
                             img.src = URL.createObjectURL(decryptedBlob);
-                            img.style.opacity = '1';
-                            if (img.previousElementSibling?.classList.contains('gallery-placeholder')) {
-                                img.previousElementSibling.style.display = 'none';
-                            }
                         } catch (decryptErr) {
                             console.error('[safes.js] Decrypt failed:', decryptErr);
-                            img.style.opacity = '0.3';
+                            if (typeof handleImageError === 'function') {
+                                handleImageError(img, 'locked');
+                            }
                         }
                         continue;
                     }
                 }
                 
-                // Safe locked or failed to load
-                console.log('[safes.js] Safe locked or failed for photo:', photoId);
-                img.style.opacity = '0.3';
+                // Safe locked or failed to load - show locked placeholder
+                if (typeof handleImageError === 'function') {
+                    handleImageError(img, 'locked');
+                }
                 
             } catch (err) {
                 console.error('[safes.js] Failed to load safe thumbnail:', err);
-                img.style.opacity = '0.3';
+                if (typeof handleImageError === 'function') {
+                    handleImageError(img, 'locked');
+                }
             }
         }
     };
 
-    // Navigate to safe
+    // Navigate to safe - go to safe root folder (folder with safe_id and no parent)
     window.navigateToSafe = async function(safeId) {
         console.log('[safes.js] Navigating to safe:', safeId);
-        // Implementation depends on SafeCrypto
-        // For now, just log
+        if (!window.folderTree || typeof navigateToFolder !== 'function') return;
+        
+        const safeRoot = window.folderTree.find(f => f.safe_id === safeId && !f.parent_id);
+        if (safeRoot) {
+            navigateToFolder(safeRoot.id, false);
+        }
     };
 
     // Open safe unlock modal
@@ -173,16 +182,36 @@
                         unlockData.session_key
                     );
 
+                    // Save safeId before closing modal (closeSafeUnlockModal clears it)
+                    const unlockedSafeId = currentUnlockSafeId;
                     closeSafeUnlockModal();
                     
-                    // Reload folder tree to show unlocked safe contents
+                    // Reload folder tree and then navigate to safe root
+                    console.log('[safes.js] Unlock successful, safeId:', unlockedSafeId);
                     if (typeof loadFolderTree === 'function') {
-                        loadFolderTree();
+                        await loadFolderTree();
                     }
                     
-                    // Refresh thumbnails
-                    if (typeof loadSafeThumbnails === 'function') {
-                        loadSafeThumbnails();
+                    // Navigate to safe root folder after folder tree is updated
+                    console.log('[safes.js] Folder tree after reload:', window.folderTree?.length, 'folders');
+                    console.log('[safes.js] Looking for safe root, safe_id:', unlockedSafeId);
+                    
+                    if (typeof navigateToFolder === 'function' && window.folderTree) {
+                        // List all folders with this safe_id
+                        const safeFolders = window.folderTree.filter(f => f.safe_id === unlockedSafeId);
+                        console.log('[safes.js] Found folders with this safe_id:', safeFolders.map(f => ({id: f.id, name: f.name, parent_id: f.parent_id})));
+                        
+                        const safeRoot = window.folderTree.find(f => f.safe_id === unlockedSafeId && !f.parent_id);
+                        console.log('[safes.js] Safe root found:', safeRoot);
+                        
+                        if (safeRoot) {
+                            console.log('[safes.js] Navigating to:', safeRoot.id, safeRoot.name);
+                            navigateToFolder(safeRoot.id, true);
+                        } else {
+                            console.error('[safes.js] Safe root not found!');
+                        }
+                    } else {
+                        console.error('[safes.js] Cannot navigate: navigateToFolder=', typeof navigateToFolder, 'folderTree=', !!window.folderTree);
                     }
                     
                 } catch (err) {
