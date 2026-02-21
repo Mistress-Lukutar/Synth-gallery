@@ -200,7 +200,7 @@
                              data-safe-id="${safeId}"
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
-                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                              style="opacity: 0;">
                     `;
                 } else if (coverId) {
@@ -209,7 +209,7 @@
                         <img src="${getBaseUrl()}/thumbnails/${coverId}.jpg" 
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
-                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                              onerror="handleImageError(this, 'access')"
                              style="opacity: 0;">
                     `;
@@ -284,7 +284,7 @@
                                      data-safe-id="${safeId}"
                                      alt="${escapeHtml(photo.original_name)}"
                                      loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                                      style="opacity: 0;">
                                 ${mediaType === 'video' ? `
                                     <div class="video-badge">
@@ -315,7 +315,7 @@
                                 <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" 
                                      alt="${escapeHtml(photo.original_name)}"
                                      loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1'; window.onGalleryImageLoad && window.onGalleryImageLoad(this);"
+                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                                      onerror="handleImageError(this, 'access')"
                                      style="opacity: 0;">
                                 ${mediaType === 'video' ? `
@@ -353,7 +353,7 @@
         // Update allItems for masonry (gallery.html compatibility)
         window.allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
         
-        // Rebuild masonry after DOM update
+        // Rebuild masonry after DOM update (with delay to let images start loading)
         console.log('[navigation] About to schedule rebuildMasonry, window.rebuildMasonry:', typeof window.rebuildMasonry);
         setTimeout(() => {
             console.log('[navigation] In setTimeout, window.rebuildMasonry:', typeof window.rebuildMasonry);
@@ -363,7 +363,7 @@
             } else {
                 console.log('[navigation] rebuildMasonry not available');
             }
-        }, 10);
+        }, 100);
         
         // Load safe thumbnails (will be defined in safes.js Phase 6)
         if (typeof window.loadSafeThumbnails === 'function') {

@@ -11,6 +11,9 @@
     let lastColumnCount = 0;
     let lastGalleryWidth = 0;
     let allItems = [];
+    let isRebuildPending = false;
+    let lastRebuildTime = 0;
+    const MIN_REBUILD_INTERVAL = 200; // ms
 
     function init() {
         gallery = document.getElementById('gallery');
@@ -33,10 +36,22 @@
         allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
         window.allItems = allItems;
         window.rebuildMasonry(true);
-        window.processPendingDimensions?.();
     };
 
     window.rebuildMasonry = function(forceRebuild = false) {
+        const now = Date.now();
+        
+        // Skip if rebuild was called too recently (unless forced)
+        if (!forceRebuild && (now - lastRebuildTime < MIN_REBUILD_INTERVAL)) {
+            return;
+        }
+        
+        // Mark as pending to prevent duplicate calls
+        if (isRebuildPending) {
+            return;
+        }
+        isRebuildPending = true;
+        
         console.log('[gallery-masonry] rebuildMasonry START, gallery:', gallery, 'force:', forceRebuild);
         
         if (!gallery) {
@@ -190,6 +205,10 @@
         lastColumnCount = columnCount;
         lastGalleryWidth = galleryWidth;
         gallery.style.opacity = '1';
+        
+        // Update tracking variables
+        lastRebuildTime = Date.now();
+        isRebuildPending = false;
 
         requestAnimationFrame(() => window.scrollTo(0, scrollY));
     };
@@ -197,52 +216,6 @@
     function saveNavigationOrder(order) {
         sessionStorage.setItem('galleryNavOrder', JSON.stringify(order));
     }
-
-    window.processPendingDimensions = function() {
-        if (!gallery) return;
-        const items = (allItems || []).filter(item => !item.dataset.thumbWidth);
-        if (items.length === 0) return;
-
-        let pending = items.length;
-        let needsRebuild = false;
-
-        items.forEach(item => {
-            const img = item.querySelector('img');
-            if (!img) {
-                pending--;
-                return;
-            }
-
-            const saveAndUpdate = () => {
-                if (img.naturalWidth && img.naturalHeight) {
-                    item.dataset.thumbWidth = img.naturalWidth;
-                    item.dataset.thumbHeight = img.naturalHeight;
-
-                    const link = item.querySelector('.gallery-link');
-                    if (link) {
-                        link.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
-                    }
-
-                    const photoId = item.dataset.photoId || item.dataset.coverPhotoId;
-                    if (photoId) {
-                        window.saveDimensionsToServer?.(photoId, img.naturalWidth, img.naturalHeight);
-                    }
-                    needsRebuild = true;
-                }
-                pending--;
-                if (pending <= 0 && needsRebuild) {
-                    window.rebuildMasonry(true);
-                }
-            };
-
-            if (img.complete && img.naturalWidth) {
-                saveAndUpdate();
-            } else {
-                img.addEventListener('load', saveAndUpdate, { once: true });
-                img.addEventListener('error', () => { pending--; }, { once: true });
-            }
-        });
-    };
 
     window.saveDimensionsToServer = async function(photoId, width, height) {
         try {
@@ -257,27 +230,15 @@
     };
 
     // Called when gallery image loads (from inline onload handler)
-    // Debounced masonry rebuild for image load events
-    let imageLoadDebounceTimer;
+    // No longer triggers masonry rebuild since placeholder sizes are now correct from DB
     window.onGalleryImageLoad = function(img) {
-        // Save dimensions to item dataset for masonry calculations
-        const item = img.closest('.gallery-item');
-        if (item && img.naturalWidth && img.naturalHeight) {
-            item.dataset.thumbWidth = img.naturalWidth;
-            item.dataset.thumbHeight = img.naturalHeight;
-            
-            // Update aspect-ratio on gallery-link
-            const link = item.querySelector('.gallery-link');
-            if (link) {
-                link.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
-            }
+        // Just hide the placeholder and show the image
+        // Geometry doesn't change since placeholder already has correct dimensions
+        img.style.opacity = '1';
+        const placeholder = img.previousElementSibling;
+        if (placeholder && placeholder.classList.contains('gallery-placeholder')) {
+            placeholder.style.display = 'none';
         }
-        
-        // Debounce masonry rebuild to avoid excessive recalculations
-        clearTimeout(imageLoadDebounceTimer);
-        imageLoadDebounceTimer = setTimeout(() => {
-            rebuildMasonry(true);
-        }, 100);
     };
 
     // Init on DOM ready
@@ -294,8 +255,13 @@
         }
     });
 
+    // Debounced resize handler
+    let resizeDebounceTimer;
     window.addEventListener('resize', () => {
-        window.rebuildMasonry();
+        clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = setTimeout(() => {
+            window.rebuildMasonry();
+        }, 150);
     });
 
     console.log('[gallery-masonry.js] Loaded');
