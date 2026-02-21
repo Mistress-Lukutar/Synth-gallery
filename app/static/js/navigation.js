@@ -321,6 +321,9 @@
         gallery.innerHTML = html;
         gallery.style.opacity = '1';
         
+        // Update allItems for masonry (gallery.html compatibility)
+        window.allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        
         // Rebuild masonry after DOM update
         console.log('[navigation] About to schedule rebuildMasonry, window.rebuildMasonry:', typeof window.rebuildMasonry);
         setTimeout(() => {
