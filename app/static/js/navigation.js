@@ -64,6 +64,11 @@
                 loadFolderTree();
             }
             
+            // Close sidebar on mobile after navigation
+            if (typeof closeSidebar === 'function') {
+                closeSidebar();
+            }
+            
             // Reset folder header buttons
             const folderHeader = document.querySelector('.folder-header');
             if (folderHeader && data.folder) {
