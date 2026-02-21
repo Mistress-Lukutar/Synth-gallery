@@ -307,7 +307,55 @@
     // Load folder tree on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
         loadFolderTree();
+        setupGallerySwipe();
     });
+    
+    // Setup swipe from left edge to open sidebar
+    function setupGallerySwipe() {
+        const gallery = document.getElementById('gallery');
+        if (!gallery) return;
+        
+        // Ensure gallery takes full available height for swipe to work everywhere
+        gallery.style.minHeight = 'calc(100vh - 120px)';
+        
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let isSwiping = false;
+        
+        gallery.addEventListener('touchstart', (e) => {
+            // Only handle swipes from left 75% of screen
+            const touchX = e.touches[0].clientX;
+            const screenWidth = window.innerWidth;
+            
+            if (touchX > screenWidth * 0.75) return; // Not in left 75%
+            
+            touchStartX = touchX;
+            touchStartY = e.touches[0].clientY;
+            isSwiping = true;
+        }, { passive: true });
+        
+        gallery.addEventListener('touchmove', (e) => {
+            if (!isSwiping) return;
+        }, { passive: true });
+        
+        gallery.addEventListener('touchend', (e) => {
+            if (!isSwiping) return;
+            isSwiping = false;
+            
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            
+            const diffX = touchEndX - touchStartX; // Positive = right swipe
+            const diffY = touchEndY - touchStartY;
+            
+            const swipeThreshold = 50;
+            
+            // Only handle horizontal swipes to the right
+            if (diffX > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
+                openSidebar();
+            }
+        }, { passive: true });
+    }
 
     // Debug: force render tree (for console testing)
     window.debugRenderTree = function() {
