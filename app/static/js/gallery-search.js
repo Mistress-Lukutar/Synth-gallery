@@ -17,6 +17,12 @@
         }
 
         setupEventListeners();
+        
+        // Initialize sort UI from current mode
+        if (window.currentSortMode && typeof window.updateSortDropdownUI === 'function') {
+            window.updateSortDropdownUI(window.currentSortMode);
+        }
+        
         console.log('[gallery-search] Initialized');
     }
 
@@ -34,7 +40,7 @@
 
             // Sort option selection
             sortMenu.querySelectorAll('.sort-option').forEach(option => {
-                option.addEventListener('click', async () => {
+                option.addEventListener('click', () => {
                     const sort = option.dataset.sort;
                     sortMenu.classList.add('hidden');
                     
@@ -45,17 +51,27 @@
                     // Update tooltip
                     sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
                     
-                    // Reload current folder with new sort
+                    // Update sort mode and rebuild masonry
+                    window.currentSortMode = sort;
+                    if (typeof window.rebuildMasonry === 'function') {
+                        window.rebuildMasonry(true);
+                    }
+                    
+                    // Save preference to server
                     if (window.currentFolderId) {
-                        try {
-                            const resp = await fetch(`${getBaseUrl()}/api/folders/${window.currentFolderId}/content?sort=${sort}`);
+                        csrfFetch(`${getBaseUrl()}/api/folders/${window.currentFolderId}/sort`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sort_by: sort })
+                        }).then(resp => {
                             if (resp.ok) {
-                                const data = await resp.json();
-                                window.renderFolderContent(data);
+                                console.log('[Sort] Preference saved:', sort);
+                            } else {
+                                console.error('[Sort] Failed to save preference:', resp.status);
                             }
-                        } catch (err) {
-                            console.error('Sort failed:', err);
-                        }
+                        }).catch(err => {
+                            console.error('[Sort] Error saving preference:', err);
+                        });
                     }
                 });
             });
@@ -66,6 +82,14 @@
                     sortMenu.classList.add('hidden');
                 }
             });
+            
+            // Export function to update sort UI from external code
+            window.updateSortDropdownUI = function(sort) {
+                sortMenu.querySelectorAll('.sort-option').forEach(o => o.classList.remove('active'));
+                const activeOption = sortMenu.querySelector(`[data-sort="${sort}"]`);
+                if (activeOption) activeOption.classList.add('active');
+                sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
+            };
         }
 
         searchInput.addEventListener('input', (e) => {
