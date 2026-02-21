@@ -18,6 +18,51 @@
             console.log('[gallery-lightbox] No lightbox element');
             return;
         }
+        return flatOrder;
+    }
+    
+    // Lazy load album when navigating to it
+    async function expandAlbumInNavOrder(albumId, insertIndex) {
+        // Check cache first
+        const cached = albumCache.get(albumId);
+        if (cached && (Date.now() - cached.timestamp) < ALBUM_CACHE_TTL) {
+            return cached.photos;
+        }
+        
+        // Fetch album
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
+            if (!resp.ok) return null;
+            
+            const album = await resp.json();
+            if (!album.photos || album.photos.length === 0) return null;
+            
+            // Cache album data
+            albumCache.set(albumId, {
+                photos: album.photos,
+                name: album.name,
+                timestamp: Date.now()
+            });
+            
+            // Expand in flatNavOrder
+            const albumPhotos = album.photos.map(p => ({
+                type: 'photo',
+                id: p.id,
+                safeId: p.safe_id,
+                albumId: albumId
+            }));
+            
+            // Replace placeholder with actual photos
+            flatNavOrder.splice(insertIndex, 1, 
+                { type: 'album_marker', id: albumId, albumName: album.name },
+                ...albumPhotos
+            );
+            
+            return albumPhotos;
+        } catch (e) {
+            console.warn('[lightbox] Failed to expand album:', albumId);
+            return null;
+        }
         setupEventListeners();
         console.log('[gallery-lightbox] Initialized');
     }
@@ -68,8 +113,8 @@
     };
 
     // Expose rebuild function for external use (e.g., when opening album)
-    window.rebuildLightboxNavOrder = async function() {
-        flatNavOrder = await buildFlatNavOrder();
+    window.rebuildLightboxNavOrder = function() {
+        flatNavOrder = buildFlatNavOrder();
         console.log('[lightbox] Nav order rebuilt:', flatNavOrder.length, 'items');
     };
 
@@ -87,8 +132,8 @@
     }
     
     // Build flat navigation list from gallery order
-    // Expands albums into their photos for seamless navigation
-    async function buildFlatNavOrder() {
+    // Uses lazy loading for albums - doesn't wait for album fetch
+    function buildFlatNavOrder() {
         const order = getGalleryNavOrder();
         if (!order || order.length === 0) {
             // Fallback: get photos from DOM
@@ -104,35 +149,33 @@
             return [];
         }
         
-        // For albums, we need to fetch their photos to expand them in navigation
+        // Build order without waiting for album fetches
+        // Albums will be expanded lazily when navigating to them
         const flatOrder = [];
         for (const item of order) {
             if (item.type === 'album') {
-                // Album - fetch its photos and add them as a group
-                try {
-                    const resp = await fetch(`${getBaseUrl()}/api/albums/${item.id}`);
-                    if (resp.ok) {
-                        const album = await resp.json();
-                        if (album.photos && album.photos.length > 0) {
-                            // Add album marker first
+                // Check cache first
+                const cached = albumCache.get(item.id);
+                if (cached && (Date.now() - cached.timestamp) < ALBUM_CACHE_TTL) {
+                    // Use cached album data
+                    if (cached.photos.length > 0) {
+                        flatOrder.push({ type: 'album_marker', id: item.id, albumName: cached.name });
+                        for (const photo of cached.photos) {
                             flatOrder.push({
-                                type: 'album_marker',
-                                id: item.id,
-                                albumName: album.name
+                                type: 'photo',
+                                id: photo.id,
+                                safeId: photo.safe_id,
+                                albumId: item.id
                             });
-                            // Add all album photos
-                            for (const photo of album.photos) {
-                                flatOrder.push({
-                                    type: 'photo',
-                                    id: photo.id,
-                                    safeId: photo.safe_id,
-                                    albumId: item.id
-                                });
-                            }
                         }
                     }
-                } catch (e) {
-                    console.warn('[lightbox] Failed to load album:', item.id);
+                } else {
+                    // Add placeholder - will be expanded when navigated to
+                    flatOrder.push({
+                        type: 'album_placeholder',
+                        id: item.id,
+                        albumId: item.id
+                    });
                 }
             } else if (item.type === 'photo') {
                 // Standalone photo
@@ -153,6 +196,11 @@
     // Store flat navigation order
     let flatNavOrder = [];
     let currentNavIndex = -1;
+    let albumCache = new Map(); // Cache album data: albumId -> { photos, timestamp }
+    const ALBUM_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    
+    // AbortController for cancelling pending image loads
+    let currentImageLoadController = null;
 
     window.openPhoto = async function(photoId) {
         if (!lightbox) init();
@@ -193,11 +241,23 @@
             }
         }
         
-        // Build flat navigation order (photos + expanded albums)
-        flatNavOrder = await buildFlatNavOrder();
+        // Build flat navigation order (quick, without waiting for album fetches)
+        flatNavOrder = buildFlatNavOrder();
         
         // Find current photo in flat order
         currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && p.type === 'photo');
+        
+        // Check if this is an album placeholder that needs expansion
+        const currentItem = flatNavOrder[currentNavIndex];
+        if (currentItem?.type === 'album_placeholder') {
+            // Expand album on demand
+            const albumPhotos = await expandAlbumInNavOrder(currentItem.albumId, currentNavIndex);
+            if (albumPhotos && albumPhotos.length > 0) {
+                // Update current index to point to first photo of expanded album
+                currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && p.type === 'photo');
+            }
+        }
+        
         if (currentNavIndex === -1) {
             // Photo not in order, add it
             flatNavOrder = [{ type: 'photo', id: photoId, safeId: galleryItem?.dataset.safeId }];
@@ -205,23 +265,29 @@
         }
         
         // Check if this photo is part of an album
-        const currentItem = flatNavOrder[currentNavIndex];
-        if (currentItem && currentItem.albumId) {
+        const finalItem = flatNavOrder[currentNavIndex];
+        if (finalItem && finalItem.albumId) {
             // Find all photos in this album
-            const albumPhotos = flatNavOrder.filter(p => p.albumId === currentItem.albumId);
+            const albumPhotos = flatNavOrder.filter(p => p.albumId === finalItem.albumId);
             const albumIndex = albumPhotos.findIndex(p => p.id === photoId);
             
             // Set album context
             albumContext = {
                 photos: albumPhotos,
                 index: albumIndex >= 0 ? albumIndex : 0,
-                albumId: currentItem.albumId
+                albumId: finalItem.albumId
             };
         } else {
             window.clearAlbumContext();
         }
         
         currentPhotoId = photoId;
+        
+        // Cancel any pending image load
+        if (currentImageLoadController) {
+            currentImageLoadController.abort();
+            currentImageLoadController = null;
+        }
 
         // Update URL with photo_id without reloading page
         const url = new URL(window.location.href);
@@ -258,6 +324,12 @@
 
     window.navigateLightbox = async function(direction) {
         if (flatNavOrder.length === 0) return;
+        
+        // Cancel any pending image load by clearing loading ID
+        const mediaContainer = lightbox?.querySelector('.lightbox-media');
+        if (mediaContainer) {
+            mediaContainer.dataset.loadingId = '';
+        }
         
         let newPhotoId = null;
         
@@ -436,6 +508,10 @@
                     }
                 } else {
                     // Regular files: progressive loading with thumbnail
+                    // Use loading ID to prevent stale image updates
+                    const loadId = Date.now();
+                    mediaContainer.dataset.loadingId = loadId;
+                    
                     mediaContainer.innerHTML = `
                         <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
                     `;
@@ -443,9 +519,12 @@
                     // Load full image in background
                     const fullImg = new Image();
                     fullImg.onload = () => {
-                        mediaContainer.innerHTML = `
-                            <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                        `;
+                        // Check if this is still the current photo and loading hasn't been cancelled
+                        if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId) {
+                            mediaContainer.innerHTML = `
+                                <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                            `;
+                        }
                     };
                     fullImg.onerror = () => {
                         // Keep thumbnail on error
