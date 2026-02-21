@@ -2527,13 +2527,6 @@ main {
     border-radius: 4px;
 }
 
-/* Progressive loading: thumbnail shown while full image loads */
-.lightbox-image.lightbox-thumb {
-    filter: blur(10px);
-    transform: scale(1.02);
-    transition: filter 0.3s ease, transform 0.3s ease;
-}
-
 /* Loading state for safe files */
 .lightbox-loading {
     display: flex;
