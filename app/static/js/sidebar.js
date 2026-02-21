@@ -8,15 +8,12 @@
     let collapsedFolders = new Set();
     let userSafes = [];
 
-    // Get sidebar elements (some may be null if DOM not ready)
-    const sidebar = document.getElementById('sidebar');
-    const sidebarToggle = document.getElementById('sidebar-toggle');
-    const sidebarOverlay = document.getElementById('sidebar-overlay');
-    
     // folderTreeContainer will be looked up dynamically
 
     // Mobile sidebar toggle
     window.openSidebar = function() {
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
         if (sidebar) sidebar.classList.add('open');
         if (sidebarOverlay) {
             sidebarOverlay.classList.remove('hidden');
@@ -25,6 +22,8 @@
     };
 
     window.closeSidebar = function() {
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
         if (sidebar) sidebar.classList.remove('open');
         if (sidebarOverlay) {
             sidebarOverlay.classList.remove('visible');
@@ -279,25 +278,31 @@
         }).join('');
     }
 
-    // Init sidebar toggle
-    if (sidebarToggle) {
-        sidebarToggle.onclick = () => {
-            if (sidebar && sidebar.classList.contains('open')) {
-                closeSidebar();
-            } else {
-                openSidebar();
-            }
-        };
-    }
+    // Init sidebar toggle - get elements dynamically to handle DOM ready timing
+    document.addEventListener('DOMContentLoaded', () => {
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        const sidebar = document.getElementById('sidebar');
+        
+        if (sidebarToggle) {
+            sidebarToggle.onclick = () => {
+                if (sidebar && sidebar.classList.contains('open')) {
+                    closeSidebar();
+                } else {
+                    openSidebar();
+                }
+            };
+        }
 
-    // Close on overlay click
-    if (sidebarOverlay) {
-        sidebarOverlay.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            closeSidebar();
-        };
-    }
+        // Close on overlay click
+        if (sidebarOverlay) {
+            sidebarOverlay.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                closeSidebar();
+            };
+        }
+    });
 
     // Load folder tree on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
