@@ -11,9 +11,8 @@
     let lastColumnCount = 0;
     let lastGalleryWidth = 0;
     let allItems = [];
-    let isRebuildPending = false;
     let lastRebuildTime = 0;
-    const MIN_REBUILD_INTERVAL = 200; // ms
+    const MIN_REBUILD_INTERVAL = 100; // ms
 
     function init() {
         gallery = document.getElementById('gallery');
@@ -43,16 +42,9 @@
         
         // Skip if rebuild was called too recently (unless forced)
         if (!forceRebuild && (now - lastRebuildTime < MIN_REBUILD_INTERVAL)) {
+            console.log('[gallery-masonry] rebuildMasonry SKIPPED (too soon)');
             return;
         }
-        
-        // Mark as pending to prevent duplicate calls
-        if (isRebuildPending) {
-            return;
-        }
-        isRebuildPending = true;
-        
-        console.log('[gallery-masonry] rebuildMasonry START, gallery:', gallery, 'force:', forceRebuild);
         
         if (!gallery) {
             console.log('[gallery-masonry] No gallery, calling init');
@@ -67,27 +59,25 @@
         const columnCount = Math.max(2, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
         const columnWidth = galleryWidth / columnCount;
 
+        // Always get fresh items from DOM - this is the source of truth
+        allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        window.allItems = allItems;
+        
+        console.log('[gallery-masonry] rebuildMasonry START, items:', allItems.length, 'force:', forceRebuild);
+
         // Always rebuild if gallery has content but showing empty-state
-        const items = gallery.querySelectorAll('.gallery-item');
-        const hasItems = items.length > 0;
+        const hasItems = allItems.length > 0;
         const hasEmptyState = gallery.querySelector('.empty-state') !== null;
         
         if (hasItems && hasEmptyState) {
             forceRebuild = true;
         }
 
-        // Sync allItems with window.allItems (for SPA navigation compatibility)
-        if (window.allItems !== undefined) {
-            allItems = window.allItems;
-        }
-
         // Skip rebuild if column count hasn't changed (unless forced or first build)
         if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
+            console.log('[gallery-masonry] rebuildMasonry SKIPPED (same column count)');
             return;
         }
-
-        // Update allItems reference
-        window.allItems = allItems;
 
         let visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
         
@@ -205,10 +195,7 @@
         lastColumnCount = columnCount;
         lastGalleryWidth = galleryWidth;
         gallery.style.opacity = '1';
-        
-        // Update tracking variables
         lastRebuildTime = Date.now();
-        isRebuildPending = false;
 
         requestAnimationFrame(() => window.scrollTo(0, scrollY));
     };
