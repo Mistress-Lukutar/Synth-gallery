@@ -84,7 +84,8 @@
                 id: p.id,
                 safeId: p.safe_id,
                 original_name: p.original_name,
-                filename: p.filename
+                filename: p.filename,
+                albumId: albumId
             }));
             currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
             
@@ -94,10 +95,9 @@
             // Set up lightbox for album viewing
             window.setAlbumContext(currentAlbumPhotos, currentAlbumIndex);
             
-            // Rebuild flatNavOrder to include this album's photos
-            // This ensures navigation works correctly when entering album from gallery
-            if (typeof window.rebuildLightboxNavOrder === 'function') {
-                window.rebuildLightboxNavOrder();
+            // Expand album in gallery navigation order so we can navigate beyond the album
+            if (typeof window.expandAlbumInLightboxNav === 'function') {
+                window.expandAlbumInLightboxNav(albumId, currentAlbumPhotos, currentAlbumIndex);
             }
             
             // Update URL with photo_id

@@ -99,6 +99,7 @@ window.handleImageError = function(img, errorType = 'access', context = {}) {
     
     // Mark gallery item with access state for click handlers
     if (galleryItem) {
+        galleryItem.classList.add('has-error');
         if (isLockedSafe) {
             galleryItem.dataset.access = 'locked';
             galleryItem.dataset.safeId = safeId;

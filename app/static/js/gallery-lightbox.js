@@ -17,7 +17,7 @@
     let currentImageLoadController = null;
     let currentFullImageLoader = null;
     
-    // Cancel any pending image loads
+    // Cancel any pending image loads for lightbox only (does not affect gallery thumbnails)
     function cancelImageLoading() {
         if (currentImageLoadController) {
             currentImageLoadController.abort();
@@ -33,7 +33,13 @@
             currentFullImageLoader.onerror = null;
             currentFullImageLoader = null;
         }
-        // Stop browser from continuing to download the image
+        // Note: window.stop() is NOT used here as it cancels ALL network requests including gallery thumbnails
+    }
+    
+    // Cancel all page loads - used only when closing lightbox
+    function cancelAllLoading() {
+        cancelImageLoading();
+        // Stop browser from continuing to download images when closing lightbox
         if (window.stop) {
             window.stop();
         }
@@ -142,6 +148,50 @@
     window.rebuildLightboxNavOrder = function() {
         flatNavOrder = buildFlatNavOrder();
         console.log('[lightbox] Nav order rebuilt:', flatNavOrder.length, 'items');
+    };
+    
+    // Set navigation order directly from album photos (when opening album from gallery)
+    window.setLightboxNavOrderFromAlbum = function(photos, startIndex = 0) {
+        flatNavOrder = photos.map(p => ({
+            type: 'photo',
+            id: p.id,
+            safeId: p.safeId,
+            albumId: p.albumId || null
+        }));
+        currentNavIndex = startIndex;
+        console.log('[lightbox] Nav order set from album:', flatNavOrder.length, 'photos, index:', startIndex);
+    };
+    
+    // Expand album in gallery navigation order (allows navigating beyond the album)
+    window.expandAlbumInLightboxNav = function(albumId, albumPhotos, startIndex = 0) {
+        // Build base nav order from gallery
+        flatNavOrder = buildFlatNavOrder();
+        
+        // Find the album in the order
+        const albumIndex = flatNavOrder.findIndex(p => 
+            (p.type === 'album' || p.type === 'album_placeholder') && p.id === albumId
+        );
+        
+        // Prepare album photos for insertion
+        const expandedPhotos = albumPhotos.map(p => ({
+            type: 'photo',
+            id: p.id,
+            safeId: p.safeId,
+            albumId: albumId
+        }));
+        
+        if (albumIndex >= 0) {
+            // Replace album with its photos
+            flatNavOrder.splice(albumIndex, 1, ...expandedPhotos);
+            // Set current index to the specified photo within the album
+            currentNavIndex = albumIndex + startIndex;
+        } else {
+            // Album not found in gallery, fallback to album-only navigation
+            flatNavOrder = expandedPhotos;
+            currentNavIndex = startIndex;
+        }
+        
+        console.log('[lightbox] Album expanded in nav:', albumId, 'total items:', flatNavOrder.length, 'current index:', currentNavIndex);
     };
 
     // Get navigation order from sessionStorage (set by masonry)
@@ -346,8 +396,8 @@
     window.closeLightbox = function() {
         if (!lightbox) return;
         
-        // Cancel any pending image loads
-        cancelImageLoading();
+        // Cancel any pending image loads (including all network requests)
+        cancelAllLoading();
         
         lightbox.classList.add('hidden');
         document.body.style.overflow = '';
@@ -502,6 +552,9 @@
                 return;
             }
             
+            // Update current photo ID
+            currentPhotoId = photoId;
+            
             // Render media - use original extension from filename
             let ext = '.jpg';
             if (photo.filename) {
@@ -591,16 +644,20 @@
                     currentFullImageLoader = fullImg;
                     
                     fullImg.onload = () => {
-                        currentFullImageLoader = null;
-                        // Check if this is still the current photo and loading hasn't been cancelled
-                        if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && !signal.aborted) {
+                        // Check if this load is still valid (not cancelled and still current photo)
+                        // We check currentFullImageLoader to ensure no new navigation happened
+                        if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
+                            currentFullImageLoader = null;
                             mediaContainer.innerHTML = `
                                 <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
                             `;
                         }
                     };
                     fullImg.onerror = () => {
-                        currentFullImageLoader = null;
+                        // Only clear if this is still the current loader
+                        if (currentFullImageLoader === fullImg) {
+                            currentFullImageLoader = null;
+                        }
                         // Keep thumbnail on error
                         console.warn('[lightbox] Failed to load full image, keeping thumbnail');
                     };
