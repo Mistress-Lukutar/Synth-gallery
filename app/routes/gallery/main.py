@@ -144,6 +144,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
 
         if sort is None or sort not in ("uploaded", "taken"):
             sort = user_settings_repo.get_sort_preference(user["id"], folder_id)
+            print(f"[DEBUG] Loaded sort preference: user={user['id']}, folder={folder_id}, sort={sort}")
 
         folder_contents = folder_service.get_folder_contents(folder_id, user["id"])
         
@@ -169,9 +170,12 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "name": album["name"],
                 "photo_count": album.get("photo_count", 0),
                 "cover_photo_id": cover_photo_id,
-                "thumb_width": album.get("cover_thumb_width"),
-                "thumb_height": album.get("cover_thumb_height"),
+                "cover_thumb_width": album.get("cover_thumb_width"),
+                "cover_thumb_height": album.get("cover_thumb_height"),
                 "safe_id": album.get("safe_id"),
+                # Add dates for frontend sorting
+                "uploaded_at": album.get("max_uploaded_at"),
+                "taken_at": album.get("max_taken_at"),
             })
         
         for photo in folder_contents["photos"]:
@@ -184,6 +188,9 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "thumb_width": photo.get("thumb_width"),
                 "thumb_height": photo.get("thumb_height"),
                 "safe_id": photo.get("safe_id"),
+                # Add dates for frontend sorting
+                "uploaded_at": photo.get("uploaded_at"),
+                "taken_at": photo.get("taken_at"),
             })
         
         # Get current folder info
@@ -200,6 +207,47 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
             "items": items,
             "sort": sort,
         }
+    finally:
+        db.close()
+
+
+@router.put("/api/folders/{folder_id}/sort")
+async def set_folder_sort_preference(folder_id: str, request: Request):
+    """Save user's sort preference for a folder."""
+    from ...dependencies import require_user
+    import json
+    
+    user = require_user(request)
+    
+    # Read request body
+    try:
+        body = await request.json()
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    
+    sort_by = body.get('sort_by', 'uploaded')
+    print(f"[DEBUG] Saving sort preference: user={user['id']}, folder={folder_id}, sort={sort_by}")
+    
+    if sort_by not in ('uploaded', 'taken'):
+        raise HTTPException(status_code=400, detail="Invalid sort option")
+    
+    db = create_connection()
+    try:
+        perm_service = get_permission_service(db)
+        
+        if not perm_service.can_access(folder_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Save preference
+        db.execute(
+            """INSERT OR REPLACE INTO user_folder_preferences (user_id, folder_id, sort_by)
+               VALUES (?, ?, ?)""",
+            (user["id"], folder_id, sort_by)
+        )
+        db.commit()
+        print(f"[DEBUG] Sort preference saved successfully")
+        
+        return {"status": "ok", "sort": sort_by}
     finally:
         db.close()
 

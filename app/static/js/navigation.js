@@ -6,6 +6,9 @@
 (function() {
     // Current sort preference
     let currentSort = 'uploaded';
+    
+    // Expose to window for masonry sorting
+    window.currentSortMode = currentSort;
 
     // Navigate to folder via SPA
     window.navigateToFolder = async function(folderId, pushState = true, event = null) {
@@ -38,7 +41,12 @@
             
             if (data.sort) {
                 currentSort = data.sort;
+                window.currentSortMode = currentSort;
                 updateSortUI(currentSort);
+                // Also update dropdown UI if available
+                if (typeof window.updateSortDropdownUI === 'function') {
+                    window.updateSortDropdownUI(currentSort);
+                }
             }
             
             renderFolderContent(data);
@@ -98,6 +106,14 @@
     // Render folder content in gallery
     window.renderFolderContent = function(data) {
         console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'items:', data.items?.length);
+        
+        // Update sort UI if sort data is available
+        if (data.sort) {
+            window.currentSortMode = data.sort;
+            if (typeof window.updateSortDropdownUI === 'function') {
+                window.updateSortDropdownUI(data.sort);
+            }
+        }
         
         const gallery = document.getElementById('gallery');
         
@@ -205,11 +221,17 @@
                     `;
                 }
                 
+                // Add date attributes for sorting
+                const uploadedAt = album.uploaded_at || '';
+                const takenAt = album.taken_at || '';
+                
                 html += `
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
-                         ${safeIdAttr}>
+                         ${safeIdAttr}
+                         data-uploaded-at="${uploadedAt}"
+                         data-taken-at="${takenAt}">
                         <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
                             ${imgHtml}
                             <div class="album-badge">
@@ -242,6 +264,11 @@
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
+                // Add date attributes for sorting
+                const uploadedAt = photo.uploaded_at || '';
+                const takenAt = photo.taken_at || '';
+                const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
+                
                 if (safeId) {
                     html += `
                         <div class="gallery-item" 
@@ -249,7 +276,8 @@
                              data-item-type="photo"
                              data-media-type="${mediaType}"
                              ${dimsAttr}
-                             data-safe-id="${safeId}">
+                             data-safe-id="${safeId}"
+                             ${dateAttrs}>
                             <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                                 <div class="gallery-placeholder"></div>
                                 <img data-safe-thumbnail="${photo.id}"
@@ -280,7 +308,8 @@
                              data-item-type="photo"
                              data-media-type="${mediaType}"
                              ${dimsAttr}
-                             ${safeIdAttr}>
+                             ${safeIdAttr}
+                             ${dateAttrs}>
                             <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                                 <div class="gallery-placeholder"></div>
                                 <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" 

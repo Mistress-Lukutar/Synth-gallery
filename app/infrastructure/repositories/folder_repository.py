@@ -462,15 +462,24 @@ class FolderRepository(Repository):
             folder_id: Folder ID
             
         Returns:
-            List of album dicts with photo_count and cover_photo_id
+            List of album dicts with photo_count, cover_photo_id, cover thumbnail dimensions,
+            and max photo dates for sorting
         """
         cursor = self._execute("""
             SELECT a.id, a.name, a.created_at, a.folder_id, a.user_id, a.safe_id,
                    (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
                    COALESCE(a.cover_photo_id, 
                        (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1)
-                   ) as cover_photo_id
+                   ) as cover_photo_id,
+                   cover_p.thumb_width as cover_thumb_width,
+                   cover_p.thumb_height as cover_thumb_height,
+                   COALESCE((SELECT MAX(uploaded_at) FROM photos WHERE album_id = a.id), a.created_at) as max_uploaded_at,
+                   COALESCE((SELECT MAX(taken_at) FROM photos WHERE album_id = a.id), 
+                            (SELECT MAX(uploaded_at) FROM photos WHERE album_id = a.id), a.created_at) as max_taken_at
             FROM albums a
+            LEFT JOIN photos cover_p ON cover_p.id = COALESCE(a.cover_photo_id, 
+                (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1)
+            )
             WHERE a.folder_id = ?
             ORDER BY a.created_at DESC
         """, (folder_id,))

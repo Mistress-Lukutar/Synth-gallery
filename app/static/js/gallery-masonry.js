@@ -74,7 +74,35 @@
         // Update allItems reference
         window.allItems = allItems;
 
-        const visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
+        let visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
+        
+        // Sort items based on current sort mode (excluding subfolders which are separate)
+        const sortMode = window.currentSortMode || 'uploaded';
+        visibleItems.sort((a, b) => {
+            // Don't sort folders (they're handled separately), only albums and photos
+            const aIsFolder = a.classList.contains('subfolder-tile') || a.dataset.itemType === 'folder';
+            const bIsFolder = b.classList.contains('subfolder-tile') || b.dataset.itemType === 'folder';
+            if (aIsFolder || bIsFolder) return 0;
+            
+            // Get dates for comparison
+            let aDate, bDate;
+            if (sortMode === 'taken') {
+                aDate = a.dataset.takenAt || a.dataset.uploadedAt;
+                bDate = b.dataset.takenAt || b.dataset.uploadedAt;
+            } else {
+                aDate = a.dataset.uploadedAt || a.dataset.takenAt;
+                bDate = b.dataset.uploadedAt || b.dataset.takenAt;
+            }
+            
+            // Parse dates (handle ISO strings)
+            const parseDate = (d) => d ? new Date(d).getTime() : 0;
+            const aTime = parseDate(aDate);
+            const bTime = parseDate(bDate);
+            
+            // Descending order (newest first)
+            return bTime - aTime;
+        });
+        
         const scrollY = window.scrollY;
 
         gallery.innerHTML = '';
