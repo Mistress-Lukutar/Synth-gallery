@@ -291,6 +291,53 @@ def uploaded_photo(
 
 
 @pytest.fixture(scope="function")
+def test_album(
+    authenticated_client: TestClient,
+    test_folder: str,
+    test_image_bytes: bytes,
+    csrf_token: str
+) -> Dict:
+    """Create a test album with photos and return its metadata.
+    
+    Returns:
+        Dict with: id, name, photo_ids, photo_count
+    """
+    # Upload multiple photos
+    photo_ids = []
+    for i in range(3):
+        response = authenticated_client.post(
+            "/upload",
+            data={"folder_id": test_folder},
+            files={"file": (f"album_{i}.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
+        )
+        assert response.status_code == 200
+        photo_ids.append(response.json()["id"])
+    
+    # Create album
+    response = authenticated_client.post(
+        "/api/albums",
+        json={
+            "name": "Test Album",
+            "folder_id": test_folder,
+            "photo_ids": photo_ids
+        },
+        headers={"X-CSRF-Token": csrf_token}
+    )
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    return {
+        "id": data["album_id"],
+        "name": "Test Album",
+        "photo_ids": photo_ids,
+        "photo_count": data["photo_count"],
+        "folder_id": test_folder
+    }
+
+
+@pytest.fixture(scope="function")
 def encrypted_user(db_connection, client: TestClient) -> Dict[str, Any]:
     """Create user with encryption enabled (DEK in cache).
     

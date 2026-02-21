@@ -1,0 +1,15 @@
+{
+  "name": "synth-gallery",
+  "version": "1.0.0",
+  "description": "Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
