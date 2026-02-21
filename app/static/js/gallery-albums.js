@@ -439,6 +439,17 @@
     };
 
     window.deleteAlbum = async function(albumId) {
+        // Check if album is in a locked safe (E2E - client-side only!)
+        const gallery = document.getElementById('gallery');
+        const albumItem = gallery?.querySelector(`.gallery-item[data-album-id="${albumId}"]`);
+        if (albumItem) {
+            const safeId = albumItem.dataset.safeId;
+            if (safeId && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
+                alert('Cannot delete: this album is in a locked safe. Please unlock the safe first.');
+                return;
+            }
+        }
+        
         if (!confirm('Delete this album? Photos will not be deleted.')) return;
 
         try {

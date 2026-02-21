@@ -454,17 +454,45 @@ base64Decode(encryptedDEKBase64)
         },
         
         /**
-         * Lock a safe (clear from memory)
+         * Lock a safe (clear from memory and notify server)
          * @param {string} safeId - Safe ID
+         * @param {boolean} notifyServer - Whether to notify server (default true)
          */
-        lockSafe(safeId) {
+        lockSafe(safeId, notifyServer = true) {
             safeDEKs.delete(safeId);
+            
+            // Notify server to invalidate session
+            if (notifyServer && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+                const csrfToken = this._getCsrfToken();
+                const baseUrl = (typeof getBaseUrl === 'function') ? getBaseUrl() : '';
+                const url = `${baseUrl}/api/safes/${safeId}/lock`;
+                const headers = { 'X-CSRF-Token': csrfToken };
+                navigator.sendBeacon(url, new Blob([JSON.stringify({})], { 
+                    type: 'application/json' 
+                }));
+            }
         },
         
         /**
          * Lock all safes
+         * @param {boolean} notifyServer - Whether to notify server (default true)
          */
-        lockAll() {
+        lockAll(notifyServer = true) {
+            if (notifyServer && safeDEKs.size > 0) {
+                const safeIds = Array.from(safeDEKs.keys());
+                const csrfToken = this._getCsrfToken();
+                const baseUrl = (typeof getBaseUrl === 'function') ? getBaseUrl() : '';
+                
+                // Notify server for each safe
+                if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+                    for (const safeId of safeIds) {
+                        const url = `${baseUrl}/api/safes/${safeId}/lock`;
+                        navigator.sendBeacon(url, new Blob([JSON.stringify({})], { 
+                            type: 'application/json' 
+                        }));
+                    }
+                }
+            }
             safeDEKs.clear();
         },
         

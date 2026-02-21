@@ -32,6 +32,36 @@
         return false;
     }
 
+    // Check if any selected item is from a LOCKED safe (no client-side key)
+    // This is the critical check - E2E safes lock on client, not server!
+    function checkLockedSafeContent(photos, albums) {
+        const lockedSafeIds = new Set();
+        
+        // Check photos
+        for (const photoId of photos) {
+            const item = gallery.querySelector(`[data-photo-id="${photoId}"]`);
+            if (item && item.dataset.safeId) {
+                const safeId = item.dataset.safeId;
+                // Check if we have the key in memory (SafeCrypto.isUnlocked)
+                if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
+                    lockedSafeIds.add(safeId);
+                }
+            }
+        }
+        // Check albums
+        for (const albumId of albums) {
+            const item = gallery.querySelector(`[data-album-id="${albumId}"]`);
+            if (item && item.dataset.safeId) {
+                const safeId = item.dataset.safeId;
+                // Check if we have the key in memory
+                if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
+                    lockedSafeIds.add(safeId);
+                }
+            }
+        }
+        return lockedSafeIds;
+    }
+
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
@@ -229,6 +259,14 @@
             deleteBtn.addEventListener('click', async () => {
                 const total = selectedPhotos.size + selectedAlbums.size;
                 if (total === 0) return;
+                
+                // CRITICAL: Check for locked safes (E2E - client-side only!)
+                const lockedSafeIds = checkLockedSafeContent(selectedPhotos, selectedAlbums);
+                if (lockedSafeIds.size > 0) {
+                    alert(`Cannot delete: selected items are in locked safe(s). Please unlock the safe(s) first.`);
+                    return;
+                }
+                
                 if (!confirm(`Delete ${total} items?`)) return;
 
                 try {
