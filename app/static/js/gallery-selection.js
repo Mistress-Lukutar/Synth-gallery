@@ -280,6 +280,19 @@
         }
     };
 
+    // Clear all selections and hide selection menu
+    window.clearSelection = function() {
+        selectedPhotos.clear();
+        selectedAlbums.clear();
+        document.querySelectorAll('.gallery-item.selected').forEach(item => {
+            item.classList.remove('selected');
+        });
+        const selectionMenu = document.getElementById('selection-menu');
+        if (selectionMenu) {
+            selectionMenu.classList.add('hidden');
+        }
+    };
+
     // Toggle collapse in picker (syncs with sidebar collapsed state)
     window.togglePickerFolderCollapse = function(folderId, event) {
         if (event) {

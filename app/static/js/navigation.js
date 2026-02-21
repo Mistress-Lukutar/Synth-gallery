@@ -39,6 +39,11 @@
             
             window.currentFolderId = folderId;
             
+            // Clear selection when navigating to a different folder
+            if (typeof window.clearSelection === 'function') {
+                window.clearSelection();
+            }
+            
             if (data.sort) {
                 currentSort = data.sort;
                 window.currentSortMode = currentSort;
