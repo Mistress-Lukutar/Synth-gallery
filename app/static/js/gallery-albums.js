@@ -94,6 +94,17 @@
             // Set up lightbox for album viewing
             window.setAlbumContext(currentAlbumPhotos, currentAlbumIndex);
             
+            // Rebuild flatNavOrder to include this album's photos
+            // This ensures navigation works correctly when entering album from gallery
+            if (typeof window.rebuildLightboxNavOrder === 'function') {
+                await window.rebuildLightboxNavOrder();
+            }
+            
+            // Update URL with photo_id
+            const url = new URL(window.location.href);
+            url.searchParams.set('photo_id', firstPhoto.id);
+            window.history.pushState({ photoId: firstPhoto.id }, '', url.toString());
+            
             // Load first photo
             await window.loadPhoto(firstPhoto.id);
             window.showLightbox();
