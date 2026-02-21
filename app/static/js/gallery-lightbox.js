@@ -294,7 +294,7 @@
                 } else {
                     // Regular files: progressive loading with thumbnail
                     mediaContainer.innerHTML = `
-                        <img class="lightbox-image lightbox-thumb" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                        <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
                     `;
                     
                     // Load full image in background
