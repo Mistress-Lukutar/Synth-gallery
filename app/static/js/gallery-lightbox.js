@@ -67,6 +67,93 @@
         albumContext = null;
     };
 
+    // Expose rebuild function for external use (e.g., when opening album)
+    window.rebuildLightboxNavOrder = async function() {
+        flatNavOrder = await buildFlatNavOrder();
+        console.log('[lightbox] Nav order rebuilt:', flatNavOrder.length, 'items');
+    };
+
+    // Get navigation order from sessionStorage (set by masonry)
+    function getGalleryNavOrder() {
+        try {
+            const stored = sessionStorage.getItem('galleryNavOrder');
+            if (stored) {
+                return JSON.parse(stored);
+            }
+        } catch (e) {
+            console.warn('[lightbox] Failed to load nav order:', e);
+        }
+        return null;
+    }
+    
+    // Build flat navigation list from gallery order
+    // Expands albums into their photos for seamless navigation
+    async function buildFlatNavOrder() {
+        const order = getGalleryNavOrder();
+        if (!order || order.length === 0) {
+            // Fallback: get photos from DOM
+            const gallery = document.getElementById('gallery');
+            if (gallery) {
+                return Array.from(gallery.querySelectorAll('.gallery-item[data-item-type="photo"]'))
+                    .map(item => ({
+                        type: 'photo',
+                        id: item.dataset.photoId,
+                        safeId: item.dataset.safeId
+                    }));
+            }
+            return [];
+        }
+        
+        // For albums, we need to fetch their photos to expand them in navigation
+        const flatOrder = [];
+        for (const item of order) {
+            if (item.type === 'album') {
+                // Album - fetch its photos and add them as a group
+                try {
+                    const resp = await fetch(`${getBaseUrl()}/api/albums/${item.id}`);
+                    if (resp.ok) {
+                        const album = await resp.json();
+                        if (album.photos && album.photos.length > 0) {
+                            // Add album marker first
+                            flatOrder.push({
+                                type: 'album_marker',
+                                id: item.id,
+                                albumName: album.name
+                            });
+                            // Add all album photos
+                            for (const photo of album.photos) {
+                                flatOrder.push({
+                                    type: 'photo',
+                                    id: photo.id,
+                                    safeId: photo.safe_id,
+                                    albumId: item.id
+                                });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[lightbox] Failed to load album:', item.id);
+                }
+            } else if (item.type === 'photo') {
+                // Standalone photo
+                const gallery = document.getElementById('gallery');
+                const el = gallery?.querySelector(`.gallery-item[data-photo-id="${item.id}"]`);
+                if (el) {
+                    flatOrder.push({
+                        type: 'photo',
+                        id: item.id,
+                        safeId: el.dataset.safeId
+                    });
+                }
+            }
+        }
+        return flatOrder;
+    }
+    
+    // Store flat navigation order
+    let flatNavOrder = [];
+    let currentNavIndex = -1;
+
     window.openPhoto = async function(photoId) {
         if (!lightbox) init();
         if (!lightbox) return;
@@ -80,16 +167,13 @@
             const safeId = galleryItem.dataset.safeId;
             
             if (access === 'denied') {
-                // Shared content without access - do nothing
                 console.log('[openPhoto] Access denied for photo:', photoId);
                 return;
             }
             
             if (access === 'locked' && safeId) {
-                // Safe is locked - show unlock modal
                 console.log('[openPhoto] Safe locked, showing unlock modal for:', safeId);
                 
-                // Get safe info from window.userSafes (populated by sidebar.js)
                 let safeName = 'Safe';
                 let unlockType = 'password';
                 if (window.userSafes) {
@@ -109,22 +193,35 @@
             }
         }
         
-        // Clear album context when opening single photo
-        window.clearAlbumContext();
+        // Build flat navigation order (photos + expanded albums)
+        flatNavOrder = await buildFlatNavOrder();
         
-        currentPhotoId = photoId;
-        
-        // Get all visible photos from gallery
-        if (gallery) {
-            currentPhotos = Array.from(gallery.querySelectorAll('.gallery-item[data-item-type="photo"]'))
-                .map(item => ({
-                    id: item.dataset.photoId,
-                    safeId: item.dataset.safeId
-                }));
+        // Find current photo in flat order
+        currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && p.type === 'photo');
+        if (currentNavIndex === -1) {
+            // Photo not in order, add it
+            flatNavOrder = [{ type: 'photo', id: photoId, safeId: galleryItem?.dataset.safeId }];
+            currentNavIndex = 0;
         }
         
-        currentIndex = currentPhotos.findIndex(p => p.id === photoId);
-        if (currentIndex === -1) currentIndex = 0;
+        // Check if this photo is part of an album
+        const currentItem = flatNavOrder[currentNavIndex];
+        if (currentItem && currentItem.albumId) {
+            // Find all photos in this album
+            const albumPhotos = flatNavOrder.filter(p => p.albumId === currentItem.albumId);
+            const albumIndex = albumPhotos.findIndex(p => p.id === photoId);
+            
+            // Set album context
+            albumContext = {
+                photos: albumPhotos,
+                index: albumIndex >= 0 ? albumIndex : 0,
+                albumId: currentItem.albumId
+            };
+        } else {
+            window.clearAlbumContext();
+        }
+        
+        currentPhotoId = photoId;
 
         // Update URL with photo_id without reloading page
         const url = new URL(window.location.href);
@@ -159,35 +256,81 @@
         }
     };
 
-    window.navigateLightbox = function(direction) {
+    window.navigateLightbox = async function(direction) {
+        if (flatNavOrder.length === 0) return;
+        
         let newPhotoId = null;
         
-        // If in album context, use album navigation
-        if (albumContext) {
-            let newIndex = albumContext.index + direction;
-            if (newIndex < 0) newIndex = albumContext.photos.length - 1;
-            if (newIndex >= albumContext.photos.length) newIndex = 0;
+        // If in album context, try to navigate within album first
+        if (albumContext && albumContext.photos.length > 0) {
+            let newAlbumIndex = albumContext.index + direction;
             
-            albumContext.index = newIndex;
-            const photo = albumContext.photos[newIndex];
-            if (photo) {
-                newPhotoId = photo.id;
-                window.loadPhoto(photo.id);
-                window.updateAlbumIndicator?.(newIndex, albumContext.photos.length);
+            // Check if we're still within album bounds
+            if (newAlbumIndex >= 0 && newAlbumIndex < albumContext.photos.length) {
+                // Navigate within album
+                albumContext.index = newAlbumIndex;
+                const photo = albumContext.photos[newAlbumIndex];
+                if (photo) {
+                    newPhotoId = photo.id;
+                    currentPhotoId = newPhotoId;
+                    currentNavIndex = flatNavOrder.findIndex(p => p.id === newPhotoId && p.type === 'photo');
+                    await window.loadPhoto(newPhotoId);
+                    window.updateAlbumIndicator?.(newAlbumIndex, albumContext.photos.length);
+                    
+                    // Update URL
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('photo_id', newPhotoId);
+                    window.history.pushState({ photoId: newPhotoId }, '', url.toString());
+                    return;
             }
-        } else {
-            // Otherwise use gallery navigation
-            if (currentPhotos.length <= 1) return;
-            
-            currentIndex += direction;
-            if (currentIndex < 0) currentIndex = currentPhotos.length - 1;
-            if (currentIndex >= currentPhotos.length) currentIndex = 0;
-            
-            const photo = currentPhotos[currentIndex];
-            if (photo) {
-                newPhotoId = photo.id;
-                window.loadPhoto(photo.id);
             }
+            
+            // Reached end of album, exit to next/prev item in gallery
+            // Clear album context and continue to gallery navigation
+            window.clearAlbumContext();
+        }
+        
+        // Navigate in flat gallery order
+        let newNavIndex = currentNavIndex + direction;
+        
+        // Wrap around
+        if (newNavIndex < 0) newNavIndex = flatNavOrder.length - 1;
+        if (newNavIndex >= flatNavOrder.length) newNavIndex = 0;
+        
+        currentNavIndex = newNavIndex;
+        const nextItem = flatNavOrder[currentNavIndex];
+        
+        if (!nextItem) return;
+        
+        if (nextItem.type === 'photo') {
+            newPhotoId = nextItem.id;
+            
+            // Check if this photo is part of an album
+            if (nextItem.albumId) {
+                // Find all photos in this album
+                const albumPhotos = flatNavOrder.filter(p => p.albumId === nextItem.albumId);
+                const albumIndex = albumPhotos.findIndex(p => p.id === newPhotoId);
+                
+                // Set album context for internal album navigation
+                albumContext = {
+                    photos: albumPhotos,
+                    index: albumIndex >= 0 ? albumIndex : 0,
+                    albumId: nextItem.albumId
+                };
+            }
+            
+            currentPhotoId = newPhotoId;
+            await window.loadPhoto(newPhotoId);
+            
+            // Update album indicator if in album
+            if (albumContext) {
+                window.updateAlbumIndicator?.(albumContext.index, albumContext.photos.length);
+            }
+            
+        } else if (nextItem.type === 'album_marker') {
+            // This shouldn't happen as we navigate to photos, not markers
+            // But if it does, skip to next item
+            return window.navigateLightbox(direction);
         }
         
         // Update URL with new photo_id
