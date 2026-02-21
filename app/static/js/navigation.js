@@ -347,23 +347,22 @@
             `;
         }
         
+        // Clear and set HTML - masonry will take over from here
         gallery.innerHTML = html;
         gallery.style.opacity = '1';
         
-        // Update allItems for masonry (gallery.html compatibility)
-        window.allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
-        
-        // Rebuild masonry after DOM update (with delay to let images start loading)
-        console.log('[navigation] About to schedule rebuildMasonry, window.rebuildMasonry:', typeof window.rebuildMasonry);
-        setTimeout(() => {
-            console.log('[navigation] In setTimeout, window.rebuildMasonry:', typeof window.rebuildMasonry);
-            if (typeof window.rebuildMasonry === 'function') {
-                console.log('[navigation] Calling rebuildMasonry, items:', gallery.querySelectorAll('.gallery-item').length);
-                window.rebuildMasonry(true);
-            } else {
-                console.log('[navigation] rebuildMasonry not available');
-            }
-        }, 100);
+        // Trigger masonry rebuild - it will read items directly from DOM
+        console.log('[navigation] Triggering masonry rebuild, items inserted:', gallery.querySelectorAll('.gallery-item').length);
+        if (typeof window.rebuildMasonry === 'function') {
+            window.rebuildMasonry(true);
+        } else {
+            // If masonry not loaded yet, wait for it
+            setTimeout(() => {
+                if (typeof window.rebuildMasonry === 'function') {
+                    window.rebuildMasonry(true);
+                }
+            }, 50);
+        }
         
         // Load safe thumbnails (will be defined in safes.js Phase 6)
         if (typeof window.loadSafeThumbnails === 'function') {
