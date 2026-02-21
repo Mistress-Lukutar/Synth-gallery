@@ -149,6 +149,11 @@
     
     function handleTouchStart(e) {
         if (lightbox.classList.contains('hidden')) return;
+        // Ignore multi-touch gestures (pinch-to-zoom)
+        if (e.touches.length > 1) {
+            isSwiping = false;
+            return;
+        }
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
         isSwiping = true;
@@ -161,6 +166,11 @@
     
     function handleTouchEnd(e) {
         if (!isSwiping || lightbox.classList.contains('hidden')) return;
+        // Ignore if gesture ended with multiple touches (pinch-to-zoom)
+        if (e.changedTouches.length > 1) {
+            isSwiping = false;
+            return;
+        }
         isSwiping = false;
         
         const touchEndX = e.changedTouches[0].clientX;
