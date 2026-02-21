@@ -302,6 +302,9 @@
                 closeSidebar();
             };
         }
+        
+        // Setup swipe on overlay to close sidebar
+        setupOverlaySwipe();
     });
 
     // Load folder tree on DOM ready
@@ -353,6 +356,44 @@
             // Only handle horizontal swipes to the right
             if (diffX > swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
                 openSidebar();
+            }
+        }, { passive: true });
+    }
+    
+    // Setup swipe left on sidebar overlay to close sidebar
+    function setupOverlaySwipe() {
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        if (!sidebarOverlay) return;
+        
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let isSwiping = false;
+        
+        sidebarOverlay.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+            isSwiping = true;
+        }, { passive: true });
+        
+        sidebarOverlay.addEventListener('touchmove', (e) => {
+            if (!isSwiping) return;
+        }, { passive: true });
+        
+        sidebarOverlay.addEventListener('touchend', (e) => {
+            if (!isSwiping) return;
+            isSwiping = false;
+            
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            
+            const diffX = touchEndX - touchStartX; // Negative = left swipe
+            const diffY = touchEndY - touchStartY;
+            
+            const swipeThreshold = 50;
+            
+            // Only handle horizontal swipes to the left (negative diffX)
+            if (diffX < -swipeThreshold && Math.abs(diffX) > Math.abs(diffY)) {
+                closeSidebar();
             }
         }, { passive: true });
     }
