@@ -491,6 +491,11 @@ main {
     opacity: 1;
 }
 
+/* Hide select indicator for items with error placeholder */
+.gallery-item.has-error .select-indicator {
+    display: none;
+}
+
 .gallery-item.selected {
     outline: 3px solid var(--accent);
     outline-offset: -3px;
@@ -2459,20 +2464,20 @@ main {
     top: 50%;
     transform: translateY(-50%);
     z-index: 10;
-    background: rgba(255, 255, 255, 0.1);
+    background: transparent;
     border: none;
     color: white;
-    font-size: 3rem;
+    font-size: 4rem;
     cursor: pointer;
-    padding: 1rem 1.5rem;
-    opacity: 0.7;
-    transition: opacity 0.2s, background 0.2s;
-    border-radius: 4px;
+    padding: 0;
+    opacity: 0.4;
+    transition: opacity 0.2s;
+    border-radius: 0;
 }
 
 .lightbox-nav:hover {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.2);
+    opacity: 0.8;
+    background: transparent;
 }
 
 .lightbox-prev {
@@ -2500,7 +2505,7 @@ main {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 4rem 6rem;
+    padding: 0;
     min-height: 0;
 }
 
@@ -2511,6 +2516,7 @@ main {
     width: 100%;
     flex: 1;
     min-height: 0;
+    position: relative;
 }
 
 .lightbox-image {
@@ -2553,25 +2559,40 @@ main {
 }
 
 .lightbox-album-indicator {
-    margin-top: 1rem;
+    position: absolute;
+    top: 10px;
+    left: 60px;
+    right: 60px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
+    z-index: 1002;
+    background: transparent;
+    padding: 0;
+    pointer-events: none;
+}
+
+.lightbox-album-indicator .album-indicator-bars {
+    pointer-events: auto;
 }
 
 .lightbox-album-indicator .album-indicator-bars {
     display: flex;
     gap: 4px;
+    width: 100%;
+    justify-content: center;
+    opacity: 0.4;
 }
 
 .lightbox-album-indicator .album-bar {
-    width: 24px;
+    flex: 1;
     height: 4px;
     background: rgba(255, 255, 255, 0.3);
     border-radius: 2px;
     cursor: pointer;
     transition: background 0.2s;
+    max-width: 60px;
 }
 
 .lightbox-album-indicator .album-bar:hover {
@@ -2579,7 +2600,7 @@ main {
 }
 
 .lightbox-album-indicator .album-bar.active {
-    background: var(--accent);
+    background: rgba(255, 255, 255, 0.7);
 }
 
 .lightbox-album-indicator .album-indicator-text {
