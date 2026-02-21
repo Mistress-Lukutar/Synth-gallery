@@ -19,11 +19,12 @@ def get_safe_file_service(db) -> SafeFileService:
 
 def get_permission_service(db) -> PermissionService:
     """Get configured PermissionService instance."""
-    from ..infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository
+    from ..infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository, SafeRepository
     return PermissionService(
         permission_repository=PermissionRepository(db),
         folder_repository=FolderRepository(db),
-        photo_repository=PhotoRepository(db)
+        photo_repository=PhotoRepository(db),
+        safe_repository=SafeRepository(db)
     )
 
 

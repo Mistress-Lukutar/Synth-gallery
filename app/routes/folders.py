@@ -66,7 +66,8 @@ def get_permission_service() -> PermissionService:
     db = create_connection()
     return PermissionService(
         permission_repository=PermissionRepository(db),
-        folder_repository=FolderRepository(db)
+        folder_repository=FolderRepository(db),
+        safe_repository=SafeRepository(db)
     )
 
 
@@ -196,7 +197,8 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
         # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
-            folder_repository=FolderRepository(db)
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
         )
         success = service.grant_permission(
             folder_id=folder_id,
@@ -229,7 +231,8 @@ def update_folder_permission_route(
         # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
-            folder_repository=FolderRepository(db)
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
         )
         success = service.update_permission(
             folder_id=folder_id,
@@ -261,7 +264,8 @@ def remove_folder_permission_route(
         # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
-            folder_repository=FolderRepository(db)
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
         )
         success = service.revoke_permission(
             folder_id=folder_id,

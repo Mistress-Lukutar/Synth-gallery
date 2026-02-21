@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository
+from ...infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository, SafeRepository
 
 
 class PermissionService:
@@ -27,11 +27,13 @@ class PermissionService:
         self,
         permission_repository: PermissionRepository,
         folder_repository: FolderRepository,
-        photo_repository: PhotoRepository = None
+        photo_repository: PhotoRepository = None,
+        safe_repository: SafeRepository = None
     ):
         self.perm_repo = permission_repository
         self.folder_repo = folder_repository
         self.photo_repo = photo_repository
+        self.safe_repo = safe_repository
     
     def grant_permission(
         self,
@@ -331,10 +333,11 @@ class PermissionService:
         """Check if user can delete photo.
         
         Rules:
-        - Photo owner can always delete
-        - Folder owner can delete any photo in their folder
-        - Editor can only delete photos they uploaded
+        - Photo owner can always delete (if safe is unlocked)
+        - Folder owner can delete any photo in their folder (if safe is unlocked)
+        - Editor can only delete photos they uploaded (if safe is unlocked)
         - Viewer cannot delete
+        - Photos in locked safes cannot be deleted
         
         Args:
             photo_id: Photo ID
@@ -349,6 +352,12 @@ class PermissionService:
         photo = self.photo_repo.get_by_id(photo_id)
         if not photo:
             return False
+        
+        # Check if photo is in a safe - safe must be unlocked
+        safe_id = photo.get("safe_id")
+        if safe_id and self.safe_repo:
+            if not self.safe_repo.is_unlocked(safe_id, user_id):
+                return False  # Cannot delete photos from locked safes
         
         # Photo owner can always delete
         if photo["user_id"] == user_id:
@@ -404,10 +413,11 @@ class PermissionService:
         """Check if user can delete album.
         
         Rules:
-        - Album owner can always delete
-        - Folder owner can delete any album in their folder
-        - Editor can only delete albums they created
+        - Album owner can always delete (if safe is unlocked)
+        - Folder owner can delete any album in their folder (if safe is unlocked)
+        - Editor can only delete albums they created (if safe is unlocked)
         - Viewer cannot delete
+        - Albums in locked safes cannot be deleted
         
         Args:
             album_id: Album ID
@@ -422,6 +432,15 @@ class PermissionService:
         album = self.photo_repo.get_album(album_id)
         if not album:
             return False
+        
+        # Check if album's folder is in a safe - safe must be unlocked
+        if album.get("folder_id"):
+            folder = self.folder_repo.get_by_id(album["folder_id"])
+            if folder:
+                safe_id = folder.get("safe_id")
+                if safe_id and self.safe_repo:
+                    if not self.safe_repo.is_unlocked(safe_id, user_id):
+                        return False  # Cannot delete albums from locked safes
         
         # Album owner can always delete
         if album["user_id"] == user_id:

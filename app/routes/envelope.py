@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from fastapi import APIRouter, Request, HTTPException
 
 from ..database import create_connection
-from ..infrastructure.repositories import UserRepository, PhotoRepository, FolderRepository, PermissionRepository
+from ..infrastructure.repositories import UserRepository, PhotoRepository, FolderRepository, PermissionRepository, SafeRepository
 from ..application.services import EnvelopeService, PermissionService
 from ..dependencies import require_user
 
@@ -21,7 +21,8 @@ def get_envelope_service(db) -> EnvelopeService:
     folder_repo = FolderRepository(db)
     user_repo = UserRepository(db)
     perm_repo = PermissionRepository(db)
-    perm_service = PermissionService(perm_repo, folder_repo, photo_repo)
+    safe_repo = SafeRepository(db)
+    perm_service = PermissionService(perm_repo, folder_repo, photo_repo, safe_repo)
     
     return EnvelopeService(
         photo_repository=photo_repo,
@@ -36,7 +37,8 @@ def get_permission_service(db) -> PermissionService:
     photo_repo = PhotoRepository(db)
     folder_repo = FolderRepository(db)
     perm_repo = PermissionRepository(db)
-    return PermissionService(perm_repo, folder_repo, photo_repo)
+    safe_repo = SafeRepository(db)
+    return PermissionService(perm_repo, folder_repo, photo_repo, safe_repo)
 
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
 

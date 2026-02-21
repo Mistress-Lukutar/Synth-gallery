@@ -44,5 +44,6 @@ def get_permission_service(db) -> PermissionService:
     return PermissionService(
         permission_repository=PermissionRepository(db),
         folder_repository=FolderRepository(db),
-        photo_repository=PhotoRepository(db)
+        photo_repository=PhotoRepository(db),
+        safe_repository=SafeRepository(db)
     )
