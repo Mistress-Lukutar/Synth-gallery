@@ -128,6 +128,68 @@
         // Close button
         const closeBtn = lightbox.querySelector('.lightbox-close');
         if (closeBtn) closeBtn.addEventListener('click', window.closeLightbox);
+        
+        // Touch swipe navigation for mobile
+        setupTouchNavigation();
+    }
+    
+    // Touch swipe navigation
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isSwiping = false;
+    
+    function setupTouchNavigation() {
+        const mediaContainer = lightbox?.querySelector('.lightbox-media');
+        if (!mediaContainer) return;
+        
+        mediaContainer.addEventListener('touchstart', handleTouchStart, { passive: true });
+        mediaContainer.addEventListener('touchmove', handleTouchMove, { passive: true });
+        mediaContainer.addEventListener('touchend', handleTouchEnd, { passive: true });
+    }
+    
+    function handleTouchStart(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        isSwiping = true;
+    }
+    
+    function handleTouchMove(e) {
+        if (!isSwiping || lightbox.classList.contains('hidden')) return;
+        // Could add visual feedback here in the future
+    }
+    
+    function handleTouchEnd(e) {
+        if (!isSwiping || lightbox.classList.contains('hidden')) return;
+        isSwiping = false;
+        
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        
+        const diffX = touchStartX - touchEndX;
+        const diffY = touchStartY - touchEndY;
+        
+        const swipeThreshold = 50; // Minimum swipe distance
+        
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+            // Horizontal swipe - navigation
+            if (Math.abs(diffX) > swipeThreshold) {
+                if (diffX > 0) {
+                    // Swiped left - go to next
+                    window.navigateLightbox(1, true);
+                } else {
+                    // Swiped right - go to previous
+                    window.navigateLightbox(-1, true);
+                }
+            }
+        } else {
+            // Vertical swipe - close lightbox
+            if (Math.abs(diffY) > swipeThreshold) {
+                // diffY > 0 means user swiped UP (touch moved up), so image goes UP
+                // diffY < 0 means user swiped DOWN (touch moved down), so image goes DOWN
+                window.closeLightboxWithAnimation(diffY > 0 ? 'up' : 'down');
+            }
+        }
     }
 
     // Set album context for navigation
@@ -415,11 +477,42 @@
         }
     };
 
-    window.navigateLightbox = async function(direction) {
+    window.closeLightboxWithAnimation = async function(direction = 'down') {
+        if (!lightbox) return;
+        
+        const mediaContainer = lightbox.querySelector('.lightbox-media');
+        const currentImg = mediaContainer?.querySelector('img, video');
+        
+        if (currentImg) {
+            // Animate the image sliding out
+            const containerHeight = mediaContainer.offsetHeight;
+            const slideOutY = direction === 'down' ? containerHeight : -containerHeight;
+            
+            currentImg.style.transition = 'transform 0.25s ease-out, opacity 0.25s ease-out';
+            currentImg.style.transform = `translateY(${slideOutY}px)`;
+            currentImg.style.opacity = '0';
+            
+            // Wait for animation
+            await new Promise(resolve => setTimeout(resolve, 250));
+        }
+        
+        // Call the standard close function
+        window.closeLightbox();
+        
+        // Reset styles after closing (for next open)
+        if (currentImg) {
+            currentImg.style.transition = '';
+            currentImg.style.transform = '';
+            currentImg.style.opacity = '';
+        }
+    };
+
+    window.navigateLightbox = async function(direction, animate = false) {
         if (flatNavOrder.length === 0) return;
         
-        // Cancel any pending image load
         const mediaContainer = lightbox?.querySelector('.lightbox-media');
+        
+        // Cancel any pending image load
         if (mediaContainer) {
             mediaContainer.dataset.loadingId = '';
         }
@@ -487,6 +580,27 @@
         
         if (!item || item.type !== 'photo') return;
         
+        // Animation setup
+        let currentImg = null;
+        let slideOutX = 0;
+        let slideInX = 0;
+        
+        if (animate && mediaContainer) {
+            currentImg = mediaContainer.querySelector('img, video');
+            if (currentImg) {
+                const containerWidth = mediaContainer.offsetWidth;
+                slideOutX = direction > 0 ? -containerWidth : containerWidth;
+                slideInX = direction > 0 ? containerWidth : -containerWidth;
+                
+                // Apply transition to current image
+                currentImg.style.transition = 'transform 0.2s ease-out';
+                currentImg.style.transform = `translateX(${slideOutX}px)`;
+                
+                // Wait for animation
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+        }
+        
         currentNavIndex = targetIndex;
         const newPhotoId = item.id;
         currentPhotoId = newPhotoId;
@@ -508,6 +622,22 @@
         
         // Load and display
         await window.loadPhoto(newPhotoId);
+        
+        // Animate new image in
+        if (animate && slideInX !== 0) {
+            const newImg = mediaContainer?.querySelector('img, video');
+            if (newImg) {
+                newImg.style.transition = 'none';
+                newImg.style.transform = `translateX(${slideInX}px)`;
+                
+                // Force reflow
+                newImg.offsetHeight;
+                
+                // Animate in
+                newImg.style.transition = 'transform 0.2s ease-out';
+                newImg.style.transform = 'translateX(0)';
+            }
+        }
         
         // Update album indicator if in album
         if (albumContext) {
@@ -683,7 +813,7 @@
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
                 if (albumBars) {
                     albumBars.innerHTML = albumContext.photos.map((p, i) => 
-                        `<div class="album-bar ${i === albumContext.index ? 'active' : ''}" onclick="window.loadPhoto('${p.id}'); window.setAlbumContext(albumContext.photos, ${i});"></div>`
+                        `<div class="album-bar ${i === albumContext.index ? 'active' : ''}"></div>`
                     ).join('');
                 }
                 if (editAlbumBtn) editAlbumBtn.classList.remove('hidden');
@@ -692,7 +822,7 @@
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
                 if (albumBars) {
                     albumBars.innerHTML = photo.album.photo_ids.map((id, i) => 
-                        `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}" onclick="window.loadPhoto('${id}')"></div>`
+                        `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}"></div>`
                     ).join('');
                 }
                 if (editAlbumBtn) {
@@ -727,7 +857,7 @@
         
         if (albumBars && albumContext) {
             albumBars.innerHTML = albumContext.photos.map((p, i) => 
-                `<div class="album-bar ${i === index ? 'active' : ''}" onclick="window.loadPhoto('${p.id}'); window.setAlbumContext(albumContext.photos, ${i});"></div>`
+                `<div class="album-bar ${i === index ? 'active' : ''}"></div>`
             ).join('');
         }
     };

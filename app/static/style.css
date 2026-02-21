@@ -2524,6 +2524,7 @@ main {
     height: 100%;
     object-fit: contain;
     border-radius: 4px;
+    will-change: transform;
 }
 
 .lightbox-video {
@@ -2531,6 +2532,7 @@ main {
     height: 100%;
     object-fit: contain;
     border-radius: 4px;
+    will-change: transform;
 }
 
 /* Loading state for safe files */
@@ -2574,10 +2576,6 @@ main {
 }
 
 .lightbox-album-indicator .album-indicator-bars {
-    pointer-events: auto;
-}
-
-.lightbox-album-indicator .album-indicator-bars {
     display: flex;
     gap: 4px;
     width: 100%;
@@ -2590,13 +2588,8 @@ main {
     height: 4px;
     background: rgba(255, 255, 255, 0.3);
     border-radius: 2px;
-    cursor: pointer;
     transition: background 0.2s;
     max-width: 60px;
-}
-
-.lightbox-album-indicator .album-bar:hover {
-    background: rgba(255, 255, 255, 0.5);
 }
 
 .lightbox-album-indicator .album-bar.active {
