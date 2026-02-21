@@ -2527,6 +2527,38 @@ main {
     border-radius: 4px;
 }
 
+/* Progressive loading: thumbnail shown while full image loads */
+.lightbox-image.lightbox-thumb {
+    filter: blur(10px);
+    transform: scale(1.02);
+    transition: filter 0.3s ease, transform 0.3s ease;
+}
+
+/* Loading state for safe files */
+.lightbox-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: rgba(255, 255, 255, 0.8);
+    gap: 1rem;
+}
+
+.lightbox-loading .loading-spinner {
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(255, 255, 255, 0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
 .lightbox-album-indicator {
     margin-top: 1rem;
     display: flex;

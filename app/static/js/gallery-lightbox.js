@@ -126,6 +126,11 @@
         currentIndex = currentPhotos.findIndex(p => p.id === photoId);
         if (currentIndex === -1) currentIndex = 0;
 
+        // Update URL with photo_id without reloading page
+        const url = new URL(window.location.href);
+        url.searchParams.set('photo_id', photoId);
+        window.history.pushState({ photoId: photoId }, '', url.toString());
+
         await window.loadPhoto(currentPhotoId);
         window.showLightbox();
     };
@@ -145,9 +150,18 @@
         window.closeAlbumEditor?.();
         // Clear album context
         window.clearAlbumContext();
+        
+        // Remove photo_id from URL
+        const url = new URL(window.location.href);
+        if (url.searchParams.has('photo_id')) {
+            url.searchParams.delete('photo_id');
+            window.history.pushState({}, '', url.toString());
+        }
     };
 
     window.navigateLightbox = function(direction) {
+        let newPhotoId = null;
+        
         // If in album context, use album navigation
         if (albumContext) {
             let newIndex = albumContext.index + direction;
@@ -157,22 +171,30 @@
             albumContext.index = newIndex;
             const photo = albumContext.photos[newIndex];
             if (photo) {
+                newPhotoId = photo.id;
                 window.loadPhoto(photo.id);
                 window.updateAlbumIndicator?.(newIndex, albumContext.photos.length);
             }
-            return;
+        } else {
+            // Otherwise use gallery navigation
+            if (currentPhotos.length <= 1) return;
+            
+            currentIndex += direction;
+            if (currentIndex < 0) currentIndex = currentPhotos.length - 1;
+            if (currentIndex >= currentPhotos.length) currentIndex = 0;
+            
+            const photo = currentPhotos[currentIndex];
+            if (photo) {
+                newPhotoId = photo.id;
+                window.loadPhoto(photo.id);
+            }
         }
         
-        // Otherwise use gallery navigation
-        if (currentPhotos.length <= 1) return;
-        
-        currentIndex += direction;
-        if (currentIndex < 0) currentIndex = currentPhotos.length - 1;
-        if (currentIndex >= currentPhotos.length) currentIndex = 0;
-        
-        const photo = currentPhotos[currentIndex];
-        if (photo) {
-            window.loadPhoto(photo.id);
+        // Update URL with new photo_id
+        if (newPhotoId) {
+            const url = new URL(window.location.href);
+            url.searchParams.set('photo_id', newPhotoId);
+            window.history.pushState({ photoId: newPhotoId }, '', url.toString());
         }
     };
 
@@ -205,44 +227,88 @@
                 if (match) ext = '.' + match[1].toLowerCase();
             }
             
-            // Handle safe files (need decryption)
-            if (photo.safe_id && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(photo.safe_id)) {
-                try {
-                    // Fetch encrypted file
-                    const fileResp = await fetch(`${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`);
-                    if (!fileResp.ok) throw new Error('Failed to fetch encrypted file');
-                    
-                    const encryptedBlob = await fileResp.blob();
-                    const mimeType = photo.media_type === 'video' ? 'video/mp4' : `image/${ext.slice(1) || 'jpeg'}`;
-                    
-                    // Decrypt
-                    const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
-                        encryptedBlob,
-                        photo.safe_id,
-                        mimeType
-                    );
-                    
-                    const objectUrl = URL.createObjectURL(decryptedBlob);
-                    
-                    if (photo.media_type === 'video') {
+            // Progressive loading: thumbnail first, then full image
+            const isSafeFile = photo.safe_id && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(photo.safe_id);
+            
+            if (photo.media_type === 'video') {
+                // Videos don't use progressive loading
+                if (isSafeFile) {
+                    try {
+                        const fileResp = await fetch(`${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`);
+                        if (!fileResp.ok) throw new Error('Failed to fetch encrypted file');
+                        
+                        const encryptedBlob = await fileResp.blob();
+                        const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
+                            encryptedBlob,
+                            photo.safe_id,
+                            'video/mp4'
+                        );
+                        const objectUrl = URL.createObjectURL(decryptedBlob);
                         mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${objectUrl}"></video>`;
-                    } else {
-                        mediaContainer.innerHTML = `<img class="lightbox-image" src="${objectUrl}" alt="${escapeHtml(photo.original_name || '')}">`;
+                    } catch (err) {
+                        console.error('[lightbox] Decrypt failed:', err);
+                        mediaContainer.innerHTML = '<p>Error: Failed to decrypt video</p>';
                     }
-                } catch (err) {
-                    console.error('[lightbox] Decrypt failed:', err);
-                    mediaContainer.innerHTML = '<p>Error: Failed to decrypt image</p>';
+                } else {
+                    mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}"></video>`;
                 }
             } else {
-                // Regular file (no safe)
-                if (photo.media_type === 'video') {
+                // Images: show thumbnail first, then load full image
+                const thumbUrl = isSafeFile 
+                    ? null // Safe thumbnails handled differently
+                    : `${getBaseUrl()}/thumbnails/${photoId}.jpg`;
+                const fullUrl = isSafeFile
+                    ? `${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`
+                    : `${getBaseUrl()}/uploads/${photoId}${ext}`;
+                
+                // Start with thumbnail
+                if (isSafeFile) {
+                    // For safe files, show loading state until decrypted
                     mediaContainer.innerHTML = `
-                        <video class="lightbox-video" controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}"></video>
+                        <div class="lightbox-loading">
+                            <div class="loading-spinner"></div>
+                            <p>Decrypting...</p>
+                        </div>
                     `;
+                    
+                    try {
+                        const fileResp = await fetch(fullUrl);
+                        if (!fileResp.ok) throw new Error('Failed to fetch encrypted file');
+                        
+                        const encryptedBlob = await fileResp.blob();
+                        const mimeType = `image/${ext.slice(1) || 'jpeg'}`;
+                        const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
+                            encryptedBlob,
+                            photo.safe_id,
+                            mimeType
+                        );
+                        const objectUrl = URL.createObjectURL(decryptedBlob);
+                        
+                        mediaContainer.innerHTML = `
+                            <img class="lightbox-image" src="${objectUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                        `;
+                    } catch (err) {
+                        console.error('[lightbox] Decrypt failed:', err);
+                        mediaContainer.innerHTML = '<p>Error: Failed to decrypt image</p>';
+                    }
                 } else {
+                    // Regular files: progressive loading with thumbnail
                     mediaContainer.innerHTML = `
-                        <img class="lightbox-image" src="${getBaseUrl()}/uploads/${photoId}${ext}" alt="${escapeHtml(photo.original_name || '')}">
+                        <img class="lightbox-image lightbox-thumb" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
                     `;
+                    
+                    // Load full image in background
+                    const fullImg = new Image();
+                    fullImg.onload = () => {
+                        mediaContainer.innerHTML = `
+                            <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                        `;
+                    };
+                    fullImg.onerror = () => {
+                        // Keep thumbnail on error
+                        console.warn('[lightbox] Failed to load full image, keeping thumbnail');
+                    };
+                    fullImg.src = fullUrl;
                 }
             }
 
