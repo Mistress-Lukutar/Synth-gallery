@@ -97,7 +97,7 @@
             // Rebuild flatNavOrder to include this album's photos
             // This ensures navigation works correctly when entering album from gallery
             if (typeof window.rebuildLightboxNavOrder === 'function') {
-                await window.rebuildLightboxNavOrder();
+                window.rebuildLightboxNavOrder();
             }
             
             // Update URL with photo_id
