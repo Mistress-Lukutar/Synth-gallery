@@ -163,9 +163,17 @@
                 const coverId = album.cover_photo_id || album.effective_cover_photo_id;
                 const safeId = album.safe_id;
                 const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
-                const hasDims = album.thumb_width && album.thumb_height;
-                const dimsAttr = hasDims ? `data-thumb-width="${album.thumb_width}" data-thumb-height="${album.thumb_height}"` : '';
-                const aspectStyle = hasDims ? `style="aspect-ratio: ${album.thumb_width} / ${album.thumb_height};"` : '';
+                
+                // Use cover_thumb dimensions if available (v0.8.5 style), otherwise fallback to thumb dimensions
+                const thumbWidth = album.cover_thumb_width || album.thumb_width;
+                const thumbHeight = album.cover_thumb_height || album.thumb_height;
+                const hasDims = thumbWidth && thumbHeight;
+                
+                // Default to square for albums without cover/dimensions
+                const finalWidth = hasDims ? thumbWidth : 280;
+                const finalHeight = hasDims ? thumbHeight : 280;
+                const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
+                const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
                 // Handle safe thumbnails like photos
                 let imgHtml;
@@ -226,9 +234,13 @@
                 const safeId = photo.safe_id;
                 const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const mediaType = photo.media_type || 'image';
+                
+                // Use stored dimensions or default to 4:3 aspect ratio
                 const hasDims = photo.thumb_width && photo.thumb_height;
-                const dimsAttr = hasDims ? `data-thumb-width="${photo.thumb_width}" data-thumb-height="${photo.thumb_height}"` : '';
-                const aspectStyle = hasDims ? `style="aspect-ratio: ${photo.thumb_width} / ${photo.thumb_height};"` : '';
+                const finalWidth = hasDims ? photo.thumb_width : 280;
+                const finalHeight = hasDims ? photo.thumb_height : 210;
+                const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
+                const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
                 if (safeId) {
                     html += `

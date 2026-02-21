@@ -1,6 +1,7 @@
 /**
  * Gallery Masonry module
  * Phase 1: Masonry Module for gallery.html refactor
+ * Based on v0.8.5 implementation - column-based layout with visual order tracking
  */
 
 (function() {
@@ -9,6 +10,7 @@
     let masonryBuilt = false;
     let lastColumnCount = 0;
     let lastGalleryWidth = 0;
+    let allItems = [];
 
     function init() {
         gallery = document.getElementById('gallery');
@@ -28,7 +30,8 @@
     window.initMasonry = function() {
         if (!gallery) init();
         if (!gallery) return;
-        window.allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        window.allItems = allItems;
         window.rebuildMasonry(true);
         window.processPendingDimensions?.();
     };
@@ -45,9 +48,6 @@
             return;
         }
         
-        console.log('[gallery-masonry] Gallery found, continuing...');
-        console.log('[gallery-masonry] gallery HTML length:', gallery.innerHTML.length);
-        
         const galleryWidth = gallery.clientWidth || 800;
         const columnCount = Math.max(2, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
         const columnWidth = galleryWidth / columnCount;
@@ -57,20 +57,24 @@
         const hasItems = items.length > 0;
         const hasEmptyState = gallery.querySelector('.empty-state') !== null;
         
-        console.log('[gallery-masonry] items:', items.length, 'hasEmptyState:', hasEmptyState);
-        
         if (hasItems && hasEmptyState) {
             forceRebuild = true;
         }
 
+        // Sync allItems with window.allItems (for SPA navigation compatibility)
+        if (window.allItems !== undefined) {
+            allItems = window.allItems;
+        }
+
+        // Skip rebuild if column count hasn't changed (unless forced or first build)
         if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
             return;
         }
 
-        // Update allItems
-        window.allItems = Array.from(items);
+        // Update allItems reference
+        window.allItems = allItems;
 
-        const visibleItems = window.allItems.filter(item => item.dataset.hidden !== 'true');
+        const visibleItems = allItems.filter(item => item.dataset.hidden !== 'true');
         const scrollY = window.scrollY;
 
         gallery.innerHTML = '';
@@ -89,7 +93,7 @@
             return;
         }
 
-        // Create columns
+        // Create columns with height tracking
         const columns = [];
         const columnHeights = [];
         for (let i = 0; i < columnCount; i++) {
@@ -100,16 +104,59 @@
             gallery.appendChild(col);
         }
 
-        // Distribute items
-        visibleItems.forEach(item => {
-            const shortestIdx = columnHeights.indexOf(Math.min(...columnHeights));
-            columns[shortestIdx].appendChild(item);
+        // Track visual order for navigation (row by row reading order)
+        const itemPositions = []; // {item, column, row}
 
-            const height = parseInt(item.dataset.thumbHeight) || 200;
-            const width = parseInt(item.dataset.thumbWidth) || 280;
-            const aspectHeight = (height / width) * columnWidth;
-            columnHeights[shortestIdx] += aspectHeight + 10;
+        // Distribute items to shortest column for balanced heights
+        visibleItems.forEach((item) => {
+            // Find shortest column
+            let shortestIndex = 0;
+            let shortestHeight = columnHeights[0];
+            for (let i = 1; i < columnCount; i++) {
+                if (columnHeights[i] < shortestHeight) {
+                    shortestHeight = columnHeights[i];
+                    shortestIndex = i;
+                }
+            }
+
+            // Track position for navigation
+            const row = columns[shortestIndex].children.length;
+            itemPositions.push({ item, column: shortestIndex, row });
+
+            columns[shortestIndex].appendChild(item);
+
+            // Update height estimate using data-attributes (preferred) or fallback
+            const thumbW = parseInt(item.dataset.thumbWidth) || 0;
+            const thumbH = parseInt(item.dataset.thumbHeight) || 0;
+
+            let itemHeight;
+            if (thumbW > 0 && thumbH > 0) {
+                // Use stored dimensions
+                itemHeight = (thumbH / thumbW) * columnWidth;
+            } else {
+                // Fallback for legacy photos - use square placeholder or loaded image
+                const img = item.querySelector('img');
+                if (img && img.naturalHeight && img.naturalWidth) {
+                    itemHeight = (img.naturalHeight / img.naturalWidth) * columnWidth;
+                } else {
+                    itemHeight = columnWidth; // Square fallback
+                }
+            }
+            columnHeights[shortestIndex] += itemHeight + 16; // 16 = gap
         });
+
+        // Sort by visual reading order (row first, then column)
+        itemPositions.sort((a, b) => {
+            if (a.row !== b.row) return a.row - b.row;
+            return a.column - b.column;
+        });
+
+        // Save navigation order to sessionStorage
+        const navOrder = itemPositions.map(p => ({
+            type: p.item.dataset.itemType,
+            id: p.item.dataset.photoId || p.item.dataset.albumId
+        }));
+        saveNavigationOrder(navOrder);
 
         masonryBuilt = true;
         lastColumnCount = columnCount;
@@ -119,9 +166,13 @@
         requestAnimationFrame(() => window.scrollTo(0, scrollY));
     };
 
+    function saveNavigationOrder(order) {
+        sessionStorage.setItem('galleryNavOrder', JSON.stringify(order));
+    }
+
     window.processPendingDimensions = function() {
         if (!gallery) return;
-        const items = (window.allItems || []).filter(item => !item.dataset.thumbWidth);
+        const items = (allItems || []).filter(item => !item.dataset.thumbWidth);
         if (items.length === 0) return;
 
         let pending = items.length;
@@ -178,13 +229,27 @@
     };
 
     // Called when gallery image loads (from inline onload handler)
+    // Debounced masonry rebuild for image load events
+    let imageLoadDebounceTimer;
     window.onGalleryImageLoad = function(img) {
-        // Small delay to ensure dimensions are available
-        setTimeout(() => {
-            if (typeof window.rebuildMasonry === 'function') {
-                window.rebuildMasonry();
+        // Save dimensions to item dataset for masonry calculations
+        const item = img.closest('.gallery-item');
+        if (item && img.naturalWidth && img.naturalHeight) {
+            item.dataset.thumbWidth = img.naturalWidth;
+            item.dataset.thumbHeight = img.naturalHeight;
+            
+            // Update aspect-ratio on gallery-link
+            const link = item.querySelector('.gallery-link');
+            if (link) {
+                link.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
             }
-        }, 50);
+        }
+        
+        // Debounce masonry rebuild to avoid excessive recalculations
+        clearTimeout(imageLoadDebounceTimer);
+        imageLoadDebounceTimer = setTimeout(() => {
+            rebuildMasonry(true);
+        }, 100);
     };
 
     // Init on DOM ready
