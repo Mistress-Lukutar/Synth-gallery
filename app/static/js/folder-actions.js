@@ -339,8 +339,11 @@
             return;
         }
         
+        // Save folder ID before closing modal (closeFolderModal clears editingFolderId)
+        const movedFolderId = editingFolderId;
+        
         try {
-            await csrfFetch(`${getBaseUrl()}/api/folders/${editingFolderId}/move`, {
+            await csrfFetch(`${getBaseUrl()}/api/folders/${movedFolderId}/move`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ parent_id: isRootMove ? null : targetFolderId })
@@ -355,14 +358,9 @@
             // Close modal
             closeFolderModal();
             
-            // Navigate to show the moved folder in new location
-            if (isRootMove) {
-                // Navigate to root (default folder or first folder)
-                if (typeof navigateToDefaultFolder === 'function') {
-                    navigateToDefaultFolder();
-                }
-            } else if (typeof navigateToFolder === 'function') {
-                navigateToFolder(targetFolderId, false);
+            // Navigate to the moved folder to show it in new location
+            if (typeof navigateToFolder === 'function') {
+                navigateToFolder(movedFolderId, false);
             }
         } catch (err) {
             console.error('Failed to move folder:', err);
