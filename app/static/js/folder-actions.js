@@ -17,7 +17,6 @@
     let folderModal = null;
     let folderModalTitle = null;
     let folderNameInput = null;
-    let folderParentSelect = null;
     let folderSubmitBtn = null;
     let folderCancelBtn = null;
     let folderModalClose = null;
@@ -25,13 +24,15 @@
     let setDefaultFolderBtn = null;
     let deleteFolderSection = null;
     let deleteFolderBtn = null;
+    let folderMoveSection = null;
+    let folderCurrentLocation = null;
+    let folderMoveBtn = null;
 
     function init() {
         // Folder modal elements
         folderModal = document.getElementById('folder-modal');
         folderModalTitle = document.getElementById('folder-modal-title');
         folderNameInput = document.getElementById('folder-name-input');
-        folderParentSelect = document.getElementById('folder-parent-select');
         folderSubmitBtn = document.getElementById('folder-submit-btn');
         folderCancelBtn = document.getElementById('folder-cancel-btn');
         folderModalClose = folderModal?.querySelector('.close');
@@ -39,6 +40,9 @@
         setDefaultFolderBtn = document.getElementById('set-default-folder-btn');
         deleteFolderSection = document.getElementById('delete-folder-section');
         deleteFolderBtn = document.getElementById('delete-folder-btn');
+        folderMoveSection = document.getElementById('folder-move-section');
+        folderCurrentLocation = document.getElementById('folder-current-location');
+        folderMoveBtn = document.getElementById('folder-move-btn');
 
         setupFolderModalHandlers();
         setupShareModalHandlers();
@@ -77,6 +81,11 @@
                     deleteFolder(editingFolderId);
                 }
             });
+        }
+
+        // Move folder button
+        if (folderMoveBtn) {
+            folderMoveBtn.addEventListener('click', openFolderMovePicker);
         }
 
         // Escape key to close
@@ -150,9 +159,10 @@
         if (folderModalTitle) folderModalTitle.textContent = 'Create Folder';
         if (folderSubmitBtn) folderSubmitBtn.textContent = 'Create';
         if (folderNameInput) folderNameInput.value = '';
-        if (folderParentSelect) folderParentSelect.value = parentId || '';
         
-        updateParentSelect();
+        // Hide move section for create
+        if (folderMoveSection) folderMoveSection.classList.add('hidden');
+        if (folderMoveBtn) folderMoveBtn.style.display = 'none';
 
         if (defaultFolderSection) defaultFolderSection.classList.add('hidden');
         if (deleteFolderSection) deleteFolderSection.classList.add('hidden');
@@ -175,9 +185,11 @@
         if (folderModalTitle) folderModalTitle.textContent = 'Edit Folder';
         if (folderSubmitBtn) folderSubmitBtn.textContent = 'Save';
         if (folderNameInput) folderNameInput.value = folder.name;
-        if (folderParentSelect) folderParentSelect.value = folder.parent_id || '';
         
-        updateParentSelect();
+        // Show move section with current location
+        if (folderMoveSection) folderMoveSection.classList.remove('hidden');
+        if (folderMoveBtn) folderMoveBtn.style.display = 'block';
+        updateFolderLocation(folder.parent_id);
 
         // Show default folder section
         if (defaultFolderSection) {
@@ -215,11 +227,9 @@
             return;
         }
 
-        const parentId = folderParentSelect?.value || null;
-
         try {
             if (editingFolderId) {
-                // Update existing folder
+                // Update existing folder (name only)
                 await csrfFetch(`${getBaseUrl()}/api/folders/${editingFolderId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -230,7 +240,7 @@
                 await csrfFetch(`${getBaseUrl()}/api/folders`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, parent_id: parentId })
+                    body: JSON.stringify({ name })
                 });
             }
             closeFolderModal();
@@ -287,19 +297,77 @@
         }
     }
 
-    function updateParentSelect() {
-        if (!folderParentSelect) return;
+    function updateFolderLocation(parentId) {
+        if (!folderCurrentLocation) return;
+        
+        if (!parentId) {
+            folderCurrentLocation.textContent = 'Root level';
+            return;
+        }
+        
         const folderTree = window.folderTree || [];
-        const currentValue = folderParentSelect.value;
+        const parent = folderTree.find(f => f.id === parentId);
+        folderCurrentLocation.textContent = parent ? parent.name : 'Unknown folder';
+    }
 
-        let html = '<option value="">Root level</option>';
-        folderTree.forEach(folder => {
-            if (folder.id !== editingFolderId) {
-                html += `<option value="${folder.id}">${escapeHtml(folder.name)}</option>`;
+    async function openFolderMovePicker() {
+        if (!editingFolderId) return;
+        
+        // Use existing folder picker from gallery-selection.js if available
+        if (typeof window.openFolderPicker === 'function') {
+            // Pass editingFolderId to exclude it from picker (can't move into itself)
+            const result = await window.openFolderPicker('Select destination folder', editingFolderId);
+            if (result && result.folder_id !== undefined) {
+                // folder_id can be empty string for root level
+                await moveFolderTo(result.folder_id);
             }
-        });
-        folderParentSelect.innerHTML = html;
-        folderParentSelect.value = currentValue;
+        } else {
+            // Fallback: simple prompt (should not happen)
+            alert('Folder picker not available');
+        }
+    }
+
+    async function moveFolderTo(targetFolderId) {
+        if (!editingFolderId) return;
+        
+        // targetFolderId can be empty string for root level
+        const isRootMove = targetFolderId === '';
+        
+        // Prevent moving to itself
+        if (editingFolderId === targetFolderId) {
+            alert('Cannot move folder into itself');
+            return;
+        }
+        
+        try {
+            await csrfFetch(`${getBaseUrl()}/api/folders/${editingFolderId}/move`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ parent_id: isRootMove ? null : targetFolderId })
+            });
+            
+            // Update UI
+            updateFolderLocation(isRootMove ? null : targetFolderId);
+            
+            // Refresh folder tree
+            if (typeof loadFolderTree === 'function') loadFolderTree();
+            
+            // Close modal
+            closeFolderModal();
+            
+            // Navigate to show the moved folder in new location
+            if (isRootMove) {
+                // Navigate to root (default folder or first folder)
+                if (typeof navigateToDefaultFolder === 'function') {
+                    navigateToDefaultFolder();
+                }
+            } else if (typeof navigateToFolder === 'function') {
+                navigateToFolder(targetFolderId, false);
+            }
+        } catch (err) {
+            console.error('Failed to move folder:', err);
+            alert('Failed to move folder: ' + (err.message || 'Unknown error'));
+        }
     }
 
     // === Share Modal Functions ===
