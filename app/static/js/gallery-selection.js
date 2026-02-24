@@ -361,9 +361,15 @@
     };
 
     // Build folder tree HTML for picker (similar to sidebar)
-    function buildPickerTreeHTML(parentId, level, folders) {
-        // Filter: owner only, no safe folders (safe_id is null/undefined)
-        const children = folders.filter(f => f.parent_id === parentId && f.permission === 'owner' && !f.safe_id);
+    // excludeFolderId - folder to exclude (for move folder: prevent moving into itself or its descendants)
+    function buildPickerTreeHTML(parentId, level, folders, excludeFolderId = null) {
+        // Filter: owner only, no safe folders (safe_id is null/undefined), exclude specified folder
+        const children = folders.filter(f => 
+            f.parent_id === parentId && 
+            f.permission === 'owner' && 
+            !f.safe_id &&
+            f.id !== excludeFolderId
+        );
         if (children.length === 0) return '';
 
         // Use sidebar collapsed state
@@ -400,7 +406,7 @@
             ` : '<span class="folder-expand-placeholder"></span>';
             
             const childrenHtml = hasChildren && !isCollapsed 
-                ? buildPickerTreeHTML(folder.id, level + 1, folders) 
+                ? buildPickerTreeHTML(folder.id, level + 1, folders, excludeFolderId) 
                 : '';
             
             return `
@@ -421,7 +427,8 @@
     }
 
     // Show folder picker modal with both folders and safes
-    async function showFolderPicker(title, operation = 'move') {
+    // excludeFolderId - folder to exclude from picker (for move folder operation)
+    async function showFolderPicker(title, operation = 'move', excludeFolderId = null) {
         // Create modal if not exists
         let modal = document.getElementById('folder-picker-modal');
         if (!modal) {
@@ -468,14 +475,28 @@
             // Build HTML - for now only regular folders (safes not supported for move/copy yet)
             let html = '';
             
+            // Root level option (for move folder operation)
+            html += `
+                <div class="folder-item-wrapper picker-folder-item" onclick="selectFolderForPicker('')">
+                    <span class="folder-expand-placeholder"></span>
+                    <div class="folder-item">
+                        <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                            <polyline points="9 22 9 12 15 12 15 22"/>
+                        </svg>
+                        <span class="folder-name">Root level</span>
+                    </div>
+                </div>
+            `;
+            
             // Regular folders section
             html += '<div class="folder-section">';
             html += '<div class="folder-section-header">My Folders</div>';
-            const regularFolders = buildPickerTreeHTML(null, 0, folders);
+            const regularFolders = buildPickerTreeHTML(null, 0, folders, excludeFolderId);
             if (regularFolders) {
                 html += regularFolders;
             } else {
-                html += '<p class="no-folders">No folders</p>';
+                html += '<p class="no-folders">No other folders</p>';
             }
             html += '</div>';
             
@@ -545,6 +566,12 @@
         }
         const modal = document.getElementById('folder-picker-modal');
         if (modal) modal.classList.add('hidden');
+    };
+
+    // Expose folder picker for use by other modules (e.g., folder-actions.js)
+    // excludeFolderId - folder to exclude (useful for move folder: can't move into itself)
+    window.openFolderPicker = function(title, excludeFolderId = null) {
+        return showFolderPicker(title, 'move', excludeFolderId);
     };
 
     // Init on DOM ready

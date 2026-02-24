@@ -28,6 +28,10 @@ class FolderUpdate(BaseModel):
     name: str | None = None
 
 
+class FolderMove(BaseModel):
+    parent_id: str | None = None
+
+
 class PermissionCreate(BaseModel):
     user_id: int
     permission: str  # 'viewer' | 'editor'
@@ -129,6 +133,18 @@ def update_existing_folder(request: Request, folder_id: str, data: FolderUpdate)
     folder = service.update_folder(folder_id, data.name, user["id"])
     
     return {"status": "ok", "folder": dict(folder)}
+
+
+@router.put("/{folder_id}/move")
+def move_folder_route(request: Request, folder_id: str, data: FolderMove):
+    """Move folder to new parent."""
+    user = require_user(request)
+    
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    service.move_folder(folder_id, data.parent_id, user["id"])
+    
+    return {"status": "ok"}
 
 
 @router.delete("/{folder_id}")
