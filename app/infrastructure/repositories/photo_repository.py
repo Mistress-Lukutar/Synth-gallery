@@ -432,6 +432,8 @@ class PhotoRepository(Repository):
     def move_album_to_folder(self, album_id: str, folder_id: str) -> bool:
         """Move album to different folder.
         
+        Also moves all photos in the album to the new folder.
+        
         Args:
             album_id: Album ID
             folder_id: Target folder ID
@@ -439,12 +441,21 @@ class PhotoRepository(Repository):
         Returns:
             True if successful
         """
+        # Move album
         cursor = self._execute(
             "UPDATE albums SET folder_id = ? WHERE id = ?",
             (folder_id, album_id)
         )
+        album_updated = cursor.rowcount > 0
+        
+        # Move all photos in the album to the new folder
+        self._execute(
+            "UPDATE photos SET folder_id = ? WHERE album_id = ?",
+            (folder_id, album_id)
+        )
+        
         self._commit()
-        return cursor.rowcount > 0
+        return album_updated
     
     def reorder_in_album(self, album_id: str, photo_ids: list[str]) -> bool:
         """Reorder photos in album.
