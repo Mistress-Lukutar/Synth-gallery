@@ -1,4 +1,5 @@
 """Backup service for database and encrypted content."""
+import asyncio
 import hashlib
 import json
 import shutil
@@ -12,6 +13,7 @@ from ...config import (
     BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR,
     BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE
 )
+from ..storage import get_storage, StorageInterface
 
 DATABASE_PATH = BASE_DIR / "gallery.db"
 BACKUPS_DIR = BASE_DIR / "backups"  # Legacy DB-only backups
@@ -219,33 +221,45 @@ class FullBackupService:
         if not db_path.exists():
             return {"success": False, "error": "Database not found"}
 
+        # Get storage for media files
+        storage = get_storage()
+
         try:
             # Collect all files to backup
             files_to_backup = []
             checksums = {}
 
-            # Database
-            files_to_backup.append(("gallery.db", db_path))
+            # Database (always from local filesystem)
+            files_to_backup.append(("gallery.db", db_path, None))
 
-            # Uploads (thumbnails excluded - they auto-regenerate)
-            if UPLOADS_DIR.exists():
-                for file in UPLOADS_DIR.iterdir():
-                    if file.is_file():
-                        files_to_backup.append((f"uploads/{file.name}", file))
+            # Uploads from storage (works for both local and S3)
+            uploads = storage.list_files("uploads")
+            for file_id in uploads:
+                files_to_backup.append((f"uploads/{file_id}", None, file_id))
 
             total_files = len(files_to_backup)
             total_size = 0
 
             # Create zip with files
             with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for idx, (arc_name, file_path) in enumerate(files_to_backup):
+                for idx, (arc_name, file_path, file_id) in enumerate(files_to_backup):
                     if progress_callback:
                         progress_callback(idx, total_files, f"Adding {arc_name}")
 
-                    zf.write(file_path, arc_name)
-                    checksum = FullBackupService.get_file_checksum(file_path)
+                    if arc_name == "gallery.db":
+                        # Database from local filesystem
+                        zf.write(file_path, arc_name)
+                        checksum = FullBackupService.get_file_checksum(file_path)
+                        file_size = file_path.stat().st_size
+                    else:
+                        # Media file from storage (download if needed)
+                        content = asyncio.run(storage.download(file_id, "uploads"))
+                        zf.writestr(arc_name, content)
+                        checksum = f"sha256:{hashlib.sha256(content).hexdigest()}"
+                        file_size = len(content)
+
                     checksums[arc_name] = checksum
-                    total_size += file_path.stat().st_size
+                    total_size += file_size
 
                 # Get user list from database
                 users = []
@@ -354,6 +368,8 @@ class FullBackupService:
                 "error": f"Backup verification failed: {verification.get('error', verification.get('errors'))}"
             }
 
+        storage = get_storage()
+
         try:
             with zipfile.ZipFile(backup_path, "r") as zf:
                 manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
@@ -364,19 +380,22 @@ class FullBackupService:
                     if progress_callback:
                         progress_callback(idx, total, f"Restoring {arc_name}")
 
+                    content = zf.read(arc_name)
+
                     if arc_name == "gallery.db":
+                        # Database to local filesystem
                         target = BASE_DIR / arc_name
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with open(target, "wb") as f:
+                            f.write(content)
                     elif arc_name.startswith("uploads/"):
-                        target = UPLOADS_DIR / arc_name.split("/", 1)[1]
+                        # Media files to storage
+                        file_id = arc_name.split("/", 1)[1]
+                        asyncio.run(storage.upload(file_id, content, "uploads"))
                     elif arc_name.startswith("thumbnails/"):
-                        target = THUMBNAILS_DIR / arc_name.split("/", 1)[1]
-                    else:
-                        continue
-
-                    target.parent.mkdir(parents=True, exist_ok=True)
-
-                    with zf.open(arc_name) as src, open(target, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
+                        # Thumbnails to storage
+                        file_id = arc_name.split("/", 1)[1]
+                        asyncio.run(storage.upload(file_id, content, "thumbnails"))
 
                 if progress_callback:
                     progress_callback(total, total, "Restore complete")
