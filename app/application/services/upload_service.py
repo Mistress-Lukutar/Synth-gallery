@@ -19,6 +19,7 @@ from ...infrastructure.services.media import (
     create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type
 )
 from ...infrastructure.services.metadata import extract_taken_date
+from ...infrastructure.storage import get_storage, StorageInterface
 
 
 class UploadService:
@@ -39,11 +40,13 @@ class UploadService:
         self,
         photo_repository: PhotoRepository,
         uploads_dir: Path = UPLOADS_DIR,
-        thumbnails_dir: Path = THUMBNAILS_DIR
+        thumbnails_dir: Path = THUMBNAILS_DIR,
+        storage: Optional[StorageInterface] = None
     ):
         self.photo_repo = photo_repository
         self.uploads_dir = uploads_dir
         self.thumbnails_dir = thumbnails_dir
+        self.storage = storage or get_storage()
     
     async def upload_single(
         self,
@@ -176,18 +179,24 @@ class UploadService:
         Returns:
             Tuple of (taken_at, thumb_width, thumb_height)
         """
-        # Save encrypted file as-is with original extension
-        file_path = self.uploads_dir / f"{photo_id}{ext}"
-        with open(file_path, "wb") as f:
-            f.write(file_content)
+        filename = f"{photo_id}{ext}"
+        
+        # Save encrypted file using storage backend
+        await self.storage.upload(
+            file_id=filename,
+            content=file_content,
+            folder="uploads"
+        )
         
         # Save client-provided thumbnail if available
         thumb_w, thumb_h = thumb_dimensions
         if client_thumbnail:
             thumb_content = await client_thumbnail.read()
-            thumb_path = self.thumbnails_dir / f"{photo_id}.jpg"
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_content)
+            await self.storage.upload(
+                file_id=f"{photo_id}.jpg",
+                content=thumb_content,
+                folder="thumbnails"
+            )
         
         return datetime.now(), thumb_w, thumb_h
     
@@ -214,24 +223,34 @@ class UploadService:
         
         # Save files (encrypted if DEK available)
         filename = f"{photo_id}{ext}"
-        file_path = self.uploads_dir / filename
-        thumb_path = self.thumbnails_dir / f"{photo_id}.jpg"
         
         if user_dek:
             # Encrypt with user's DEK
             encrypted_content = EncryptionService.encrypt_file(file_content, user_dek)
             encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, user_dek)
             
-            with open(file_path, "wb") as f:
-                f.write(encrypted_content)
-            with open(thumb_path, "wb") as f:
-                f.write(encrypted_thumb)
+            await self.storage.upload(
+                file_id=filename,
+                content=encrypted_content,
+                folder="uploads"
+            )
+            await self.storage.upload(
+                file_id=f"{photo_id}.jpg",
+                content=encrypted_thumb,
+                folder="thumbnails"
+            )
         else:
             # Save unencrypted
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_bytes)
+            await self.storage.upload(
+                file_id=filename,
+                content=file_content,
+                folder="uploads"
+            )
+            await self.storage.upload(
+                file_id=f"{photo_id}.jpg",
+                content=thumb_bytes,
+                folder="thumbnails"
+            )
         
         return taken_at, thumb_w, thumb_h
     
@@ -420,7 +439,7 @@ class UploadService:
             "albums": albums_created
         }
     
-    def delete_photo(self, photo_id: str) -> bool:
+    async def delete_photo(self, photo_id: str) -> bool:
         """Delete a single photo and its files.
         
         Args:
@@ -434,17 +453,15 @@ class UploadService:
         if not photo:
             return False
         
-        # Delete files
-        file_path = self.uploads_dir / photo["filename"]
-        thumb_path = self.thumbnails_dir / f"{photo_id}.jpg"
-        file_path.unlink(missing_ok=True)
-        thumb_path.unlink(missing_ok=True)
+        # Delete files from storage
+        await self.storage.delete(photo["filename"], folder="uploads")
+        await self.storage.delete(f"{photo_id}.jpg", folder="thumbnails")
         
         # Delete from database
         self.photo_repo.delete(photo_id)
         return True
     
-    def delete_album(self, album_id: str) -> tuple[int, int]:
+    async def delete_album(self, album_id: str) -> tuple[int, int]:
         """Delete an album and all its photos.
         
         Args:
@@ -458,11 +475,9 @@ class UploadService:
         
         deleted_photos = 0
         for photo in photos:
-            # Delete photo files
-            file_path = self.uploads_dir / photo["filename"]
-            thumb_path = self.thumbnails_dir / f"{photo['id']}.jpg"
-            file_path.unlink(missing_ok=True)
-            thumb_path.unlink(missing_ok=True)
+            # Delete photo files from storage
+            await self.storage.delete(photo["filename"], folder="uploads")
+            await self.storage.delete(f"{photo['id']}.jpg", folder="thumbnails")
             deleted_photos += 1
         
         return deleted_photos, 1
@@ -508,7 +523,6 @@ class UploadService:
             tmp_path.unlink(missing_ok=True)
         
         # Create thumbnail
-        thumb_path = self.thumbnails_dir / f"{photo_id}.jpg"
         try:
             if media_type == "video":
                 thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
@@ -517,20 +531,31 @@ class UploadService:
         except Exception:
             return None
         
-        # Save files (encrypted if DEK available)
-        file_path = self.uploads_dir / filename
+        # Save files to storage (encrypted if DEK available)
         if is_encrypted:
             encrypted_content = EncryptionService.encrypt_file(file_content, user_dek)
             encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, user_dek)
-            with open(file_path, "wb") as f:
-                f.write(encrypted_content)
-            with open(thumb_path, "wb") as f:
-                f.write(encrypted_thumb)
+            await self.storage.upload(
+                file_id=filename,
+                content=encrypted_content,
+                folder="uploads"
+            )
+            await self.storage.upload(
+                file_id=f"{photo_id}.jpg",
+                content=encrypted_thumb,
+                folder="thumbnails"
+            )
         else:
-            with open(file_path, "wb") as f:
-                f.write(file_content)
-            with open(thumb_path, "wb") as f:
-                f.write(thumb_bytes)
+            await self.storage.upload(
+                file_id=filename,
+                content=file_content,
+                folder="uploads"
+            )
+            await self.storage.upload(
+                file_id=f"{photo_id}.jpg",
+                content=thumb_bytes,
+                folder="thumbnails"
+            )
         
         # Save to database
         self.photo_repo.create(

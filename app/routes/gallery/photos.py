@@ -166,7 +166,7 @@ class BatchDeleteInput(BaseModel):
 
 
 @router.post("/api/photos/batch-delete")
-def batch_delete_photos(data: BatchDeleteInput, request: Request):
+async def batch_delete_photos(data: BatchDeleteInput, request: Request):
     """Delete multiple photos and albums."""
     user = require_user(request)
 
@@ -186,7 +186,7 @@ def batch_delete_photos(data: BatchDeleteInput, request: Request):
                 skipped_photos += 1
                 continue
 
-            if service.delete_photo(photo_id):
+            if await service.delete_photo(photo_id):
                 deleted_photos += 1
             else:
                 skipped_photos += 1
@@ -196,7 +196,7 @@ def batch_delete_photos(data: BatchDeleteInput, request: Request):
                 skipped_albums += 1
                 continue
 
-            service.delete_album(album_id)
+            await service.delete_album(album_id)
             deleted_albums += 1
 
         return {
