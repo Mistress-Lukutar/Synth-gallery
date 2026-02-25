@@ -17,7 +17,7 @@
     function init() {
         albumEditorPanel = document.getElementById('album-editor-panel');
         addPhotosModal = document.getElementById('add-photos-modal');
-        console.log('[gallery-albums] Initialized');
+        console.log('[gallery-albums] Initialized, albumEditorPanel:', albumEditorPanel);
     }
 
     // Handle album click with access check
@@ -157,7 +157,11 @@
 
     // Alias for lightbox compatibility
     window.openAlbumEditor = async function(albumId) {
-        if (!albumEditorPanel) return;
+        console.log('[gallery-albums] openAlbumEditor called for album:', albumId);
+        if (!albumEditorPanel) {
+            console.error('[gallery-albums] albumEditorPanel not found');
+            return;
+        }
         
         editingAlbumId = albumId;
         selectedPhotosForAlbum.clear();
