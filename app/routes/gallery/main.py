@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from ...application.services import UserSettingsService
 from ...config import ROOT_PATH, BASE_DIR
@@ -211,24 +212,20 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         db.close()
 
 
+class SortPreferenceInput(BaseModel):
+    sort_by: str
+
+
 @router.put("/api/folders/{folder_id}/sort")
-async def set_folder_sort_preference(folder_id: str, request: Request):
+async def set_folder_sort_preference(folder_id: str, data: SortPreferenceInput, request: Request):
     """Save user's sort preference for a folder."""
     from ...dependencies import require_user
-    import json
     
     user = require_user(request)
     
-    # Read request body
-    try:
-        body = await request.json()
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    print(f"[DEBUG] Saving sort preference: user={user['id']}, folder={folder_id}, sort={data.sort_by}")
     
-    sort_by = body.get('sort_by', 'uploaded')
-    print(f"[DEBUG] Saving sort preference: user={user['id']}, folder={folder_id}, sort={sort_by}")
-    
-    if sort_by not in ('uploaded', 'taken'):
+    if data.sort_by not in ('uploaded', 'taken'):
         raise HTTPException(status_code=400, detail="Invalid sort option")
     
     db = create_connection()

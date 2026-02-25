@@ -109,8 +109,13 @@ def get_photo_data(photo_id: str, request: Request):
         db.close()
 
 
+class ThumbnailDimensionsInput(BaseModel):
+    width: int
+    height: int
+
+
 @router.put("/api/photos/{photo_id}/dimensions")
-async def update_dimensions(photo_id: str, request: Request):
+async def update_dimensions(photo_id: str, data: ThumbnailDimensionsInput, request: Request):
     """Update thumbnail dimensions for a photo."""
     user = require_user(request)
 
@@ -122,17 +127,10 @@ async def update_dimensions(photo_id: str, request: Request):
         if not perm_service.can_access_photo(photo_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
 
-        try:
-            body = await request.json()
-            width = int(body.get("width", 0))
-            height = int(body.get("height", 0))
-        except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid request body")
-
-        if width < 1 or height < 1 or width > 1000 or height > 1000:
+        if data.width < 1 or data.height < 1 or data.width > 1000 or data.height > 1000:
             raise HTTPException(status_code=400, detail="Invalid dimensions")
 
-        photo_repo.update_thumbnail_dimensions(photo_id, width, height)
+        photo_repo.update_thumbnail_dimensions(photo_id, data.width, data.height)
         return {"status": "ok"}
     finally:
         db.close()
