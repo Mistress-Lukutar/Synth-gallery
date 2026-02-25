@@ -20,7 +20,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings          | Small  | 🔲 Planned     |
-| 🔵 Low      | [#21](https://github.com/Nate-go/Synth-Gallery/issues/21) | Request Validation Models       | Small  | 🔲 Planned     |
+| 🔵 Low      | [#21](https://github.com/Nate-go/Synth-Gallery/issues/21) | Request Validation Models       | Small  | ✅ **DONE**     |
 
 ---
 
@@ -188,6 +188,50 @@ folder = service.update_folder(folder_id, data.name, user["id"])
 **Next Steps:**
 - [x] Refactor safe routes to use SafeService
 - [x] Extract remaining business logic from envelope.py
+
+---
+
+### Issue #21: Pydantic Request Validation 🔵 ✅
+
+**Status:** **COMPLETED** - 2026-02-25
+
+**Problem:**  
+Form data and JSON endpoints not validated:
+```python
+@router.post("/upload")
+async def upload(folder_id: str = Form(None)):  # No validation!
+
+# Manual validation everywhere:
+if not folder_id:
+    raise HTTPException(status_code=400, detail="folder_id required")
+```
+
+**Solution Implemented:**
+1. **Form endpoints** - Changed `Form(None)` to `Form(...)` for required fields:
+   - `uploads.py`: `folder_id`, `paths` now use `Form(...)`
+   - FastAPI automatically returns 422 if fields missing
+
+2. **JSON endpoints** - Created Pydantic models:
+   - `ThumbnailDimensionsInput` (photos.py)
+   - `AlbumMoveInput` (albums.py) 
+   - `SortPreferenceInput` (main.py)
+
+3. **Removed manual parsing:**
+   - Deleted `json.loads(request.body())` patterns
+   - Deleted inline `class MoveInput(BaseModel)` definitions
+
+**Files Changed:**
+- ✅ `auth.py` - `LoginRequest` model
+- ✅ `uploads.py` - `Form(...)` validation
+- ✅ `photos.py` - `ThumbnailDimensionsInput`
+- ✅ `albums.py` - `AlbumMoveInput`
+- ✅ `main.py` - `SortPreferenceInput`
+
+**Results:**
+- ~33 lines of manual validation code removed
+- Automatic 422 responses with detailed error messages
+- Type safety and IDE autocomplete support
+- Swagger UI documentation improved
 
 ---
 
