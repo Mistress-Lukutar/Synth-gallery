@@ -264,54 +264,62 @@
         console.log('[lightbox] Album expanded in nav:', albumId, 'total items:', flatNavOrder.length, 'current index:', currentNavIndex);
     };
 
-    // Get navigation order from sessionStorage (set by masonry)
-    function getGalleryNavOrder() {
-        try {
-            const stored = sessionStorage.getItem('galleryNavOrder');
-            if (stored) {
-                return JSON.parse(stored);
-            }
-        } catch (e) {
-            console.warn('[lightbox] Failed to load nav order:', e);
-        }
-        return null;
-    }
-    
     // Build flat navigation list from gallery order
-    // Uses lazy loading for albums - doesn't wait for album fetch
+    // Uses chronological order based on current sort mode, not visual masonry order
     function buildFlatNavOrder() {
-        const order = getGalleryNavOrder();
-        if (!order || order.length === 0) {
-            // Fallback: get photos from DOM
-            const gallery = document.getElementById('gallery');
-            if (gallery) {
-                return Array.from(gallery.querySelectorAll('.gallery-item[data-item-type="photo"]'))
-                    .map(item => ({
-                        type: 'photo',
-                        id: item.dataset.photoId,
-                        safeId: item.dataset.safeId
-                    }));
-            }
-            return [];
-        }
+        const gallery = document.getElementById('gallery');
+        if (!gallery) return [];
         
-        // Build order without waiting for album fetches
-        // Albums will be expanded lazily when navigating to them
+        // Get all gallery items (photos and albums) from DOM
+        const allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
+        if (allItems.length === 0) return [];
+        
+        // Get current sort mode
+        const sortMode = window.currentSortMode || 'uploaded';
+        
+        // Sort items chronologically based on current sort mode
+        // This ensures lightbox navigation follows chronological order,
+        // not visual masonry order (which is broken by different image heights)
+        allItems.sort((a, b) => {
+            let aDate, bDate;
+            
+            // Get dates based on sort mode
+            if (sortMode === 'taken') {
+                aDate = a.dataset.takenAt || a.dataset.uploadedAt;
+                bDate = b.dataset.takenAt || b.dataset.uploadedAt;
+            } else {
+                aDate = a.dataset.uploadedAt || a.dataset.takenAt;
+                bDate = b.dataset.uploadedAt || b.dataset.takenAt;
+            }
+            
+            // Parse dates (handle ISO strings)
+            const parseDate = (d) => d ? new Date(d).getTime() : 0;
+            const aTime = parseDate(aDate);
+            const bTime = parseDate(bDate);
+            
+            // Descending order (newest first)
+            return bTime - aTime;
+        });
+        
+        // Build flat order
         const flatOrder = [];
-        for (const item of order) {
-            if (item.type === 'album') {
+        for (const item of allItems) {
+            const itemType = item.dataset.itemType;
+            
+            if (itemType === 'album') {
+                const albumId = item.dataset.albumId;
                 // Check cache first
-                const cached = albumCache.get(item.id);
+                const cached = albumCache.get(albumId);
                 if (cached && (Date.now() - cached.timestamp) < ALBUM_CACHE_TTL) {
                     // Use cached album data
                     if (cached.photos.length > 0) {
-                        flatOrder.push({ type: 'album_marker', id: item.id, albumName: cached.name });
+                        flatOrder.push({ type: 'album_marker', id: albumId, albumName: cached.name });
                         for (const photo of cached.photos) {
                             flatOrder.push({
                                 type: 'photo',
                                 id: photo.id,
                                 safeId: photo.safe_id,
-                                albumId: item.id
+                                albumId: albumId
                             });
                         }
                     }
@@ -319,23 +327,20 @@
                     // Add placeholder - will be expanded when navigated to
                     flatOrder.push({
                         type: 'album_placeholder',
-                        id: item.id,
-                        albumId: item.id
+                        id: albumId,
+                        albumId: albumId
                     });
                 }
-            } else if (item.type === 'photo') {
+            } else if (itemType === 'photo') {
                 // Standalone photo
-                const gallery = document.getElementById('gallery');
-                const el = gallery?.querySelector(`.gallery-item[data-photo-id="${item.id}"]`);
-                if (el) {
-                    flatOrder.push({
-                        type: 'photo',
-                        id: item.id,
-                        safeId: el.dataset.safeId
-                    });
-                }
+                flatOrder.push({
+                    type: 'photo',
+                    id: item.dataset.photoId,
+                    safeId: item.dataset.safeId
+                });
             }
         }
+        
         return flatOrder;
     }
     

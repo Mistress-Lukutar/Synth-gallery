@@ -184,12 +184,7 @@
             return a.column - b.column;
         });
 
-        // Save navigation order to sessionStorage
-        const navOrder = itemPositions.map(p => ({
-            type: p.item.dataset.itemType,
-            id: p.item.dataset.photoId || p.item.dataset.albumId
-        }));
-        saveNavigationOrder(navOrder);
+        // Navigation order is now determined chronologically in gallery-lightbox.js
 
         masonryBuilt = true;
         lastColumnCount = columnCount;
@@ -199,10 +194,6 @@
 
         requestAnimationFrame(() => window.scrollTo(0, scrollY));
     };
-
-    function saveNavigationOrder(order) {
-        sessionStorage.setItem('galleryNavOrder', JSON.stringify(order));
-    }
 
     window.saveDimensionsToServer = async function(photoId, width, height) {
         try {
