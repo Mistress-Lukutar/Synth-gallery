@@ -105,6 +105,20 @@
             if (lightbox.classList.contains('hidden')) return;
             
             if (e.key === 'Escape') {
+                // Check if album editor is open - close it first
+                // closeAlbumEditor will handle the folder refresh
+                const albumEditor = document.getElementById('album-editor-panel');
+                if (albumEditor && albumEditor.classList.contains('open')) {
+                    window.closeAlbumEditor();
+                    return;
+                }
+                // Check if tag editor is open - close it first
+                const tagEditor = document.getElementById('tag-editor-panel');
+                if (tagEditor && tagEditor.classList.contains('open')) {
+                    window.closeTagEditor();
+                    return;
+                }
+                // Otherwise close lightbox (no refresh)
                 window.closeLightbox();
             } else if (e.key === 'ArrowLeft') {
                 window.navigateLightbox(-1);
@@ -473,9 +487,9 @@
         
         lightbox.classList.add('hidden');
         document.body.style.overflow = '';
-        // Also close any open panels
+        // Also close any open panels (skip refresh since lightbox is closing)
         window.closeTagEditor?.();
-        window.closeAlbumEditor?.();
+        window.closeAlbumEditor?.(true);
         // Clear album context
         window.clearAlbumContext();
         
@@ -685,6 +699,7 @@
             if (!resp.ok) throw new Error('Failed to load photo');
             
             const photo = await resp.json();
+            console.log('[lightbox] Raw photo data received:', JSON.stringify(photo).slice(0, 500));
             
             // Check if cancelled
             if (signal.aborted) {
@@ -818,6 +833,10 @@
                 ).join('');
             }
 
+            // Debug album data
+            console.log('[lightbox] Photo data:', photo);
+            console.log('[lightbox] photo.album:', photo.album);
+
             // Album indicator - show if in album context
             if (albumContext) {
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
@@ -826,7 +845,19 @@
                         `<div class="album-bar ${i === albumContext.index ? 'active' : ''}"></div>`
                     ).join('');
                 }
-                if (editAlbumBtn) editAlbumBtn.classList.remove('hidden');
+                if (editAlbumBtn) {
+                    editAlbumBtn.classList.remove('hidden');
+                    // Get album ID from first photo in album context
+                    const albumId = albumContext.photos[0]?.albumId;
+                    console.log('[lightbox] Album context mode, albumId:', albumId);
+                    if (albumId) {
+                        editAlbumBtn.onclick = function() {
+                            if (typeof window.openAlbumEditor === 'function') {
+                                window.openAlbumEditor(albumId);
+                            }
+                        };
+                    }
+                }
             } else if (photo.album) {
                 // Photo is part of an album
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
@@ -838,15 +869,20 @@
                 if (editAlbumBtn) {
                     editAlbumBtn.classList.remove('hidden');
                     const albumId = photo.album.id;
-                    console.log('[lightbox] Setting up edit album button for album:', albumId);
-                    editAlbumBtn.onclick = function() {
-                        console.log('[lightbox] Edit album button clicked, calling openAlbumEditor with:', albumId);
-                        if (typeof window.openAlbumEditor === 'function') {
-                            window.openAlbumEditor(albumId);
-                        } else {
-                            console.error('[lightbox] openAlbumEditor is not available');
-                        }
-                    };
+                    console.log('[lightbox] Setting up edit album button for album:', albumId, 'photo.album:', photo.album);
+                    if (!albumId) {
+                        console.error('[lightbox] Album ID is undefined! photo.album:', photo.album);
+                        editAlbumBtn.classList.add('hidden');
+                    } else {
+                        editAlbumBtn.onclick = function() {
+                            console.log('[lightbox] Edit album button clicked, calling openAlbumEditor with:', albumId);
+                            if (typeof window.openAlbumEditor === 'function') {
+                                window.openAlbumEditor(albumId);
+                            } else {
+                                console.error('[lightbox] openAlbumEditor is not available');
+                            }
+                        };
+                    }
                 }
             } else {
                 if (albumIndicator) albumIndicator.classList.add('hidden');

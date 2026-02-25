@@ -180,13 +180,10 @@
             
             // Update header
             const header = albumEditorPanel.querySelector('h3');
-            if (header) header.textContent = `Edit Album: ${album.name}`;
+            if (header) header.textContent = `Edit Album: ${album.name || 'Untitled'}`;
             
-            // Load photos in album
-            await loadAlbumPhotos(albumId);
-            
-            // Load available cover photos
-            await loadCoverPhotos(album.photos || []);
+            // Load photos in album (includes cover selection logic)
+            await loadAlbumPhotos(albumId, album.cover_photo_id);
             
             albumEditorPanel.classList.add('open');
             
@@ -198,7 +195,7 @@
         }
     };
 
-    window.closeAlbumEditor = function() {
+    window.closeAlbumEditor = function(skipRefresh = false) {
         const panel = document.getElementById('album-editor-panel') || albumEditorPanel;
         if (panel) panel.classList.remove('open');
         // Remove panel-open class from lightbox
@@ -206,6 +203,11 @@
         if (lightbox) lightbox.classList.remove('panel-open');
         editingAlbumId = null;
         selectedPhotosForAlbum.clear();
+        
+        // Refresh current folder to show updated album covers and photo counts
+        if (!skipRefresh && window.currentFolderId && typeof navigateToFolder === 'function') {
+            navigateToFolder(window.currentFolderId, false);
+        }
     };
 
     window.closeAlbumModal = function() {
@@ -213,7 +215,7 @@
         editingAlbumId = null;
     };
 
-    async function loadAlbumPhotos(albumId) {
+    async function loadAlbumPhotos(albumId, currentCoverId) {
         const container = document.getElementById('album-photos-list');
         const countEl = document.getElementById('album-photo-count');
         if (!container) return;
@@ -228,17 +230,28 @@
             
             if (countEl) countEl.textContent = `(${photos.length})`;
             
-            if (photos.length === 0) {
-                container.innerHTML = '<p class="no-photos">No photos in album</p>';
-                return;
-            }
+            // Use first photo as default cover if none specified
+            const effectiveCoverId = currentCoverId || (photos[0] && photos[0].id);
             
-            container.innerHTML = photos.map((photo, index) => `
-                <div class="album-photo-item" data-photo-id="${photo.id}" draggable="true" data-index="${index}">
-                    <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" alt="${escapeHtml(photo.original_name || '')}">
-                    <button class="remove-photo-btn" onclick="removePhotoFromAlbum('${photo.id}')" title="Remove">&times;</button>
+            // Render photos in grid layout with cover selection
+            let html = photos.map((photo, index) => {
+                const isCover = photo.id === effectiveCoverId;
+                return `
+                    <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-photo-id="${photo.id}" draggable="true" data-index="${index}" onclick="handlePhotoClick(event, '${photo.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
+                        <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" alt="${escapeHtml(photo.filename || '')}">
+                        <button class="remove-btn" onclick="removePhotoFromAlbum(event, '${photo.id}')" title="Remove from album">&times;</button>
+                    </div>
+                `;
+            }).join('');
+            
+            // Add "+" button for adding photos
+            html += `
+                <div class="photo-grid-item add-item" onclick="openAddPhotosModal()" title="Add Photos">
+                    <span class="add-icon">+</span>
                 </div>
-            `).join('');
+            `;
+            
+            container.innerHTML = html;
             
             // Setup drag and drop
             setupDragAndDrop(container);
@@ -247,26 +260,21 @@
         }
     }
 
-    async function loadCoverPhotos(photos) {
-        const container = document.getElementById('album-cover-grid');
-        if (!container) return;
+    window.handlePhotoClick = async function(event, photoId) {
+        // Don't trigger if clicking remove button
+        if (event.target.closest('.remove-btn')) return;
         
-        if (photos.length === 0) {
-            container.innerHTML = '<p class="no-photos">Add photos first</p>';
-            return;
+        // Set as cover
+        if (editingAlbumId) {
+            await setAlbumCover(editingAlbumId, photoId);
         }
-        
-        container.innerHTML = photos.map(photo => `
-            <div class="cover-photo-option" data-photo-id="${photo.id}" onclick="setAlbumCover('${editingAlbumId}', '${photo.id}')">
-                <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" alt="${escapeHtml(photo.original_name || '')}">
-            </div>
-        `).join('');
-    }
+    };
 
     function setupDragAndDrop(container) {
         let draggedItem = null;
         
-        container.querySelectorAll('.album-photo-item').forEach(item => {
+        // Only make photo items draggable (not the add button)
+        container.querySelectorAll('.photo-grid-item:not(.add-item)').forEach(item => {
             item.addEventListener('dragstart', (e) => {
                 draggedItem = item;
                 item.classList.add('dragging');
@@ -302,7 +310,8 @@
         const container = document.getElementById('album-photos-list');
         if (!container) return;
         
-        const photoIds = Array.from(container.querySelectorAll('.album-photo-item'))
+        // Get all photo items (exclude the add button)
+        const photoIds = Array.from(container.querySelectorAll('.photo-grid-item:not(.add-item)'))
             .map(item => item.dataset.photoId);
         
         try {
@@ -316,16 +325,20 @@
         }
     }
 
-    window.removePhotoFromAlbum = async function(photoId) {
+    window.removePhotoFromAlbum = async function(event, photoId) {
+        event.stopPropagation();
         if (!editingAlbumId) return;
-        if (!confirm('Remove this photo from album?')) return;
         
         try {
-            await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/photos/${photoId}`, {
-                method: 'DELETE'
+            await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/photos`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ photo_ids: [photoId] })
             });
-            // Refresh
-            loadAlbumPhotos(editingAlbumId);
+            // Refresh - need to get current cover from album
+            const resp = await fetch(`${getBaseUrl()}/api/albums/${editingAlbumId}`);
+            const album = resp.ok ? await resp.json() : { cover_photo_id: null };
+            loadAlbumPhotos(editingAlbumId, album.cover_photo_id);
         } catch (err) {
             console.error('Failed to remove photo:', err);
         }
@@ -491,10 +504,8 @@
 
             if (!resp.ok) throw new Error('Failed to set cover');
             
-            // Visual feedback
-            document.querySelectorAll('.cover-photo-option').forEach(el => {
-                el.classList.toggle('selected', el.dataset.photoId === photoId);
-            });
+            // Refresh photos grid to show new cover
+            loadAlbumPhotos(albumId, photoId);
         } catch (err) {
             console.error('Failed to set album cover:', err);
         }

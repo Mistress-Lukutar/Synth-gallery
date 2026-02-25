@@ -766,7 +766,7 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 200;
+    z-index: 1100;
 }
 
 .modal.hidden {
@@ -788,6 +788,8 @@ main {
     max-width: 650px;
 }
 
+/* Unified close button - use for all modal/panel close buttons */
+.btn-close,
 .close {
     position: absolute;
     top: 1rem;
@@ -796,8 +798,14 @@ main {
     cursor: pointer;
     color: var(--text-muted);
     z-index: 10;
+    background: none;
+    border: none;
+    padding: 0.25rem 0.5rem;
+    line-height: 1;
+    transition: color 0.2s;
 }
 
+.btn-close:hover,
 .close:hover {
     color: var(--text);
 }
@@ -831,6 +839,103 @@ main {
     color: var(--text-muted);
 }
 
+/* Common photo grid - used by upload preview and album editor */
+.photo-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.photo-grid-item {
+    position: relative;
+    width: 70px;
+    height: 70px;
+    flex-shrink: 0;
+}
+
+.photo-grid-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.photo-grid-item .remove-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.photo-grid-item:hover .remove-btn {
+    opacity: 1;
+}
+
+.photo-grid-item.dragging {
+    opacity: 0.5;
+    cursor: grabbing;
+}
+
+/* Add button in photo grid */
+.photo-grid-item.add-item {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: transparent;
+}
+
+.photo-grid-item.add-item:hover {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.photo-grid-item.add-item .add-icon {
+    font-size: 24px;
+    color: var(--text-muted);
+    font-weight: 300;
+}
+
+/* Photo grid items with cover selection */
+.photo-grid-item {
+    cursor: pointer;
+    position: relative;
+}
+
+.photo-grid-item:not(.add-item):hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Cover photo - darkening overlay */
+.photo-grid-item.is-cover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+/* Legacy classes for backwards compatibility */
 .upload-preview {
     display: flex;
     flex-wrap: wrap;
@@ -2950,10 +3055,37 @@ main {
     color: var(--text);
 }
 
+/* Tag editor uses same styles */
+.tag-editor-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    line-height: 1;
+    transition: color 0.2s;
+}
+
+.tag-editor-close:hover {
+    color: var(--text);
+}
+
 .album-editor-body {
     flex: 1;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: 1rem 1.25rem;
+    min-height: 0;
+}
+
+.album-editor-section.photos-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+    min-height: 0;
 }
 
 .album-editor-section {
@@ -2977,11 +3109,14 @@ main {
     background: var(--bg);
 }
 
-/* Cover photo grid */
+/* Cover photo grid - uses photo-grid-item layout */
 .album-cover-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
+    max-height: 150px;
+    overflow-y: auto;
+    padding: 0.25rem;
 }
 
 .album-cover-option {
@@ -3016,12 +3151,17 @@ main {
     object-fit: cover;
 }
 
-/* Album photos list (sortable) */
+/* Album photos list - uses photo-grid layout, fills available space */
 .album-photos-list {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 0.5rem;
-    min-height: 100px;
+    padding: 0.5rem 0;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    max-height: none !important;
+    align-content: flex-start;
 }
 
 .album-photo-item {
@@ -3101,7 +3241,7 @@ main {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.9);
-    z-index: 100;
+    z-index: 1100;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3144,6 +3284,7 @@ main {
     cursor: pointer;
     padding: 0.25rem 0.5rem;
     line-height: 1;
+    transition: color 0.2s;
 }
 
 .modal-close:hover {
