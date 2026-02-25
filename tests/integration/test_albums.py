@@ -262,7 +262,7 @@ class TestAlbumNavigation:
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200
-        album_id = response.json()["album_id"]
+        album_id = response.json()["album"]["id"]
         
         # Get album details
         response = authenticated_client.get(f"/api/albums/{album_id}")
@@ -307,7 +307,7 @@ class TestAlbumReorder:
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200
-        album_id = response.json()["album_id"]
+        album_id = response.json()["album"]["id"]
         
         # Reorder - reverse order
         reversed_ids = list(reversed(photo_ids))
