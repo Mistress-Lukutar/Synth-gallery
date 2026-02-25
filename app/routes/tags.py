@@ -318,3 +318,93 @@ def batch_generate_ai_tags(data: BatchAIInput, request: Request):
 
     db.commit()
     return {"status": "ok", "processed": processed}
+
+
+@router.get("/api/search")
+def search_items_by_tags(tags: str = "", folder_id: str = None):
+    """Search photos and albums by tags (space-separated) within a folder.
+    
+    Returns full item data for rendering in gallery.
+    - Only searches within the specified folder
+    - Album is included if at least one photo inside has ALL specified tags
+    - Standalone photos (not in albums) are included directly
+    - Photos inside albums are NOT shown separately - only the album
+    """
+    db = get_db()
+    
+    # Parse tags
+    tag_list = [t.strip().lower() for t in tags.split() if t.strip()]
+    
+    if not tag_list or not folder_id:
+        return {"items": [], "photos": [], "albums": []}
+    
+    placeholders = ",".join("?" * len(tag_list))
+    
+    # Find standalone photos (not in albums) in this folder with ALL specified tags
+    standalone_photos = db.execute(f"""
+        SELECT DISTINCT p.id, p.original_name, p.media_type, p.taken_at, p.uploaded_at,
+               p.thumb_width, p.thumb_height, p.safe_id,
+               (SELECT COUNT(*) FROM tags WHERE photo_id = p.id) as tag_count
+        FROM photos p
+        WHERE p.folder_id = ? AND p.album_id IS NULL AND (
+            SELECT COUNT(DISTINCT t.tag)
+            FROM tags t
+            WHERE t.photo_id = p.id AND LOWER(t.tag) IN ({placeholders})
+        ) = ?
+        ORDER BY p.uploaded_at DESC
+    """, (folder_id, *tag_list, len(tag_list))).fetchall()
+    
+    # Find albums in this folder where at least one photo has ALL specified tags
+    albums = db.execute(f"""
+        SELECT DISTINCT a.id, a.name, a.created_at, a.folder_id,
+               (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
+               (SELECT id FROM photos WHERE album_id = a.id ORDER BY uploaded_at DESC LIMIT 1) as cover_photo_id,
+               (SELECT thumb_width FROM photos WHERE album_id = a.id ORDER BY uploaded_at DESC LIMIT 1) as cover_thumb_width,
+               (SELECT thumb_height FROM photos WHERE album_id = a.id ORDER BY uploaded_at DESC LIMIT 1) as cover_thumb_height,
+               (SELECT safe_id FROM photos WHERE album_id = a.id ORDER BY uploaded_at DESC LIMIT 1) as safe_id
+        FROM albums a
+        JOIN photos p ON p.album_id = a.id
+        WHERE a.folder_id = ? AND (
+            SELECT COUNT(DISTINCT t.tag)
+            FROM tags t
+            WHERE t.photo_id = p.id AND LOWER(t.tag) IN ({placeholders})
+        ) = ?
+        ORDER BY a.created_at DESC
+    """, (folder_id, *tag_list, len(tag_list))).fetchall()
+    
+    # Format standalone photos
+    photo_results = []
+    for p in standalone_photos:
+        photo_results.append({
+            "type": "photo",
+            "id": p["id"],
+            "original_name": p["original_name"],
+            "media_type": p["media_type"] or "image",
+            "taken_at": p["taken_at"],
+            "uploaded_at": p["uploaded_at"],
+            "thumb_width": p["thumb_width"],
+            "thumb_height": p["thumb_height"],
+            "safe_id": p["safe_id"]
+        })
+    
+    # Format albums
+    album_results = []
+    for a in albums:
+        album_results.append({
+            "type": "album",
+            "id": a["id"],
+            "name": a["name"],
+            "created_at": a["created_at"],
+            "photo_count": a["photo_count"],
+            "cover_photo_id": a["cover_photo_id"],
+            "cover_thumb_width": a["cover_thumb_width"],
+            "cover_thumb_height": a["cover_thumb_height"],
+            "safe_id": a["safe_id"]
+        })
+    
+    # Combine items for gallery rendering: albums first, then standalone photos
+    items = []
+    items.extend(album_results)
+    items.extend(photo_results)
+    
+    return {"items": items, "photos": photo_results, "albums": album_results}

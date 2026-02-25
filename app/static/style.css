@@ -109,6 +109,15 @@ body {
     border-left-color: var(--tag-color);
 }
 
+.suggestion-item .tag-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--tag-color, #6b7280);
+    margin-right: 0.5rem;
+}
+
 .active-tags {
     display: flex;
     flex-wrap: wrap;
