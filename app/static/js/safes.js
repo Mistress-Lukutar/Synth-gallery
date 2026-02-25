@@ -93,10 +93,20 @@
             passwordInput.value = '';
             setTimeout(() => passwordInput.focus(), 100);
         }
+        
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('safe-unlock-modal', closeSafeUnlockModal);
+        }
     };
 
     // Close safe unlock modal
     window.closeSafeUnlockModal = function() {
+        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('safe-unlock-modal', true);
+        }
+        
         const modal = document.getElementById('safe-unlock-modal');
         if (modal) modal.classList.add('hidden');
         currentUnlockSafeId = null;
@@ -231,10 +241,20 @@
     window.openCreateSafe = function() {
         const modal = document.getElementById('safe-modal');
         if (modal) modal.classList.remove('hidden');
+        
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('safe-modal', closeSafeModal);
+        }
     };
 
     // Close safe modal
     window.closeSafeModal = function() {
+        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('safe-modal', true);
+        }
+        
         const modal = document.getElementById('safe-modal');
         if (modal) modal.classList.add('hidden');
     };

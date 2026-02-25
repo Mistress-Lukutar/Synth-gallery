@@ -111,6 +111,11 @@
             lightbox.classList.add('panel-open');
         }
         
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('tag-editor', window.closeTagEditor);
+        }
+        
         await loadCategories();
         await loadTagPresets();
         
@@ -125,6 +130,11 @@
 
     // Close tag editor
     window.closeTagEditor = function() {
+        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('tag-editor', true);
+        }
+        
         if (tagEditorPanel) {
             tagEditorPanel.classList.remove('open');
         }

@@ -190,22 +190,40 @@
             // Add panel-open class to lightbox for layout adjustments
             const lightbox = document.getElementById('lightbox');
             if (lightbox) lightbox.classList.add('panel-open');
+            
+            // Register with BackButtonManager for mobile back button support
+            if (window.BackButtonManager) {
+                window.BackButtonManager.register('album-editor', () => window.closeAlbumEditor());
+            }
         } catch (err) {
             console.error('Failed to open album editor:', err);
         }
     };
 
     window.closeAlbumEditor = function(skipRefresh = false) {
+        // Check if lightbox is open - if so, never refresh folder (stay in lightbox context)
+        const lightbox = document.getElementById('lightbox');
+        const isLightboxOpen = lightbox && !lightbox.classList.contains('hidden');
+        
+        // Unregister from BackButtonManager first
+        // skipHistoryBack = true because closing via button should NOT trigger history.back()
+        // (the popstate will be handled by the manager if user presses back button)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('album-editor', true);
+        }
+        
         const panel = document.getElementById('album-editor-panel') || albumEditorPanel;
         if (panel) panel.classList.remove('open');
         // Remove panel-open class from lightbox
-        const lightbox = document.getElementById('lightbox');
         if (lightbox) lightbox.classList.remove('panel-open');
         editingAlbumId = null;
         selectedPhotosForAlbum.clear();
         
-        // Refresh current folder to show updated album covers and photo counts
-        if (!skipRefresh && window.currentFolderId && typeof navigateToFolder === 'function') {
+        // Refresh current folder only if:
+        // 1. Not explicitly skipped
+        // 2. Lightbox is NOT open (we're in gallery view)
+        // 3. We have a current folder
+        if (!skipRefresh && !isLightboxOpen && window.currentFolderId && typeof navigateToFolder === 'function') {
             navigateToFolder(window.currentFolderId, false);
         }
     };
