@@ -239,12 +239,12 @@ async def set_folder_sort_preference(folder_id: str, data: SortPreferenceInput, 
         db.execute(
             """INSERT OR REPLACE INTO user_folder_preferences (user_id, folder_id, sort_by)
                VALUES (?, ?, ?)""",
-            (user["id"], folder_id, sort_by)
+            (user["id"], folder_id, data.sort_by)
         )
         db.commit()
         print(f"[DEBUG] Sort preference saved successfully")
         
-        return {"status": "ok", "sort": sort_by}
+        return {"status": "ok", "sort_by": data.sort_by}
     finally:
         db.close()
 
