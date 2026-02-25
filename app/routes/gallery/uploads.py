@@ -15,8 +15,8 @@ router = APIRouter()
 @router.post("/upload")
 async def upload_photo(
     request: Request, 
-    file: UploadFile = None, 
-    folder_id: str = Form(None),
+    file: UploadFile, 
+    folder_id: str = Form(...),
     encrypted_ck: str = Form(None),
     thumbnail: UploadFile = None,
     thumb_width: int = Form(0),
@@ -24,12 +24,6 @@ async def upload_photo(
 ):
     """Upload new photo or video to specified folder."""
     user = require_user(request)
-
-    if not file:
-        raise HTTPException(status_code=400, detail="file is required")
-
-    if not folder_id:
-        raise HTTPException(status_code=400, detail="folder_id is required")
 
     db = create_connection()
     try:
@@ -72,12 +66,13 @@ async def upload_photo(
 
 
 @router.post("/upload-album")
-async def upload_album(request: Request, files: list[UploadFile], folder_id: str = Form(None)):
+async def upload_album(
+    request: Request, 
+    files: list[UploadFile], 
+    folder_id: str = Form(...)
+):
     """Upload multiple photos/videos as an album to specified folder."""
     user = require_user(request)
-
-    if not folder_id:
-        raise HTTPException(status_code=400, detail="folder_id is required")
 
     db = create_connection()
     try:
@@ -119,9 +114,6 @@ async def upload_bulk(
 ):
     """Upload folder structure with files."""
     user = require_user(request)
-
-    if not folder_id:
-        raise HTTPException(status_code=400, detail="folder_id is required")
 
     db = create_connection()
     try:
