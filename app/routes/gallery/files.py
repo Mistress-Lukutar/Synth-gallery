@@ -2,16 +2,20 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR
 from ...database import create_connection
 from ...dependencies import require_user
 from ...infrastructure.repositories import PhotoRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
+from ...infrastructure.storage import get_storage, LocalStorage
 from .deps import get_permission_service
 
 router = APIRouter()
+
+# Get storage backend
+storage = get_storage()
 
 
 def _decrypt_file_response(file_path: Path, dek: bytes, filename: str) -> Response:
@@ -35,19 +39,40 @@ def _decrypt_file_response(file_path: Path, dek: bytes, filename: str) -> Respon
     return Response(content=decrypted_data, media_type=content_type)
 
 
+async def _get_file_response(filename: str, folder: str) -> Response:
+    """Get file response using storage backend.
+    
+    For LocalStorage: returns FileResponse
+    For S3: returns RedirectResponse to presigned URL
+    """
+    # Check if file exists
+    if not storage.exists(filename, folder):
+        raise HTTPException(status_code=404)
+    
+    # For S3 storage, redirect to presigned URL
+    if not isinstance(storage, LocalStorage):
+        # Generate presigned URL with 1 hour expiration
+        url = storage.get_url(filename, folder, expires=3600)
+        return RedirectResponse(url=url)
+    
+    # For local storage, return FileResponse
+    file_path = storage.get_path(filename, folder)
+    return FileResponse(file_path)
+
+
 @router.get("/uploads/{filename}")
-def get_upload(request: Request, filename: str):
+async def get_upload(request: Request, filename: str):
     """Serves original photo (protected by auth + folder access)."""
     user = require_user(request)
 
-    file_path = (UPLOADS_DIR / filename).resolve()
-    if not file_path.is_relative_to(UPLOADS_DIR):
+    # Validate filename
+    photo_id = Path(filename).stem
+    if not photo_id:
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    if not file_path.exists():
+    # Check file exists
+    if not storage.exists(filename, "uploads"):
         raise HTTPException(status_code=404)
-
-    photo_id = Path(filename).stem
     
     db = create_connection()
     try:
@@ -66,18 +91,35 @@ def get_upload(request: Request, filename: str):
             
             if dek:
                 try:
-                    return _decrypt_file_response(file_path, dek, filename)
+                    # For local storage, decrypt and return
+                    if isinstance(storage, LocalStorage):
+                        file_path = storage.get_path(filename, "uploads")
+                        return _decrypt_file_response(file_path, dek, filename)
+                    # For S3, client needs to download and decrypt
                 except HTTPException:
                     pass  # Client-encrypted file
             
-            return FileResponse(
-                file_path,
-                headers={
-                    "X-Encryption": "e2e",
-                    "X-Safe-Id": photo["safe_id"],
-                    "X-Photo-Id": photo_id
-                }
-            )
+            # Return file with encryption headers
+            if isinstance(storage, LocalStorage):
+                file_path = storage.get_path(filename, "uploads")
+                return FileResponse(
+                    file_path,
+                    headers={
+                        "X-Encryption": "e2e",
+                        "X-Safe-Id": photo["safe_id"],
+                        "X-Photo-Id": photo_id
+                    }
+                )
+            else:
+                url = storage.get_url(filename, "uploads", expires=3600)
+                return RedirectResponse(
+                    url=url,
+                    headers={
+                        "X-Encryption": "e2e",
+                        "X-Safe-Id": photo["safe_id"],
+                        "X-Photo-Id": photo_id
+                    }
+                )
         
         # Handle legacy server-side encryption
         if photo and photo["is_encrypted"]:
@@ -87,21 +129,34 @@ def get_upload(request: Request, filename: str):
             if not dek:
                 raise HTTPException(status_code=403, detail="Encryption key not available")
 
-            return _decrypt_file_response(file_path, dek, filename)
+            if isinstance(storage, LocalStorage):
+                file_path = storage.get_path(filename, "uploads")
+                return _decrypt_file_response(file_path, dek, filename)
+            else:
+                # For S3, we need to download, decrypt and return
+                # This is inefficient but necessary for server-side encryption
+                encrypted_data = await storage.download(filename, "uploads")
+                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                
+                ext = Path(filename).suffix.lower()
+                content_types = {
+                    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                    ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
+                    ".mp4": "video/mp4", ".webm": "video/webm"
+                }
+                content_type = content_types.get(ext, "application/octet-stream")
+                return Response(content=decrypted_data, media_type=content_type)
 
-        return FileResponse(file_path)
+        # Regular file - use storage backend
+        return await _get_file_response(filename, "uploads")
     finally:
         db.close()
 
 
 @router.get("/thumbnails/{filename}")
-def get_thumbnail(request: Request, filename: str):
+async def get_thumbnail(request: Request, filename: str):
     """Serves thumbnail (protected by auth + folder access)."""
     user = require_user(request)
-
-    file_path = (THUMBNAILS_DIR / filename).resolve()
-    if not file_path.is_relative_to(THUMBNAILS_DIR):
-        raise HTTPException(status_code=400, detail="Invalid filename")
 
     photo_id = Path(filename).stem
     
@@ -114,7 +169,7 @@ def get_thumbnail(request: Request, filename: str):
             raise HTTPException(status_code=403, detail="Access denied")
 
         # If thumbnail missing, try to regenerate from original
-        if not file_path.exists():
+        if not storage.exists(filename, "thumbnails"):
             from ...infrastructure.services.thumbnail import regenerate_thumbnail
             if not regenerate_thumbnail(photo_id, user["id"]):
                 raise HTTPException(status_code=404)
@@ -128,21 +183,39 @@ def get_thumbnail(request: Request, filename: str):
             
             if dek:
                 try:
-                    with open(file_path, "rb") as f:
-                        encrypted_data = f.read()
-                    decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
-                    return Response(content=decrypted_data, media_type="image/jpeg")
+                    if isinstance(storage, LocalStorage):
+                        file_path = storage.get_path(filename, "thumbnails")
+                        with open(file_path, "rb") as f:
+                            encrypted_data = f.read()
+                        decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                        return Response(content=decrypted_data, media_type="image/jpeg")
+                    else:
+                        encrypted_data = await storage.download(filename, "thumbnails")
+                        decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                        return Response(content=decrypted_data, media_type="image/jpeg")
                 except Exception:
                     pass
             
-            return FileResponse(
-                file_path,
-                headers={
-                    "X-Encryption": "e2e",
-                    "X-Safe-Id": photo["safe_id"],
-                    "X-Photo-Id": photo_id
-                }
-            )
+            if isinstance(storage, LocalStorage):
+                file_path = storage.get_path(filename, "thumbnails")
+                return FileResponse(
+                    file_path,
+                    headers={
+                        "X-Encryption": "e2e",
+                        "X-Safe-Id": photo["safe_id"],
+                        "X-Photo-Id": photo_id
+                    }
+                )
+            else:
+                url = storage.get_url(filename, "thumbnails", expires=3600)
+                return RedirectResponse(
+                    url=url,
+                    headers={
+                        "X-Encryption": "e2e",
+                        "X-Safe-Id": photo["safe_id"],
+                        "X-Photo-Id": photo_id
+                    }
+                )
 
         # Handle legacy server-side encryption
         if photo and photo["is_encrypted"]:
@@ -152,8 +225,12 @@ def get_thumbnail(request: Request, filename: str):
             if not dek:
                 raise HTTPException(status_code=403, detail="Encryption key not available")
 
-            with open(file_path, "rb") as f:
-                encrypted_data = f.read()
+            if isinstance(storage, LocalStorage):
+                file_path = storage.get_path(filename, "thumbnails")
+                with open(file_path, "rb") as f:
+                    encrypted_data = f.read()
+            else:
+                encrypted_data = await storage.download(filename, "thumbnails")
 
             try:
                 decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
@@ -162,6 +239,7 @@ def get_thumbnail(request: Request, filename: str):
 
             return Response(content=decrypted_data, media_type="image/jpeg")
 
-        return FileResponse(file_path)
+        # Regular thumbnail - use storage backend
+        return await _get_file_response(filename, "thumbnails")
     finally:
         db.close()
