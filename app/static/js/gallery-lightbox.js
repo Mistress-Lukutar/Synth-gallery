@@ -837,7 +837,16 @@
                 }
                 if (editAlbumBtn) {
                     editAlbumBtn.classList.remove('hidden');
-                    editAlbumBtn.onclick = () => window.openAlbumEditor?.(photo.album.id);
+                    const albumId = photo.album.id;
+                    console.log('[lightbox] Setting up edit album button for album:', albumId);
+                    editAlbumBtn.onclick = function() {
+                        console.log('[lightbox] Edit album button clicked, calling openAlbumEditor with:', albumId);
+                        if (typeof window.openAlbumEditor === 'function') {
+                            window.openAlbumEditor(albumId);
+                        } else {
+                            console.error('[lightbox] openAlbumEditor is not available');
+                        }
+                    };
                 }
             } else {
                 if (albumIndicator) albumIndicator.classList.add('hidden');
