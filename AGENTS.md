@@ -64,13 +64,19 @@ Synth-Gallery/
 │   │   │   ├── photo_repository.py
 │   │   │   ├── safe_repository.py
 │   │   │   └── webauthn_repository.py
-│   │   └── services/             # Infrastructure services
-│   │       ├── encryption.py         # AES-256-GCM encryption, DEK cache
-│   │       ├── backup.py             # Backup/restore service + scheduler
-│   │       ├── media.py              # Media processing
-│   │       ├── metadata.py           # EXIF/metadata extraction
-│   │       ├── thumbnail.py          # Thumbnail generation
-│   │       └── webauthn.py           # Hardware key support
+│   │   ├── services/             # Infrastructure services
+│   │   │   ├── encryption.py         # AES-256-GCM encryption, DEK cache
+│   │   │   ├── backup.py             # Backup/restore service + scheduler
+│   │   │   ├── media.py              # Media processing
+│   │   │   ├── metadata.py           # EXIF/metadata extraction
+│   │   │   ├── thumbnail.py          # Thumbnail generation
+│   │   │   └── webauthn.py           # Hardware key support
+│   │   └── storage/              # Storage abstraction layer
+│   │       ├── base.py               # StorageInterface
+│   │       ├── local_storage.py      # Filesystem backend
+│   │       ├── s3_storage.py         # S3/MinIO backend
+│   │       ├── encrypted_storage.py  # E2E encryption wrapper
+│   │       └── factory.py            # get_storage() factory
 │   ├── routes/                   # API routes
 │   │   ├── auth.py                   # Login/logout
 │   │   ├── admin.py                  # Admin panel, backups
@@ -201,6 +207,39 @@ DEK (Data Encryption Key) ◄──┘
 - **DEK (Data Encryption Key)**: Per-user, 256-bit random, cached in memory during session
 - **KEK (Key Encryption Key)**: Derived from password via PBKDF2
 - **Files**: Encrypted with AES-256-GCM (nonce + ciphertext stored)
+
+### 5. Storage Abstraction Layer
+
+All file operations go through the storage abstraction layer (`app/infrastructure/storage/`):
+
+```python
+# CORRECT - Use storage abstraction
+from app.infrastructure.storage import get_storage
+
+storage = get_storage()
+await storage.upload(file_id, content, folder="uploads")
+content = await storage.download(file_id, folder="uploads")
+```
+
+**Storage Backends:**
+- **LocalStorage**: Filesystem storage (default)
+- **S3Storage**: AWS S3 / MinIO / DigitalOcean Spaces
+- **EncryptedStorage**: Wrapper for E2E encryption
+
+**Configuration (Environment Variables):**
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STORAGE_BACKEND` | `local` or `s3` | `local` |
+| `S3_BUCKET` | S3 bucket name | - |
+| `S3_REGION` | AWS region | `us-east-1` |
+| `S3_ENDPOINT` | Custom endpoint (for MinIO) | - |
+| `S3_ACCESS_KEY` | Access key | - |
+| `S3_SECRET_KEY` | Secret key | - |
+
+**Migration Notes:**
+- Existing files remain in `uploads/`/`thumbnails/` when switching backends
+- New files go to the configured backend
+- Backups work with any backend (downloads from S3 if needed)
 
 ## Build and Run Commands
 
