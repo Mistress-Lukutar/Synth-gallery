@@ -158,10 +158,16 @@
     // Alias for lightbox compatibility
     window.openAlbumEditor = async function(albumId) {
         console.log('[gallery-albums] openAlbumEditor called for album:', albumId);
-        if (!albumEditorPanel) {
-            console.error('[gallery-albums] albumEditorPanel not found');
+        
+        // Always try to get fresh reference to panel
+        const panel = document.getElementById('album-editor-panel');
+        if (!panel) {
+            console.error('[gallery-albums] album-editor-panel element not found in DOM');
             return;
         }
+        
+        // Update module reference
+        albumEditorPanel = panel;
         
         editingAlbumId = albumId;
         selectedPhotosForAlbum.clear();
@@ -193,7 +199,8 @@
     };
 
     window.closeAlbumEditor = function() {
-        if (albumEditorPanel) albumEditorPanel.classList.remove('open');
+        const panel = document.getElementById('album-editor-panel') || albumEditorPanel;
+        if (panel) panel.classList.remove('open');
         // Remove panel-open class from lightbox
         const lightbox = document.getElementById('lightbox');
         if (lightbox) lightbox.classList.remove('panel-open');
