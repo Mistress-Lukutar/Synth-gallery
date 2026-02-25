@@ -492,6 +492,8 @@
         window.closeAlbumEditor?.(true);
         // Clear album context
         window.clearAlbumContext();
+        // Clear current photo ID
+        window.currentLightboxPhotoId = null;
         
         // Remove photo_id from URL
         const url = new URL(window.location.href);
@@ -709,6 +711,7 @@
             
             // Update current photo ID
             currentPhotoId = photoId;
+            window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
             
             // Render media - use original extension from filename
             let ext = '.jpg';
@@ -914,6 +917,13 @@
             albumBars.innerHTML = albumContext.photos.map((p, i) => 
                 `<div class="album-bar ${i === index ? 'active' : ''}"></div>`
             ).join('');
+        }
+    };
+
+    // Reload current photo (for refreshing tags after edit)
+    window.reloadCurrentPhoto = function() {
+        if (currentPhotoId) {
+            window.loadPhoto(currentPhotoId);
         }
     };
 
