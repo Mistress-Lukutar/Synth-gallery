@@ -151,24 +151,18 @@ def set_album_cover_endpoint(album_id: str, data: AlbumCoverInput, request: Requ
         db.close()
 
 
+class AlbumMoveInput(BaseModel):
+    folder_id: str
+
+
 @router.put("/api/albums/{album_id}/move")
-def move_album_endpoint(album_id: str, request: Request):
+def move_album_endpoint(album_id: str, data: AlbumMoveInput, request: Request):
     """Move an album and all its photos to another folder."""
-    from pydantic import BaseModel
-    class MoveInput(BaseModel):
-        folder_id: str
-    
     user = require_user(request)
     
     db = create_connection()
     try:
-        import json
-        body = json.loads(request.scope.get('body', b'{}') or b'{}')
-        folder_id = body.get('folder_id')
-        if not folder_id:
-            raise HTTPException(status_code=400, detail="folder_id required")
-        
         service = get_photo_service(db)
-        return service.move_album(album_id, folder_id, user["id"])
+        return service.move_album(album_id, data.folder_id, user["id"])
     finally:
         db.close()
