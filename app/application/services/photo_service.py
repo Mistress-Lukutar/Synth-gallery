@@ -6,6 +6,7 @@ This service encapsulates business logic for:
 - Album cover management
 - Batch operations on photos and albums
 """
+import uuid
 from typing import Optional
 
 from fastapi import HTTPException
@@ -32,6 +33,49 @@ class PhotoService:
         self.photo_repo = photo_repository
         self.folder_repo = folder_repository
         self.perm_repo = permission_repository
+    
+    def create_album(self, name: str, folder_id: str, photo_ids: list[str], user_id: int) -> dict:
+        """Create a new album with photos.
+        
+        Args:
+            name: Album name
+            folder_id: Folder ID to create album in
+            photo_ids: List of photo IDs to add to album
+            user_id: User creating the album
+            
+        Returns:
+            Created album dict
+            
+        Raises:
+            HTTPException: If validation fails
+        """
+        # Check folder permissions
+        if self.folder_repo:
+            folder = self.folder_repo.get_by_id(folder_id)
+            if not folder:
+                raise HTTPException(status_code=404, detail="Folder not found")
+            if folder["user_id"] != user_id:
+                raise HTTPException(status_code=403, detail="Cannot create album in this folder")
+        
+        # Generate album ID
+        album_id = str(uuid.uuid4())
+        
+        # Create album
+        success = self.photo_repo.create_album(album_id, folder_id, user_id, name)
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to create album")
+        
+        # Add photos to album
+        if photo_ids:
+            self.add_photos_to_album(album_id, photo_ids, user_id)
+        
+        # Return created album
+        return {
+            "id": album_id,
+            "name": name,
+            "folder_id": folder_id,
+            "photo_count": len(photo_ids)
+        }
     
     def _can_delete_photo(self, photo_id: str, user_id: int) -> bool:
         """Check if user can delete photo."""
