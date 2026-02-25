@@ -100,27 +100,11 @@
     }
 
     function setupEventListeners() {
-        // Keyboard navigation
+        // Keyboard navigation (Escape is handled by BackButtonManager)
         document.addEventListener('keydown', (e) => {
             if (lightbox.classList.contains('hidden')) return;
             
-            if (e.key === 'Escape') {
-                // Check if album editor is open - close it first
-                // closeAlbumEditor will handle the folder refresh
-                const albumEditor = document.getElementById('album-editor-panel');
-                if (albumEditor && albumEditor.classList.contains('open')) {
-                    window.closeAlbumEditor();
-                    return;
-                }
-                // Check if tag editor is open - close it first
-                const tagEditor = document.getElementById('tag-editor-panel');
-                if (tagEditor && tagEditor.classList.contains('open')) {
-                    window.closeTagEditor();
-                    return;
-                }
-                // Otherwise close lightbox (no refresh)
-                window.closeLightbox();
-            } else if (e.key === 'ArrowLeft') {
+            if (e.key === 'ArrowLeft') {
                 window.navigateLightbox(-1);
             } else if (e.key === 'ArrowRight') {
                 window.navigateLightbox(1);
@@ -477,10 +461,24 @@
         if (!lightbox) return;
         lightbox.classList.remove('hidden');
         document.body.style.overflow = 'hidden';
+        
+        // Register with BackButtonManager for mobile back button support
+        // skipHistoryPush = true because openPhoto() already did pushState for URL
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('lightbox', window.closeLightbox, { 
+                backState: { photoId: currentPhotoId },
+                skipHistoryPush: true
+            });
+        }
     };
 
     window.closeLightbox = function() {
         if (!lightbox) return;
+        
+        // Unregister from BackButtonManager first
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('lightbox', true); // skipHistoryBack since we handle it below
+        }
         
         // Cancel any pending image loads (including all network requests)
         cancelAllLoading();

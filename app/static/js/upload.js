@@ -49,10 +49,21 @@
     // Open modal
     window.openUploadModal = function() {
         if (modal) modal.classList.remove('hidden');
+        
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('upload-modal', closeModal);
+        }
     };
 
     function closeModal() {
         if (isUploading) return;
+        
+        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('upload-modal', true);
+        }
+        
         if (modal) modal.classList.add('hidden');
         resetUploadForm();
     }
@@ -85,13 +96,7 @@
             };
         }
 
-        // Close on Escape
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
-                e.preventDefault();
-                closeModal();
-            }
-        });
+        // Escape is handled by BackButtonManager
 
         // Open modal via folder upload button
         const folderUploadBtn = document.getElementById('folder-upload-btn');

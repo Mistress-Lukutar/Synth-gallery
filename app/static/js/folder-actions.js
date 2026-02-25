@@ -87,13 +87,6 @@
         if (folderMoveBtn) {
             folderMoveBtn.addEventListener('click', openFolderMovePicker);
         }
-
-        // Escape key to close
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && folderModal && !folderModal.classList.contains('hidden')) {
-                closeFolderModal();
-            }
-        });
     }
 
     function setupShareModalHandlers() {
@@ -141,15 +134,6 @@
         if (addPermissionBtn) {
             addPermissionBtn.addEventListener('click', addPermission);
         }
-
-        // Close share modal on Escape
-        document.addEventListener('keydown', (e) => {
-            const shareModal = document.getElementById('share-modal');
-            if (e.key === 'Escape' && shareModal && !shareModal.classList.contains('hidden')) {
-                e.preventDefault();
-                closeShareModal();
-            }
-        });
     }
 
     // === Folder Modal Functions ===
@@ -169,6 +153,11 @@
         if (folderModal) {
             folderModal.classList.remove('hidden');
             folderNameInput?.focus();
+        }
+        
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('folder-modal', closeFolderModal);
         }
     };
 
@@ -213,9 +202,19 @@
             folderModal.classList.remove('hidden');
             folderNameInput?.focus();
         }
+        
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('folder-modal', closeFolderModal);
+        }
     };
 
     function closeFolderModal() {
+        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('folder-modal', true);
+        }
+        
         if (folderModal) folderModal.classList.add('hidden');
         editingFolderId = null;
     }
@@ -383,9 +382,19 @@
         if (addPermissionForm) addPermissionForm.classList.add('hidden');
 
         loadPermissions();
+        
+        // Register with BackButtonManager for mobile back button support
+        if (window.BackButtonManager) {
+            window.BackButtonManager.register('share-modal', closeShareModal);
+        }
     };
 
     window.closeShareModal = function() {
+        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('share-modal', true);
+        }
+        
         const shareModal = document.getElementById('share-modal');
         if (shareModal) shareModal.classList.add('hidden');
         shareModalFolderId = null;
