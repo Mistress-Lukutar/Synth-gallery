@@ -15,6 +15,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large  | ✅ **DONE**     |
 | 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | ~~Async Database (aiosqlite)~~  | Medium | ❌ **REVERTED** |
 | 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
+| 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity Refactoring        | Medium | 🔲 Planned     |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | 🔲 Planned     |
@@ -187,6 +188,45 @@ folder = service.update_folder(folder_id, data.name, user["id"])
 **Next Steps:**
 - [x] Refactor safe routes to use SafeService
 - [x] Extract remaining business logic from envelope.py
+
+---
+
+### Issue #22: Album Entity Refactoring 🟡
+
+**Status:** **PLANNED**
+
+**Problem:**  
+The Album entity has grown beyond a simple "container for photos" with excessive responsibilities:
+
+1. **Repository Bloat**: PhotoRepository contains ~20 album-related methods:
+   - `get_album`, `create_album`, `delete_album`, `delete_album_with_photos`
+   - `add_to_album`, `remove_from_album`, `reorder_album`, `set_album_cover`
+   - `move_album_to_folder`, `get_album_photos`, etc.
+
+2. **Complex Schema**: Double ownership model creates confusion:
+   - Photos have `folder_id` (physical location) AND `album_id` + `position` (display order)
+   - `cover_photo_id` adds another relationship
+   - Album deletion has two modes (keep photos vs delete)
+
+3. **Frontend Complexity**: `gallery-albums.js` (520 lines) handles:
+   - Lightbox integration with "album expansion" logic
+   - Drag-drop reordering with cover selection
+   - Separate album editor panel
+
+**Proposed Solution:**
+1. **Extract AlbumRepository** - Move all album DB operations from PhotoRepository
+2. **Simplify Ordering** - Remove manual `position` field, use date-based sorting (consistent with gallery)
+3. **Evaluate Cover** - Consider removing `cover_photo_id`, use first photo as cover (fallback already exists)
+4. **Clarify Ownership** - Decision: virtual collection vs physical container?
+
+**Files Affected:**
+- `app/infrastructure/repositories/photo_repository.py` (remove album methods)
+- `app/infrastructure/repositories/album_repository.py` (new)
+- `app/routes/gallery/albums.py` (simplify)
+- `app/static/js/gallery-albums.js` (simplify)
+- `app/database.py` (potential migration)
+
+**Related Issue:** Lightbox navigation fix (commit `1f02403`) revealed that masonry visual order breaks navigation - suggests album ordering should follow same chronological rules as gallery.
 
 ---
 
