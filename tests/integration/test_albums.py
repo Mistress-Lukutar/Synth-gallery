@@ -108,7 +108,7 @@ class TestAlbumCreation:
         )
         
         assert response.status_code == 200
-        assert response.json()["photo_count"] == 5
+        assert response.json()["album"]["photo_count"] == 5
 
 
 class TestAlbumThumbnailDimensions:
@@ -143,7 +143,7 @@ class TestAlbumThumbnailDimensions:
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200
-        album_id = response.json()["album_id"]
+        album_id = response.json()["album"]["id"]
         
         # Get folder content - should include album with dimensions
         response = authenticated_client.get(f"/api/folders/{test_folder}/content")

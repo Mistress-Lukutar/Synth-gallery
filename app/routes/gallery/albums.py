@@ -18,6 +18,31 @@ class AlbumCoverInput(BaseModel):
     photo_id: str | None = None
 
 
+class AlbumCreate(BaseModel):
+    name: str
+    folder_id: str
+    photo_ids: list[str] | None = None
+
+
+@router.post("/api/albums")
+def create_album_endpoint(data: AlbumCreate, request: Request):
+    """Create a new album with photos."""
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        service = get_photo_service(db)
+        album = service.create_album(
+            name=data.name,
+            folder_id=data.folder_id,
+            photo_ids=data.photo_ids or [],
+            user_id=user["id"]
+        )
+        return {"status": "ok", "album": album}
+    finally:
+        db.close()
+
+
 @router.get("/api/albums/{album_id}")
 def get_album_data(album_id: str, request: Request):
     """Get album data with photo list."""
