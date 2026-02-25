@@ -302,6 +302,49 @@ python scripts/manage_users.py restore <filename>
 | `BACKUP_SCHEDULE` | `daily`, `weekly`, or `disabled` | `daily` |
 | `BACKUP_ROTATION_COUNT` | Number of backups to keep | 5 |
 
+## Git Commits
+
+### Permission Required
+
+**NEVER** run `git commit`, `git push`, `git reset`, `git rebase` or any other git mutation commands without **explicit user confirmation**.
+
+**Typical workflow:**
+1. Prepare the changes
+2. Show the proposed commit message to the user
+3. Wait for user confirmation (e.g., "да", "ок", "давай", "подтверждаю")
+4. Only then execute the commit
+
+### Commit Message Style
+
+This project uses **Conventional Commits** format:
+
+```
+<type>: <description>
+```
+
+**Types:**
+- `feat:` - New feature or functionality
+- `fix:` - Bug fix
+- `test:` - Adding or fixing tests
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting, no logic change)
+- `refactor:` - Code refactoring without changing behavior
+
+**Guidelines:**
+- Use lowercase for description
+- Use present tense / imperative mood ("add" not "added", "fix" not "fixed")
+- Be descriptive but concise
+- Reference issue numbers when applicable
+
+**Examples from project history:**
+```
+feat: refactor album editor UI - unified photo grid with cover selection and drag-drop reordering
+test: fix album tests to match new API response format
+fix: use correct API endpoint for loading album photos
+docs: add test coverage report and update documentation
+style: update lightbox styling - transparent nav buttons
+```
+
 ## Code Style Guidelines
 
 ### Python

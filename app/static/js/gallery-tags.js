@@ -10,13 +10,14 @@
     let presetsContainer = null;
     let addNewTagSection = null;
     let currentTagsContainer = null;
+    let lightbox = null;
 
     // State
     let categories = [];
     let editingTags = [];
     let originalTags = [];
     let selectedCategoryId = null;
-    let currentPhotoId = null;
+    let currentEditingPhotoId = null;
 
     function init() {
         tagEditorPanel = document.getElementById('tag-editor-panel');
@@ -25,6 +26,7 @@
             return;
         }
 
+        lightbox = document.getElementById('lightbox');
         tagSearch = document.getElementById('tag-search');
         presetsContainer = document.getElementById('tag-presets-container');
         addNewTagSection = document.getElementById('add-new-tag-section');
@@ -35,50 +37,31 @@
     }
 
     function setupEventListeners() {
-        // Close button
-        const closeBtn = document.getElementById('tag-editor-close');
-        if (closeBtn) {
-            closeBtn.addEventListener('click', window.closeTagEditor);
-        }
-
-        // Cancel button
-        const cancelBtn = document.querySelector('#tag-editor-panel .btn-secondary');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', window.closeTagEditor);
-        }
-
-        // Save button
-        const saveBtn = document.getElementById('save-tags-btn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', window.saveTagChanges);
-        }
-
-        // Tag search
+        // Search functionality with debounce
+        let searchTimeout;
         if (tagSearch) {
-            let searchTimeout;
             tagSearch.addEventListener('input', () => {
                 clearTimeout(searchTimeout);
                 const query = tagSearch.value.trim();
 
                 searchTimeout = setTimeout(async () => {
-                    const presets = await window.loadTagPresets?.(query);
-                    if (!presets) return;
+                    const presets = await loadTagPresets(query);
 
-                    if (query.length > 0 && addNewTagSection) {
+                    if (query.length > 0) {
                         const hasExactMatch = presets.some(cat =>
                             cat.tags.some(t => t.name.toLowerCase() === query.toLowerCase())
                         );
 
-                        const addBtn = document.getElementById('add-new-tag-btn');
                         if (!hasExactMatch) {
                             const newTagName = document.getElementById('new-tag-name');
                             if (newTagName) newTagName.textContent = query;
-                            addNewTagSection.classList.remove('hidden');
+                            if (addNewTagSection) addNewTagSection.classList.remove('hidden');
                             selectedCategoryId = null;
                             document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('selected'));
+                            const addBtn = document.getElementById('add-new-tag-btn');
                             if (addBtn) addBtn.disabled = true;
                         } else {
-                            addNewTagSection.classList.add('hidden');
+                            if (addNewTagSection) addNewTagSection.classList.add('hidden');
                         }
                     } else if (addNewTagSection) {
                         addNewTagSection.classList.add('hidden');
@@ -88,152 +71,123 @@
         }
     }
 
+    // Open tag editor - uses window.currentLightboxPhotoId if no photoId provided
     window.openTagEditor = async function(photoId) {
-        if (!tagEditorPanel) return;
-        
-        currentPhotoId = photoId;
+        // Use provided photoId or fall back to global currentLightboxPhotoId
+        const targetPhotoId = photoId || window.currentLightboxPhotoId;
+        if (!targetPhotoId) {
+            console.error('[gallery-tags] No photo ID available for tag editor');
+            return;
+        }
+
+        currentEditingPhotoId = targetPhotoId;
         editingTags = [];
         originalTags = [];
         selectedCategoryId = null;
 
-        // Load current tags
+        // Get current tags from photo API
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/photos/${photoId}/tags`);
+            const resp = await fetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}`);
             if (resp.ok) {
-                const data = await resp.json();
-                editingTags = data.tags || [];
-                originalTags = [...editingTags];
+                const photo = await resp.json();
+                originalTags = (photo.tags || []).map(t => ({
+                    id: t.id,
+                    name: t.tag || t.name,
+                    category_id: t.category_id,
+                    color: t.color
+                }));
+                editingTags = originalTags.map(t => ({ ...t }));
             }
         } catch (e) {
-            console.error('Failed to load tags:', e);
+            console.error('Failed to load photo tags:', e);
         }
 
-        window.updateCurrentTagsDisplay();
-        await window.loadCategories?.();
-        await window.loadTagPresets?.();
-
-        tagEditorPanel.classList.add('open');
+        updateCurrentTagsDisplay();
         
-        // Add panel-open class to lightbox for layout adjustments
-        const lightbox = document.getElementById('lightbox');
-        if (lightbox) lightbox.classList.add('panel-open');
+        if (tagEditorPanel) {
+            tagEditorPanel.classList.add('open');
+        }
+        if (lightbox) {
+            lightbox.classList.add('panel-open');
+        }
+        
+        await loadCategories();
+        await loadTagPresets();
+        
+        if (tagSearch) {
+            tagSearch.value = '';
+            tagSearch.focus();
+        }
+        if (addNewTagSection) {
+            addNewTagSection.classList.add('hidden');
+        }
     };
 
+    // Close tag editor
     window.closeTagEditor = function() {
         if (tagEditorPanel) {
             tagEditorPanel.classList.remove('open');
         }
-        // Remove panel-open class from lightbox
-        const lightbox = document.getElementById('lightbox');
-        if (lightbox) lightbox.classList.remove('panel-open');
-        currentPhotoId = null;
+        if (lightbox) {
+            lightbox.classList.remove('panel-open');
+        }
+        selectedCategoryId = null;
+        editingTags = [];
+        originalTags = [];
+        currentEditingPhotoId = null;
     };
 
-    window.saveTagChanges = async function() {
-        if (!currentPhotoId) return;
-
+    // Load tag categories
+    async function loadCategories() {
         try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/photos/${currentPhotoId}/tags`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tags: editingTags.map(t => t.name) })
-            });
-
-            if (!resp.ok) throw new Error('Failed to save tags');
-
-            window.closeTagEditor();
-            // Refresh to show new tags
-            if (window.currentFolderId && typeof navigateToFolder === 'function') {
-                navigateToFolder(window.currentFolderId, false);
-            }
-        } catch (err) {
-            console.error('Failed to save tags:', err);
-            alert('Failed to save tags: ' + err.message);
-        }
-    };
-
-    window.toggleTag = function(tagName, categoryId, color) {
-        const existingIndex = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
-        
-        if (existingIndex >= 0) {
-            editingTags.splice(existingIndex, 1);
-        } else {
-            editingTags.push({ name: tagName, category_id: categoryId, color: color });
-        }
-
-        window.updateCurrentTagsDisplay();
-        window.updatePresetButtons?.();
-    };
-
-    window.updateCurrentTagsDisplay = function() {
-        if (!currentTagsContainer) return;
-
-        if (editingTags.length === 0) {
-            currentTagsContainer.innerHTML = '<span class="no-tags-hint">No tags selected</span>';
-            return;
-        }
-
-        currentTagsContainer.innerHTML = editingTags.map(tag => `
-            <span class="tag selected" style="--tag-color: ${tag.color || '#6b7280'}">
-                ${escapeHtml(tag.name)}
-                <button onclick="window.toggleTag('${escapeHtml(tag.name)}', ${tag.category_id || 'null'}, '${tag.color || ''}')">×</button>
-            </span>
-        `).join('');
-    };
-
-    window.loadCategories = async function() {
-        try {
-            const resp = await fetch(`${getBaseUrl()}/api/categories`);
+            const resp = await fetch(`${getBaseUrl()}/api/tag-categories`);
             if (!resp.ok) return;
             categories = await resp.json();
-            
-            const container = document.getElementById('category-buttons');
-            if (!container) return;
-            
-            container.innerHTML = categories.map(cat => `
-                <button class="category-btn" data-category-id="${cat.id}" onclick="selectCategory(${cat.id})">
-                    ${escapeHtml(cat.name)}
-                </button>
-            `).join('');
+            renderCategoryButtons();
         } catch (err) {
             console.error('Failed to load categories:', err);
         }
-    };
+    }
 
-    window.loadTagPresets = async function(query = '') {
+    // Load tag presets
+    async function loadTagPresets(search = "") {
         try {
-            const url = query 
-                ? `${getBaseUrl()}/api/tags/presets?q=${encodeURIComponent(query)}`
-                : `${getBaseUrl()}/api/tags/presets`;
+            const url = search 
+                ? `${getBaseUrl()}/api/tag-presets?search=${encodeURIComponent(search)}`
+                : `${getBaseUrl()}/api/tag-presets`;
             const resp = await fetch(url);
-            if (!resp.ok) return;
+            if (!resp.ok) return [];
             
             const data = await resp.json();
-            renderTagPresets(data.categories || []);
-            return data.categories;
+            renderPresets(data);
+            return data;
         } catch (err) {
             console.error('Failed to load tag presets:', err);
+            return [];
         }
-    };
+    }
 
-    function renderTagPresets(cats) {
+    // Render preset tags by category
+    function renderPresets(presetsData) {
         if (!presetsContainer) return;
         
-        if (cats.length === 0) {
-            presetsContainer.innerHTML = '';
+        if (!presetsData || presetsData.length === 0) {
+            presetsContainer.innerHTML = '<p class="no-presets">No matching tags found</p>';
             return;
         }
-        
-        presetsContainer.innerHTML = cats.map(cat => `
-            <div class="tag-category">
-                <h4>${escapeHtml(cat.name)}</h4>
-                <div class="tag-buttons">
-                    ${(cat.tags || []).map(tag => {
-                        const isSelected = editingTags.find(t => t.name.toLowerCase() === tag.name.toLowerCase());
+
+        presetsContainer.innerHTML = presetsData.map(category => `
+            <div class="preset-category">
+                <h4 style="--cat-color: ${category.color}">${escapeHtml(category.name)}</h4>
+                <div class="preset-tags">
+                    ${(category.tags || []).map(tag => {
+                        const isSelected = editingTags.some(t => t.name.toLowerCase() === tag.name.toLowerCase());
                         return `
-                            <button class="tag-btn ${isSelected ? 'selected' : ''}" 
-                                    onclick="window.toggleTag('${escapeHtml(tag.name)}', ${cat.id}, '${tag.color || '#6b7280'}')"
-                                    style="--tag-color: ${tag.color || '#6b7280'}">
+                            <button class="preset-tag ${isSelected ? 'selected' : ''}"
+                                    style="--tag-color: ${category.color}"
+                                    data-tag-name="${escapeHtml(tag.name)}"
+                                    data-category-id="${category.id}"
+                                    data-color="${category.color}">
                                 ${escapeHtml(tag.name)}
                             </button>
                         `;
@@ -241,47 +195,208 @@
                 </div>
             </div>
         `).join('');
+
+        // Add click handlers
+        presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
+            btn.onclick = () => toggleTag(btn.dataset.tagName, parseInt(btn.dataset.categoryId), btn.dataset.color);
+        });
     }
 
-    window.updatePresetButtons = function() {
-        // Re-render to update selection state
-        window.loadTagPresets?.(tagSearch?.value || '');
-    };
+    // Render category buttons for new tags
+    function renderCategoryButtons() {
+        const container = document.getElementById('category-buttons');
+        if (!container) return;
 
+        container.innerHTML = categories.map(cat => `
+            <button class="category-btn" style="--cat-color: ${cat.color}" data-category-id="${cat.id}">
+                ${escapeHtml(cat.name)}
+            </button>
+        `).join('');
+
+        container.querySelectorAll('.category-btn').forEach(btn => {
+            btn.onclick = () => selectCategory(parseInt(btn.dataset.categoryId));
+        });
+    }
+
+    // Select category for new tag
     window.selectCategory = function(categoryId) {
         selectedCategoryId = categoryId;
         document.querySelectorAll('.category-btn').forEach(btn => {
             btn.classList.toggle('selected', parseInt(btn.dataset.categoryId) === categoryId);
         });
         const addBtn = document.getElementById('add-new-tag-btn');
-        if (addBtn) addBtn.disabled = !selectedCategoryId;
+        if (addBtn) addBtn.disabled = false;
     };
 
-    window.requestAIAnalysis = async function() {
-        if (!currentPhotoId) return;
+    // Toggle tag selection
+    window.toggleTag = function(tagName, categoryId, color) {
+        const index = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
+
+        if (index === -1) {
+            editingTags.push({ name: tagName, category_id: categoryId, color: color });
+        } else {
+            editingTags.splice(index, 1);
+        }
+
+        updateCurrentTagsDisplay();
+        updatePresetButtons();
+    };
+
+    // Remove tag from editing list
+    window.removeTagFromEditing = function(tagName) {
+        const index = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
+        if (index !== -1) {
+            editingTags.splice(index, 1);
+            updateCurrentTagsDisplay();
+            updatePresetButtons();
+        }
+    };
+
+    // Update current tags display
+    function updateCurrentTagsDisplay() {
+        if (!currentTagsContainer) return;
+
+        if (editingTags.length === 0) {
+            currentTagsContainer.innerHTML = '<span class="no-tags-hint">No tags selected</span>';
+        } else {
+            currentTagsContainer.innerHTML = editingTags.map(tag => `
+                <span class="selected-tag" style="--tag-color: ${tag.color || '#6b7280'}">
+                    ${escapeHtml(tag.name)}
+                    <button class="tag-remove" onclick="window.removeTagFromEditing('${escapeHtml(tag.name)}')">&times;</button>
+                </span>
+            `).join('');
+        }
+    }
+
+    // Update preset button states
+    function updatePresetButtons() {
+        if (!presetsContainer) return;
+        presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
+            const tagName = btn.dataset.tagName;
+            const isSelected = editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase());
+            btn.classList.toggle('selected', isSelected);
+        });
+    }
+
+    // Save tag changes - add/remove individual tags like in v0.8.5
+    window.saveTagChanges = async function() {
+        if (!currentEditingPhotoId) return;
+
+        const saveBtn = document.getElementById('save-tags-btn');
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Saving...';
+        }
+
+        try {
+            // Calculate differences
+            const toAdd = editingTags.filter(et =>
+                !originalTags.some(ot => ot.name.toLowerCase() === et.name.toLowerCase())
+            );
+
+            const toRemove = originalTags.filter(ot =>
+                !editingTags.some(et => et.name.toLowerCase() === ot.name.toLowerCase())
+            );
+
+            // Remove tags
+            for (const tag of toRemove) {
+                if (tag.id) {
+                    await csrfFetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { 
+                        method: 'DELETE' 
+                    });
+                }
+            }
+
+            // Add new tags
+            for (const tag of toAdd) {
+                await csrfFetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}/tag`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
+                });
+            }
+
+            window.closeTagEditor();
+
+            // Refresh lightbox to show updated tags
+            if (typeof window.reloadCurrentPhoto === 'function') {
+                window.reloadCurrentPhoto();
+            }
+        } catch (err) {
+            console.error('Failed to save tags:', err);
+            alert('Failed to save tags: ' + err.message);
+        } finally {
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.textContent = 'Save Changes';
+            }
+        }
+    };
+
+    // Add new tag to library
+    window.addNewTag = async function() {
+        if (!tagSearch || !selectedCategoryId) return;
         
+        const tagName = tagSearch.value.trim();
+        if (!tagName) return;
+
+        if (editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase())) {
+            alert('This tag is already selected');
+            return;
+        }
+
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/tag-presets`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
+            });
+
+            if (!resp.ok) throw new Error('Failed to add tag');
+
+            const category = categories.find(c => c.id === selectedCategoryId);
+            editingTags.push({
+                name: tagName.toLowerCase(),
+                category_id: selectedCategoryId,
+                color: category?.color || '#6b7280'
+            });
+
+            updateCurrentTagsDisplay();
+            tagSearch.value = '';
+            if (addNewTagSection) addNewTagSection.classList.add('hidden');
+            await loadTagPresets();
+        } catch (err) {
+            console.error('Failed to add tag:', err);
+            alert('Failed to add tag: ' + err.message);
+        }
+    };
+
+    // Request AI analysis
+    window.requestAIAnalysis = async function() {
+        if (!currentEditingPhotoId) return;
+
         const btn = document.getElementById('request-ai-btn');
         if (btn) {
             btn.disabled = true;
-            btn.textContent = 'Analyzing...';
+            btn.innerHTML = 'Analyzing...';
         }
-        
+
         try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/photos/${currentPhotoId}/analyze`, {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}/ai-tags`, {
                 method: 'POST'
             });
-            
+
             if (!resp.ok) throw new Error('Analysis failed');
-            
+
             const data = await resp.json();
-            if (data.tags) {
-                // Add suggested tags to editing tags
-                data.tags.forEach(tag => {
-                    if (!editingTags.find(t => t.name.toLowerCase() === tag.toLowerCase())) {
-                        editingTags.push({ name: tag, category_id: null, color: '#6b7280' });
-                    }
-                });
-                window.updateCurrentTagsDisplay();
+            if (data.status === 'ok') {
+                window.closeTagEditor();
+                // Refresh lightbox to show new tags
+                if (typeof window.loadPhoto === 'function') {
+                    await window.loadPhoto(currentEditingPhotoId);
+                }
+            } else {
+                throw new Error(data.message || 'Analysis failed');
             }
         } catch (err) {
             console.error('AI analysis failed:', err);
@@ -299,35 +414,6 @@
                     Request AI Analysis
                 `;
             }
-        }
-    };
-
-    window.addNewTag = async function() {
-        const tagName = document.getElementById('new-tag-name')?.textContent;
-        if (!tagName || !selectedCategoryId) return;
-        
-        try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/tags`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
-            });
-            
-            if (!resp.ok) throw new Error('Failed to add tag');
-            
-            const data = await resp.json();
-            editingTags.push({ name: tagName, category_id: selectedCategoryId, color: data.color || '#6b7280' });
-            window.updateCurrentTagsDisplay();
-            
-            // Clear search
-            if (tagSearch) tagSearch.value = '';
-            if (addNewTagSection) addNewTagSection.classList.add('hidden');
-            
-            // Reload presets
-            await window.loadTagPresets?.();
-        } catch (err) {
-            console.error('Failed to add tag:', err);
-            alert('Failed to add tag: ' + err.message);
         }
     };
 
