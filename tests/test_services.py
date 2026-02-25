@@ -467,22 +467,17 @@ class TestUploadServiceDeletePhoto:
         assert callable(getattr(PhotoRepository, 'delete')), \
             "PhotoRepository.delete must be callable"
     
-    def test_delete_photo_integration(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_delete_photo_integration(self, tmp_path):
         """Integration test for delete_photo with real file system.
         
         This test verifies the full flow:
         1. Photo metadata is retrieved from repository
-        2. Files are deleted from disk
+        2. Files are deleted from disk via storage
         3. Repository delete is called
         """
-        from unittest.mock import Mock
+        from unittest.mock import Mock, AsyncMock
 
-        # Create temp directories
-        uploads_dir = tmp_path / "uploads"
-        thumbs_dir = tmp_path / "thumbnails"
-        uploads_dir.mkdir()
-        thumbs_dir.mkdir()
-        
         # Create mock repository that mimics real PhotoRepository
         mock_repo = Mock()
         mock_repo.get_by_id.return_value = {
@@ -491,29 +486,26 @@ class TestUploadServiceDeletePhoto:
         }
         mock_repo.delete.return_value = {"id": "test-photo-123", "filename": "test-photo-123.png"}
         
+        # Create mock storage
+        mock_storage = Mock()
+        mock_storage.delete = AsyncMock(return_value=True)
+        
         # Create service
         from app.application.services import UploadService
         service = UploadService(
             photo_repository=mock_repo,
-            uploads_dir=uploads_dir,
-            thumbnails_dir=thumbs_dir
+            storage=mock_storage
         )
         
-        # Create dummy files
-        (uploads_dir / "test-photo-123.png").write_text("dummy upload")
-        (thumbs_dir / "test-photo-123.jpg").write_text("dummy thumb")
-        
         # Act
-        result = service.delete_photo("test-photo-123")
+        result = await service.delete_photo("test-photo-123")
         
         # Assert
         assert result is True
         mock_repo.get_by_id.assert_called_once_with("test-photo-123")
         mock_repo.delete.assert_called_once_with("test-photo-123")
-        
-        # Verify files were deleted
-        assert not (uploads_dir / "test-photo-123.png").exists()
-        assert not (thumbs_dir / "test-photo-123.jpg").exists()
+        # Verify storage delete was called for both file and thumbnail
+        assert mock_storage.delete.call_count == 2
 
 
 class TestUploadService:
@@ -526,21 +518,20 @@ class TestUploadService:
         return repo
     
     @pytest.fixture
-    def upload_service(self, mock_photo_repo, tmp_path):
+    def upload_service(self, mock_photo_repo):
         """Create UploadService with mocked dependencies."""
-        uploads_dir = tmp_path / "uploads"
-        thumbnails_dir = tmp_path / "thumbnails"
-        uploads_dir.mkdir(exist_ok=True)
-        thumbnails_dir.mkdir(exist_ok=True)
-        
+        from unittest.mock import Mock
+        mock_storage = Mock()
         return UploadService(
             photo_repository=mock_photo_repo,
-            uploads_dir=uploads_dir,
-            thumbnails_dir=thumbnails_dir
+            storage=mock_storage
         )
     
-    def test_delete_photo_success(self, upload_service, mock_photo_repo, tmp_path):
+    @pytest.mark.asyncio
+    async def test_delete_photo_success(self, mock_photo_repo):
         """Test deleting an existing photo."""
+        from unittest.mock import AsyncMock
+        
         # Arrange
         photo_id = "photo-uuid-123"
         mock_photo_repo.get_by_id.return_value = {
@@ -548,35 +539,59 @@ class TestUploadService:
             "filename": f"{photo_id}.jpg"
         }
         
-        # Create dummy files
-        (upload_service.uploads_dir / f"{photo_id}.jpg").write_text("dummy")
-        (upload_service.thumbnails_dir / f"{photo_id}.jpg").write_text("dummy")
+        # Create mock storage
+        mock_storage = Mock()
+        mock_storage.delete = AsyncMock(return_value=True)
+        
+        # Create service with mock storage
+        from app.application.services import UploadService
+        service = UploadService(
+            photo_repository=mock_photo_repo,
+            storage=mock_storage
+        )
         
         # Act
-        result = upload_service.delete_photo(photo_id)
+        result = await service.delete_photo(photo_id)
         
         # Assert
         assert result is True
         mock_photo_repo.get_by_id.assert_called_once_with(photo_id)
         mock_photo_repo.delete.assert_called_once_with(photo_id)
-        # Files should be deleted
-        assert not (upload_service.uploads_dir / f"{photo_id}.jpg").exists()
-        assert not (upload_service.thumbnails_dir / f"{photo_id}.jpg").exists()
+        # Storage delete should be called for both file and thumbnail
+        assert mock_storage.delete.call_count == 2
     
-    def test_delete_photo_not_found(self, upload_service, mock_photo_repo):
+    @pytest.mark.asyncio
+    async def test_delete_photo_not_found(self, mock_photo_repo):
         """Test deleting non-existent photo."""
+        from unittest.mock import AsyncMock
+        
         # Arrange
         mock_photo_repo.get_by_id.return_value = None
         
+        # Create mock storage
+        mock_storage = Mock()
+        mock_storage.delete = AsyncMock(return_value=True)
+        
+        # Create service with mock storage
+        from app.application.services import UploadService
+        service = UploadService(
+            photo_repository=mock_photo_repo,
+            storage=mock_storage
+        )
+        
         # Act
-        result = upload_service.delete_photo("nonexistent")
+        result = await service.delete_photo("nonexistent")
         
         # Assert
         assert result is False
         mock_photo_repo.delete.assert_not_called()
+        mock_storage.delete.assert_not_called()
     
-    def test_delete_album_success(self, upload_service, mock_photo_repo, tmp_path):
+    @pytest.mark.asyncio
+    async def test_delete_album_success(self, mock_photo_repo):
         """Test deleting an album with photos."""
+        from unittest.mock import AsyncMock
+        
         # Arrange
         album_id = "album-uuid-123"
         mock_photo_repo.delete_album_with_photos.return_value = [
@@ -584,21 +599,25 @@ class TestUploadService:
             {"id": "photo-2", "filename": "photo-2.jpg"}
         ]
         
-        # Create dummy files
-        for photo_id in ["photo-1", "photo-2"]:
-            (upload_service.uploads_dir / f"{photo_id}.jpg").write_text("dummy")
-            (upload_service.thumbnails_dir / f"{photo_id}.jpg").write_text("dummy")
+        # Create mock storage
+        mock_storage = Mock()
+        mock_storage.delete = AsyncMock(return_value=True)
+        
+        # Create service with mock storage
+        from app.application.services import UploadService
+        service = UploadService(
+            photo_repository=mock_photo_repo,
+            storage=mock_storage
+        )
         
         # Act
-        photo_count, album_count = upload_service.delete_album(album_id)
+        photo_count, album_count = await service.delete_album(album_id)
         
         # Assert
         assert photo_count == 2
         assert album_count == 1
-        # Files should be deleted
-        for photo_id in ["photo-1", "photo-2"]:
-            assert not (upload_service.uploads_dir / f"{photo_id}.jpg").exists()
-            assert not (upload_service.thumbnails_dir / f"{photo_id}.jpg").exists()
+        # Storage delete should be called for each photo (2 photos * 2 files each = 4 calls)
+        assert mock_storage.delete.call_count == 4
     
     def test_validate_file_rejects_empty(self, upload_service):
         """Test that empty file is rejected."""

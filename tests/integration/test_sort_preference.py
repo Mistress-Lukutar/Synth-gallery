@@ -28,7 +28,7 @@ class TestSortPreferenceAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert data["sort"] == "taken"
+        assert data["sort_by"] == "taken"
     
     def test_retrieve_saved_sort_preference(
         self,
@@ -36,7 +36,7 @@ class TestSortPreferenceAPI:
         test_folder: str,
         csrf_token: str
     ):
-        """Saved sort preference is returned by folder content API."""
+        """Saved sort preference can be retrieved via dedicated endpoint."""
         # Save preference
         authenticated_client.put(
             f"/api/folders/{test_folder}/sort",
@@ -44,12 +44,12 @@ class TestSortPreferenceAPI:
             headers={"X-CSRF-Token": csrf_token}
         )
         
-        # Get folder content
-        response = authenticated_client.get(f"/api/folders/{test_folder}/content")
+        # Get sort preference via dedicated endpoint
+        response = authenticated_client.get(f"/api/folders/{test_folder}/sort")
         
         assert response.status_code == 200
         data = response.json()
-        assert data.get("sort") == "taken"
+        assert data.get("sort_by") == "taken"
     
     def test_default_sort_preference_is_uploaded(
         self,
@@ -63,11 +63,12 @@ class TestSortPreferenceAPI:
         folder_repo = FolderRepository(db_connection)
         folder_id = folder_repo.create("NoPrefFolder", test_user["id"])
         
-        response = authenticated_client.get(f"/api/folders/{folder_id}/content")
+        # Get sort preference via dedicated endpoint
+        response = authenticated_client.get(f"/api/folders/{folder_id}/sort")
         
         assert response.status_code == 200
         data = response.json()
-        assert data.get("sort") == "uploaded"
+        assert data.get("sort_by") == "uploaded"
     
     def test_sort_preference_is_per_folder(
         self,
@@ -95,12 +96,12 @@ class TestSortPreferenceAPI:
             headers={"X-CSRF-Token": csrf_token}
         )
         
-        # Verify each folder has correct preference
-        resp1 = authenticated_client.get(f"/api/folders/{folder1}/content")
-        resp2 = authenticated_client.get(f"/api/folders/{folder2}/content")
+        # Verify each folder has correct preference via dedicated endpoint
+        resp1 = authenticated_client.get(f"/api/folders/{folder1}/sort")
+        resp2 = authenticated_client.get(f"/api/folders/{folder2}/sort")
         
-        assert resp1.json().get("sort") == "taken"
-        assert resp2.json().get("sort") == "uploaded"
+        assert resp1.json().get("sort_by") == "taken"
+        assert resp2.json().get("sort_by") == "uploaded"
     
     def test_invalid_sort_option_rejected(
         self,

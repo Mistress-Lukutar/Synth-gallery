@@ -161,12 +161,17 @@ class UserSettingsService:
             folder_id: Folder ID
             
         Returns:
-            Sort preference ('uploaded_at' or 'taken_at')
+            Sort preference ('uploaded' or 'taken')
         """
         if not self.user_repo:
-            return "uploaded_at"
+            return "uploaded"
         sort = self.user_repo.get_sort_preference(user_id, folder_id)
-        return sort if sort else "uploaded_at"
+        # Map database values to API values
+        if sort == "uploaded_at":
+            return "uploaded"
+        if sort == "taken_at":
+            return "taken"
+        return sort if sort else "uploaded"
     
     def set_sort_preference(self, user_id: int, folder_id: str, sort_by: str) -> bool:
         """Set sort preference for a folder.
@@ -174,13 +179,19 @@ class UserSettingsService:
         Args:
             user_id: User ID
             folder_id: Folder ID
-            sort_by: Sort field ('uploaded_at' or 'taken_at')
+            sort_by: Sort field ('uploaded' or 'taken')
             
         Returns:
             True if successful
         """
-        if sort_by not in ("uploaded_at", "taken_at"):
+        if sort_by not in ("uploaded", "taken"):
             raise HTTPException(status_code=400, detail="Invalid sort option")
+        
+        # Map API values to database values
+        if sort_by == "uploaded":
+            sort_by = "uploaded_at"
+        elif sort_by == "taken":
+            sort_by = "taken_at"
         
         if not self.user_repo:
             raise HTTPException(status_code=500, detail="UserRepository not configured")

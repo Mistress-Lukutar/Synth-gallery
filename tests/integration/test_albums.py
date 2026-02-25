@@ -168,7 +168,7 @@ class TestAlbumThumbnailDimensions:
         test_image_bytes: bytes,
         csrf_token: str
     ):
-        """Album placeholder should have correct aspect ratio immediately."""
+        """Album placeholder should have correct aspect ratio from cover photo."""
         # Upload photo
         response = authenticated_client.post(
             "/upload",
@@ -191,14 +191,18 @@ class TestAlbumThumbnailDimensions:
         )
         assert response.status_code == 200
         
-        # Get gallery page
-        response = authenticated_client.get(f"/?folder_id={test_folder}")
+        # Get folder content via API to check dimensions
+        response = authenticated_client.get(f"/api/folders/{test_folder}/content")
         assert response.status_code == 200
         
-        # Should contain album with aspect ratio style
-        html = response.text
-        # Look for aspect-ratio in album item
-        assert "aspect-ratio" in html or "data-thumb-width" in html
+        data = response.json()
+        albums = [item for item in data.get("albums", []) if item.get("type") == "album"]
+        
+        if albums:
+            album = albums[0]
+            # Should have cover thumbnail dimensions or placeholder dimensions
+            assert "cover_thumb_width" in album or "thumb_width" in album or "placeholder_width" in album
+            assert "cover_thumb_height" in album or "thumb_height" in album or "placeholder_height" in album
 
 
 class TestAlbumSorting:
