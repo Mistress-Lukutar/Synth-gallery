@@ -219,7 +219,8 @@
         if (!container) return;
         
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}/photos`);
+            // Use main album endpoint which includes photos
+            const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
             if (!resp.ok) throw new Error('Failed to load photos');
             
             const data = await resp.json();
