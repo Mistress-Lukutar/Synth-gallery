@@ -151,7 +151,7 @@
             </div>
             <div class="stat-card {% if stats.missing_thumbnails > 0 %}warning{% endif %}">
                 <div class="stat-value">{{ stats.missing_thumbnails }}</div>
-                <div class="stat-label">Missing Thumbnails</div>
+                <div class="stat-label">Missing Thumbnails{% if stats.missing_dimensions > 0 %} / Dimensions{% endif %}</div>
             </div>
             <div class="stat-card {% if stats.orphaned_thumbnails > 0 %}warning{% endif %}">
                 <div class="stat-value">{{ stats.orphaned_thumbnails }}</div>
@@ -172,10 +172,13 @@
                 Regenerate Missing Thumbnails
             </h2>
             <p>
-                Recreate thumbnails for photos that are missing them. This happens automatically
-                when viewing photos, but you can regenerate all at once here.
+                Recreate thumbnails for photos that are missing them and update dimension information.
                 {% if stats.missing_thumbnails > 0 %}
-                <strong>{{ stats.missing_thumbnails }} thumbnails need regeneration.</strong>
+                <strong>{{ stats.missing_thumbnails }} thumbnails need attention</strong>
+                    {%- if stats.missing_dimensions > 0 %} ({{ stats.missing_dimensions }} missing dimensions){% endif -%}
+                    {%- if stats.encrypted_no_dek > 0 %} ({{ stats.encrypted_no_dek }} encrypted - need unlock){% endif -%}.
+                {% else %}
+                All thumbnails are up to date.
                 {% endif %}
             </p>
             <div class="section-actions">
@@ -259,9 +262,20 @@
 
                 const data = await resp.json();
                 result.className = 'result-message success';
-                result.textContent = `Regenerated ${data.regenerated}, failed ${data.failed}, skipped ${data.skipped_no_original} (no original)`;
+                let msg = `Regenerated: ${data.regenerated}`;
+                if (data.dimensions_updated > 0) {
+                    msg += `, Dimensions fixed: ${data.dimensions_updated}`;
+                }
+                msg += `, Failed: ${data.failed}`;
+                if (data.skipped_no_original > 0) {
+                    msg += `, No original: ${data.skipped_no_original}`;
+                }
+                if (data.skipped_encrypted > 0) {
+                    msg += `, Encrypted (no DEK): ${data.skipped_encrypted}`;
+                }
+                result.textContent = msg;
 
-                setTimeout(() => location.reload(), 2000);
+                setTimeout(() => location.reload(), 3000);
             } catch (err) {
                 result.className = 'result-message error';
                 result.textContent = 'Error: ' + err.message;
