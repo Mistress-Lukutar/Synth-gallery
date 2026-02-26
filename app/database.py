@@ -440,4 +440,10 @@ def init_db():
             SELECT ?, id FROM tag_categories WHERE name = ?
         """, (tag_name, category_name))
 
+    # Migration: Add content_type column for extension-less storage (Issue #22)
+    try:
+        db.execute("ALTER TABLE photos ADD COLUMN content_type TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     db.commit()

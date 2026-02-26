@@ -81,13 +81,20 @@ class UploadService:
         # Determine media type
         media_type = self._get_media_type(file, is_safe)
         
-        # Generate unique filename
+        # Generate unique filename (extension-less storage)
         photo_id = str(uuid.uuid4())
+        filename = photo_id  # No extension - stored in DB as content_type
         ext = Path(file.filename).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
-        filename = f"{photo_id}{ext}"
         
         # Read file content
         file_content = await file.read()
+        
+        # Validate file content (protect against fake extensions)
+        if not is_safe and not self._validate_file_content(file_content, media_type):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File content does not match {media_type} format"
+            )
         
         # Process based on upload type
         if is_safe:
@@ -114,7 +121,8 @@ class UploadService:
             taken_at=taken_at,
             is_encrypted=is_encrypted,
             thumb_width=thumb_w,
-            thumb_height=thumb_h
+            thumb_height=thumb_h,
+            content_type=file.content_type or ("video/mp4" if media_type == "video" else "image/jpeg")
         )
         
         return {
@@ -150,6 +158,54 @@ class UploadService:
                     detail="Images and videos only (jpg, png, gif, webp, mp4, webm)"
                 )
     
+    def _validate_file_content(self, content: bytes, expected_media_type: str) -> bool:
+        """Validate file content by checking magic bytes.
+        
+        Protects against uploading PHP scripts disguised as images.
+        
+        Args:
+            content: File bytes
+            expected_media_type: 'image' or 'video'
+            
+        Returns:
+            True if content is valid for media type
+        """
+        if len(content) < 8:
+            return False
+        
+        # Image magic bytes
+        image_signatures = [
+            (b'\xff\xd8', 'jpg'),           # JPEG
+            (b'\x89PNG\r\n\x1a\n', 'png'),   # PNG
+            (b'GIF87a', 'gif'),             # GIF
+            (b'GIF89a', 'gif'),             # GIF
+            (b'RIFF', 'webp'),              # WebP (starts with RIFF)
+        ]
+        
+        # Video magic bytes
+        video_signatures = [
+            (b'\x00\x00\x00\x20ftyp', 'mp4'),  # MP4 (ftyp marker)
+            (b'\x00\x00\x00\x18ftyp', 'mp4'),  # MP4 variant
+            (b'\x1aE\xdf\xa3', 'webm'),       # WebM (matroska)
+        ]
+        
+        if expected_media_type == 'image':
+            for sig, _ in image_signatures:
+                if content[:len(sig)] == sig:
+                    return True
+            # WebP check (RIFF....WEBP)
+            if content[:4] == b'RIFF' and b'WEBP' in content[:20]:
+                return True
+        elif expected_media_type == 'video':
+            for sig, _ in video_signatures:
+                if content[:len(sig)] == sig:
+                    return True
+            # Check for mp4/mov ftyp marker
+            if b'ftyp' in content[:20]:
+                return True
+        
+        return False
+    
     def _get_media_type(self, file: UploadFile, is_safe: bool = False) -> str:
         """Determine media type from file."""
         if is_safe:
@@ -172,28 +228,26 @@ class UploadService:
         Args:
             photo_id: Photo UUID
             file_content: Encrypted file content
-            ext: Original file extension (e.g., '.png', '.jpg')
+            ext: Original file extension (for EXIF extraction only)
             client_thumbnail: Optional client-provided thumbnail
             thumb_dimensions: Thumbnail width and height
             
         Returns:
             Tuple of (taken_at, thumb_width, thumb_height)
         """
-        filename = f"{photo_id}{ext}"
-        
-        # Save encrypted file using storage backend
+        # Save encrypted file using storage backend (extension-less)
         await self.storage.upload(
-            file_id=filename,
+            file_id=photo_id,
             content=file_content,
             folder="uploads"
         )
         
-        # Save client-provided thumbnail if available
+        # Save client-provided thumbnail if available (extension-less)
         thumb_w, thumb_h = thumb_dimensions
         if client_thumbnail:
             thumb_content = await client_thumbnail.read()
             await self.storage.upload(
-                file_id=f"{photo_id}.jpg",
+                file_id=photo_id,
                 content=thumb_content,
                 folder="thumbnails"
             )
@@ -210,6 +264,13 @@ class UploadService:
     ) -> Tuple[datetime, int, int]:
         """Process regular (non-safe) upload with server-side processing.
         
+        Args:
+            photo_id: Photo UUID
+            file_content: File bytes
+            ext: Original file extension (for EXIF extraction only)
+            media_type: 'image' or 'video'
+            user_dek: Optional DEK for server-side encryption
+            
         Returns:
             Tuple of (taken_at, thumb_width, thumb_height)
         """
@@ -221,33 +282,31 @@ class UploadService:
             file_content, media_type
         )
         
-        # Save files (encrypted if DEK available)
-        filename = f"{photo_id}{ext}"
-        
+        # Save files (encrypted if DEK available) - extension-less storage
         if user_dek:
             # Encrypt with user's DEK
             encrypted_content = EncryptionService.encrypt_file(file_content, user_dek)
             encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, user_dek)
             
             await self.storage.upload(
-                file_id=filename,
+                file_id=photo_id,
                 content=encrypted_content,
                 folder="uploads"
             )
             await self.storage.upload(
-                file_id=f"{photo_id}.jpg",
+                file_id=photo_id,
                 content=encrypted_thumb,
                 folder="thumbnails"
             )
         else:
             # Save unencrypted
             await self.storage.upload(
-                file_id=filename,
+                file_id=photo_id,
                 content=file_content,
                 folder="uploads"
             )
             await self.storage.upload(
-                file_id=f"{photo_id}.jpg",
+                file_id=photo_id,
                 content=thumb_bytes,
                 folder="thumbnails"
             )
@@ -453,9 +512,9 @@ class UploadService:
         if not photo:
             return False
         
-        # Delete files from storage
+        # Delete files from storage (extension-less)
         await self.storage.delete(photo["filename"], folder="uploads")
-        await self.storage.delete(f"{photo_id}.jpg", folder="thumbnails")
+        await self.storage.delete(photo_id, folder="thumbnails")
         
         # Delete from database
         self.photo_repo.delete(photo_id)
@@ -475,9 +534,9 @@ class UploadService:
         
         deleted_photos = 0
         for photo in photos:
-            # Delete photo files from storage
+            # Delete photo files from storage (extension-less)
             await self.storage.delete(photo["filename"], folder="uploads")
-            await self.storage.delete(f"{photo['id']}.jpg", folder="thumbnails")
+            await self.storage.delete(photo["id"], folder="thumbnails")
             deleted_photos += 1
         
         return deleted_photos, 1
@@ -504,7 +563,7 @@ class UploadService:
         media_type = get_media_type(file.content_type)
         photo_id = str(uuid.uuid4())
         ext = Path(original_name).suffix.lower() or (".mp4" if media_type == "video" else ".jpg")
-        filename = f"{photo_id}{ext}"
+        filename = photo_id  # Extension-less storage
         
         # Read file content
         file_content = await file.read()
@@ -531,7 +590,8 @@ class UploadService:
         except Exception:
             return None
         
-        # Save files to storage (encrypted if DEK available)
+        # Save files to storage (encrypted if DEK available, extension-less)
+        content_type = file.content_type or ("video/mp4" if media_type == "video" else "image/jpeg")
         if is_encrypted:
             encrypted_content = EncryptionService.encrypt_file(file_content, user_dek)
             encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, user_dek)
@@ -541,7 +601,7 @@ class UploadService:
                 folder="uploads"
             )
             await self.storage.upload(
-                file_id=f"{photo_id}.jpg",
+                file_id=photo_id,
                 content=encrypted_thumb,
                 folder="thumbnails"
             )
@@ -552,7 +612,7 @@ class UploadService:
                 folder="uploads"
             )
             await self.storage.upload(
-                file_id=f"{photo_id}.jpg",
+                file_id=photo_id,
                 content=thumb_bytes,
                 folder="thumbnails"
             )
@@ -570,7 +630,8 @@ class UploadService:
             taken_at=taken_at,
             is_encrypted=is_encrypted,
             thumb_width=thumb_w,
-            thumb_height=thumb_h
+            thumb_height=thumb_h,
+            content_type=content_type
         )
         
         return photo_id

@@ -39,7 +39,8 @@ class TestSingleFileUpload:
         assert "id" in data
         assert "filename" in data
         assert data["media_type"] == "image"
-        assert data["filename"].endswith(".jpg")
+        # Extension-less storage: filename is just the UUID
+        assert data["filename"] == data["id"]
     
     def test_upload_with_encryption_enabled(
         self,
@@ -227,7 +228,8 @@ class TestFileRetrieval:
         uploaded_photo: dict
     ):
         """Thumbnail should be generated and retrievable."""
-        thumbnail_name = f"{uploaded_photo['id']}.jpg"
+        # Extension-less storage: thumbnail name is just the photo ID
+        thumbnail_name = uploaded_photo['id']
         response = authenticated_client.get(f"/thumbnails/{thumbnail_name}")
         
         assert response.status_code == 200

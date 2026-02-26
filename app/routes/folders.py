@@ -160,7 +160,7 @@ def delete_folder_route(request: Request, folder_id: str):
     for filename in filenames:
         file_path = UPLOADS_DIR / filename
         photo_id = Path(filename).stem
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less
         file_path.unlink(missing_ok=True)
         thumb_path.unlink(missing_ok=True)
     

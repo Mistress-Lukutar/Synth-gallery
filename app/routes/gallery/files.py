@@ -18,8 +18,14 @@ router = APIRouter()
 storage = get_storage()
 
 
-def _decrypt_file_response(file_path: Path, dek: bytes, filename: str) -> Response:
-    """Decrypt file and return as Response."""
+def _decrypt_file_response(file_path: Path, dek: bytes, content_type: str = None) -> Response:
+    """Decrypt file and return as Response.
+    
+    Args:
+        file_path: Path to encrypted file
+        dek: Data Encryption Key
+        content_type: MIME type (e.g., 'image/jpeg'), auto-detected if None
+    """
     with open(file_path, "rb") as f:
         encrypted_data = f.read()
 
@@ -28,13 +34,9 @@ def _decrypt_file_response(file_path: Path, dek: bytes, filename: str) -> Respon
     except Exception:
         raise HTTPException(status_code=500, detail="Decryption failed")
 
-    ext = Path(filename).suffix.lower()
-    content_types = {
-        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-        ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
-        ".mp4": "video/mp4", ".webm": "video/webm"
-    }
-    content_type = content_types.get(ext, "application/octet-stream")
+    # Default to JPEG if content_type not provided
+    if not content_type:
+        content_type = "image/jpeg"
 
     return Response(content=decrypted_data, media_type=content_type)
 
@@ -83,6 +85,7 @@ async def get_upload(request: Request, filename: str):
             raise HTTPException(status_code=403, detail="Access denied")
 
         photo = photo_repo.get_by_id(photo_id)
+        content_type = photo.get("content_type") if photo else "image/jpeg"
         
         # Handle safe files (end-to-end encrypted)
         if photo and photo.get("safe_id"):
@@ -94,7 +97,7 @@ async def get_upload(request: Request, filename: str):
                     # For local storage, decrypt and return
                     if isinstance(storage, LocalStorage):
                         file_path = storage.get_path(filename, "uploads")
-                        return _decrypt_file_response(file_path, dek, filename)
+                        return _decrypt_file_response(file_path, dek, content_type)
                     # For S3, client needs to download and decrypt
                 except HTTPException:
                     pass  # Client-encrypted file
@@ -131,21 +134,13 @@ async def get_upload(request: Request, filename: str):
 
             if isinstance(storage, LocalStorage):
                 file_path = storage.get_path(filename, "uploads")
-                return _decrypt_file_response(file_path, dek, filename)
+                return _decrypt_file_response(file_path, dek, content_type)
             else:
                 # For S3, we need to download, decrypt and return
                 # This is inefficient but necessary for server-side encryption
                 encrypted_data = await storage.download(filename, "uploads")
                 decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
-                
-                ext = Path(filename).suffix.lower()
-                content_types = {
-                    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                    ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp",
-                    ".mp4": "video/mp4", ".webm": "video/webm"
-                }
-                content_type = content_types.get(ext, "application/octet-stream")
-                return Response(content=decrypted_data, media_type=content_type)
+                return Response(content=decrypted_data, media_type=content_type or "image/jpeg")
 
         # Regular file - use storage backend
         return await _get_file_response(filename, "uploads")

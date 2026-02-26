@@ -716,15 +716,8 @@
             currentPhotoId = photoId;
             window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
             
-            // Render media - use original extension from filename
-            let ext = '.jpg';
-            if (photo.filename) {
-                const match = photo.filename.match(/\.([^.]+)$/);
-                if (match) ext = '.' + match[1].toLowerCase();
-            } else if (photo.original_name) {
-                const match = photo.original_name.match(/\.([^.]+)$/);
-                if (match) ext = '.' + match[1].toLowerCase();
-            }
+            // Render media - extension-less storage (no ext in URL)
+            const ext = '';
             
             // Progressive loading: thumbnail first, then full image
             const isSafeFile = photo.safe_id && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(photo.safe_id);
@@ -755,7 +748,7 @@
                 // Images: show thumbnail first, then load full image
                 const thumbUrl = isSafeFile 
                     ? null // Safe thumbnails handled differently
-                    : `${getBaseUrl()}/thumbnails/${photoId}.jpg`;
+                    : `${getBaseUrl()}/thumbnails/${photoId}`;
                 const fullUrl = isSafeFile
                     ? `${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`
                     : `${getBaseUrl()}/uploads/${photoId}${ext}`;

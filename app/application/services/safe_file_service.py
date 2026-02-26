@@ -193,7 +193,7 @@ class SafeFileService:
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Check if thumbnail exists
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less
         
         if not thumb_path.exists():
             # Thumbnail missing - check if safe is unlocked (client can regenerate)
@@ -285,7 +285,7 @@ class SafeFileService:
             )
         
         # Save the encrypted thumbnail
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less
         
         with open(thumb_path, "wb") as f:
             f.write(thumbnail_content)

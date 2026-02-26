@@ -274,8 +274,8 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
 
             old_upload = UPLOADS_DIR / old_filename
             new_upload = UPLOADS_DIR / new_filename
-            old_thumb = THUMBNAILS_DIR / f"{Path(old_filename).stem}.jpg"
-            new_thumb = THUMBNAILS_DIR / f"{new_photo_id}.jpg"
+            old_thumb = THUMBNAILS_DIR / Path(old_filename).stem  # Extension-less
+            new_thumb = THUMBNAILS_DIR / new_photo_id  # Extension-less
 
             try:
                 if not _copy_and_reencrypt_file(
