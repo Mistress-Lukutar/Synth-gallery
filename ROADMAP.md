@@ -15,7 +15,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🔴 Critical | [#14](https://github.com/Nate-go/Synth-Gallery/issues/14) | God Module - Repository Pattern | Large  | ✅ **DONE**     |
 | 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | ~~Async Database (aiosqlite)~~  | Medium | ❌ **REVERTED** |
 | 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
-| 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | 🔲 Planned     |
+| 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | ✅ **DONE**     |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
@@ -328,83 +328,75 @@ The Album entity has grown beyond a simple "container for photos" with excessive
 
 ---
 
-### Issue #22 Part B: File Extension Cleanup 🟡
+### Issue #22 Part B: File Extension Cleanup 🟡 ✅
+
+**Status:** **COMPLETED** - 2026-02-27
 
 **Problem:**
-Files are stored with their original extensions, creating complexity:
+Files stored with extensions caused complexity and security issues:
+- Extension parsing in paths: `f"{photo_id}.{ext}"`
+- MIME detection from extension (unreliable)
+- Security: PHP scripts disguised as .jpg
+- Inconsistent: uploads have ext, thumbnails forced to .jpg
 
-```python
-# Current implementation issues:
-1. Photo record: {"filename": "abc123.jpg", "id": "abc123"}
-2. Thumbnail: "abc123.jpg" (same stem, different folder)
-3. Extension validation needed everywhere
-4. Path construction: UPLOADS_DIR / f"{photo_id}.{ext}"
-5. MIME type detection from extension
-6. Security: .php uploads disguised as .jpg
-```
-
-**Proposed Solution: Extension-less Storage**
+**Solution Implemented:**
 ```
 Before: uploads/abc123.jpg + thumbnails/abc123.jpg
-After:  uploads/abc123 + thumbnails/abc123
+After:  uploads/abc123       + thumbnails/abc123
 ```
 
-**Benefits:**
+**Changes Made:**
+
+1. **Database:**
+   - Added `content_type` column to photos table
+   - Migration in `init_db()` for existing databases
+
+2. **UploadService:**
+   - Filename = photo_id (no extension)
+   - Thumbnail = photo_id (no .jpg)
+   - `content_type` from UploadFile stored in DB
+   - Added `_validate_file_content()` for magic bytes verification
+
+3. **Frontend:**
+   - All JS files updated to use extension-less URLs
+   - `/thumbnails/${photoId}` instead of `${photoId}.jpg`
+   - `/uploads/${photoId}` instead of `${photoId}${ext}`
+
+4. **Security:**
+   - Magic bytes validation prevents spoofing
+   - PHP/HTML/EXE disguised as images rejected
+   - 12 security tests added, all passing
+
+**Benefits Achieved:**
 | Aspect | Before | After |
 |--------|--------|-------|
 | Storage key | `f"{id}.{ext}"` | `id` (simpler) |
 | Thumbnail key | `f"{id}.jpg"` | `id` (consistent) |
-| Extension validation | Required on every access | Once at upload |
-| MIME detection | From extension | From content-type (DB) |
-| Security risk | Extension spoofing | Eliminated |
+| MIME detection | From extension | From DB (reliable) |
+| Security | Extension spoofing risk | Magic bytes validation |
 | Code complexity | High (path parsing) | Low (direct ID) |
 
-**Implementation Plan:**
+**Migration:**
+- New uploads: extension-less
+- Existing: use `scripts/migrate_extensions.py`
+- Thumbnails: regenerate via admin panel
 
-1. **Database Migration:**
-   ```sql
-   -- Add content_type column to photos
-   ALTER TABLE photos ADD COLUMN content_type TEXT;
-   ALTER TABLE photos ADD COLUMN original_filename TEXT; -- For download
-   ```
+**Tests:**
+- 12 upload tests passing
+- 12 security/spoofing tests passing
+- Total: 24 new tests
 
-2. **Storage Layer:**
-   ```python
-   # Current
-   await storage.upload(f"{photo_id}.jpg", content, "uploads")
-   
-   # Proposed
-   await storage.upload(photo_id, content, "uploads", content_type="image/jpeg")
-   ```
-
-3. **File Serving:**
-   ```python
-   # MIME type from DB, not extension
-   photo = photo_repo.get_by_id(photo_id)
-   return Response(content, media_type=photo["content_type"])
-   ```
-
-4. **Migration Strategy:**
-   - New uploads: extension-less
-   - Existing files: keep as-is, migrate on access
-   - Or: one-time migration script
-
-**Trade-offs:**
-
-| Pros | Cons |
-|------|------|
-| Simpler code | Breaking change for external tools |
-| Better security | Migration effort |
-| Consistent naming | Original filename lost (need DB column) |
-| No extension validation needed | |
-
-**Decision:** ✅ **RECOMMENDED** - Implement as part of Issue #22
-
-**Files to Modify:**
-- `app/infrastructure/storage/*` - simplify key generation
-- `app/application/services/upload_service.py` - remove extension handling
+**Files Modified:**
+- `app/database.py` - content_type column
+- `app/infrastructure/repositories/photo_repository.py` - create() updated
+- `app/infrastructure/services/thumbnail.py` - extension-less paths
+- `app/application/services/upload_service.py` - no ext, magic validation
+- `app/application/services/safe_file_service.py` - no ext
+- `app/routes/folders.py` - thumbnail paths
+- `app/routes/gallery/photos.py` - thumbnail paths
 - `app/routes/gallery/files.py` - MIME from DB
-- `app/database.py` - add content_type column
+- `app/static/js/*` - extension-less URLs
+- `scripts/migrate_extensions.py` - migration script
 
 ---
 
