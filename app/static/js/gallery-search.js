@@ -277,7 +277,7 @@
                 } else if (coverId) {
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <img src="${getBaseUrl()}/thumbnails/${coverId}.jpg" 
+                        <img src="${getBaseUrl()}/thumbnails/${coverId}" 
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
@@ -369,7 +369,7 @@
                              ${safeIdAttr}>
                             <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                                 <div class="gallery-placeholder"></div>
-                                <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" 
+                                <img src="${getBaseUrl()}/thumbnails/${photo.id}" 
                                      alt="${escapeHtml(photo.original_name)}"
                                      loading="lazy"
                                      onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"

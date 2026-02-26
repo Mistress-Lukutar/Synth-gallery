@@ -36,7 +36,7 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     if not original_path.exists():
         return False
 
-    thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+    thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less storage
 
     # Handle encrypted files
     if photo["is_encrypted"]:
@@ -100,12 +100,13 @@ def cleanup_orphaned_thumbnails() -> dict:
     orphaned = []
     kept = 0
 
-    for thumb_file in THUMBNAILS_DIR.glob("*.jpg"):
-        photo_id = thumb_file.stem
-        if photo_id not in valid_photo_ids:
-            orphaned.append(thumb_file)
-        else:
-            kept += 1
+    for thumb_file in THUMBNAILS_DIR.iterdir():
+        if thumb_file.is_file():
+            photo_id = thumb_file.stem
+            if photo_id not in valid_photo_ids:
+                orphaned.append(thumb_file)
+            else:
+                kept += 1
 
     # Delete orphaned thumbnails
     deleted = 0
@@ -174,7 +175,7 @@ def regenerate_missing_thumbnails() -> dict:
     already_exists_with_dims = 0
 
     for photo in photos:
-        thumb_path = THUMBNAILS_DIR / f"{photo['id']}.jpg"
+        thumb_path = THUMBNAILS_DIR / photo['id']  # Extension-less
         original_path = UPLOADS_DIR / photo["filename"]
 
         if not original_path.exists():
@@ -331,7 +332,7 @@ def get_thumbnail_stats() -> dict:
     encrypted_no_dek = 0  # Encrypted files where we can't check dimensions
 
     for photo in photos:
-        thumb_path = THUMBNAILS_DIR / f"{photo['id']}.jpg"
+        thumb_path = THUMBNAILS_DIR / photo['id']  # Extension-less
         original_path = UPLOADS_DIR / photo["filename"]
 
         if not original_path.exists():
@@ -352,18 +353,18 @@ def get_thumbnail_stats() -> dict:
     orphaned_thumbnails = 0
     orphaned_size = 0
 
-    for thumb_file in THUMBNAILS_DIR.glob("*.jpg"):
-        if thumb_file.stem not in valid_photo_ids:
-            orphaned_thumbnails += 1
-            try:
-                orphaned_size += thumb_file.stat().st_size
-            except Exception:
-                pass
+    for thumb_file in THUMBNAILS_DIR.iterdir():
+        if thumb_file.is_file():
+            if thumb_file.stem not in valid_photo_ids:
+                orphaned_thumbnails += 1
+                try:
+                    orphaned_size += thumb_file.stat().st_size
+                except Exception:
+                    pass
 
     # Total thumbnail directory size
     total_thumb_size = sum(
-        f.stat().st_size for f in THUMBNAILS_DIR.glob("*.jpg")
-        if f.is_file()
+        f.stat().st_size for f in THUMBNAILS_DIR.iterdir() if f.is_file()
     )
 
     return {

@@ -43,12 +43,13 @@ class PhotoRepository(Repository):
         is_encrypted: bool = False,
         thumb_width: int = None,
         thumb_height: int = None,
-        safe_id: str = None
+        safe_id: str = None,
+        content_type: str = None
     ) -> str:
         """Create new photo record.
         
         Args:
-            filename: Stored filename (UUID + ext)
+            filename: Stored filename (UUID, no extension)
             folder_id: Parent folder ID
             user_id: Uploading user ID
             photo_id: Optional photo UUID (generated if not provided)
@@ -61,6 +62,7 @@ class PhotoRepository(Repository):
             thumb_width: Thumbnail width
             thumb_height: Thumbnail height
             safe_id: Safe ID (if in encrypted safe)
+            content_type: MIME type (e.g., 'image/jpeg', 'video/mp4')
             
         Returns:
             New photo UUID
@@ -72,12 +74,13 @@ class PhotoRepository(Repository):
             """INSERT INTO photos 
                (id, filename, original_name, folder_id, user_id,
                 media_type, album_id, position, taken_at,
-                is_encrypted, thumb_width, thumb_height, safe_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                is_encrypted, thumb_width, thumb_height, safe_id, content_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 photo_id, filename, original_name, folder_id, user_id,
                 media_type, album_id, position, taken_at,
-                1 if is_encrypted else 0, thumb_width, thumb_height, safe_id
+                1 if is_encrypted else 0, thumb_width, thumb_height, safe_id,
+                content_type
             )
         )
         self._commit()

@@ -256,7 +256,7 @@
                 const isCover = photo.id === effectiveCoverId;
                 return `
                     <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-photo-id="${photo.id}" draggable="true" data-index="${index}" onclick="handlePhotoClick(event, '${photo.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
-                        <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" alt="${escapeHtml(photo.filename || '')}">
+                        <img src="${getBaseUrl()}/thumbnails/${photo.id}" alt="${escapeHtml(photo.filename || '')}">
                         <button class="remove-btn" onclick="removePhotoFromAlbum(event, '${photo.id}')" title="Remove from album">&times;</button>
                     </div>
                 `;
@@ -403,7 +403,7 @@
             <div class="available-photo-item ${selectedPhotosForAlbum.has(photo.id) ? 'selected' : ''}" 
                  data-photo-id="${photo.id}"
                  onclick="togglePhotoForAlbum('${photo.id}')">
-                <img src="${getBaseUrl()}/thumbnails/${photo.id}.jpg" alt="${escapeHtml(photo.original_name || '')}">
+                <img src="${getBaseUrl()}/thumbnails/${photo.id}" alt="${escapeHtml(photo.original_name || '')}">
             </div>
         `).join('');
     }

@@ -26,7 +26,7 @@
                 // Check if safe is unlocked via SafeCrypto
                 if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(safeId)) {
                     // Fetch encrypted thumbnail
-                    const resp = await fetch(`${getBaseUrl()}/thumbnails/${photoId}.jpg?safe=${safeId}`);
+                    const resp = await fetch(`${getBaseUrl()}/thumbnails/${photoId}?safe=${safeId}`);
                     if (resp.ok) {
                         const encryptedBlob = await resp.blob();
                         
