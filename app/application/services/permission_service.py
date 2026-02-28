@@ -68,6 +68,13 @@ class PermissionService:
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
         
+        # Security: Cannot share folders from a safe
+        if folder.get("safe_id"):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot share folders from a safe"
+            )
+        
         if folder["user_id"] != granted_by:
             raise HTTPException(
                 status_code=403,
@@ -146,6 +153,13 @@ class PermissionService:
         folder = self.folder_repo.get_by_id(folder_id)
         if not folder:
             raise HTTPException(status_code=404, detail="Folder not found")
+        
+        # Security: Cannot modify permissions for folders from a safe
+        if folder.get("safe_id"):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot share folders from a safe"
+            )
         
         if folder["user_id"] != updated_by:
             raise HTTPException(
