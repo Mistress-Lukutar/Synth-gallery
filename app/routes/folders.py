@@ -213,6 +213,12 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
     
     db = create_connection()
     try:
+        # Check if folder is in a safe - sharing safe folders is prohibited
+        folder_repo = FolderRepository(db)
+        folder = folder_repo.get_by_id(folder_id)
+        if folder and folder.get("safe_id"):
+            raise HTTPException(status_code=400, detail="Cannot share folders from a safe")
+        
         # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
@@ -247,6 +253,12 @@ def update_folder_permission_route(
     
     db = create_connection()
     try:
+        # Check if folder is in a safe - sharing safe folders is prohibited
+        folder_repo = FolderRepository(db)
+        folder = folder_repo.get_by_id(folder_id)
+        if folder and folder.get("safe_id"):
+            raise HTTPException(status_code=400, detail="Cannot share folders from a safe")
+        
         # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
