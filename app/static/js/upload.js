@@ -59,27 +59,30 @@
     };
 
     async function closeModal() {
-        // If uploading, abort and delete uploaded files
-        if (isUploading) {
-            if (abortController) {
-                abortController.abort();
-            }
+        // Abort ongoing upload
+        if (isUploading && abortController) {
+            abortController.abort();
+            isUploading = false;
+        }
+        
+        // Delete any uploaded files (even if upload completed, user may want to cancel)
+        if (uploadedFileIds.length > 0) {
+            if (progressText) progressText.textContent = 'Cleaning up...';
             
-            // Delete any uploaded files
-            if (uploadedFileIds.length > 0) {
-                progressText.textContent = 'Cancelling and cleaning up...';
-                for (const photoId of uploadedFileIds) {
-                    try {
-                        await csrfFetch(`${getBaseUrl()}/api/photos/${photoId}`, {
-                            method: 'DELETE'
-                        });
-                    } catch (e) {
-                        console.error('Failed to delete uploaded file:', e);
+            for (const photoId of uploadedFileIds) {
+                try {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/photos/batch-delete`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ photo_ids: [photoId], album_ids: [] })
+                    });
+                    if (!resp.ok) {
+                        console.error(`Failed to delete photo ${photoId}:`, resp.status);
                     }
+                } catch (e) {
+                    console.error('Failed to delete uploaded file:', e);
                 }
             }
-            
-            isUploading = false;
         }
         
         // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
@@ -665,19 +668,22 @@
 
                     const data = await resp.json();
                     uploadedIds = data.photos.map(p => p.id);
-                    progressFill.style.width = '100%';
+                    uploadedFileIds.push(...uploadedIds); // Track for potential deletion
+                    progressFill.style.width = '100%;'
 
                 } else {
-                    for (let i = 0; i < files.length; i++) {
-                        progressText.textContent = `Uploading ${i + 1}/${files.length}...`;
-                        progressFill.style.width = `${((i + 1) / files.length) * 100}%`;
+                    // Upload files in the order they appear in selectedFiles
+                    for (let i = 0; i < selectedFiles.length; i++) {
+                        const file = selectedFiles[i];
+                        progressText.textContent = `Uploading ${i + 1}/${selectedFiles.length}: ${file.name}...`;
+                        progressFill.style.width = `${((i + 1) / selectedFiles.length) * 100}%`;
 
                         const formData = new FormData();
 
                         if (targetSafeId) {
                             try {
-                                const encrypted = await encryptFileForSafeUpload(files[i], targetSafeId);
-                                const encryptedFile = new File([encrypted.encryptedFile], files[i].name, {
+                                const encrypted = await encryptFileForSafeUpload(file, targetSafeId);
+                                const encryptedFile = new File([encrypted.encryptedFile], file.name, {
                                     type: 'application/octet-stream'
                                 });
                                 formData.append('file', encryptedFile);
@@ -695,7 +701,7 @@
                                 throw new Error(`Encryption failed: ${encryptErr.message}`);
                             }
                         } else {
-                            formData.append('file', files[i]);
+                            formData.append('file', file);
                         }
 
                         formData.append('folder_id', targetFolderId);
@@ -752,6 +758,9 @@
                 progressText.textContent = 'Done!';
             }
 
+            // Clear uploadedFileIds on success so they won't be deleted when closing
+            uploadedFileIds = [];
+            
             // Close and refresh
             setTimeout(() => {
                 isUploading = false;
