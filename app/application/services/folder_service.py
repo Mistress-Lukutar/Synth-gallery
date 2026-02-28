@@ -76,7 +76,7 @@ class FolderService:
             raise HTTPException(status_code=500, detail="Safe repository not configured")
         
         # Verify safe exists and user owns it
-        safe = self.safe_repo.get_by_folder_id(safe_id)
+        safe = self.safe_repo.get_by_id(safe_id)
         if not safe:
             raise HTTPException(status_code=404, detail="Safe not found")
         
@@ -99,7 +99,8 @@ class FolderService:
         folder_id = self.folder_repo.create(
             name=name,
             user_id=user_id,
-            parent_id=parent_id
+            parent_id=parent_id,
+            safe_id=safe_id
         )
         
         return self.folder_repo.get_by_id(folder_id)

@@ -67,7 +67,6 @@ class SafeService:
         user_id: int,
         unlock_type: str,
         encrypted_dek_b64: str,
-        password: Optional[str] = None,
         salt_b64: Optional[str] = None,
         credential_id_b64: Optional[str] = None
     ) -> Dict:
@@ -77,10 +76,13 @@ class SafeService:
             name: Safe name
             user_id: Owner user ID
             unlock_type: 'password' or 'webauthn'
-            encrypted_dek_b64: Base64-encoded encrypted DEK
-            password: Password (required for password unlock)
+            encrypted_dek_b64: Base64-encoded encrypted DEK (client-side encrypted)
             salt_b64: Base64-encoded salt (required for password unlock)
             credential_id_b64: Base64-encoded credential ID (required for webauthn)
+            
+        Note:
+            Password is never sent to server (zero-trust architecture).
+            DEK is encrypted client-side before being sent.
             
         Returns:
             Created safe info dict
@@ -96,12 +98,9 @@ class SafeService:
             )
         
         # Validate based on unlock type
+        # Note: Password validation is done on client side (zero-trust)
+        # Server only stores encrypted DEK, never sees the actual password
         if unlock_type == 'password':
-            if not password or len(password) < 8:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Password must be at least 8 characters"
-                )
             if not salt_b64:
                 raise HTTPException(
                     status_code=400, 
@@ -146,6 +145,21 @@ class SafeService:
             salt=salt
         )
         
+        # Create root folder for safe
+        if self.folder_repo:
+            root_folder_id = self.folder_repo.create(
+                name="Root",
+                user_id=user_id,
+                parent_id=None,
+                safe_id=safe_id
+            )
+            return {
+                "status": "ok",
+                "safe_id": safe_id,
+                "root_folder_id": root_folder_id,
+                "message": "Safe created successfully"
+            }
+        
         return {
             "status": "ok",
             "safe_id": safe_id,
@@ -174,7 +188,7 @@ class SafeService:
         
         is_unlocked = self.safe_repo.is_unlocked(safe_id, user_id)
         
-        return {
+        result = {
             "id": safe["id"],
             "name": safe["name"],
             "created_at": safe["created_at"],
@@ -182,6 +196,21 @@ class SafeService:
             "is_unlocked": is_unlocked,
             "has_recovery": safe["recovery_encrypted_dek"] is not None
         }
+        
+        # Add credential name for WebAuthn safes
+        if safe["unlock_type"] == "webauthn" and safe["credential_id"]:
+            from ...infrastructure.repositories import WebAuthnRepository
+            from ...database import create_connection
+            db = create_connection()
+            try:
+                webauthn_repo = WebAuthnRepository(db)
+                cred = webauthn_repo.get_by_credential_id(safe["credential_id"])
+                if cred:
+                    result["credential_name"] = cred.get("name", "Hardware Key")
+            finally:
+                db.close()
+        
+        return result
     
     def rename_safe(self, safe_id: str, name: str, user_id: int) -> Dict:
         """Rename a safe.

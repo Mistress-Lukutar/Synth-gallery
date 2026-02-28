@@ -12,17 +12,12 @@
 const SafeCrypto = (function() {
     'use strict';
     
-    console.log('[SafeCrypto] Initializing...');
-    console.log('[SafeCrypto] window.crypto:', typeof window.crypto);
-    console.log('[SafeCrypto] window.isSecureContext:', window.isSecureContext);
+
     
     // Get crypto from window (for browsers that don't expose it globally in strict mode)
     const crypto = window.crypto || window.msCrypto;
     
-    console.log('[SafeCrypto] crypto object:', typeof crypto);
-    if (crypto) {
-        console.log('[SafeCrypto] crypto.subtle:', typeof crypto.subtle);
-    }
+
     
     // Check if Web Crypto is available
     if (!crypto || !crypto.subtle) {
@@ -43,12 +38,7 @@ const SafeCrypto = (function() {
     }
     
     // Check dependencies (lazy check - DEKManager might load after SafeCrypto)
-    console.log('[SafeCrypto] Checking DEKManager:', typeof DEKManager);
-    if (typeof DEKManager === 'undefined') {
-        console.warn('[SafeCrypto] DEKManager not available at load time, will check lazily');
-    } else {
-        console.log('[SafeCrypto] DEKManager is available');
-    }
+
     
     // Private storage for safe DEKs
     // Map: safe_id -> { dek: CryptoKey, unlocked_at: timestamp }
@@ -249,30 +239,47 @@ base64Decode(encryptedDEKBase64)
         },
         
         /**
-         * Create a new safe with WebAuthn protection
+         * Create a new safe with WebAuthn protection using PRF extension
          * @param {string} name - Safe name
          * @param {string} credentialId - Base64-encoded WebAuthn credential ID
+         * @param {Object} credential - WebAuthn credential object with PRF results
          * @returns {Promise<Object>} - Safe creation data for server
          */
-        async createSafeWithWebAuthn(name, credentialId) {
+        async createSafeWithWebAuthn(name, credentialId, credential) {
+            // Get PRF results from the credential
+            const prfResults = credential?.clientExtensionResults?.prf?.results?.first ||
+                              credential?.clientExtensionResults?.prf?.results;
+            
+            if (!prfResults) {
+                throw new Error('PRF results not available. Your hardware key may not support PRF extension.');
+            }
+            
             // Generate new Safe DEK
             const safeDEK = await generateSafeDEK();
             
-            // For WebAuthn, we need to encrypt DEK with a key derived from credential
-            // The actual encryption happens on the server after WebAuthn auth
-            // Here we just prepare the DEK for server-side encryption
+            // Use PRF output as encryption key
+            const encryptionKey = new Uint8Array(prfResults);
+            console.log('[SafeCrypto] PRF key length:', encryptionKey.length);
             
-            // Export DEK for server to encrypt
+            // Export and encrypt DEK
             const rawDEK = await exportKeyRaw(safeDEK);
+            console.log('[SafeCrypto] Raw DEK length:', rawDEK.length);
             
-            // Create session encryption
+            // Encrypt DEK using PRF output (XOR for simplicity, in production use AES)
+            const encryptedDEK = new Uint8Array(rawDEK.length);
+            for (let i = 0; i < rawDEK.length; i++) {
+                encryptedDEK[i] = rawDEK[i] ^ encryptionKey[i % encryptionKey.length];
+            }
+            console.log('[SafeCrypto] Encrypted DEK length:', encryptedDEK.length);
+            
+            // Create session encryption for server-side session
             const sessionData = await this.encryptDEKForSession(safeDEK);
             
             return {
                 name,
                 unlock_type: 'webauthn',
                 credential_id: credentialId,
-                dek_for_server: base64Encode(rawDEK),
+                encrypted_dek: base64Encode(encryptedDEK),
                 session_encrypted_dek: sessionData.encryptedDEK,
                 session_key: sessionData.sessionKey
             };
@@ -365,50 +372,67 @@ base64Decode(encryptedDEKBase64)
         },
         
         /**
-         * Complete WebAuthn unlock
+         * Unlock a safe with WebAuthn using PRF extension (zero-trust)
          * @param {string} safeId - Safe ID
-         * @param {Object} credential - WebAuthn credential response
-         * @param {string} challenge - Challenge from prepare
-         * @param {string} encryptedDEKBase64 - Server-stored encrypted DEK
+         * @param {string} credentialId - Base64-encoded credential ID
+         * @param {string} encryptedDEKBase64 - Server-stored encrypted DEK (encrypted with PRF)
          * @returns {Promise<Object>} - Unlock result
          */
-        async completeWebAuthnUnlock(safeId, credential, challenge, encryptedDEKBase64) {
-            // For WebAuthn, we need to derive the key from the credential
-            // This is done by the server after WebAuthn verification
-            // The server returns the decrypted DEK which we then store
+        async unlockWithWebAuthn(safeId, credentialId, encryptedDEKBase64) {
+            console.log(`[SafeCrypto.unlockWithWebAuthn] Unlocking safe: ${safeId}`);
             
-            // In a real implementation, we might use the credential to derive
-            // a key locally, but for simplicity we rely on server to provide
-            // the encrypted DEK after successful WebAuthn auth
+            // Get PRF output to decrypt DEK
+            const prfInput = new Uint8Array(32);
+            prfInput.fill(0x01); // Same input as used for encryption
             
-            // For now, the server will handle the decryption and send us
-            // the session-encrypted DEK
-            
-            const response = await fetch('/api/safes/unlock/complete', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-Token': this._getCsrfToken()
-                },
-                body: JSON.stringify({
-                    safe_id: safeId,
-                    credential: credential,
-                    challenge: challenge,
-                    session_encrypted_dek: '' // Will be filled by server flow
-                })
+            const credential = await navigator.credentials.get({
+                publicKey: {
+                    challenge: crypto.getRandomValues(new Uint8Array(32)),
+                    allowCredentials: [{ id: base64Decode(credentialId), type: 'public-key' }],
+                    userVerification: 'required',
+                    extensions: {
+                        prf: { eval: { first: prfInput } }
+                    }
+                }
             });
             
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`Unlock completion failed: ${error}`);
+            if (!credential?.clientExtensionResults?.prf?.results?.first) {
+                throw new Error('Failed to get PRF output from hardware key');
             }
             
-            const result = await response.json();
+            // Use PRF output as decryption key
+            const encryptionKey = new Uint8Array(credential.clientExtensionResults.prf.results.first);
             
-            // Store session key for this safe (provided by server in real flow)
-            // For now, we need to handle this differently
+            // Decrypt DEK
+            const encryptedDEK = base64Decode(encryptedDEKBase64);
+            const rawDEK = new Uint8Array(encryptedDEK.length);
+            for (let i = 0; i < encryptedDEK.length; i++) {
+                rawDEK[i] = encryptedDEK[i] ^ encryptionKey[i % encryptionKey.length];
+            }
             
-            return result;
+            // Import DEK
+            const safeDEK = await crypto.subtle.importKey(
+                'raw',
+                rawDEK,
+                { name: 'AES-GCM', length: 256 },
+                false,
+                ['encrypt', 'decrypt']
+            );
+            
+            // Store in memory
+            safeDEKs.set(safeId, {
+                dek: safeDEK,
+                unlocked_at: Date.now()
+            });
+            
+            // Create session encryption for server
+            const sessionData = await this.encryptDEKForSession(safeDEK);
+            
+            return {
+                success: true,
+                session_encrypted_dek: sessionData.encryptedDEK,
+                session_key: sessionData.sessionKey
+            };
         },
         
         /**
@@ -424,6 +448,18 @@ base64Decode(encryptedDEKBase64)
                 dek: safeDEK,
                 unlocked_at: Date.now(),
                 session_key: sessionKey
+            });
+        },
+        
+        /**
+         * Store a safe's DEK directly (for WebAuthn unlock)
+         * @param {string} safeId - Safe ID
+         * @param {CryptoKey} safeDEK - The safe's DEK CryptoKey
+         */
+        storeSafeDEKDirect(safeId, safeDEK) {
+            safeDEKs.set(safeId, {
+                dek: safeDEK,
+                unlocked_at: Date.now()
             });
         },
         
