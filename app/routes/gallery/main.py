@@ -145,7 +145,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
 
         if sort is None or sort not in ("uploaded", "taken"):
             sort = user_settings_repo.get_sort_preference(user["id"], folder_id)
-            print(f"[DEBUG] Loaded sort preference: user={user['id']}, folder={folder_id}, sort={sort}")
+        
 
         folder_contents = folder_service.get_folder_contents(folder_id, user["id"])
         
@@ -223,7 +223,7 @@ async def set_folder_sort_preference(folder_id: str, data: SortPreferenceInput, 
     
     user = require_user(request)
     
-    print(f"[DEBUG] Saving sort preference: user={user['id']}, folder={folder_id}, sort={data.sort_by}")
+
     
     if data.sort_by not in ('uploaded', 'taken'):
         raise HTTPException(status_code=400, detail="Invalid sort option")
@@ -242,7 +242,7 @@ async def set_folder_sort_preference(folder_id: str, data: SortPreferenceInput, 
             (user["id"], folder_id, data.sort_by)
         )
         db.commit()
-        print(f"[DEBUG] Sort preference saved successfully")
+
         
         return {"status": "ok", "sort_by": data.sort_by}
     finally:

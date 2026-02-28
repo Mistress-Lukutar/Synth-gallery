@@ -22,6 +22,9 @@ class FolderCreate(BaseModel):
     name: str
     parent_id: str | None = None
     safe_id: str | None = None
+    
+    class Config:
+        extra = 'ignore'  # Ignore extra fields for forward compatibility
 
 
 class FolderUpdate(BaseModel):
@@ -99,7 +102,7 @@ def create_new_folder(request: Request, data: FolderCreate):
             safe_repo = SafeRepository(db)
             safe = safe_repo.get_by_id(data.safe_id)
             if not safe:
-                raise HTTPException(status_code=404, detail="Safe not found")
+                raise HTTPException(status_code=404, detail=f"Safe not found: {data.safe_id}")
             if safe["user_id"] != user["id"]:
                 raise HTTPException(status_code=403, detail="Access denied")
             

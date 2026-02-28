@@ -7,6 +7,7 @@
     // === Folder Modal State ===
     let editingFolderId = null;
     let userDefaultFolderId = null;
+    let creatingFolderSafeId = null;  // For creating folders inside safes
 
     // === Share Modal State ===
     let shareModalFolderId = null;
@@ -138,9 +139,11 @@
 
     // === Folder Modal Functions ===
 
-    window.openCreateFolder = function(parentId = null) {
+    window.openCreateFolder = function(parentId = null, safeId = null) {
+        console.log('[folder-actions] openCreateFolder called:', { parentId, safeId });
         editingFolderId = null;
-        if (folderModalTitle) folderModalTitle.textContent = 'Create Folder';
+        creatingFolderSafeId = safeId;  // Store safe_id for creating folder inside safe
+        if (folderModalTitle) folderModalTitle.textContent = safeId ? 'Create Folder in Safe' : 'Create Folder';
         if (folderSubmitBtn) folderSubmitBtn.textContent = 'Create';
         if (folderNameInput) folderNameInput.value = '';
         
@@ -217,6 +220,7 @@
         
         if (folderModal) folderModal.classList.add('hidden');
         editingFolderId = null;
+        creatingFolderSafeId = null;  // Reset safe context
     }
 
     async function submitFolderForm() {
@@ -235,12 +239,22 @@
                     body: JSON.stringify({ name })
                 });
             } else {
-                // Create new folder
-                await csrfFetch(`${getBaseUrl()}/api/folders`, {
+                // Create new folder (regular or inside safe)
+                const payload = { name };
+                if (creatingFolderSafeId) {
+                    payload.safe_id = creatingFolderSafeId;
+                }
+                console.log('[folder-actions] Creating folder with payload:', payload);
+                const resp = await csrfFetch(`${getBaseUrl()}/api/folders`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name })
+                    body: JSON.stringify(payload)
                 });
+                if (!resp.ok) {
+                    const errorText = await resp.text();
+                    console.error('[folder-actions] Server error:', resp.status, errorText);
+                    throw new Error(`Server error: ${resp.status} - ${errorText}`);
+                }
             }
             closeFolderModal();
             if (typeof loadFolderTree === 'function') loadFolderTree();
