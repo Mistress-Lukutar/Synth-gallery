@@ -18,6 +18,9 @@ from .permission_repository import PermissionRepository
 from .photo_repository import PhotoRepository
 from .safe_repository import SafeRepository
 from .webauthn_repository import WebAuthnRepository
+from .item_repository import ItemRepository
+from .item_media_repository import ItemMediaRepository
+from .album_repository import AlbumRepository
 
 __all__ = [
     "Repository",
@@ -28,4 +31,7 @@ __all__ = [
     "PhotoRepository",
     "SafeRepository",
     "WebAuthnRepository",
+    "ItemRepository",
+    "ItemMediaRepository",
+    "AlbumRepository",
 ]
