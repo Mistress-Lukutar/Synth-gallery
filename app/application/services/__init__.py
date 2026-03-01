@@ -9,6 +9,8 @@ from .safe_file_service import SafeFileService
 from .envelope_service import EnvelopeService
 from .user_settings_service import UserSettingsService
 from .auth_service import AuthService
+from .item_service import ItemService
+from .album_service import AlbumService
 
 __all__ = [
     "UploadService",
@@ -20,4 +22,6 @@ __all__ = [
     "EnvelopeService",
     "UserSettingsService",
     "AuthService",
+    "ItemService",
+    "AlbumService",
 ]
