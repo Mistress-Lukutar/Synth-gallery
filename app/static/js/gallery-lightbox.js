@@ -78,9 +78,9 @@
                 timestamp: Date.now()
             });
             
-            // Expand in flatNavOrder
+            // Expand in flatNavOrder - Phase 5: polymorphic items
             const albumPhotos = album.photos.map(p => ({
-                type: 'photo',
+                type: 'item',  // Phase 5: polymorphic item
                 id: p.id,
                 safeId: p.safe_id,
                 albumId: albumId
@@ -220,10 +220,10 @@
         console.log('[lightbox] Nav order rebuilt:', flatNavOrder.length, 'items');
     };
     
-    // Set navigation order directly from album photos (when opening album from gallery)
+    // Set navigation order directly from album items (when opening album from gallery)
     window.setLightboxNavOrderFromAlbum = function(photos, startIndex = 0) {
         flatNavOrder = photos.map(p => ({
-            type: 'photo',
+            type: 'item',  // Phase 5: polymorphic item
             id: p.id,
             safeId: p.safeId,
             albumId: p.albumId || null
@@ -242,9 +242,9 @@
             (p.type === 'album' || p.type === 'album_placeholder') && p.id === albumId
         );
         
-        // Prepare album photos for insertion
+        // Prepare album items for insertion
         const expandedPhotos = albumPhotos.map(p => ({
-            type: 'photo',
+            type: 'item',  // Phase 5: polymorphic item
             id: p.id,
             safeId: p.safeId,
             albumId: albumId
@@ -301,7 +301,7 @@
             return bTime - aTime;
         });
         
-        // Build flat order
+        // Build flat order - Phase 5: supports polymorphic items (type: 'item')
         const flatOrder = [];
         for (const item of allItems) {
             const itemType = item.dataset.itemType;
@@ -316,7 +316,7 @@
                         flatOrder.push({ type: 'album_marker', id: albumId, albumName: cached.name });
                         for (const photo of cached.photos) {
                             flatOrder.push({
-                                type: 'photo',
+                                type: 'item',  // Phase 5: polymorphic item
                                 id: photo.id,
                                 safeId: photo.safe_id,
                                 albumId: albumId
@@ -331,11 +331,12 @@
                         albumId: albumId
                     });
                 }
-            } else if (itemType === 'photo') {
-                // Standalone photo
+            } else if (itemType === 'item' || itemType === 'photo') {
+                // Standalone item (Phase 5: type 'item', legacy: 'photo')
+                const itemId = item.dataset.itemId || item.dataset.photoId;
                 flatOrder.push({
-                    type: 'photo',
-                    id: item.dataset.photoId,
+                    type: 'item',  // Phase 5: polymorphic item
+                    id: itemId,
                     safeId: item.dataset.safeId
                 });
             }
@@ -402,8 +403,8 @@
         // Build flat navigation order (quick, without waiting for album fetches)
         flatNavOrder = buildFlatNavOrder();
         
-        // Find current photo in flat order
-        currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && p.type === 'photo');
+        // Find current item in flat order - Phase 5: support polymorphic items
+        currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && (p.type === 'item' || p.type === 'photo'));
         
         // If not found, check if it's in an album that needs to be expanded
         if (currentNavIndex === -1) {
@@ -415,15 +416,15 @@
                 const placeholderIndex = flatNavOrder.findIndex(p => p.type === 'album_placeholder' && p.albumId === albumId);
                 if (placeholderIndex >= 0) {
                     await expandAlbumInNavOrder(albumId, placeholderIndex);
-                    // Re-find photo after expansion
-                    currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && p.type === 'photo');
+                    // Re-find item after expansion
+                    currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && (p.type === 'item' || p.type === 'photo'));
                 }
             }
         }
         
-        // If still not found, add as standalone
+        // If still not found, add as standalone - Phase 5: polymorphic item
         if (currentNavIndex === -1) {
-            flatNavOrder = [{ type: 'photo', id: photoId, safeId: galleryItem?.dataset.safeId }];
+            flatNavOrder = [{ type: 'item', id: photoId, safeId: galleryItem?.dataset.safeId }];  // Phase 5
             currentNavIndex = 0;
             window.clearAlbumContext();
         } else {
@@ -568,12 +569,13 @@
         let attempts = 0;
         const maxAttempts = flatNavOrder.length;
         
-        // Find next valid photo (skip album_markers, expand placeholders)
+        // Find next valid item (skip album_markers, expand placeholders)
+        // Phase 5: supports polymorphic items (type: 'item')
         while (attempts < maxAttempts) {
             if (!item) break;
             
-            if (item.type === 'photo') {
-                // Found a photo - this is our target
+            if (item.type === 'item' || item.type === 'photo') {
+                // Found an item - this is our target (Phase 5: 'item', legacy: 'photo')
                 break;
             } else if (item.type === 'album_placeholder') {
                 // Need to expand album
@@ -607,7 +609,8 @@
             attempts++;
         }
         
-        if (!item || item.type !== 'photo') return;
+        // Phase 5: support polymorphic items (type: 'item') and legacy (type: 'photo')
+        if (!item || (item.type !== 'item' && item.type !== 'photo')) return;
         
         // Animation setup
         let currentImg = null;
