@@ -140,6 +140,94 @@ def cleanup_expired_sessions():
 
 
 # =============================================================================
+# Migration: Polymorphic Items (Issue #24)
+# =============================================================================
+def _migrate_to_polymorphic_items(db):
+    """Migrate photos to polymorphic items architecture.
+    
+    This migration:
+    1. Creates items from existing photos
+    2. Creates item_media from photo media data
+    3. Migrates photos.album_id to album_items junction table
+    4. Updates albums.cover_photo_id to cover_item_id
+    """
+    # Check if migration already done
+    cursor = db.execute("SELECT COUNT(*) as count FROM items LIMIT 1")
+    if cursor.fetchone()["count"] > 0:
+        return  # Migration already done
+    
+    # Check if there are any photos to migrate
+    cursor = db.execute("SELECT COUNT(*) as count FROM photos")
+    photo_count = cursor.fetchone()["count"]
+    if photo_count == 0:
+        return  # Nothing to migrate
+    
+    print(f"[Migration] Starting polymorphic items migration for {photo_count} photos...")
+    
+    # Migrate photos to items + item_media
+    db.execute("""
+        INSERT INTO items (
+            id, type, folder_id, safe_id, user_id, created_at, 
+            title, metadata, is_encrypted
+        )
+        SELECT 
+            p.id,
+            'media' as type,
+            p.folder_id,
+            p.safe_id,
+            p.user_id,
+            p.uploaded_at as created_at,
+            p.original_name as title,
+            NULL as metadata,
+            p.is_encrypted
+        FROM photos p
+    """)
+    
+    # Migrate photo media details
+    db.execute("""
+        INSERT INTO item_media (
+            item_id, media_type, filename, original_name, content_type,
+            width, height, duration, thumb_width, thumb_height, taken_at, storage_mode
+        )
+        SELECT 
+            p.id as item_id,
+            CASE 
+                WHEN p.media_type = 'video' THEN 'video'
+                ELSE 'image'
+            END as media_type,
+            p.filename,
+            p.original_name,
+            p.content_type,
+            NULL as width,  -- Will be populated from metadata if available
+            NULL as height,
+            NULL as duration,
+            p.thumb_width,
+            p.thumb_height,
+            p.taken_at,
+            p.storage_mode
+        FROM photos p
+    """)
+    
+    # Migrate album memberships
+    db.execute("""
+        INSERT INTO album_items (album_id, item_id, position, added_at)
+        SELECT 
+            p.album_id,
+            p.id as item_id,
+            p.position,
+            p.uploaded_at as added_at
+        FROM photos p
+        WHERE p.album_id IS NOT NULL
+    """)
+    
+    # Update albums cover_photo_id to reference items
+    # Note: We keep the column name for now, but it now references items.id
+    # In Phase 2 we'll rename it to cover_item_id
+    
+    print(f"[Migration] Migrated {photo_count} photos to polymorphic items")
+
+
+# =============================================================================
 # Database Schema Initialization
 # =============================================================================
 def init_db():
@@ -291,7 +379,69 @@ def init_db():
         )
     """)
 
+    # =============================================================================
+    # v1.0: Polymorphic Items Architecture (Issue #24)
+    # =============================================================================
+    
+    # Items table - polymorphic base for all content types
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS items (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,  -- 'media', 'note', 'file', etc.
+            folder_id TEXT,
+            safe_id TEXT,
+            user_id INTEGER,
+            created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            title TEXT,
+            metadata TEXT,  -- JSON for type-specific data
+            is_encrypted INTEGER DEFAULT 0,
+            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+    """)
+    
+    # Item media table - photo/video specific data
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS item_media (
+            item_id TEXT PRIMARY KEY,
+            media_type TEXT NOT NULL,  -- 'image' or 'video'
+            filename TEXT NOT NULL,
+            original_name TEXT,
+            content_type TEXT,
+            width INTEGER,
+            height INTEGER,
+            duration INTEGER,  -- for video (seconds)
+            thumb_width INTEGER,
+            thumb_height INTEGER,
+            taken_at TIMESTAMP,
+            storage_mode TEXT,
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Album items junction table - replaces photos.album_id
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS album_items (
+            album_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            position INTEGER DEFAULT 0,
+            added_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            PRIMARY KEY (album_id, item_id),
+            FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Update albums table - change cover_photo_id to cover_item_id
+    # (Migration handled separately)
+    
     # Indexes
+    db.execute("CREATE INDEX IF NOT EXISTS idx_items_type ON items(type)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_items_folder ON items(folder_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_items_safe ON items(safe_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_photo_id ON tags(photo_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tag_presets_category ON tag_presets(category_id)")
@@ -445,5 +595,10 @@ def init_db():
         db.execute("ALTER TABLE photos ADD COLUMN content_type TEXT")
     except sqlite3.OperationalError:
         pass  # Column already exists
+
+    # =============================================================================
+    # Migration: Polymorphic Items Architecture (Issue #24)
+    # =============================================================================
+    _migrate_to_polymorphic_items(db)
 
     db.commit()

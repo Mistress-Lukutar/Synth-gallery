@@ -17,6 +17,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
 | 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | ✅ **DONE**     |
 | 🔴 Critical | [#23](https://github.com/Nate-go/Synth-Gallery/issues/23) | Unified File Access Service     | Large  | ✅ **DONE** |
+| 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | 🔫 **IN PROGRESS** |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
@@ -617,6 +618,142 @@ When working on these improvements:
 3. **Maintain backward compatibility:** Use deprecation warnings
 4. **Add tests:** Every refactored module needs tests
 5. **Update CHANGELOG.md:** Document breaking changes
+
+---
+
+### Issue #24: Polymorphic Items & Albums Architecture 🔴 🔫
+
+**Status:** **IN PROGRESS** - 2026-03-01  
+**Part of:** v1.0 Breaking Release
+
+**Problem:**  
+Current album architecture is tightly coupled to photos:
+- `photos.album_id + position` fields couple photos to albums
+- Album logic scattered across PhotoRepository (~20 methods)
+- Cannot add new content types (notes, files) to albums later
+- Photos vs Videos are implicit (media_type field), no clear separation
+
+**Goal:**  
+Create polymorphic item system where albums can contain any content type:
+```
+Album → [Photo, Video, Note, File, ...]  (any mix)
+```
+
+**Architecture (Strategy Pattern):**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    ITEMS (polymorphic)                              │
+├─────────────────────────────────────────────────────────────────────┤
+│  id, type, folder_id, safe_id, user_id, created_at, title, metadata   │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+         ┌──────────────┬──────────────┬──────────────┐
+         ▼                  ▼                  ▼
+   ┌────────────┐    ┌────────────┐    ┌────────────┐
+   │  item_media  │    │  item_notes  │    │  item_files  │  (extensible)
+   │  (photo/video)│    │  (text)      │    │  (docs)      │
+   └────────────┘    └────────────┘    └────────────┘
+                              │
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                      ALBUMS                                       │
+   │  id, name, folder_id, safe_id, cover_item_id, created_at          │
+   └─────────────────────────────────────────────────────────────────────┘
+                              │
+   ┌─────────────────────────────────────────────────────────────────────┐
+   │                    ALBUM_ITEMS (junction)                          │
+   │  album_id, item_id, position, added_at                            │
+   └─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Decisions:**
+
+1. **Photo vs Video**:  
+   Both are `item_media` with `media_type: 'image' | 'video'`. Same storage, same handling.
+   ```sql
+   item_media (
+       item_id TEXT PRIMARY KEY,
+       media_type TEXT,  -- 'image' or 'video'
+       filename TEXT,
+       width INTEGER,
+       height INTEGER,
+       duration INTEGER,  -- for video
+       ...
+   )
+   ```
+
+2. **Album Content-Agnostic**:  
+   `album_items` связывает album_id → item_id (любого типа). Позиция хранится здесь, не в items.
+
+3. **Safe Compatibility**:  
+   Album и Items должны быть в одном safe_id (консистентность шифрования).
+
+**Implementation Plan:**
+
+#### Phase 1: Database Schema
+- [ ] Create `items` table (polymorphic base)
+- [ ] Create `item_media` table (photo/video specific)
+- [ ] Create `album_items` junction table (replaces photos.album_id)
+- [ ] Migration: photos → items + item_media
+- [ ] Migration: photos.album_id → album_items
+- [ ] Drop old columns after migration
+
+#### Phase 2: Repository Layer
+- [ ] Create `ItemRepository` (base CRUD for polymorphic items)
+- [ ] Create `ItemMediaRepository` (photo/video specifics)
+- [ ] Create `AlbumRepository` (albums + album_items operations)
+- [ ] Remove album methods from `PhotoRepository`
+- [ ] Update `UploadService` to use new repositories
+
+#### Phase 3: Service Layer
+- [ ] Create `ItemService` (unified item operations)
+- [ ] Update `AlbumService` (content-agnostic album management)
+- [ ] Strategy pattern for item rendering:
+   ```python
+   class ItemRenderer(ABC):
+       @abstractmethod
+       def render_thumbnail(self, item) -> str: ...
+       @abstractmethod
+       def render_lightbox(self, item) -> str: ...
+   
+   class MediaRenderer(ItemRenderer): ...  # photos/videos
+   class NoteRenderer(ItemRenderer): ...   # future
+   ```
+
+#### Phase 4: API & Frontend
+- [ ] Update `/api/items/*` endpoints (unified)
+- [ ] Update `/api/albums/*` endpoints (use item_ids)
+- [ ] Frontend: polymorphic item components
+- [ ] Update album editor to work with generic items
+
+**Files Affected:**
+- `app/database.py` - new schema + migrations
+- `app/infrastructure/repositories/item_repository.py` - NEW
+- `app/infrastructure/repositories/item_media_repository.py` - NEW  
+- `app/infrastructure/repositories/album_repository.py` - NEW
+- `app/infrastructure/repositories/photo_repository.py` - refactor
+- `app/application/services/item_service.py` - NEW
+- `app/application/services/album_service.py` - refactor
+- `app/routes/gallery/items.py` - NEW (replaces photos.py)
+- `app/static/js/item-renderers.js` - NEW (Strategy Pattern)
+
+**Breaking Changes:**
+- API: `/api/photos/*` → `/api/items/*` (with type filter)
+- Database: полная реструктуризация photos/albums
+- Frontend: компоненты должны работать с generic items
+
+**Migration Path:**
+1. Автоматическая миграция при старте (init_db)
+2. Backup перед миграцией
+3. Rollback возможен только из backup
+
+**Future Extensibility:**
+```python
+# Добавление Notes в v1.1:
+# 1. Create item_notes table
+# 2. Create NoteRenderer
+# 3. Done - albums already support any item type
+```
 
 ---
 
