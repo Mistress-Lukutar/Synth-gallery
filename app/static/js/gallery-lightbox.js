@@ -716,90 +716,44 @@
             currentPhotoId = photoId;
             window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
             
-            // Render media - extension-less storage (no ext in URL)
-            const ext = '';
-            
-            // Progressive loading: thumbnail first, then full image
-            const isSafeFile = photo.safe_id && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(photo.safe_id);
+            // Render media using unified FileAccessService
+            // This handles all encryption types (none, server-side, E2E/Safe) uniformly
+            const mimeType = photo.content_type || (photo.media_type === 'video' ? 'video/mp4' : 'image/jpeg');
+            const isE2E = !!photo.safe_id;
             
             if (photo.media_type === 'video') {
-                // Videos don't use progressive loading
-                if (isSafeFile) {
-                    try {
-                        const fileResp = await fetch(`${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`);
-                        if (!fileResp.ok) throw new Error('Failed to fetch encrypted file');
-                        
-                        const encryptedBlob = await fileResp.blob();
-                        const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
-                            encryptedBlob,
-                            photo.safe_id,
-                            'video/mp4'
-                        );
-                        const objectUrl = URL.createObjectURL(decryptedBlob);
-                        mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${objectUrl}"></video>`;
-                    } catch (err) {
-                        console.error('[lightbox] Decrypt failed:', err);
-                        mediaContainer.innerHTML = '<p>Error: Failed to decrypt video</p>';
-                    }
-                } else {
-                    mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${getBaseUrl()}/uploads/${photoId}${ext}"></video>`;
+                // Videos: load directly via FileAccessService
+                try {
+                    const videoUrl = await FileAccessService.getFileUrl(photoId, { photo });
+                    mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${videoUrl}"></video>`;
+                } catch (err) {
+                    console.error('[lightbox] Failed to load video:', err);
+                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load video'}</p>`;
                 }
             } else {
-                // Images: show thumbnail first, then load full image
-                const thumbUrl = isSafeFile 
-                    ? null // Safe thumbnails handled differently
-                    : `${getBaseUrl()}/thumbnails/${photoId}`;
-                const fullUrl = isSafeFile
-                    ? `${getBaseUrl()}/uploads/${photoId}${ext}?safe=${photo.safe_id}`
-                    : `${getBaseUrl()}/uploads/${photoId}${ext}`;
+                // Images: progressive loading with thumbnail, then full image
+                const loadId = Date.now();
+                mediaContainer.dataset.loadingId = loadId;
                 
                 // Start with thumbnail
-                if (isSafeFile) {
-                    // For safe files, show loading state until decrypted
-                    mediaContainer.innerHTML = `
-                        <div class="lightbox-loading">
-                            <div class="loading-spinner"></div>
-                            <p>Decrypting...</p>
-                        </div>
-                    `;
-                    
-                    try {
-                        const fileResp = await fetch(fullUrl);
-                        if (!fileResp.ok) throw new Error('Failed to fetch encrypted file');
-                        
-                        const encryptedBlob = await fileResp.blob();
-                        const mimeType = `image/${ext.slice(1) || 'jpeg'}`;
-                        const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
-                            encryptedBlob,
-                            photo.safe_id,
-                            mimeType
-                        );
-                        const objectUrl = URL.createObjectURL(decryptedBlob);
-                        
-                        mediaContainer.innerHTML = `
-                            <img class="lightbox-image" src="${objectUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                        `;
-                    } catch (err) {
-                        console.error('[lightbox] Decrypt failed:', err);
-                        mediaContainer.innerHTML = '<p>Error: Failed to decrypt image</p>';
-                    }
-                } else {
-                    // Regular files: progressive loading with thumbnail
-                    // Use loading ID to prevent stale image updates
-                    const loadId = Date.now();
-                    mediaContainer.dataset.loadingId = loadId;
-                    
+                try {
+                    const thumbUrl = await FileAccessService.getThumbnailUrl(photoId, { photo });
                     mediaContainer.innerHTML = `
                         <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
                     `;
-                    
-                    // Load full image in background
+                } catch (err) {
+                    console.error('[lightbox] Failed to load thumbnail:', err);
+                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load thumbnail'}</p>`;
+                    return; // Don't try to load full image if thumbnail failed
+                }
+                
+                // Load full image in background
+                try {
+                    const fullUrl = await FileAccessService.getFileUrl(photoId, { photo });
                     const fullImg = new Image();
                     currentFullImageLoader = fullImg;
                     
                     fullImg.onload = () => {
-                        // Check if this load is still valid (not cancelled and still current photo)
-                        // We check currentFullImageLoader to ensure no new navigation happened
                         if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
                             currentFullImageLoader = null;
                             mediaContainer.innerHTML = `
@@ -808,14 +762,14 @@
                         }
                     };
                     fullImg.onerror = () => {
-                        // Only clear if this is still the current loader
                         if (currentFullImageLoader === fullImg) {
                             currentFullImageLoader = null;
                         }
-                        // Keep thumbnail on error
                         console.warn('[lightbox] Failed to load full image, keeping thumbnail');
                     };
                     fullImg.src = fullUrl;
+                } catch (err) {
+                    console.warn('[lightbox] Failed to start full image load:', err);
                 }
             }
 

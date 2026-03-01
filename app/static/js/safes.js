@@ -6,61 +6,12 @@
 (function() {
     let userSafes = [];
 
-    // Load safe thumbnails - same logic as regular thumbnails, just decrypt first
+    // Load safe thumbnails - DEPRECATED: Now handled by FileAccessService in navigation.js
+    // Kept for backward compatibility with existing calls
     window.loadSafeThumbnails = async function() {
-        const images = document.querySelectorAll('img[data-safe-thumbnail]');
-        if (images.length === 0) return;
-        
-
-        
-        for (const img of images) {
-            const photoId = img.dataset.safeThumbnail;
-            const safeId = img.dataset.safeId;
-            
-            if (!photoId || !safeId) continue;
-            
-            // Skip if already handled (error or loaded)
-            if (img.dataset.errorHandled) continue;
-            
-            try {
-                // Check if safe is unlocked via SafeCrypto
-                if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(safeId)) {
-                    // Fetch encrypted thumbnail
-                    const resp = await fetch(`${getBaseUrl()}/thumbnails/${photoId}?safe=${safeId}`);
-                    if (resp.ok) {
-                        const encryptedBlob = await resp.blob();
-                        
-                        // Decrypt using SafeCrypto
-                        try {
-                            const decryptedBlob = await SafeCrypto.decryptFileFromSafe(
-                                encryptedBlob, 
-                                safeId, 
-                                'image/jpeg'
-                            );
-                            // Set src - onload in navigation.js will handle placeholder and masonry
-                            img.src = URL.createObjectURL(decryptedBlob);
-                        } catch (decryptErr) {
-                            console.error('[safes.js] Decrypt failed:', decryptErr);
-                            if (typeof handleImageError === 'function') {
-                                handleImageError(img, 'locked');
-                            }
-                        }
-                        continue;
-                    }
-                }
-                
-                // Safe locked or failed to load - show locked placeholder
-                if (typeof handleImageError === 'function') {
-                    handleImageError(img, 'locked');
-                }
-                
-            } catch (err) {
-                console.error('[safes.js] Failed to load safe thumbnail:', err);
-                if (typeof handleImageError === 'function') {
-                    handleImageError(img, 'locked');
-                }
-            }
-        }
+        // Thumbnails are now automatically resolved by FileAccessService.resolveThumbnails()
+        // which is called after gallery renders. This function is a no-op for compatibility.
+        console.log('[safes.js] loadSafeThumbnails is deprecated - thumbnails loaded automatically');
     };
 
     // Navigate to safe - go to safe root folder (folder with safe_id and no parent)

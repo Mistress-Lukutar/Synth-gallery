@@ -213,8 +213,8 @@ class TestThumbnailAccess:
         uploaded_photo: dict
     ):
         """Thumbnail should exist after upload."""
-        thumbnail_name = f"{uploaded_photo['id']}.jpg"
-        response = authenticated_client.get(f"/thumbnails/{thumbnail_name}")
+        thumbnail_id = uploaded_photo['id']
+        response = authenticated_client.get(f"/thumbnails/{thumbnail_id}")
         
         assert response.status_code == 200
         assert response.headers.get("content-type") == "image/jpeg"
@@ -267,7 +267,7 @@ class TestThumbnailAccess:
             follow_redirects=False
         )
         
-        response = client.get(f"/thumbnails/{photo_id}.jpg")
+        response = client.get(f"/thumbnails/{photo_id}")
         
         assert response.status_code == 403
     
@@ -279,19 +279,65 @@ class TestThumbnailAccess:
         """Should regenerate thumbnail if deleted."""
         from app.config import THUMBNAILS_DIR
         
-        thumbnail_name = f"{uploaded_photo['id']}.jpg"
-        thumb_path = THUMBNAILS_DIR / thumbnail_name
+        thumbnail_id = uploaded_photo['id']
+        thumb_path = THUMBNAILS_DIR / thumbnail_id
         
         # Delete thumbnail manually
         if thumb_path.exists():
             thumb_path.unlink()
         
         # Request should regenerate it
-        response = authenticated_client.get(f"/thumbnails/{thumbnail_name}")
+        response = authenticated_client.get(f"/thumbnails/{thumbnail_id}")
         
         assert response.status_code == 200
         # Should exist again (if regeneration is implemented)
         # assert thumb_path.exists()  # Optional based on implementation
+
+
+class TestUnifiedFileEndpoint:
+    """Test the new unified /files/{id} endpoint."""
+    
+    def test_unified_endpoint_returns_file(self, authenticated_client: TestClient, uploaded_photo: dict):
+        """Unified endpoint should return file content."""
+        photo_id = uploaded_photo['id']
+        response = authenticated_client.get(f"/files/{photo_id}")
+        
+        assert response.status_code == 200
+        assert response.headers.get("content-type") in ["image/jpeg", "application/octet-stream"]
+    
+    def test_unified_thumbnail_endpoint(self, authenticated_client: TestClient, uploaded_photo: dict):
+        """Unified thumbnail endpoint should return thumbnail."""
+        photo_id = uploaded_photo['id']
+        response = authenticated_client.get(f"/files/{photo_id}/thumbnail")
+        
+        assert response.status_code == 200
+        assert response.headers.get("content-type") == "image/jpeg"
+    
+    def test_unified_endpoint_requires_auth(self):
+        """Unified endpoint should require authentication."""
+        # Create fresh client (not authenticated)
+        from app.main import app
+        from fastapi.testclient import TestClient
+        with TestClient(app) as new_client:
+            response = new_client.get("/files/test-photo-id", follow_redirects=False)
+        
+        assert response.status_code in [302, 401, 403]  # Redirect or unauthorized
+    
+    def test_unified_endpoint_returns_404_for_nonexistent(self, authenticated_client: TestClient):
+        """Unified endpoint should return 404 for non-existent photo."""
+        response = authenticated_client.get("/files/nonexistent-photo-id")
+        
+        # 404 if we check existence first, 403 if permission check happens first (both valid)
+        assert response.status_code in [404, 403]
+    
+    def test_legacy_uploads_endpoint_still_works(self, authenticated_client: TestClient, uploaded_photo: dict):
+        """Legacy /uploads/{filename} endpoint should still work (backward compatibility)."""
+        photo_id = uploaded_photo['id']
+        # Legacy endpoint uses filename (which is same as photo_id in extension-less storage)
+        response = authenticated_client.get(f"/uploads/{photo_id}")
+        
+        # Should work but may have deprecation headers
+        assert response.status_code == 200
 
 
 class TestGallerySorting:

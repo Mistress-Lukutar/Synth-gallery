@@ -16,6 +16,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🔴 Critical | [#15](https://github.com/Nate-go/Synth-Gallery/issues/15) | ~~Async Database (aiosqlite)~~  | Medium | ❌ **REVERTED** |
 | 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
 | 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | ✅ **DONE**     |
+| 🔴 Critical | [#23](https://github.com/Nate-go/Synth-Gallery/issues/23) | Unified File Access Service     | Large  | 🔫 **IN PROGRESS** |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
@@ -495,6 +496,115 @@ class UploadRequest(BaseModel):
         if v.size > MAX_SIZE:
             raise ValueError("File too large")
 ```
+
+---
+
+### Issue #23: Unified File Access Service 🔴 🔫
+
+**Status:** **IN PROGRESS** - 2026-03-01
+
+**Problem:**  
+Parallel file access paths for regular files and E2E-encrypted (Safe) files cause massive code duplication:
+
+| Aspect | Regular Files | Safe Files (E2E) | Result |
+|--------|---------------|------------------|--------|
+| URL Pattern | `/uploads/{id}` | Same URL, but handled differently | Confusion |
+| Encryption | Server-side (DEK) | Client-side (Safe DEK) | Dual logic |
+| Thumbnails | Direct `<img src>` | Blob URL after decryption | Branching |
+| Backend checks | `is_encrypted` | `safe_id` checks | Duplication |
+
+**Code Duplication Examples:**
+- `app/routes/gallery/files.py`: 90+ lines checking `if photo.get("safe_id")` vs `if photo["is_encrypted"]`
+- `app/static/js/navigation.js`: Two separate HTML templates for photos (lines 282-346)
+- `app/static/js/gallery-lightbox.js`: Branching logic for loading (lines 723-820)
+- `app/static/js/safes.js`: Separate thumbnail loading logic entirely
+
+**Core Principles:**
+1. **True E2E**: Safe files are decrypted ONLY on client - server never has Safe DEK
+2. **Unified Interface**: Single way to access files regardless of encryption type
+3. **Transparent Handling**: Client decides how to handle based on metadata, not URL
+
+**Solution Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              UNIFIED FILE ACCESS SERVICE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│   ┌────────────────┐    ┌────────────────┐    ┌────────────────┐       │
+│   │   Regular    │    │   Server-Side │    │      E2E      │       │
+│   │    Files     │◄────│   Encrypted   │◄────│    (Safes)    │       │
+│   │              │    │               │    │               │       │
+│   └────────────────┘    └────────────────┘    └────────────────┘       │
+│          │                  │                  │              │
+│          └───────────────────────────────────────────────────┘              │
+│                              │                                 │
+│                              ▼                                 │
+│   ┌────────────────────────────────────────────────────────────┐  │
+│   │  Backend: /files/{id} - streams raw bytes + metadata       │  │
+│   │  (server decrypts server-side, leaves E2E as-is)             │  │
+│   └────────────────────────────────────────────────────────────┘  │
+│                              │                                 │
+│   ┌────────────────────────────────────────────────────────────┐  │
+│   │  Frontend: FileAccessService.getFileUrl(photoId)            │  │
+│   │  (returns URL or Blob URL based on encryption type)         │  │
+│   └────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Plan:**
+
+#### Phase 1: Backend Simplification
+- [ ] Create unified `/files/{id}` endpoint (replaces `/uploads/{id}` logic)
+- [ ] Create unified `/thumbnails/{id}` endpoint (replaces thumbnail logic)
+- [ ] Remove server-side Safe decryption code (dead code, never executed)
+- [ ] Standardize response headers:
+  - `X-Encryption: none|server|e2e` - encryption type
+  - `X-Safe-Id: {id}` - if E2E file
+- [ ] Mark `/uploads/{id}` and legacy endpoints as deprecated
+
+#### Phase 2: Frontend FileAccessService
+- [ ] Create `app/static/js/file-access-service.js`:
+  ```javascript
+  const FileAccessService = {
+      async getFileUrl(photoId, options = {}),     // Returns direct URL or Blob URL
+      async getThumbnailUrl(photoId),              // Same for thumbnails
+      revokeUrl(url),                              // Cleanup Blob URLs
+      getPhotoMetadata(photoId)                    // Fetch metadata
+  };
+  ```
+- [ ] Unified rendering: single HTML template for all photos
+- [ ] Unified lightbox: single loading pipeline
+- [ ] Remove `data-safe-thumbnail` attributes, use `data-photo-id` only
+
+#### Phase 3: Cleanup
+- [ ] Remove `safes.js` thumbnail loading logic (move to service)
+- [ ] Remove `safe_id` checks from navigation.js, gallery-lightbox.js
+- [ ] Delete dead server-side Safe decryption code
+- [ ] Update tests
+
+**Key Decisions:**
+1. **No Server-Side Safe Decryption**: True E2E means server NEVER has Safe DEK
+2. **Blob URLs for E2E**: Client fetches encrypted, decrypts, creates object URL
+3. **Metadata-Driven**: Frontend decides handling based on `photo.safe_id`, not URL pattern
+4. **Backward Compatible**: Old endpoints work until v1.0 with deprecation warnings
+
+**Files To Modify:**
+- `app/routes/gallery/files.py` - Simplify, remove Safe branching
+- `app/routes/safe_files.py` - Keep for encrypted key delivery only
+- `app/static/js/file-access-service.js` - NEW
+- `app/static/js/navigation.js` - Use service
+- `app/static/js/gallery-lightbox.js` - Use service
+- `app/static/js/safes.js` - Remove thumbnail logic
+
+**Success Metrics:**
+| Metric | Before | After |
+|--------|--------|-------|
+| `safe_id` checks in frontend | 15+ places | 1 place (FileAccessService) |
+| HTML templates for photo | 2 (regular/safe) | 1 unified |
+| Server-side Safe decryption | Partial (dead code) | 0 (removed) |
+| Lines in files.py | ~240 | ~120 (-50%) |
+| Lines in navigation.js photo render | ~70 | ~35 (-50%) |
 
 ---
 

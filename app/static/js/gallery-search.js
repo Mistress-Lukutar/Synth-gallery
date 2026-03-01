@@ -263,25 +263,17 @@
                 const dimsAttr = `data-thumb-width="${thumbWidth}" data-thumb-height="${thumbHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${thumbWidth} / ${thumbHeight};"`;
                 
+                // Unified image handling - use data attributes for async resolution
                 let imgHtml;
-                if (safeId && coverId) {
+                if (coverId) {
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <img data-safe-thumbnail="${coverId}"
-                             data-safe-id="${safeId}"
+                        <img data-photo-id="${coverId}"
+                             ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             style="opacity: 0;">
-                    `;
-                } else if (coverId) {
-                    imgHtml = `
-                        <div class="gallery-placeholder"></div>
-                        <img src="${getBaseUrl()}/thumbnails/${coverId}" 
-                             alt="${escapeHtml(album.name)}"
-                             loading="lazy"
-                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, 'access')"
+                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
                              style="opacity: 0;">
                     `;
                 } else {
@@ -328,69 +320,38 @@
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
-                if (safeId) {
-                    html += `
-                        <div class="gallery-item" 
-                             data-photo-id="${photo.id}"
-                             data-item-type="photo"
-                             data-media-type="${mediaType}"
-                             ${dimsAttr}
-                             data-safe-id="${safeId}">
-                            <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
-                                <div class="gallery-placeholder"></div>
-                                <img data-safe-thumbnail="${photo.id}"
-                                     data-safe-id="${safeId}"
-                                     alt="${escapeHtml(photo.original_name)}"
-                                     loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                     style="opacity: 0;">
-                                ${mediaType === 'video' ? `
-                                    <div class="video-badge">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                        </svg>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            <div class="select-indicator" title="Select">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                            </div>
+                // Unified template for all photos - uses data attributes for async resolution
+                html += `
+                    <div class="gallery-item" 
+                         data-photo-id="${photo.id}"
+                         data-item-type="photo"
+                         data-media-type="${mediaType}"
+                         ${dimsAttr}
+                         ${safeIdAttr}>
+                        <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
+                            <div class="gallery-placeholder"></div>
+                            <img data-photo-id="${photo.id}"
+                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
+                                 alt="${escapeHtml(photo.original_name)}"
+                                 loading="lazy"
+                                 onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 style="opacity: 0;">
+                            ${mediaType === 'video' ? `
+                                <div class="video-badge">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                </div>
+                            ` : ''}
                         </div>
-                    `;
-                } else {
-                    html += `
-                        <div class="gallery-item" 
-                             data-photo-id="${photo.id}"
-                             data-item-type="photo"
-                             data-media-type="${mediaType}"
-                             ${dimsAttr}
-                             ${safeIdAttr}>
-                            <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
-                                <div class="gallery-placeholder"></div>
-                                <img src="${getBaseUrl()}/thumbnails/${photo.id}" 
-                                     alt="${escapeHtml(photo.original_name)}"
-                                     loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                     onerror="handleImageError(this, 'access')"
-                                     style="opacity: 0;">
-                                ${mediaType === 'video' ? `
-                                    <div class="video-badge">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                        </svg>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            <div class="select-indicator" title="Select">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                            </div>
+                        <div class="select-indicator" title="Select">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
                         </div>
-                    `;
-                }
+                    </div>
+                `;
             }
         });
 
@@ -413,9 +374,9 @@
             window.rebuildMasonry(true);
         }
 
-        // Load safe thumbnails
-        if (typeof window.loadSafeThumbnails === 'function') {
-            window.loadSafeThumbnails();
+        // Resolve thumbnails via FileAccessService (handles both regular and E2E files)
+        if (typeof window.resolveGalleryThumbnails === 'function') {
+            window.resolveGalleryThumbnails();
         }
     }
 
