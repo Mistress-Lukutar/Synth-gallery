@@ -272,17 +272,17 @@ class TestFolderDeletion:
         assert response.status_code == 200, f"Upload failed: {response.text}"
         photo_id = response.json()["id"]
         
-        # Verify photo exists in database
+        # Verify item exists in database (Phase 5: polymorphic items)
         db = get_db()
-        photo = db.execute("SELECT * FROM photos WHERE id = ?", (photo_id,)).fetchone()
-        assert photo is not None
+        item = db.execute("SELECT * FROM items WHERE id = ?", (photo_id,)).fetchone()
+        assert item is not None
         
         # Delete folder
         deleted_files = folder_repo.delete(folder_id)
         
-        # Photo should be removed from database
-        photo = db.execute("SELECT * FROM photos WHERE id = ?", (photo_id,)).fetchone()
-        assert photo is None
+        # Item should be removed from database
+        item = db.execute("SELECT * FROM items WHERE id = ?", (photo_id,)).fetchone()
+        assert item is None
         
         # deleted_files should contain the filename
         assert len(deleted_files) > 0

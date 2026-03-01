@@ -213,11 +213,14 @@ class PhotoRepository(Repository):
         return filenames
     
     # =========================================================================
-    # Album Operations
+    # Album Operations - DEPRECATED (Phase 5: Use AlbumRepository)
+    # =========================================================================
+    # These methods are kept for backward compatibility during migration.
+    # New code should use AlbumRepository directly.
     # =========================================================================
     
     def get_album(self, album_id: str) -> dict | None:
-        """Get album by ID.
+        """[DEPRECATED] Get album by ID. Use AlbumRepository.get_by_id() instead.
         
         Args:
             album_id: Album UUID
@@ -225,6 +228,12 @@ class PhotoRepository(Repository):
         Returns:
             Album dict or None
         """
+        import warnings
+        warnings.warn(
+            "PhotoRepository.get_album() is deprecated. Use AlbumRepository.get_by_id()",
+            DeprecationWarning,
+            stacklevel=2
+        )
         cursor = self._execute(
             """SELECT a.*, 
                    (SELECT COUNT(*) FROM album_items ai WHERE ai.album_id = a.id) as photo_count,
@@ -235,7 +244,7 @@ class PhotoRepository(Repository):
         return self._row_to_dict(cursor.fetchone())
     
     def set_album_cover(self, album_id: str, photo_id: str | None) -> bool:
-        """Set album cover photo.
+        """[DEPRECATED] Set album cover photo. Use AlbumRepository.set_cover_item() instead.
         
         Args:
             album_id: Album ID
@@ -244,6 +253,12 @@ class PhotoRepository(Repository):
         Returns:
             True if updated
         """
+        import warnings
+        warnings.warn(
+            "PhotoRepository.set_album_cover() is deprecated. Use AlbumRepository.set_cover_item()",
+            DeprecationWarning,
+            stacklevel=2
+        )
         cursor = self._execute(
             "UPDATE albums SET cover_item_id = ? WHERE id = ?",
             (photo_id, album_id)
@@ -252,7 +267,7 @@ class PhotoRepository(Repository):
         return cursor.rowcount > 0
     
     def get_album_photos(self, album_id: str) -> list[dict]:
-        """Get all photos in album with position ordering.
+        """[DEPRECATED] Get all photos in album. Use AlbumRepository.get_items() instead.
         
         Uses new album_items junction table (Issue #24 polymorphic items).
         
@@ -262,6 +277,12 @@ class PhotoRepository(Repository):
         Returns:
             List of photo dicts
         """
+        import warnings
+        warnings.warn(
+            "PhotoRepository.get_album_photos() is deprecated. Use AlbumRepository.get_items()",
+            DeprecationWarning,
+            stacklevel=2
+        )
         cursor = self._execute(
             """SELECT p.*, ai.position 
                FROM album_items ai
@@ -274,7 +295,7 @@ class PhotoRepository(Repository):
         return [dict(row) for row in cursor.fetchall()]
     
     def add_to_album(self, photo_id: str, album_id: str, position: int = None) -> bool:
-        """Add photo to album.
+        """[DEPRECATED] Add photo to album. Use AlbumRepository.add_item() instead.
         
         Args:
             photo_id: Photo ID
@@ -284,6 +305,12 @@ class PhotoRepository(Repository):
         Returns:
             True if added
         """
+        import warnings
+        warnings.warn(
+            "PhotoRepository.add_to_album() is deprecated. Use AlbumRepository.add_item()",
+            DeprecationWarning,
+            stacklevel=2
+        )
         if position is None:
             # Get next position
             cursor = self._execute(
@@ -301,7 +328,7 @@ class PhotoRepository(Repository):
         return cursor.rowcount > 0
     
     def remove_from_album(self, photo_id: str) -> bool:
-        """Remove photo from album.
+        """[DEPRECATED] Remove photo from album. Use AlbumRepository.remove_item() instead.
         
         Args:
             photo_id: Photo ID
@@ -309,6 +336,12 @@ class PhotoRepository(Repository):
         Returns:
             True if removed
         """
+        import warnings
+        warnings.warn(
+            "PhotoRepository.remove_from_album() is deprecated. Use AlbumRepository.remove_item()",
+            DeprecationWarning,
+            stacklevel=2
+        )
         cursor = self._execute(
             "UPDATE photos SET album_id = NULL, position = NULL WHERE id = ?",
             (photo_id,)
@@ -317,7 +350,7 @@ class PhotoRepository(Repository):
         return cursor.rowcount > 0
     
     def reorder_album(self, album_id: str, photo_ids: list[str]) -> bool:
-        """Reorder photos in album.
+        """[DEPRECATED] Reorder photos in album. Use AlbumRepository.reorder_items() instead.
         
         Args:
             album_id: Album ID
