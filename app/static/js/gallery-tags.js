@@ -85,9 +85,9 @@
         originalTags = [];
         selectedCategoryId = null;
 
-        // Get current tags from photo API
+        // Get current tags from item API (Phase 5: polymorphic items)
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}`);
+            const resp = await fetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}`);
             if (resp.ok) {
                 const photo = await resp.json();
                 originalTags = (photo.tags || []).map(t => ({
