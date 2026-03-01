@@ -283,25 +283,52 @@ class FolderRepository(Repository):
         return [row["id"] for row in cursor.fetchall()]
     
     def _get_filenames_in_folders(self, folder_ids: list[str]) -> list[str]:
-        """Get all photo filenames in folders."""
+        """Get all item filenames in folders (Phase 5: polymorphic items)."""
         if not folder_ids:
             return []
         
         placeholders = ",".join("?" * len(folder_ids))
+        
+        # Phase 5: Get filenames from item_media via items table
+        cursor = self._execute(
+            f"""SELECT im.filename 
+                FROM items i
+                JOIN item_media im ON i.id = im.item_id
+                WHERE i.folder_id IN ({placeholders})""",
+            tuple(folder_ids)
+        )
+        filenames = [row["filename"] for row in cursor.fetchall()]
+        
+        # Legacy: Also check photos table for any remaining legacy records
         cursor = self._execute(
             f"""SELECT p.filename FROM photos p
                 WHERE p.folder_id IN ({placeholders})
                    OR p.album_id IN (SELECT a.id FROM albums a WHERE a.folder_id IN ({placeholders}))""",
             tuple(folder_ids + folder_ids)
         )
-        return [row["filename"] for row in cursor.fetchall()]
+        filenames.extend([row["filename"] for row in cursor.fetchall()])
+        
+        return filenames
     
     def _delete_photos_in_folders(self, folder_ids: list[str]) -> None:
-        """Delete photos in folders."""
+        """Delete items in folders (Phase 5: polymorphic items).
+        
+        Deletes from items table which cascades to item_media via FK.
+        Also cleans up legacy photos for backward compatibility.
+        """
         if not folder_ids:
             return
         
         placeholders = ",".join("?" * len(folder_ids))
+        
+        # Phase 5: Delete polymorphic items (items table has CASCADE to item_media)
+        self._execute(
+            f"""DELETE FROM items
+                WHERE folder_id IN ({placeholders})""",
+            tuple(folder_ids)
+        )
+        
+        # Legacy: Also delete from photos table if any legacy records exist
         self._execute(
             f"""DELETE FROM photos
                 WHERE folder_id IN ({placeholders})
@@ -486,44 +513,55 @@ class FolderRepository(Repository):
         """, (folder_id,))
         return [dict(row) for row in cursor.fetchall()]
     
-    def get_standalone_photos(self, folder_id: str) -> list[dict]:
-        """Get standalone photos (not in any album) in folder.
+    def get_standalone_items(self, folder_id: str) -> list[dict]:
+        """Get standalone items (not in any album) in folder.
         
-        Uses new album_items junction table (Issue #24 polymorphic items).
+        Phase 5: Uses items and item_media tables (polymorphic).
         
         Args:
             folder_id: Folder ID
             
         Returns:
-            List of photo dicts
+            List of item dicts with media data
         """
         cursor = self._execute("""
-            SELECT p.* FROM photos p
-            WHERE p.folder_id = ? 
-              AND p.id NOT IN (
+            SELECT i.*, im.media_type, im.filename, im.original_name, im.content_type,
+                   im.width, im.height, im.thumb_width, im.thumb_height, im.taken_at
+            FROM items i
+            LEFT JOIN item_media im ON i.id = im.item_id
+            WHERE i.folder_id = ? 
+              AND i.type = 'media'
+              AND i.id NOT IN (
                   SELECT ai.item_id FROM album_items ai
-                  JOIN items i ON ai.item_id = i.id
-                  WHERE i.type = 'media'
+                  WHERE ai.album_id IN (
+                      SELECT id FROM albums WHERE folder_id = ?
+                  )
               )
-            ORDER BY p.uploaded_at DESC
-        """, (folder_id,))
+            ORDER BY i.created_at DESC
+        """, (folder_id, folder_id))
         return [dict(row) for row in cursor.fetchall()]
     
-    def get_photo_count(self, folder_id: str) -> int:
-        """Get total photo count in folder (including albums).
+    # Phase 5: Legacy alias - will be removed after full migration
+    get_standalone_photos = get_standalone_items
+    
+    def get_item_count(self, folder_id: str) -> int:
+        """Get total item count in folder (Phase 5: polymorphic items).
         
         Args:
             folder_id: Folder ID
             
         Returns:
-            Total photo count
+            Total item count
         """
-        cursor = self._execute("""
-            SELECT COUNT(*) as count FROM photos
-            WHERE folder_id = ?
-        """, (folder_id,))
-        result = cursor.fetchone()
-        return result["count"] if result else 0
+        cursor = self._execute(
+            "SELECT COUNT(*) as count FROM items WHERE folder_id = ?",
+            (folder_id,)
+        )
+        row = cursor.fetchone()
+        return row["count"] if row else 0
+    
+    # Phase 5: Legacy alias - will be removed after full migration
+    get_photo_count = get_item_count
     
     def list_with_metadata(self, user_id: int, unlocked_safe_ids: list[str] = None) -> list[dict]:
         """Get all folders accessible by user with metadata.

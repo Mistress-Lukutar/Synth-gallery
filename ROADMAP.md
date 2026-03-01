@@ -813,23 +813,27 @@ Current hybrid mode maintains both legacy and new systems:
 **Goal:**  
 Complete migration to polymorphic items, remove all legacy code.
 
-#### Step 3: Repository Cleanup
-- [ ] Deprecate `PhotoRepository.get_album()` → use `AlbumRepository.get_by_id()`
-- [ ] Deprecate `PhotoRepository.get_album_photos()` → use `AlbumRepository.get_items()`
-- [ ] Deprecate `PhotoRepository.add_to_album()` → use `AlbumRepository.add_item()`
-- [ ] Deprecate `PhotoRepository.remove_from_album()` → use `AlbumRepository.remove_item()`
-- [ ] Deprecate `PhotoRepository.set_album_cover()` → use `AlbumRepository.set_cover_item()`
-- [ ] Update `FolderRepository.get_photo_count()` → `get_item_count()`
+#### Step 3: Repository Cleanup ✅
+- [x] Deprecate `PhotoRepository.get_album()` → use `AlbumRepository.get_by_id()`
+- [x] Deprecate `PhotoRepository.get_album_photos()` → use `AlbumRepository.get_items()`
+- [x] Deprecate `PhotoRepository.add_to_album()` → use `AlbumRepository.add_item()`
+- [x] Deprecate `PhotoRepository.remove_from_album()` → use `AlbumRepository.remove_item()`
+- [x] Deprecate `PhotoRepository.set_album_cover()` → use `AlbumRepository.set_cover_item()`
+- [x] Update `FolderRepository.get_photo_count()` → `get_item_count()`
 
-#### Step 4: Remove Dual-Write
-- [ ] Stop creating legacy Photo records on upload
-- [ ] Mark legacy photos as `migrated_to_items` in database
-- [ ] Ensure all queries use `items` table exclusively
+#### Step 4: Remove Dual-Write ✅
+- [x] Stop creating legacy Photo records on upload
+- [x] Mark legacy photos as `migrated_to_items` in database
+- [x] Ensure all queries use `items` table exclusively
 
-#### Step 5: Database Cleanup (Post-Stabilization)
+#### Step 5: Database Cleanup (Post-Stabilization) ⏸️ STOPPED
+**Status:** Awaiting user confirmation before proceeding
+
 - [ ] Remove `photos.album_id` column after confirming no references
 - [ ] Archive or drop `photos` table after full migration
 - [ ] Update foreign key references
+
+**Note:** Step 5 involves destructive database changes. Legacy `photos` table data should be verified backed up before proceeding.
 
 **Acceptance Criteria:**
 - [ ] No legacy photo methods used in new code

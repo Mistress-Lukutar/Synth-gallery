@@ -91,7 +91,7 @@ async def _process_upload(
         if thumb_bytes:
             await storage.upload(item_id, thumb_bytes, folder="thumbnails")
         
-        # Create Item + ItemMedia (sync version for non-async context)
+        # Create Item + ItemMedia (Phase 5: polymorphic items only, no legacy dual-write)
         item = item_service.create_media_item_sync(
             item_id=item_id,
             file_data={
@@ -114,25 +114,6 @@ async def _process_upload(
             safe_id=safe_id,
             user_id=user["id"]
         )
-        
-        # Also create legacy photo record for backward compatibility (Phase 3 migration)
-        try:
-            from ...infrastructure.repositories import PhotoRepository
-            photo_repo = PhotoRepository(db)
-            photo_repo.create(
-                filename=item_id,
-                original_name=file.filename,
-                folder_id=folder_id,
-                user_id=user["id"],
-                media_type=media_type,
-                is_encrypted=is_encrypted,
-                safe_id=safe_id,
-                thumb_width=thumb_w,
-                thumb_height=thumb_h
-            )
-        except Exception as e:
-            # Log but don't fail if legacy creation fails
-            print(f"[upload] Legacy photo creation failed: {e}")
         
         return item
     finally:
@@ -394,8 +375,14 @@ async def upload_album(
     # Create album with uploaded items
     db = create_connection()
     try:
-        from ...infrastructure.repositories import AlbumRepository
+        from ...infrastructure.repositories import AlbumRepository, ItemRepository, ItemMediaRepository
+        from ...application.services import ItemService
+        
         album_repo = AlbumRepository(db)
+        item_service = ItemService(
+            item_repository=ItemRepository(db),
+            item_media_repository=ItemMediaRepository(db)
+        )
         
         # Generate default album name if not provided
         if not album_name:
@@ -413,11 +400,25 @@ async def upload_album(
         for position, item_id in enumerate(item_ids):
             album_repo.add_item(album_id, item_id, position)
         
+        # Get uploaded items for response (Phase 5: polymorphic items)
+        uploaded_items = []
+        for item_id in item_ids:
+            item = item_service.get_item(item_id)
+            if item:
+                uploaded_items.append({
+                    "id": item["id"],
+                    "title": item.get("title", ""),
+                    "media_type": item.get("media_type", "image"),
+                    "original_name": item.get("original_name", "")
+                })
+        
         return {
             "status": "ok",
             "album_id": album_id,
             "photo_count": len(item_ids),
-            "item_count": len(item_ids)
+            "item_count": len(item_ids),
+            "items": uploaded_items,      # Phase 5: new format
+            "photos": uploaded_items      # Legacy alias for backward compatibility
         }
     finally:
         db.close()
