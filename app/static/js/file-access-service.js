@@ -43,7 +43,7 @@ const FileAccessService = (function() {
             return cached.data;
         }
 
-        const response = await fetch(`${getBaseUrl()}/api/photos/${photoId}`);
+        const response = await fetch(`${getBaseUrl()}/api/items/${photoId}`);
         if (!response.ok) {
             throw new Error(`Failed to fetch metadata for ${photoId}: ${response.status}`);
         }

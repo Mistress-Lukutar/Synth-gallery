@@ -703,7 +703,7 @@
             currentFetchController = new AbortController();
             const signal = currentFetchController.signal;
             
-            const resp = await fetch(`${getBaseUrl()}/api/photos/${photoId}`, { signal });
+            const resp = await fetch(`${getBaseUrl()}/api/items/${photoId}`, { signal });
             if (!resp.ok) throw new Error('Failed to load photo');
             
             const photo = await resp.json();
