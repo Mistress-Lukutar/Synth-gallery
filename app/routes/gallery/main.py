@@ -202,26 +202,28 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "taken_at": album.get("max_taken_at"),
             })
         
-        # Add legacy photos (standalone, not in albums)
-        for photo in folder_contents["photos"]:
+        # Add items from new items table (polymorphic - Phase 5)
+        # standalone_only=True excludes items that are already in albums
+        folder_items = item_service.get_items_by_folder(folder_id, sort_by=sort, standalone_only=True)
+        for item in folder_items:
+            rendered = item_service.render_for_gallery(item)
             items.append({
-                "type": "photo",
-                "id": photo["id"],
-                "filename": photo["filename"],
-                "original_name": photo["original_name"],
-                "media_type": photo.get("media_type", "image"),
-                "thumb_width": photo.get("thumb_width"),
-                "thumb_height": photo.get("thumb_height"),
-                "safe_id": photo.get("safe_id"),
-                "uploaded_at": photo.get("uploaded_at"),
-                "taken_at": photo.get("taken_at"),
+                "type": "item",           # Polymorphic type
+                "item_type": item["type"], # 'media', 'note', etc
+                "id": item["id"],
+                "filename": item.get("filename", ""),
+                "original_name": item.get("original_name", ""),
+                "media_type": item.get("media_type", "image"),
+                "thumb_width": item.get("thumb_width"),
+                "thumb_height": item.get("thumb_height"),
+                "safe_id": item.get("safe_id"),
+                "uploaded_at": item.get("uploaded_at"),
+                "taken_at": item.get("taken_at"),
+                "is_encrypted": item.get("is_encrypted", False),
+                # Rendered properties for gallery display
+                "has_thumbnail": rendered.get("has_thumbnail", False),
+                "thumbnail_url": rendered.get("thumbnail_url"),
             })
-        
-        # TODO: Phase 4 - Add items from new items table
-        # For now, we use legacy photos to avoid duplication during migration
-        # folder_items = item_service.get_items_by_folder(folder_id, sort_by=sort)
-        # for item in folder_items:
-        #     ...
         
         # Get current folder info
         current_folder = folder_repo.get_by_id(folder_id)

@@ -184,8 +184,8 @@
         const items = data.items || [];
         
         items.forEach(item => {
-            // Handle polymorphic items: 'item' (new) or 'photo' (legacy)
-            const isMedia = item.type === 'photo' || (item.type === 'item' && item.item_type === 'media');
+            // Phase 5: Polymorphic items only (type: 'item' with item_type)
+            const isMedia = item.type === 'item' && item.item_type === 'media';
             
             if (item.type === 'album') {
                 const album = item;
@@ -278,15 +278,15 @@
                 // Unified template for all media - uses data attributes for async resolution
                 html += `
                     <div class="gallery-item" 
-                         data-photo-id="${media.id}"
-                         data-item-type="photo"
+                         data-item-id="${media.id}"
+                         data-item-type="item"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
                          ${safeIdAttr}
                          ${dateAttrs}>
-                        <div class="gallery-link" onclick="openPhoto('${media.id}')" ${aspectStyle}>
+                        <div class="gallery-link" onclick="openItem('${media.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
-                            <img data-photo-id="${media.id}"
+                            <img data-item-id="${media.id}"
                                  ${safeId ? `data-safe-id="${safeId}"` : ''}
                                  alt="${escapeHtml(displayName)}"
                                  loading="lazy"
@@ -363,34 +363,35 @@
     });
 
     // Resolve thumbnails asynchronously using FileAccessService
-    // This handles both regular files and E2E (Safe) files uniformly
+    // Phase 5: Uses data-item-id for polymorphic items
     async function resolveThumbnails() {
         if (typeof FileAccessService === 'undefined') {
             console.warn('[navigation] FileAccessService not available');
             return;
         }
 
-        const images = document.querySelectorAll('img[data-photo-id]:not([src])');
+        // Support both new (data-item-id) and legacy (data-photo-id) during transition
+        const images = document.querySelectorAll('img[data-item-id]:not([src]), img[data-photo-id]:not([src])');
         
         for (const img of images) {
-            const photoId = img.dataset.photoId;
+            const itemId = img.dataset.itemId || img.dataset.photoId;
             const safeId = img.dataset.safeId;
             
             try {
                 let url;
                 if (safeId) {
                     // E2E file - use FileAccessService to decrypt
-                    url = await FileAccessService.getThumbnailUrl(photoId, {
+                    url = await FileAccessService.getThumbnailUrl(itemId, {
                         photo: { safe_id: safeId }
                     });
                 } else {
                     // Regular file - direct URL
-                    url = `${getBaseUrl()}/files/${photoId}/thumbnail`;
+                    url = `${getBaseUrl()}/files/${itemId}/thumbnail`;
                 }
                 
                 img.src = url;
             } catch (err) {
-                console.error(`[navigation] Failed to resolve thumbnail for ${photoId}:`, err);
+                console.error(`[navigation] Failed to resolve thumbnail for ${itemId}:`, err);
                 img.dispatchEvent(new Event('error'));
             }
         }
@@ -414,5 +415,15 @@
         setTimeout(resolveThumbnails, 0);
     };
 
-    console.log('[navigation.js] Loaded');
+    // Phase 5: openItem is an alias for openPhoto (polymorphic items)
+    window.openItem = function(itemId) {
+        // Delegate to existing openPhoto function
+        if (typeof window.openPhoto === 'function') {
+            window.openPhoto(itemId);
+        } else {
+            console.error('[navigation] openPhoto not available');
+        }
+    };
+
+    console.log('[navigation.js] Loaded (Phase 5 - Polymorphic Items)');
 })();
