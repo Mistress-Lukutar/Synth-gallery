@@ -214,8 +214,8 @@ class TestFileRetrieval:
         authenticated_client: TestClient,
         uploaded_photo: dict
     ):
-        """Can retrieve uploaded image via /uploads/{filename}."""
-        response = authenticated_client.get(f"/uploads/{uploaded_photo['filename']}")
+        """Can retrieve uploaded image via /files/{photo_id}."""
+        response = authenticated_client.get(f"/files/{uploaded_photo['id']}")
         
         assert response.status_code == 200
         # Should be image data
@@ -230,7 +230,7 @@ class TestFileRetrieval:
         """Thumbnail should be generated and retrievable."""
         # Extension-less storage: thumbnail name is just the photo ID
         thumbnail_name = uploaded_photo['id']
-        response = authenticated_client.get(f"/thumbnails/{thumbnail_name}")
+        response = authenticated_client.get(f"/files/{thumbnail_name}/thumbnail")
         
         assert response.status_code == 200
         assert response.headers.get("content-type") == "image/jpeg"
@@ -244,7 +244,7 @@ class TestFileRetrieval:
         from app.main import app
         from fastapi.testclient import TestClient
         with TestClient(app) as new_client:
-            response = new_client.get(f"/uploads/{uploaded_photo['filename']}", follow_redirects=False)
+            response = new_client.get(f"/files/{uploaded_photo['id']}", follow_redirects=False)
         
         # Should redirect to login or return 401
         assert response.status_code in [302, 401]
@@ -262,10 +262,10 @@ class TestFileRetrieval:
             data={"folder_id": test_folder},
             headers=_csrf_headers(authenticated_client), files={"file": ("original.jpg", test_image_bytes, "image/jpeg")}
         )
-        filename = response.json()["filename"]
+        photo_id = response.json()["id"]
         
         # Download
-        response = authenticated_client.get(f"/uploads/{filename}")
+        response = authenticated_client.get(f"/files/{photo_id}")
         downloaded_content = response.content
         
         # For unencrypted upload, content should match
