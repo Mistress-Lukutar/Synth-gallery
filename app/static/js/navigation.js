@@ -184,6 +184,9 @@
         const items = data.items || [];
         
         items.forEach(item => {
+            // Handle polymorphic items: 'item' (new) or 'photo' (legacy)
+            const isMedia = item.type === 'photo' || (item.type === 'item' && item.item_type === 'media');
+            
             if (item.type === 'album') {
                 const album = item;
                 const coverId = album.cover_photo_id || album.effective_cover_photo_id;
@@ -252,38 +255,40 @@
                         </div>
                     </div>
                 `;
-            } else if (item.type === 'photo') {
-                const photo = item;
-                const safeId = photo.safe_id;
+            } else if (isMedia) {
+                // Unified media item handling (polymorphic items or legacy photos)
+                const media = item;
+                const safeId = media.safe_id;
                 const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
-                const mediaType = photo.media_type || 'image';
+                const mediaType = media.media_type || 'image';
+                const displayName = media.original_name || media.filename || 'Untitled';
                 
                 // Use stored dimensions or default to 4:3 aspect ratio
-                const hasDims = photo.thumb_width && photo.thumb_height;
-                const finalWidth = hasDims ? photo.thumb_width : 280;
-                const finalHeight = hasDims ? photo.thumb_height : 210;
+                const hasDims = media.thumb_width && media.thumb_height;
+                const finalWidth = hasDims ? media.thumb_width : 280;
+                const finalHeight = hasDims ? media.thumb_height : 210;
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
                 // Add date attributes for sorting
-                const uploadedAt = photo.uploaded_at || '';
-                const takenAt = photo.taken_at || '';
+                const uploadedAt = media.uploaded_at || '';
+                const takenAt = media.taken_at || '';
                 const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
                 
-                // Unified template for all photos - uses data attributes for async resolution
+                // Unified template for all media - uses data attributes for async resolution
                 html += `
                     <div class="gallery-item" 
-                         data-photo-id="${photo.id}"
+                         data-photo-id="${media.id}"
                          data-item-type="photo"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
                          ${safeIdAttr}
                          ${dateAttrs}>
-                        <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
+                        <div class="gallery-link" onclick="openPhoto('${media.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
-                            <img data-photo-id="${photo.id}"
+                            <img data-photo-id="${media.id}"
                                  ${safeId ? `data-safe-id="${safeId}"` : ''}
-                                 alt="${escapeHtml(photo.original_name)}"
+                                 alt="${escapeHtml(displayName)}"
                                  loading="lazy"
                                  onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
                                  onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"

@@ -227,8 +227,8 @@ class PhotoRepository(Repository):
         """
         cursor = self._execute(
             """SELECT a.*, 
-                   (SELECT COUNT(*) FROM photos p WHERE p.album_id = a.id) as photo_count,
-                   (SELECT filename FROM photos p WHERE p.id = a.cover_photo_id) as cover_filename
+                   (SELECT COUNT(*) FROM album_items ai WHERE ai.album_id = a.id) as photo_count,
+                   (SELECT filename FROM item_media im WHERE im.item_id = a.cover_item_id) as cover_filename
                FROM albums a WHERE a.id = ?""",
             (album_id,)
         )
@@ -245,7 +245,7 @@ class PhotoRepository(Repository):
             True if updated
         """
         cursor = self._execute(
-            "UPDATE albums SET cover_photo_id = ? WHERE id = ?",
+            "UPDATE albums SET cover_item_id = ? WHERE id = ?",
             (photo_id, album_id)
         )
         self._commit()
@@ -254,6 +254,8 @@ class PhotoRepository(Repository):
     def get_album_photos(self, album_id: str) -> list[dict]:
         """Get all photos in album with position ordering.
         
+        Uses new album_items junction table (Issue #24 polymorphic items).
+        
         Args:
             album_id: Album ID
             
@@ -261,9 +263,12 @@ class PhotoRepository(Repository):
             List of photo dicts
         """
         cursor = self._execute(
-            """SELECT * FROM photos 
-               WHERE album_id = ? 
-               ORDER BY COALESCE(position, 999999), uploaded_at""",
+            """SELECT p.*, ai.position 
+               FROM album_items ai
+               JOIN items i ON ai.item_id = i.id
+               JOIN photos p ON p.id = i.id
+               WHERE ai.album_id = ? 
+               ORDER BY COALESCE(ai.position, 999999), ai.added_at""",
             (album_id,)
         )
         return [dict(row) for row in cursor.fetchall()]
