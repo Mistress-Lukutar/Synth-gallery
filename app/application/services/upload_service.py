@@ -110,7 +110,7 @@ class UploadService:
             )
             is_encrypted = user_dek is not None
         
-        # Create database record with pre-generated photo_id
+        # Create database record with pre-generated photo_id and high-precision timestamp
         self.photo_repo.create(
             photo_id=photo_id,
             filename=filename,
@@ -122,7 +122,8 @@ class UploadService:
             is_encrypted=is_encrypted,
             thumb_width=thumb_w,
             thumb_height=thumb_h,
-            content_type=file.content_type or ("video/mp4" if media_type == "video" else "image/jpeg")
+            content_type=file.content_type or ("video/mp4" if media_type == "video" else "image/jpeg"),
+            uploaded_at=datetime.now()
         )
         
         return {
@@ -617,7 +618,7 @@ class UploadService:
                 folder="thumbnails"
             )
         
-        # Save to database
+        # Save to database with high-precision timestamp
         self.photo_repo.create(
             photo_id=photo_id,
             filename=filename,
@@ -631,7 +632,8 @@ class UploadService:
             is_encrypted=is_encrypted,
             thumb_width=thumb_w,
             thumb_height=thumb_h,
-            content_type=content_type
+            content_type=content_type,
+            uploaded_at=datetime.now()
         )
         
         return photo_id
