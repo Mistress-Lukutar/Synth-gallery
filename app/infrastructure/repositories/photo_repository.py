@@ -44,7 +44,8 @@ class PhotoRepository(Repository):
         thumb_width: int = None,
         thumb_height: int = None,
         safe_id: str = None,
-        content_type: str = None
+        content_type: str = None,
+        uploaded_at: datetime = None
     ) -> str:
         """Create new photo record.
         
@@ -74,13 +75,13 @@ class PhotoRepository(Repository):
             """INSERT INTO photos 
                (id, filename, original_name, folder_id, user_id,
                 media_type, album_id, position, taken_at,
-                is_encrypted, thumb_width, thumb_height, safe_id, content_type)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                is_encrypted, thumb_width, thumb_height, safe_id, content_type, uploaded_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 photo_id, filename, original_name, folder_id, user_id,
                 media_type, album_id, position, taken_at,
                 1 if is_encrypted else 0, thumb_width, thumb_height, safe_id,
-                content_type
+                content_type, uploaded_at
             )
         )
         self._commit()

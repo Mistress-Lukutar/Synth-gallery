@@ -239,7 +239,7 @@ def init_db():
             id TEXT PRIMARY KEY,
             filename TEXT NOT NULL,
             original_name TEXT,
-            uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
             folder_id TEXT,
             user_id INTEGER,
             album_id TEXT,
