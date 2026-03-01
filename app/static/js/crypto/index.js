@@ -207,7 +207,7 @@ const EnvelopeCrypto = (function() {
         
         if (keyData.storage_mode === 'legacy') {
             // Legacy file - server will decrypt
-            const photo = await fetch(`/uploads/${photoId}`, { credentials: 'same-origin' });
+            const photo = await fetch(`${getBaseUrl()}/files/${photoId}`, { credentials: 'same-origin' });
             if (targetElement) {
                 targetElement.src = URL.createObjectURL(await photo.blob());
             }
@@ -218,7 +218,7 @@ const EnvelopeCrypto = (function() {
         const contentKey = await DEKManager.decryptContentKey(keyData.encrypted_ck);
         
         // Download encrypted file
-        const encryptedResponse = await fetch(`/uploads/${photoId}`, { credentials: 'same-origin' });
+        const encryptedResponse = await fetch(`${getBaseUrl()}/files/${photoId}`, { credentials: 'same-origin' });
         const encryptedBlob = await encryptedResponse.blob();
         
         // Decrypt file

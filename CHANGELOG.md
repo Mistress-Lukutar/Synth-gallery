@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added - Unified File Access Service (Issue #23)
-- **New unified file endpoints** (recommended for new code):
+### Changed (Breaking) - Unified File Access Service (Issue #23)
+- **New unified file endpoints**:
   - `/files/{photo_id}` - Returns file with encryption headers
   - `/files/{photo_id}/thumbnail` - Returns thumbnail with encryption headers
   - Headers indicate encryption type: `X-Encryption: none|server|e2e`
   - E2E files include `X-Safe-Id` header for client-side decryption
+- **Removed legacy endpoints**:
+  - ❌ `/uploads/{filename}` → Use `/files/{photo_id}`
+  - ❌ `/thumbnails/{filename}` → Use `/files/{photo_id}/thumbnail`
 - **FileAccessService** (`app/static/js/file-access-service.js`):
   - Unified client-side file access for all encryption types
   - `getFileUrl(photoId)` - Returns direct URL or Blob URL (for E2E)
@@ -33,12 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ✅ All routes now use explicit `create_connection()` pattern
   - ✅ All 128 tests passing (100% pass rate)
   - ✅ Zero deprecated database functions in production code
-
-### Deprecated
-- **Legacy file endpoints** (still work, migrate to new endpoints):
-  - `/uploads/{filename}` → `/files/{photo_id}`
-  - `/thumbnails/{filename}` → `/files/{photo_id}/thumbnail`
-  - Legacy endpoints include `Deprecation` header with sunset date (2026-06-01)
 
 ### Removed
 - **Server-side Safe decryption code** (dead code removal):

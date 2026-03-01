@@ -56,7 +56,7 @@ class TestFileAccessControl:
         uploaded_photo: dict
     ):
         """Owner should access their uploaded file."""
-        response = authenticated_client.get(f"/uploads/{uploaded_photo['filename']}")
+        response = authenticated_client.get(f"/files/{uploaded_photo['id']}")
         
         assert response.status_code == 200
     
@@ -100,7 +100,7 @@ class TestFileAccessControl:
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200, f"Upload failed: {response.text}"
-        filename = response.json()["filename"]
+        photo_id = response.json()["id"]
         
         # Share with first user
         perm_repo.grant(folder_id, test_user["id"], "viewer", second_user["id"])
@@ -120,7 +120,7 @@ class TestFileAccessControl:
             follow_redirects=False
         )
         
-        response = client.get(f"/uploads/{filename}")
+        response = client.get(f"/files/{photo_id}")
         
         assert response.status_code == 200
     
@@ -163,7 +163,7 @@ class TestFileAccessControl:
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200, f"Upload failed: {response.text}"
-        filename = response.json()["filename"]
+        photo_id = response.json()["id"]
         
         # First user (unrelated) tries to access
         client.cookies.clear()
@@ -173,7 +173,7 @@ class TestFileAccessControl:
             follow_redirects=False
         )
         
-        response = client.get(f"/uploads/{filename}")
+        response = client.get(f"/files/{photo_id}")
         
         assert response.status_code == 403
     
@@ -193,13 +193,13 @@ class TestFileAccessControl:
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200, f"Upload failed: {response.text}"
-        filename = response.json()["filename"]
+        photo_id = response.json()["id"]
         
         # Try to access without auth (create fresh client)
         from app.main import app
         from fastapi.testclient import TestClient
         with TestClient(app) as new_client:
-            response = new_client.get(f"/uploads/{filename}", follow_redirects=False)
+            response = new_client.get(f"/files/{photo_id}", follow_redirects=False)
         
         assert response.status_code in [302, 401, 403]  # Redirect to login or 401
 
@@ -214,7 +214,7 @@ class TestThumbnailAccess:
     ):
         """Thumbnail should exist after upload."""
         thumbnail_id = uploaded_photo['id']
-        response = authenticated_client.get(f"/thumbnails/{thumbnail_id}")
+        response = authenticated_client.get(f"/files/{thumbnail_id}/thumbnail")
         
         assert response.status_code == 200
         assert response.headers.get("content-type") == "image/jpeg"
@@ -267,7 +267,7 @@ class TestThumbnailAccess:
             follow_redirects=False
         )
         
-        response = client.get(f"/thumbnails/{photo_id}")
+        response = client.get(f"/files/{photo_id}/thumbnail")
         
         assert response.status_code == 403
     
@@ -287,7 +287,7 @@ class TestThumbnailAccess:
             thumb_path.unlink()
         
         # Request should regenerate it
-        response = authenticated_client.get(f"/thumbnails/{thumbnail_id}")
+        response = authenticated_client.get(f"/files/{thumbnail_id}/thumbnail")
         
         assert response.status_code == 200
         # Should exist again (if regeneration is implemented)
@@ -330,16 +330,6 @@ class TestUnifiedFileEndpoint:
         # 404 if we check existence first, 403 if permission check happens first (both valid)
         assert response.status_code in [404, 403]
     
-    def test_legacy_uploads_endpoint_still_works(self, authenticated_client: TestClient, uploaded_photo: dict):
-        """Legacy /uploads/{filename} endpoint should still work (backward compatibility)."""
-        photo_id = uploaded_photo['id']
-        # Legacy endpoint uses filename (which is same as photo_id in extension-less storage)
-        response = authenticated_client.get(f"/uploads/{photo_id}")
-        
-        # Should work but may have deprecation headers
-        assert response.status_code == 200
-
-
 class TestGallerySorting:
     """Test photo/album sorting options."""
     
