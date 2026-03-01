@@ -358,7 +358,7 @@ async def upload_album(
     request: Request,
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
-    album_name: str = Form(...),
+    album_name: str = Form(""),
     safe_id: Optional[str] = Form(None)
 ):
     """Upload multiple files as an album (legacy endpoint for backward compatibility).
@@ -396,6 +396,11 @@ async def upload_album(
     try:
         from ...infrastructure.repositories import AlbumRepository
         album_repo = AlbumRepository(db)
+        
+        # Generate default album name if not provided
+        if not album_name:
+            from datetime import datetime
+            album_name = f"Album {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         
         album_id = album_repo.create(
             folder_id=folder_id,

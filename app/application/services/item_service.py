@@ -399,13 +399,27 @@ class ItemService:
         self,
         folder_id: str,
         item_type: str = None,
-        sort_by: str = "created"
+        sort_by: str = "created",
+        standalone_only: bool = False
     ) -> List[Dict]:
-        """Get items in folder with full data."""
-        if item_type == 'media':
+        """Get items in folder with full data.
+        
+        Args:
+            folder_id: Folder ID
+            item_type: Filter by type ('media', 'note') or None for all
+            sort_by: 'created' or 'title'
+            standalone_only: If True, exclude items that are in albums
+        """
+        if item_type == 'media' and not standalone_only:
             return self.media_repo.get_by_folder(folder_id)
         
         items = self.item_repo.get_by_folder(folder_id, item_type, sort_by)
+        
+        # Filter out items that are in albums if requested
+        if standalone_only:
+            # Get all item_ids that are in albums
+            album_item_ids = self._get_album_item_ids(folder_id)
+            items = [item for item in items if item['id'] not in album_item_ids]
         
         # Enrich with type-specific data
         for item in items:
@@ -415,6 +429,17 @@ class ItemService:
                     item.update(media)
         
         return items
+    
+    def _get_album_item_ids(self, folder_id: str) -> set:
+        """Get IDs of all items that are in albums for a given folder."""
+        cursor = self.item_repo._conn.execute(
+            """SELECT DISTINCT ai.item_id 
+               FROM album_items ai
+               JOIN items i ON ai.item_id = i.id
+               WHERE i.folder_id = ?""",
+            (folder_id,)
+        )
+        return {row['item_id'] for row in cursor.fetchall()}
     
     def move_item(self, item_id: str, folder_id: str, user_id: int) -> bool:
         """Move item to different folder."""

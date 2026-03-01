@@ -17,7 +17,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
 | 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | ✅ **DONE**     |
 | 🔴 Critical | [#23](https://github.com/Nate-go/Synth-Gallery/issues/23) | Unified File Access Service     | Large  | ✅ **DONE** |
-| 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | 🔫 **IN PROGRESS** |
+| 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | 🔫 **Phase 5 IN PROGRESS** |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
@@ -720,11 +720,51 @@ Album → [Photo, Video, Note, File, ...]  (any mix)
    class NoteRenderer(ItemRenderer): ...   # future
    ```
 
-#### Phase 4: API & Frontend
-- [ ] Update `/api/items/*` endpoints (unified)
-- [ ] Update `/api/albums/*` endpoints (use item_ids)
-- [ ] Frontend: polymorphic item components
-- [ ] Update album editor to work with generic items
+#### Phase 4: API & Frontend ✅
+- [x] Create `/api/items/*` endpoints (unified)
+- [x] Create `/api/albums/*` endpoints (use item_ids)
+- [x] Frontend: polymorphic item components (backward compat mode)
+- [x] Update album editor to work with generic items
+
+#### Phase 5: Complete Legacy Removal (Current Focus)
+**Goal:** Remove all legacy photo/album coupling, use polymorphic items exclusively
+
+**Step 1: Frontend Transition** ✅
+- [x] Update `navigation.js` - render items with `type: 'item'` + `item_type`
+- [x] Update `gallery-albums.js` - use `album.items` instead of `album.photos`
+- [x] Update `gallery-lightbox.js` - work with `item_id` instead of `photo_id`
+- [x] Update `gallery-selection.js` - unify selection for generic items
+
+**Step 2: API Transition** ✅
+- [x] Return polymorphic items from `/api/folders/{id}/content` with standalone_only filter
+- [x] Fix upload-album endpoint to use optional album_name with default
+- [x] Add `ItemService.get_items_by_folder(standalone_only=True)` to exclude album items
+- [ ] Update `FolderRepository.get_standalone_photos()` → `get_standalone_items()`
+- [ ] Remove dual-write (stop creating legacy Photo records on upload)
+
+**Step 3: Repository Cleanup**
+- [ ] Deprecate `PhotoRepository.get_album()` → use `AlbumRepository.get_by_id()`
+- [ ] Deprecate `PhotoRepository.get_album_photos()` → use `AlbumRepository.get_items()`
+- [ ] Deprecate `PhotoRepository.add_to_album()` → use `AlbumRepository.add_item()`
+- [ ] Deprecate `PhotoRepository.remove_from_album()` → use `AlbumRepository.remove_item()`
+- [ ] Deprecate `PhotoRepository.set_album_cover()` → use `AlbumRepository.set_cover_item()`
+- [ ] Update `FolderRepository.get_photo_count()` → `get_item_count()`
+
+**Step 4: Database Cleanup (Post-Stabilization)**
+- [ ] Mark all legacy photos as `migrated_to_items`
+- [ ] Remove `photos.album_id` column (after confirming no references)
+- [ ] Archive or drop `photos` table (after full migration)
+
+**Step 5: New Features Enabled**
+```python
+# Example: Adding Notes (no album changes needed!)
+class NoteRenderer(ItemRenderer):
+    def render_gallery_item(self, item):
+        return {'type': 'note', 'preview': item['content'][:100]}
+
+ItemService.RENDERERS['note'] = NoteRenderer()
+# Albums already support any item type via album_items
+```
 
 **Files Affected:**
 - `app/database.py` - new schema + migrations

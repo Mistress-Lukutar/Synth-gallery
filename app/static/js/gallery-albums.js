@@ -259,9 +259,9 @@
                 const isCover = item.id === effectiveCoverId;
                 const displayName = item.original_name || item.filename || item.title || '';
                 return `
-                    <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-photo-id="${item.id}" draggable="true" data-index="${index}" onclick="handlePhotoClick(event, '${item.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
+                    <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-item-id="${item.id}" draggable="true" data-index="${index}" onclick="handleItemClick(event, '${item.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
                         <img src="${getBaseUrl()}/files/${item.id}/thumbnail" alt="${escapeHtml(displayName)}">
-                        <button class="remove-btn" onclick="removePhotoFromAlbum(event, '${item.id}')" title="Remove from album">&times;</button>
+                        <button class="remove-btn" onclick="removeItemFromAlbum(event, '${item.id}')" title="Remove from album">&times;</button>
                     </div>
                 `;
             }).join('');
@@ -282,15 +282,18 @@
         }
     }
 
-    window.handlePhotoClick = async function(event, photoId) {
+    window.handleItemClick = async function(event, itemId) {
         // Don't trigger if clicking remove button
         if (event.target.closest('.remove-btn')) return;
         
         // Set as cover
         if (editingAlbumId) {
-            await setAlbumCover(editingAlbumId, photoId);
+            await setAlbumCover(editingAlbumId, itemId);
         }
     };
+
+    // Phase 5: Legacy alias
+    window.handlePhotoClick = window.handleItemClick;
 
     function setupDragAndDrop(container) {
         let draggedItem = null;
@@ -347,7 +350,7 @@
         }
     }
 
-    window.removePhotoFromAlbum = async function(event, itemId) {
+    window.removeItemFromAlbum = async function(event, itemId) {
         event.stopPropagation();
         if (!editingAlbumId) return;
         
@@ -362,9 +365,12 @@
             const album = resp.ok ? await resp.json() : { cover_item_id: null };
             loadAlbumPhotos(editingAlbumId, album.cover_item_id || album.cover_photo_id);
         } catch (err) {
-            console.error('Failed to remove photo:', err);
+            console.error('Failed to remove item:', err);
         }
     };
+
+    // Phase 5: Legacy alias
+    window.removePhotoFromAlbum = window.removeItemFromAlbum;
 
     window.openAddPhotosModal = async function() {
         if (!editingAlbumId || !addPhotosModal) return;
