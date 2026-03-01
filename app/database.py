@@ -222,7 +222,6 @@ def _migrate_to_polymorphic_items(db):
     
     # Update albums cover_photo_id to reference items
     # Note: We keep the column name for now, but it now references items.id
-    # In Phase 2 we'll rename it to cover_item_id
     
     print(f"[Migration] Migrated {photo_count} photos to polymorphic items")
 
@@ -311,12 +310,12 @@ def init_db():
             name TEXT,
             folder_id TEXT,
             user_id INTEGER,
-            cover_photo_id TEXT,
+            cover_item_id TEXT,
             safe_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (cover_photo_id) REFERENCES photos(id) ON DELETE SET NULL,
+            FOREIGN KEY (cover_item_id) REFERENCES items(id) ON DELETE SET NULL,
             FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL
         )
     """)
@@ -600,5 +599,12 @@ def init_db():
     # Migration: Polymorphic Items Architecture (Issue #24)
     # =============================================================================
     _migrate_to_polymorphic_items(db)
+    
+    # Migration: Rename albums.cover_photo_id to cover_item_id
+    try:
+        db.execute("ALTER TABLE albums RENAME COLUMN cover_photo_id TO cover_item_id")
+        print("[Migration] Renamed albums.cover_photo_id to cover_item_id")
+    except sqlite3.OperationalError:
+        pass  # Column already renamed or doesn't exist
 
     db.commit()

@@ -92,7 +92,8 @@ class AlbumService:
             'id': album_id,
             'name': name,
             'folder_id': folder_id,
-            'item_count': len(item_ids) if item_ids else 0
+            'item_count': len(item_ids) if item_ids else 0,
+            'photo_count': len(item_ids) if item_ids else 0  # Legacy alias
         }
     
     def get_album(self, album_id: str, user_id: int) -> Optional[Dict]:
@@ -109,6 +110,9 @@ class AlbumService:
         items = self.album_repo.get_items(album_id)
         
         album['items'] = items
+        album['photos'] = items  # Legacy alias for backward compatibility
+        album['photo_count'] = len(items)  # Legacy alias
+        album['item_count'] = len(items)   # New name
         album['can_edit'] = self._can_edit(album_id, user_id)
         
         return album

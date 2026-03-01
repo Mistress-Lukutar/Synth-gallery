@@ -320,6 +320,65 @@ class ItemService:
         return False
     
     # ========================================================================
+    # Sync Item Creation (for non-async contexts)
+    # ========================================================================
+    
+    def create_media_item_sync(
+        self,
+        item_id: str,
+        file_data: dict,
+        media_data: dict,
+        folder_id: str,
+        user_id: int,
+        safe_id: str = None
+    ) -> Dict:
+        """Synchronous media item creation (used by upload routes).
+        
+        Args:
+            item_id: Pre-generated item UUID
+            file_data: Dict with filename, content_type, size, uploaded_at, user_id, is_encrypted
+            media_data: Dict with media_type, storage_path, is_encrypted, client_encryption_metadata
+            folder_id: Target folder
+            user_id: Owner
+            safe_id: Safe ID if in encrypted vault
+            
+        Returns:
+            Created item dict
+        """
+        # Create base item
+        self.item_repo.create(
+            item_type='media',
+            folder_id=folder_id,
+            user_id=user_id,
+            item_id=item_id,
+            title=file_data.get('filename', ''),
+            safe_id=safe_id,
+            is_encrypted=file_data.get('is_encrypted', False),
+            created_at=file_data.get('uploaded_at')
+        )
+        
+        # Create media details
+        self.media_repo.create(
+            item_id=item_id,
+            media_type=media_data.get('media_type', 'image'),
+            filename=item_id,  # Storage uses item_id as filename
+            original_name=file_data.get('filename', ''),
+            content_type=file_data.get('content_type', 'application/octet-stream'),
+            thumb_width=media_data.get('thumb_width', 0),
+            thumb_height=media_data.get('thumb_height', 0),
+            taken_at=file_data.get('taken_at')
+        )
+        
+        return {
+            'id': item_id,
+            'type': 'media',
+            'media_type': media_data.get('media_type', 'image'),
+            'title': file_data.get('filename', ''),
+            'folder_id': folder_id,
+            'user_id': user_id
+        }
+    
+    # ========================================================================
     # Generic Item Operations
     # ========================================================================
     
@@ -395,3 +454,27 @@ class ItemService:
         """Render item for lightbox view using appropriate strategy."""
         renderer = self.get_renderer(item['type'])
         return renderer.render_lightbox(item)
+    
+    def count_items_by_folder(self, folder_id: str) -> int:
+        """Count items in folder."""
+        return self.item_repo.count_by_folder(folder_id)
+    
+    def detect_media_type(self, filename: str, content: bytes) -> str:
+        """Detect media type from filename and content."""
+        ext = filename.lower().split('.')[-1] if '.' in filename else ''
+        
+        video_exts = {'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v'}
+        image_exts = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff'}
+        
+        if ext in video_exts:
+            return 'video'
+        if ext in image_exts:
+            return 'image'
+        
+        # Check content
+        if len(content) >= 12:
+            header = content[:12]
+            if header[4:8] in (b'ftyp', b'moov'):
+                return 'video'
+        
+        return 'unknown'

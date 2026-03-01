@@ -467,18 +467,19 @@ class FolderRepository(Repository):
         """
         cursor = self._execute("""
             SELECT a.id, a.name, a.created_at, a.folder_id, a.user_id, a.safe_id,
-                   (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count,
-                   COALESCE(a.cover_photo_id, 
-                       (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1)
-                   ) as cover_photo_id,
-                   cover_p.thumb_width as cover_thumb_width,
-                   cover_p.thumb_height as cover_thumb_height,
-                   COALESCE((SELECT MAX(uploaded_at) FROM photos WHERE album_id = a.id), a.created_at) as max_uploaded_at,
-                   COALESCE((SELECT MAX(taken_at) FROM photos WHERE album_id = a.id), 
-                            (SELECT MAX(uploaded_at) FROM photos WHERE album_id = a.id), a.created_at) as max_taken_at
+                   (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as photo_count,
+                   COALESCE(a.cover_item_id, 
+                       (SELECT item_id FROM album_items WHERE album_id = a.id ORDER BY position LIMIT 1)
+                   ) as cover_item_id,
+                   cover_im.thumb_width as cover_thumb_width,
+                   cover_im.thumb_height as cover_thumb_height,
+                   COALESCE((SELECT MAX(added_at) FROM album_items WHERE album_id = a.id), a.created_at) as max_uploaded_at,
+                   COALESCE((SELECT MAX(im.taken_at) FROM album_items ai 
+                            JOIN item_media im ON ai.item_id = im.item_id WHERE ai.album_id = a.id), 
+                            a.created_at) as max_taken_at
             FROM albums a
-            LEFT JOIN photos cover_p ON cover_p.id = COALESCE(a.cover_photo_id, 
-                (SELECT id FROM photos WHERE album_id = a.id ORDER BY position LIMIT 1)
+            LEFT JOIN item_media cover_im ON cover_im.item_id = COALESCE(a.cover_item_id, 
+                (SELECT item_id FROM album_items WHERE album_id = a.id ORDER BY position LIMIT 1)
             )
             WHERE a.folder_id = ?
             ORDER BY a.created_at DESC
@@ -486,7 +487,9 @@ class FolderRepository(Repository):
         return [dict(row) for row in cursor.fetchall()]
     
     def get_standalone_photos(self, folder_id: str) -> list[dict]:
-        """Get standalone photos (not in album) in folder.
+        """Get standalone photos (not in any album) in folder.
+        
+        Uses new album_items junction table (Issue #24 polymorphic items).
         
         Args:
             folder_id: Folder ID
@@ -495,9 +498,14 @@ class FolderRepository(Repository):
             List of photo dicts
         """
         cursor = self._execute("""
-            SELECT * FROM photos
-            WHERE folder_id = ? AND album_id IS NULL
-            ORDER BY uploaded_at DESC
+            SELECT p.* FROM photos p
+            WHERE p.folder_id = ? 
+              AND p.id NOT IN (
+                  SELECT ai.item_id FROM album_items ai
+                  JOIN items i ON ai.item_id = i.id
+                  WHERE i.type = 'media'
+              )
+            ORDER BY p.uploaded_at DESC
         """, (folder_id,))
         return [dict(row) for row in cursor.fetchall()]
     

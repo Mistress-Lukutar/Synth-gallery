@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from ...database import create_connection
 from ...dependencies import require_user
-from ...infrastructure.repositories import PhotoRepository
+from ...infrastructure.repositories import PhotoRepository, ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
 from ...infrastructure.storage import get_storage, LocalStorage
 from .deps import get_permission_service
@@ -58,6 +58,33 @@ async def _get_storage_response(filename: str, folder: str) -> Response:
     return FileResponse(file_path)
 
 
+def _get_file_record(photo_id: str, photo_repo: PhotoRepository, item_repo: ItemRepository, item_media_repo=None):
+    """Get file record from legacy photos or new items table."""
+    # Try legacy photos table first
+    photo = photo_repo.get_by_id(photo_id)
+    if photo:
+        return photo
+    
+    # Fallback to new items table
+    item = item_repo.get_by_id(photo_id)
+    if item and item.get("type") == "media":
+        # Get media details if available
+        media = item_media_repo.get_by_item_id(photo_id) if item_media_repo else None
+        # Convert item format to photo-like dict for backward compat
+        # Storage uses item_id as filename
+        return {
+            "id": item["id"],
+            "filename": photo_id,  # Storage uses item_id as filename
+            "original_name": item.get("title", photo_id),
+            "safe_id": item.get("safe_id"),
+            "is_encrypted": item.get("is_encrypted", False),
+            "user_id": item.get("user_id"),
+            "folder_id": item.get("folder_id"),
+            "content_type": media.get("content_type", "image/jpeg") if media else "image/jpeg",
+        }
+    return None
+
+
 @router.get("/files/{photo_id}")
 async def get_file(photo_id: str, request: Request):
     """File access endpoint.
@@ -75,14 +102,20 @@ async def get_file(photo_id: str, request: Request):
     try:
         perm_service = get_permission_service(db)
         photo_repo = PhotoRepository(db)
+        item_repo = ItemRepository(db)
+        item_media_repo = ItemMediaRepository(db)
         
-        if not perm_service.can_access_photo(photo_id, user["id"]):
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        photo = photo_repo.get_by_id(photo_id)
-        if not photo:
+        # Try to get file record from either table
+        file_record = _get_file_record(photo_id, photo_repo, item_repo, item_media_repo)
+        if not file_record:
             raise HTTPException(status_code=404, detail="Photo not found")
         
+        # Check permissions using folder_id
+        folder_id = file_record.get("folder_id")
+        if folder_id and not perm_service.can_access(folder_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        photo = file_record
         filename = photo.get("filename", photo_id)
         content_type = photo.get("content_type") or "image/jpeg"
         encryption = _get_encryption_type(photo)
@@ -96,10 +129,10 @@ async def get_file(photo_id: str, request: Request):
                 file_path = storage.get_path(filename, "uploads")
                 return FileResponse(
                     file_path,
+                    media_type=content_type,
                     headers={
                         "X-Encryption": "e2e",
                         "X-Safe-Id": photo["safe_id"],
-                        "X-Content-Type": content_type
                     }
                 )
             else:
@@ -109,7 +142,6 @@ async def get_file(photo_id: str, request: Request):
                     headers={
                         "X-Encryption": "e2e",
                         "X-Safe-Id": photo["safe_id"],
-                        "X-Content-Type": content_type
                     }
                 )
         
@@ -130,7 +162,12 @@ async def get_file(photo_id: str, request: Request):
                 return Response(content=decrypted_data, media_type=content_type)
         
         # Regular files: serve directly
-        return await _get_storage_response(filename, "uploads")
+        if isinstance(storage, LocalStorage):
+            file_path = storage.get_path(filename, "uploads")
+            return FileResponse(file_path, media_type=content_type)
+        else:
+            url = storage.get_url(filename, "uploads", expires=3600)
+            return RedirectResponse(url=url)
     
     finally:
         db.close()
@@ -145,13 +182,20 @@ async def get_file_thumbnail(photo_id: str, request: Request):
     try:
         perm_service = get_permission_service(db)
         photo_repo = PhotoRepository(db)
+        item_repo = ItemRepository(db)
+        item_media_repo = ItemMediaRepository(db)
         
-        if not perm_service.can_access_photo(photo_id, user["id"]):
+        # Get file record from either table
+        file_record = _get_file_record(photo_id, photo_repo, item_repo, item_media_repo)
+        if not file_record:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        
+        # Check permissions using folder_id
+        folder_id = file_record.get("folder_id")
+        if folder_id and not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        photo = photo_repo.get_by_id(photo_id)
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
+        photo = file_record
         
         # Auto-regenerate missing thumbnails
         if not storage.exists(photo_id, "thumbnails"):
@@ -160,6 +204,7 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                 raise HTTPException(status_code=404, detail="Thumbnail unavailable")
         
         encryption = _get_encryption_type(photo)
+        content_type = photo.get("content_type", "image/jpeg")
         
         # E2E files: serve as-is
         if encryption == "e2e":
@@ -167,6 +212,7 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                 file_path = storage.get_path(photo_id, "thumbnails")
                 return FileResponse(
                     file_path,
+                    media_type=content_type,
                     headers={
                         "X-Encryption": "e2e",
                         "X-Safe-Id": photo["safe_id"]
@@ -198,10 +244,15 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                 encrypted_data = await storage.download(photo_id, "thumbnails")
             
             decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
-            return Response(content=decrypted_data, media_type="image/jpeg")
+            return Response(content=decrypted_data, media_type=content_type)
         
         # Regular files
-        return await _get_storage_response(photo_id, "thumbnails")
+        if isinstance(storage, LocalStorage):
+            file_path = storage.get_path(photo_id, "thumbnails")
+            return FileResponse(file_path, media_type=content_type)
+        else:
+            url = storage.get_url(photo_id, "thumbnails", expires=3600)
+            return RedirectResponse(url=url)
     
     finally:
         db.close()

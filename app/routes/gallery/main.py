@@ -4,12 +4,13 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ...application.services import UserSettingsService
+from ...application.services import UserSettingsService, ItemService
 from ...config import ROOT_PATH, BASE_DIR
 from ...database import create_connection
 from ...dependencies import get_current_user
 from ...infrastructure.repositories import (
-    FolderRepository, PermissionRepository, SafeRepository, UserRepository
+    FolderRepository, PermissionRepository, SafeRepository, UserRepository,
+    ItemRepository, ItemMediaRepository, AlbumRepository
 )
 from ...infrastructure.services.encryption import dek_cache
 from .deps import get_folder_service, get_permission_service
@@ -128,8 +129,12 @@ def gallery(request: Request, folder_id: str = None):
 
 
 @router.get("/api/folders/{folder_id}/content")
+@router.get("/api/folders/{folder_id}/contents")  # Legacy alias
 def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
-    """Get folder contents as JSON (for SPA navigation)."""
+    """Get folder contents as JSON (for SPA navigation).
+    
+    Returns unified items list using ItemService for polymorphic content.
+    """
     from ...dependencies import require_user
     user = require_user(request)
 
@@ -139,6 +144,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         folder_service = get_folder_service(db)
         perm_service = get_permission_service(db)
         user_settings_repo = UserSettingsRepository(db)
+        album_repo = AlbumRepository(db)
 
         if not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
@@ -146,39 +152,57 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         if sort is None or sort not in ("uploaded", "taken"):
             sort = user_settings_repo.get_sort_preference(user["id"], folder_id)
         
-
-        folder_contents = folder_service.get_folder_contents(folder_id, user["id"])
+        # Get items using ItemService (new polymorphic approach)
+        item_service = ItemService(
+            item_repository=ItemRepository(db),
+            item_media_repository=ItemMediaRepository(db)
+        )
         
         # Build flat items list for SPA (unified structure)
         items = []
         
-        # Add photo_count to subfolders
+        # Add subfolders
+        folder_contents = folder_service.get_folder_contents(folder_id, user["id"])
         for folder in folder_contents["subfolders"]:
-            folder["photo_count"] = folder_repo.get_photo_count(folder["id"])
+            # Get actual item count (not just photos)
+            item_count = item_service.count_items_by_folder(folder["id"])
             items.append({
                 "type": "folder",
                 "id": folder["id"],
                 "name": folder["name"],
-                "photo_count": folder["photo_count"],
+                "photo_count": item_count,  # Renamed for backward compat
                 "user_id": folder.get("user_id"),
             })
         
+        # Add albums from legacy table (for now)
         for album in folder_contents["albums"]:
-            cover_photo_id = album.get("cover_photo_id") or album.get("effective_cover_photo_id")
+            # Get item count from album_items table
+            album_items = album_repo.get_items(album["id"])
+            item_count = len(album_items)
+            
+            # Find cover - first image item with thumbnail
+            cover_item_id = album.get("cover_item_id")
+            if not cover_item_id and album_items:
+                for ai in album_items:
+                    if ai.get("has_thumbnail"):
+                        cover_item_id = ai["item_id"]
+                        break
+            
             items.append({
                 "type": "album",
                 "id": album["id"],
                 "name": album["name"],
-                "photo_count": album.get("photo_count", 0),
-                "cover_photo_id": cover_photo_id,
+                "photo_count": item_count,
+                "cover_photo_id": cover_item_id,  # Legacy name
+                "cover_item_id": cover_item_id,   # New name
                 "cover_thumb_width": album.get("cover_thumb_width"),
                 "cover_thumb_height": album.get("cover_thumb_height"),
                 "safe_id": album.get("safe_id"),
-                # Add dates for frontend sorting
                 "uploaded_at": album.get("max_uploaded_at"),
                 "taken_at": album.get("max_taken_at"),
             })
         
+        # Add legacy photos (standalone, not in albums)
         for photo in folder_contents["photos"]:
             items.append({
                 "type": "photo",
@@ -189,10 +213,15 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "thumb_width": photo.get("thumb_width"),
                 "thumb_height": photo.get("thumb_height"),
                 "safe_id": photo.get("safe_id"),
-                # Add dates for frontend sorting
                 "uploaded_at": photo.get("uploaded_at"),
                 "taken_at": photo.get("taken_at"),
             })
+        
+        # TODO: Phase 4 - Add items from new items table
+        # For now, we use legacy photos to avoid duplication during migration
+        # folder_items = item_service.get_items_by_folder(folder_id, sort_by=sort)
+        # for item in folder_items:
+        #     ...
         
         # Get current folder info
         current_folder = folder_repo.get_by_id(folder_id)

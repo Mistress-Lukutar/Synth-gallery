@@ -72,19 +72,21 @@
             if (!resp.ok) throw new Error('Failed to load album');
             
             const album = await resp.json();
-            console.log('[gallery-albums] Album loaded:', album.name, 'photos:', album.photos?.length);
+            // Support both new items array and legacy photos array
+            const albumItems = album.items || album.photos || [];
+            console.log('[gallery-albums] Album loaded:', album.name, 'items:', albumItems.length);
             
-            if (!album.photos || album.photos.length === 0) {
+            if (albumItems.length === 0) {
                 console.log('[gallery-albums] Album is empty');
                 return;
             }
             
-            // Store album photos for navigation
-            currentAlbumPhotos = album.photos.map(p => ({
-                id: p.id,
-                safeId: p.safe_id,
-                original_name: p.original_name,
-                filename: p.filename,
+            // Store album items for navigation
+            currentAlbumPhotos = albumItems.map(item => ({
+                id: item.id,
+                safeId: item.safe_id,
+                original_name: item.original_name || item.title || '',
+                filename: item.filename || item.title || '',
                 albumId: albumId
             }));
             currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
@@ -239,25 +241,27 @@
         if (!container) return;
         
         try {
-            // Use main album endpoint which includes photos
+            // Use main album endpoint which includes items
             const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
-            if (!resp.ok) throw new Error('Failed to load photos');
+            if (!resp.ok) throw new Error('Failed to load album items');
             
             const data = await resp.json();
-            const photos = data.photos || [];
+            // Support both new items array and legacy photos array
+            const items = data.items || data.photos || [];
             
-            if (countEl) countEl.textContent = `(${photos.length})`;
+            if (countEl) countEl.textContent = `(${items.length})`;
             
-            // Use first photo as default cover if none specified
-            const effectiveCoverId = currentCoverId || (photos[0] && photos[0].id);
+            // Use first item as default cover if none specified
+            const effectiveCoverId = currentCoverId || (items[0] && items[0].id);
             
-            // Render photos in grid layout with cover selection
-            let html = photos.map((photo, index) => {
-                const isCover = photo.id === effectiveCoverId;
+            // Render items in grid layout with cover selection
+            let html = items.map((item, index) => {
+                const isCover = item.id === effectiveCoverId;
+                const displayName = item.original_name || item.filename || item.title || '';
                 return `
-                    <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-photo-id="${photo.id}" draggable="true" data-index="${index}" onclick="handlePhotoClick(event, '${photo.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
-                        <img src="${getBaseUrl()}/files/${photo.id}/thumbnail" alt="${escapeHtml(photo.filename || '')}">
-                        <button class="remove-btn" onclick="removePhotoFromAlbum(event, '${photo.id}')" title="Remove from album">&times;</button>
+                    <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-photo-id="${item.id}" draggable="true" data-index="${index}" onclick="handlePhotoClick(event, '${item.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
+                        <img src="${getBaseUrl()}/files/${item.id}/thumbnail" alt="${escapeHtml(displayName)}">
+                        <button class="remove-btn" onclick="removePhotoFromAlbum(event, '${item.id}')" title="Remove from album">&times;</button>
                     </div>
                 `;
             }).join('');
@@ -328,35 +332,35 @@
         const container = document.getElementById('album-photos-list');
         if (!container) return;
         
-        // Get all photo items (exclude the add button)
-        const photoIds = Array.from(container.querySelectorAll('.photo-grid-item:not(.add-item)'))
+        // Get all item ids (exclude the add button)
+        const itemIds = Array.from(container.querySelectorAll('.photo-grid-item:not(.add-item)'))
             .map(item => item.dataset.photoId);
         
         try {
             await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/reorder`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ photo_ids: photoIds })
+                body: JSON.stringify({ item_ids: itemIds })
             });
         } catch (err) {
             console.error('Failed to save album order:', err);
         }
     }
 
-    window.removePhotoFromAlbum = async function(event, photoId) {
+    window.removePhotoFromAlbum = async function(event, itemId) {
         event.stopPropagation();
         if (!editingAlbumId) return;
         
         try {
-            await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/photos`, {
+            await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/items`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ photo_ids: [photoId] })
+                body: JSON.stringify({ item_ids: [itemId] })
             });
             // Refresh - need to get current cover from album
             const resp = await fetch(`${getBaseUrl()}/api/albums/${editingAlbumId}`);
-            const album = resp.ok ? await resp.json() : { cover_photo_id: null };
-            loadAlbumPhotos(editingAlbumId, album.cover_photo_id);
+            const album = resp.ok ? await resp.json() : { cover_item_id: null };
+            loadAlbumPhotos(editingAlbumId, album.cover_item_id || album.cover_photo_id);
         } catch (err) {
             console.error('Failed to remove photo:', err);
         }
@@ -368,15 +372,19 @@
         selectedPhotosForAlbum.clear();
         updateSelectedCount();
         
-        // Load available photos from current folder
+        // Load available items from current folder
         try {
             const resp = await fetch(`${getBaseUrl()}/api/folders/${window.currentFolderId}/content`);
-            if (!resp.ok) throw new Error('Failed to load photos');
+            if (!resp.ok) throw new Error('Failed to load items');
             
             const data = await resp.json();
+            // Support both new polymorphic items (type: 'item' + item_type: 'media') and legacy (type: 'photo')
             availablePhotos = (data.items || [])
-                .filter(item => item.type === 'photo')
-                .map(item => ({ id: item.id, original_name: item.original_name }));
+                .filter(item => item.type === 'photo' || (item.type === 'item' && item.item_type === 'media'))
+                .map(item => ({ 
+                    id: item.id, 
+                    original_name: item.original_name || item.filename || item.title || '' 
+                }));
             
             renderAvailablePhotos();
             addPhotosModal.classList.remove('hidden');
@@ -403,7 +411,7 @@
             <div class="available-photo-item ${selectedPhotosForAlbum.has(photo.id) ? 'selected' : ''}" 
                  data-photo-id="${photo.id}"
                  onclick="togglePhotoForAlbum('${photo.id}')">
-                <img src="${getBaseUrl()}/files/${photo.id}/thumbnail" alt="${escapeHtml(photo.original_name || '')}">
+                <img src="${getBaseUrl()}/files/${photo.id}/thumbnail" alt="${escapeHtml(photo.original_name)}">
             </div>
         `).join('');
     }
@@ -430,10 +438,10 @@
         if (!editingAlbumId || selectedPhotosForAlbum.size === 0) return;
         
         try {
-            await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/photos`, {
+            await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/items`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ photo_ids: Array.from(selectedPhotosForAlbum) })
+                body: JSON.stringify({ item_ids: Array.from(selectedPhotosForAlbum) })
             });
             
             closeAddPhotosModal();
@@ -512,18 +520,18 @@
         }
     };
 
-    window.setAlbumCover = async function(albumId, photoId) {
+    window.setAlbumCover = async function(albumId, itemId) {
         try {
             const resp = await csrfFetch(`${getBaseUrl()}/api/albums/${albumId}/cover`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ photo_id: photoId })
+                body: JSON.stringify({ item_id: itemId })
             });
 
             if (!resp.ok) throw new Error('Failed to set cover');
             
-            // Refresh photos grid to show new cover
-            loadAlbumPhotos(albumId, photoId);
+            // Refresh items grid to show new cover
+            loadAlbumPhotos(albumId, itemId);
         } catch (err) {
             console.error('Failed to set album cover:', err);
         }
