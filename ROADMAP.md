@@ -17,7 +17,8 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🟡 High     | [#16](https://github.com/Nate-go/Synth-Gallery/issues/16) | Business Logic Extraction       | Medium | ✅ **DONE**     |
 | 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | ✅ **DONE**     |
 | 🔴 Critical | [#23](https://github.com/Nate-go/Synth-Gallery/issues/23) | Unified File Access Service     | Large  | ✅ **DONE** |
-| 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | 🔫 **Phase 5 IN PROGRESS** |
+| 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | ✅ **Phases 1-4 DONE** |
+| 🔴 Critical | [#28](https://github.com/Nate-go/Synth-Gallery/issues/28) | Phase 5: Complete Legacy Removal | Large  | 🔫 **IN PROGRESS** |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
@@ -794,6 +795,54 @@ ItemService.RENDERERS['note'] = NoteRenderer()
 # 2. Create NoteRenderer
 # 3. Done - albums already support any item type
 ```
+
+---
+
+### Issue #28: Phase 5 - Complete Legacy Removal 🔴 🔫
+
+**Status:** **IN PROGRESS** - 2026-03-01  
+**Part of:** v1.0 Breaking Release  
+**Depends on:** Issue #24 (Phases 1-4)
+
+**Problem:**  
+Current hybrid mode maintains both legacy and new systems:
+- Upload creates both `Item` (new) and `Photo` (legacy) records
+- Legacy `PhotoRepository` methods still used for albums
+- Dual-write adds complexity and database bloat
+
+**Goal:**  
+Complete migration to polymorphic items, remove all legacy code.
+
+#### Step 3: Repository Cleanup
+- [ ] Deprecate `PhotoRepository.get_album()` → use `AlbumRepository.get_by_id()`
+- [ ] Deprecate `PhotoRepository.get_album_photos()` → use `AlbumRepository.get_items()`
+- [ ] Deprecate `PhotoRepository.add_to_album()` → use `AlbumRepository.add_item()`
+- [ ] Deprecate `PhotoRepository.remove_from_album()` → use `AlbumRepository.remove_item()`
+- [ ] Deprecate `PhotoRepository.set_album_cover()` → use `AlbumRepository.set_cover_item()`
+- [ ] Update `FolderRepository.get_photo_count()` → `get_item_count()`
+
+#### Step 4: Remove Dual-Write
+- [ ] Stop creating legacy Photo records on upload
+- [ ] Mark legacy photos as `migrated_to_items` in database
+- [ ] Ensure all queries use `items` table exclusively
+
+#### Step 5: Database Cleanup (Post-Stabilization)
+- [ ] Remove `photos.album_id` column after confirming no references
+- [ ] Archive or drop `photos` table after full migration
+- [ ] Update foreign key references
+
+**Acceptance Criteria:**
+- [ ] No legacy photo methods used in new code
+- [ ] Upload creates only Item records
+- [ ] All navigation works with polymorphic items
+- [ ] Tests pass without legacy fallbacks
+- [ ] Database size reduced (no duplicate records)
+
+**Files to Modify:**
+- `app/infrastructure/repositories/photo_repository.py` - remove album methods
+- `app/infrastructure/repositories/folder_repository.py` - use items table
+- `app/routes/gallery/uploads.py` - remove dual-write
+- `app/database.py` - migration for marking legacy photos
 
 ---
 
