@@ -201,26 +201,17 @@
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
-                // Handle safe thumbnails like photos
+                // Unified image handling - use data attributes for async resolution
                 let imgHtml;
-                if (safeId && coverId) {
+                if (coverId) {
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <img data-safe-thumbnail="${coverId}"
-                             data-safe-id="${safeId}"
+                        <img data-photo-id="${coverId}"
+                             ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             style="opacity: 0;">
-                    `;
-                } else if (coverId) {
-                    imgHtml = `
-                        <div class="gallery-placeholder"></div>
-                        <img src="${getBaseUrl()}/thumbnails/${coverId}" 
-                             alt="${escapeHtml(album.name)}"
-                             loading="lazy"
-                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, 'access')"
+                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
                              style="opacity: 0;">
                     `;
                 } else {
@@ -279,71 +270,39 @@
                 const takenAt = photo.taken_at || '';
                 const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
                 
-                if (safeId) {
-                    html += `
-                        <div class="gallery-item" 
-                             data-photo-id="${photo.id}"
-                             data-item-type="photo"
-                             data-media-type="${mediaType}"
-                             ${dimsAttr}
-                             data-safe-id="${safeId}"
-                             ${dateAttrs}>
-                            <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
-                                <div class="gallery-placeholder"></div>
-                                <img data-safe-thumbnail="${photo.id}"
-                                     data-safe-id="${safeId}"
-                                     alt="${escapeHtml(photo.original_name)}"
-                                     loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                     style="opacity: 0;">
-                                ${mediaType === 'video' ? `
-                                    <div class="video-badge">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                        </svg>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            <div class="select-indicator" title="Select">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                            </div>
+                // Unified template for all photos - uses data attributes for async resolution
+                html += `
+                    <div class="gallery-item" 
+                         data-photo-id="${photo.id}"
+                         data-item-type="photo"
+                         data-media-type="${mediaType}"
+                         ${dimsAttr}
+                         ${safeIdAttr}
+                         ${dateAttrs}>
+                        <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
+                            <div class="gallery-placeholder"></div>
+                            <img data-photo-id="${photo.id}"
+                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
+                                 alt="${escapeHtml(photo.original_name)}"
+                                 loading="lazy"
+                                 onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 style="opacity: 0;">
+                            ${mediaType === 'video' ? `
+                                <div class="video-badge">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                </div>
+                            ` : ''}
                         </div>
-                    `;
-                } else {
-                    html += `
-                        <div class="gallery-item" 
-                             data-photo-id="${photo.id}"
-                             data-item-type="photo"
-                             data-media-type="${mediaType}"
-                             ${dimsAttr}
-                             ${safeIdAttr}
-                             ${dateAttrs}>
-                            <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
-                                <div class="gallery-placeholder"></div>
-                                <img src="${getBaseUrl()}/thumbnails/${photo.id}" 
-                                     alt="${escapeHtml(photo.original_name)}"
-                                     loading="lazy"
-                                     onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                     onerror="handleImageError(this, 'access')"
-                                     style="opacity: 0;">
-                                ${mediaType === 'video' ? `
-                                    <div class="video-badge">
-                                        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                        </svg>
-                                    </div>
-                                ` : ''}
-                            </div>
-                            <div class="select-indicator" title="Select">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                    <polyline points="20 6 9 17 4 12"></polyline>
-                                </svg>
-                            </div>
+                        <div class="select-indicator" title="Select">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
                         </div>
-                    `;
-                }
+                    </div>
+                `;
             }
         });
         
@@ -397,6 +356,58 @@
             navigateToDefaultFolder();
         }
     });
+
+    // Resolve thumbnails asynchronously using FileAccessService
+    // This handles both regular files and E2E (Safe) files uniformly
+    async function resolveThumbnails() {
+        if (typeof FileAccessService === 'undefined') {
+            console.warn('[navigation] FileAccessService not available');
+            return;
+        }
+
+        const images = document.querySelectorAll('img[data-photo-id]:not([src])');
+        
+        for (const img of images) {
+            const photoId = img.dataset.photoId;
+            const safeId = img.dataset.safeId;
+            
+            try {
+                let url;
+                if (safeId) {
+                    // E2E file - use FileAccessService to decrypt
+                    url = await FileAccessService.getThumbnailUrl(photoId, {
+                        photo: { safe_id: safeId }
+                    });
+                } else {
+                    // Regular file - direct URL
+                    url = `${getBaseUrl()}/files/${photoId}/thumbnail`;
+                }
+                
+                img.src = url;
+            } catch (err) {
+                console.error(`[navigation] Failed to resolve thumbnail for ${photoId}:`, err);
+                img.dispatchEvent(new Event('error'));
+            }
+        }
+    }
+
+    // Expose to window for external calls
+    window.resolveGalleryThumbnails = resolveThumbnails;
+
+    // Auto-resolve on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', resolveThumbnails);
+    } else {
+        resolveThumbnails();
+    }
+
+    // Re-resolve after gallery renders (called from renderFolderContent)
+    const originalRenderFolderContent = window.renderFolderContent;
+    window.renderFolderContent = function(data) {
+        originalRenderFolderContent(data);
+        // Delay to let DOM update
+        setTimeout(resolveThumbnails, 0);
+    };
 
     console.log('[navigation.js] Loaded');
 })();

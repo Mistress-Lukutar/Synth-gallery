@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Unified File Access Service (Issue #23)
+- **New unified file endpoints** (recommended for new code):
+  - `/files/{photo_id}` - Returns file with encryption headers
+  - `/files/{photo_id}/thumbnail` - Returns thumbnail with encryption headers
+  - Headers indicate encryption type: `X-Encryption: none|server|e2e`
+  - E2E files include `X-Safe-Id` header for client-side decryption
+- **FileAccessService** (`app/static/js/file-access-service.js`):
+  - Unified client-side file access for all encryption types
+  - `getFileUrl(photoId)` - Returns direct URL or Blob URL (for E2E)
+  - `getThumbnailUrl(photoId)` - Same for thumbnails
+  - `revokeUrl(url)` - Cleanup Blob URLs to prevent memory leaks
+  - Automatic metadata caching (5 min TTL)
+- **Simplified frontend templates**:
+  - Single HTML template for all photos (no more separate safe/regular paths)
+  - Unified rendering via `data-photo-id` attributes
+  - Async thumbnail resolution via `resolveGalleryThumbnails()`
+
 ### Changed (Breaking) - v1.0 Release Preparation
 - **Major Architecture Refactoring: Repository Pattern Complete**
   - ✅ Split `app/database.py` (2282 lines) into 7 focused Repository classes
@@ -17,7 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ✅ All 128 tests passing (100% pass rate)
   - ✅ Zero deprecated database functions in production code
 
+### Deprecated
+- **Legacy file endpoints** (still work, migrate to new endpoints):
+  - `/uploads/{filename}` → `/files/{photo_id}`
+  - `/thumbnails/{filename}` → `/files/{photo_id}/thumbnail`
+  - Legacy endpoints include `Deprecation` header with sunset date (2026-06-01)
+
 ### Removed
+- **Server-side Safe decryption code** (dead code removal):
+  - Removed server-side attempts to decrypt E2E (Safe) files
+  - E2E files are now ONLY decrypted on client (true end-to-end encryption)
+  - Simplified `app/routes/gallery/files.py` by ~50% (removed duplicate safe/regular logic)
 - **Async Database Layer (Issue #15 - Reverted)**
   - ❌ Removed `app/infrastructure/database/` module
   - ❌ Removed all `Async*Repository` classes (AsyncUserRepository, etc.)
