@@ -141,21 +141,15 @@ class AlbumService:
     
     def _delete_item_files(self, item_id: str, user_id: int) -> None:
         """Delete item files from storage."""
-        from ...infrastructure.repositories import ItemMediaRepository
-        from ...infrastructure.storage import get_storage
         from ...config import UPLOADS_DIR, THUMBNAILS_DIR
         from pathlib import Path
         
-        media_repo = ItemMediaRepository(self.album_repo._conn)
-        media = media_repo.get_by_item_id(item_id)
+        # Delete from uploads (extension-less storage: filename == item_id)
+        upload_path = UPLOADS_DIR / item_id
+        if upload_path.exists():
+            upload_path.unlink()
         
-        if media and media.get('filename'):
-            # Delete from uploads
-            upload_path = UPLOADS_DIR / media['filename']
-            if upload_path.exists():
-                upload_path.unlink()
-        
-        # Delete thumbnail (extension-less storage)
+        # Delete thumbnail
         thumb_path = THUMBNAILS_DIR / item_id
         if thumb_path.exists():
             thumb_path.unlink()

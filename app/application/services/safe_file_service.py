@@ -93,8 +93,7 @@ class SafeFileService:
             "photo_id": photo_id,
             "safe_id": safe_id,
             "session_id": session["id"],
-            "encrypted_dek": base64.b64encode(session["encrypted_dek"]).decode(),
-            "storage_mode": "safe_e2e"
+            "encrypted_dek": base64.b64encode(session["encrypted_dek"]).decode()
         }
     
     def get_photo_file_path(

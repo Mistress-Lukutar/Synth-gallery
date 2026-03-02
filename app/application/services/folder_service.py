@@ -173,7 +173,7 @@ class FolderService:
             user_id: User making the request (must be owner)
             
         Returns:
-            List of filenames that were deleted
+            List of filenames (item IDs) that were deleted
             
         Raises:
             HTTPException: If folder not found or user not owner
@@ -185,16 +185,10 @@ class FolderService:
         if folder["user_id"] != user_id:
             raise HTTPException(status_code=403, detail="You don't own this folder")
         
-        # Get all photos in folder for file cleanup
-        filenames = []
-        if self.photo_repo:
-            photos = self.photo_repo.get_by_folder(folder_id, include_subfolders=True)
-            filenames = [p["filename"] for p in photos]
+        # Delete folder and all contents, return file IDs for cleanup
+        file_ids = self.folder_repo.delete(folder_id)
         
-        # Delete folder (cascade will handle photos in DB)
-        self.folder_repo.delete(folder_id)
-        
-        return filenames
+        return file_ids
     
     def get_breadcrumbs(self, folder_id: str) -> List[dict]:
         """Get breadcrumb path from root to folder.

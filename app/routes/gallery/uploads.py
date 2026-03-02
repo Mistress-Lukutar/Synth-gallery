@@ -156,15 +156,14 @@ async def upload_file(
         client_encryption_metadata=encryption_metadata
     )
     
-    # Legacy response format for backward compatibility
-    # Note: filename returns item_id for extension-less storage compatibility
+    # Clean response structure (use id as filename in extension-less storage)
     return {
         "id": item["id"],
-        "filename": item["id"],  # Extension-less storage: filename is UUID
-        "original_name": item.get("title", ""),  # Original filename
+        "type": "media",
+        "folder_id": folder_id,
         "media_type": item.get("media_type", "image"),
-        "status": "ok",
-        "item": item  # New format also included
+        "original_name": item.get("title", ""),
+        "status": "ok"
     }
 
 
@@ -206,7 +205,14 @@ async def upload_batch(
                 is_encrypted=is_encrypted,
                 client_encryption_metadata=encryption_metadata if idx == 0 else None
             )
-            results.append(item)
+            # Clean response structure (use id as filename)
+            results.append({
+                "id": item["id"],
+                "type": "media",
+                "folder_id": folder_id,
+                "media_type": item.get("media_type", "image"),
+                "original_name": item.get("title", "")
+            })
         except Exception as e:
             errors.append({
                 "filename": file.filename,

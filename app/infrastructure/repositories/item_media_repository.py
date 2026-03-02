@@ -21,7 +21,6 @@ class ItemMediaRepository(Repository):
         self,
         item_id: str,
         media_type: str,  # 'image' or 'video'
-        filename: str,
         original_name: str = None,
         content_type: str = None,
         width: int = None,
@@ -29,15 +28,13 @@ class ItemMediaRepository(Repository):
         duration: int = None,  # For video
         thumb_width: int = None,
         thumb_height: int = None,
-        taken_at: datetime = None,
-        storage_mode: str = None
+        taken_at: datetime = None
     ) -> bool:
         """Create media details for an item.
         
         Args:
-            item_id: Reference to items.id
+            item_id: Reference to items.id (also used as filename in storage)
             media_type: 'image' or 'video'
-            filename: Stored filename (UUID)
             original_name: Original filename
             content_type: MIME type
             width: Image/video width
@@ -46,17 +43,16 @@ class ItemMediaRepository(Repository):
             thumb_width: Thumbnail width
             thumb_height: Thumbnail height
             taken_at: EXIF capture date
-            storage_mode: 'legacy' or 'envelope'
         """
         try:
             self._execute(
                 """INSERT INTO item_media 
-                   (item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at, storage_mode)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (item_id, media_type, original_name, content_type,
+                    width, height, duration, thumb_width, thumb_height, taken_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at, storage_mode
+                    item_id, media_type, original_name, content_type,
+                    width, height, duration, thumb_width, thumb_height, taken_at
                 )
             )
             self._commit()
@@ -81,9 +77,9 @@ class ItemMediaRepository(Repository):
             **kwargs: Fields to update
         """
         allowed_fields = {
-            'filename', 'original_name', 'content_type',
+            'original_name', 'content_type',
             'width', 'height', 'duration',
-            'thumb_width', 'thumb_height', 'taken_at', 'storage_mode'
+            'thumb_width', 'thumb_height', 'taken_at'
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
@@ -129,7 +125,7 @@ class ItemMediaRepository(Repository):
                 i.*,
                 im.media_type, im.filename, im.original_name, im.content_type,
                 im.width, im.height, im.duration,
-                im.thumb_width, im.thumb_height, im.taken_at, im.storage_mode
+                im.thumb_width, im.thumb_height, im.taken_at
                FROM items i
                LEFT JOIN item_media im ON i.id = im.item_id
                WHERE i.id = ? AND i.type = 'media'""",
@@ -149,9 +145,9 @@ class ItemMediaRepository(Repository):
             cursor = self._execute(
                 """SELECT 
                     i.*,
-                    im.media_type, im.filename, im.original_name, im.content_type,
+                    im.media_type, im.original_name, im.content_type,
                     im.width, im.height, im.duration,
-                    im.thumb_width, im.thumb_height, im.taken_at, im.storage_mode
+                    im.thumb_width, im.thumb_height, im.taken_at
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    WHERE i.folder_id = ? AND i.type = 'media' AND im.media_type = ?
@@ -162,9 +158,9 @@ class ItemMediaRepository(Repository):
             cursor = self._execute(
                 """SELECT 
                     i.*,
-                    im.media_type, im.filename, im.original_name, im.content_type,
+                    im.media_type, im.original_name, im.content_type,
                     im.width, im.height, im.duration,
-                    im.thumb_width, im.thumb_height, im.taken_at, im.storage_mode
+                    im.thumb_width, im.thumb_height, im.taken_at
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    WHERE i.folder_id = ? AND i.type = 'media'
