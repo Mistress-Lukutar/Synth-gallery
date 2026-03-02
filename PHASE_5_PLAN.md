@@ -82,13 +82,26 @@ Complete migration from legacy PhotoRepository to polymorphic Item/Album archite
   - ✅ Updated get_permission_service
   - ✅ get_folder_service already correct
 
-### ⏳ Priority 5: Legacy Upload (Optional - can deprecate later)
+### ✅ Priority 5: Frontend/Navigation Fixes (COMPLETE)
+- [x] `gallery-lightbox.js`
+  - Fix album.items vs album.photos handling
+  - Fix cache handling (cached.photos vs cached.items)
+  - Fix safe_id fallback for album items
+  - Fix buildFlatNavOrder for both formats
+
+- [x] `gallery-albums.js`
+  - Already had items/photos compatibility
+
+- [x] `album_service.py`
+  - Add safe_id to album items in API response
+
+### ⏳ Priority 6: Legacy Upload (Optional - can deprecate later)
 - [ ] `application/services/upload_service.py`
   - Mark as @deprecated
   - Or rewrite to use ItemRepository (large task)
   - NOTE: New uploads already use ItemService
 
-### ⏳ Priority 6: Remove Legacy Code
+### ⏳ Priority 7: Remove Legacy Code (Optional)
 - [ ] `application/services/photo_service.py`
   - Deprecate or remove (functionality moved to album_service.py)
 
@@ -145,16 +158,18 @@ AND NOT EXISTS (
 
 **Started:** 2026-03-02
 **Last Updated:** 2026-03-02
-**Status:** Phase 5A ~90% complete
+**Status:** Phase 5A ~95% complete
 
 ### Commits Created:
 1. `78a2606` - refactor(5A): migrate PermissionService
 2. `e81dcc7` - refactor(5A): migrate FolderService
 3. `53f2a48` - refactor(5A): migrate SafeFileService and Albums routes
+4. `ddef6b1` - fix(lightbox): restore album navigation from individual photos
 
 ### Tests Status:
 - ✅ 32 passed, 1 skipped
 - ✅ All core functionality working
+- ✅ Album navigation from individual photos fixed
 
 ### Remaining Work:
 1. ⏳ Optional: Deprecate upload_service.py
@@ -163,7 +178,7 @@ AND NOT EXISTS (
 4. 🔄 Phase 5B: Data validation and cleanup
 5. 🔄 Phase 5C: Database cleanup (Step 5)
 
-### Key Decisions:
-- **upload_service.py** - Still uses PhotoRepository but only for legacy bulk upload. New uploads use ItemService.
-- **photo_service.py** - Legacy service, functionality moved to AlbumService.
-- **PhotoRepository** - Can be marked deprecated but not removed yet (2632 legacy photos still in DB).
+### Key Bug Fixes:
+- **Lightbox navigation**: Fixed JavaScript to handle `album.items` vs `album.photos`
+- **Safe ID in items**: Added `safe_id` to album items for E2E encryption support
+- **Cache compatibility**: Fixed cache handling for both old and new data formats
