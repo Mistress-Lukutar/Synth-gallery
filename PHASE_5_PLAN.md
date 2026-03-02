@@ -57,26 +57,26 @@ Complete migration from legacy PhotoRepository to polymorphic Item/Album archite
   - Update `can_delete_album()` → use AlbumRepository
   - Update `can_edit_album()` → use AlbumRepository
 
-### ✅ Priority 2: File Operations (PARTIAL)
+### ✅ Priority 2: File Operations (COMPLETE)
 - [x] `application/services/folder_service.py`
   - Remove PhotoRepository dependency
   - Replace `get_standalone_photos()` with `get_standalone_items()`
   - Add `items` field with `photos` legacy alias
 
-### 🔄 Priority 3: SafeFileService & Routes (IN PROGRESS)
-- [ ] `application/services/safe_file_service.py`
+### ✅ Priority 3: SafeFileService & Routes (COMPLETE)
+- [x] `application/services/safe_file_service.py`
   - Replace `photo_repo.get_by_id()` with `item_repo.get_by_id()`
   - Update E2E encryption metadata handling
 
-- [ ] `routes/safe_files.py`
-  - Replace PhotoRepository with ItemRepository
+- [x] `routes/safe_files.py`
+  - Replace PhotoRepository with ItemRepository/ItemMediaRepository
   - Update thumbnail dimension updates
 
-### ⏳ Priority 4: Routes Cleanup
-- [ ] `routes/gallery/albums.py`
+### ✅ Priority 4: Routes Cleanup (COMPLETE)
+- [x] `routes/gallery/albums.py`
   - Replace `photo_repo.get_album()` with `album_repo.get_by_id()`
   - Replace `photo_repo.get_album_photos()` with `album_repo.get_items()`
-  - Replace `photo_repo.get_available_for_album()` with custom query
+  - Replace `photo_repo.get_available_for_album()` with ItemRepository query
 
 - [x] `routes/gallery/deps.py` (COMPLETE)
   - ✅ Updated get_permission_service
@@ -145,18 +145,25 @@ AND NOT EXISTS (
 
 **Started:** 2026-03-02
 **Last Updated:** 2026-03-02
-**Status:** Phase 5A in progress (~60% complete)
+**Status:** Phase 5A ~90% complete
 
 ### Commits Created:
 1. `78a2606` - refactor(5A): migrate PermissionService
 2. `e81dcc7` - refactor(5A): migrate FolderService
+3. `53f2a48` - refactor(5A): migrate SafeFileService and Albums routes
 
 ### Tests Status:
 - ✅ 32 passed, 1 skipped
 - ✅ All core functionality working
 
-### Next Steps:
-1. Complete Priority 3 (safe_file_service.py, safe_files.py routes)
-2. Update albums.py routes
-3. Phase 5B data validation
-4. Phase 5C database cleanup
+### Remaining Work:
+1. ⏳ Optional: Deprecate upload_service.py
+2. ⏳ Optional: Deprecate photo_service.py
+3. ⏳ Optional: Mark PhotoRepository methods as deprecated
+4. 🔄 Phase 5B: Data validation and cleanup
+5. 🔄 Phase 5C: Database cleanup (Step 5)
+
+### Key Decisions:
+- **upload_service.py** - Still uses PhotoRepository but only for legacy bulk upload. New uploads use ItemService.
+- **photo_service.py** - Legacy service, functionality moved to AlbumService.
+- **PhotoRepository** - Can be marked deprecated but not removed yet (2632 legacy photos still in DB).

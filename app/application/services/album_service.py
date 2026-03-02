@@ -119,6 +119,7 @@ class AlbumService:
                 "thumb_height": item.get("thumb_height"),
                 "taken_at": item.get("taken_at"),
                 "position": item.get("position", 0),
+                "safe_id": item.get("safe_id"),
             })
         
         # Build optimized response (user_id needed for permission checks)

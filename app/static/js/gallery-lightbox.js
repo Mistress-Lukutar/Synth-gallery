@@ -69,17 +69,19 @@
             if (!resp.ok) return null;
             
             const album = await resp.json();
-            if (!album.photos || album.photos.length === 0) return null;
+            // Phase 5: API returns 'items' instead of 'photos'
+            const albumItems = album.items || album.photos || [];
+            if (albumItems.length === 0) return null;
             
             // Cache album data
             albumCache.set(albumId, {
-                photos: album.photos,
+                photos: albumItems,
                 name: album.name,
                 timestamp: Date.now()
             });
             
             // Expand in flatNavOrder - Phase 5: polymorphic items
-            const albumPhotos = album.photos.map(p => ({
+            const albumPhotos = albumItems.map(p => ({
                 type: 'item',  // Phase 5: polymorphic item
                 id: p.id,
                 safeId: p.safe_id,
@@ -325,14 +327,15 @@
                 // Check cache first
                 const cached = albumCache.get(albumId);
                 if (cached && (Date.now() - cached.timestamp) < ALBUM_CACHE_TTL) {
-                    // Use cached album data
-                    if (cached.photos.length > 0) {
+                    // Use cached album data (photos or items - Phase 5 compatibility)
+                    const cachedItems = cached.photos || cached.items || [];
+                    if (cachedItems.length > 0) {
                         flatOrder.push({ type: 'album_marker', id: albumId, albumName: cached.name });
-                        for (const photo of cached.photos) {
+                        for (const photo of cachedItems) {
                             flatOrder.push({
                                 type: 'item',  // Phase 5: polymorphic item
                                 id: photo.id,
-                                safeId: photo.safe_id,
+                                safeId: photo.safe_id || item.dataset.safeId, // Fallback to album's safeId
                                 albumId: albumId
                             });
                         }
