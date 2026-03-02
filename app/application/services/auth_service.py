@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 
 from ...infrastructure.repositories import UserRepository, SessionRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
+from ...infrastructure.services.session_dek import SessionDEKService
 
 
 class AuthService:
@@ -44,7 +45,45 @@ class AuthService:
         Returns:
             Session ID
         """
-        return self.session_repo.create(user_id, expires_hours)
+        return self.session_repo.create(user_id, expires_hours, encrypted_dek=None)
+    
+    def store_dek_in_session(self, session_id: str, dek: bytes) -> bool:
+        """Encrypt DEK with session key and store in database.
+        
+        This allows DEK to persist across server restarts and work
+        with multiple workers (Gunicorn).
+        
+        Args:
+            session_id: Session ID to encrypt DEK with
+            dek: Raw DEK bytes
+            
+        Returns:
+            True if stored successfully
+        """
+        encrypted_dek = SessionDEKService.encrypt_dek(dek, session_id)
+        return self.session_repo.set_encrypted_dek(session_id, encrypted_dek)
+    
+    def get_dek_from_session(self, session_id: str) -> Optional[bytes]:
+        """Get DEK from session storage.
+        
+        Retrieves encrypted DEK from database and decrypts it
+        using session-derived key.
+        
+        Args:
+            session_id: Session ID
+            
+        Returns:
+            Raw DEK bytes or None if not found/invalid
+        """
+        encrypted_dek = self.session_repo.get_encrypted_dek(session_id)
+        if not encrypted_dek:
+            return None
+        
+        try:
+            return SessionDEKService.decrypt_dek(encrypted_dek, session_id)
+        except Exception:
+            # Decryption failed (invalid session_id or corrupted data)
+            return None
     
     def get_session(self, session_id: str) -> Optional[dict]:
         """Get valid session by ID.
@@ -119,13 +158,18 @@ class AuthService:
         self,
         user_id: int,
         password: str,
+        session_id: str | None = None,
         ttl_seconds: int = 7 * 24 * 3600
     ) -> Optional[bytes]:
         """Decrypt DEK with password and cache it.
         
+        If session_id is provided, also stores encrypted DEK in session
+        for persistence across restarts.
+        
         Args:
             user_id: User ID
             password: Password
+            session_id: Optional session ID for DB storage
             ttl_seconds: Cache TTL
             
         Returns:
@@ -139,18 +183,36 @@ class AuthService:
         try:
             kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
             dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
+            
+            # Cache in memory (legacy, for backward compatibility)
             dek_cache.set(user_id, dek, ttl_seconds=ttl_seconds)
+            
+            # Also store in session for persistence (Issue #18)
+            if session_id:
+                self.store_dek_in_session(session_id, dek)
+            
             return dek
         except Exception:
             return None
     
-    def is_dek_cached(self, user_id: int) -> bool:
+    def is_dek_cached(self, user_id: int, session_id: str | None = None) -> bool:
         """Check if DEK is cached for user.
+        
+        First checks memory cache, then falls back to session storage.
         
         Args:
             user_id: User ID
+            session_id: Optional session ID for DB storage check
             
         Returns:
-            True if DEK is in cache
+            True if DEK is available
         """
-        return dek_cache.get(user_id) is not None
+        # Check memory cache first
+        if dek_cache.get(user_id) is not None:
+            return True
+        
+        # Fall back to session storage
+        if session_id:
+            return self.get_dek_from_session(session_id) is not None
+        
+        return False

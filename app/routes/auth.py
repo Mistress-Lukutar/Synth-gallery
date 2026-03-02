@@ -94,10 +94,13 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 
     if enc_keys:
         # User has encryption set up - decrypt DEK and cache it
-        service.decrypt_and_cache_dek(user["id"], password, ttl_seconds=SESSION_MAX_AGE)
+        # Pass session_id to store DEK in session for persistence (Issue #18)
+        service.decrypt_and_cache_dek(user["id"], password, session_id=session_id, ttl_seconds=SESSION_MAX_AGE)
     else:
         # New user or encryption not set up yet - generate DEK
-        service.setup_encryption(user["id"], password)
+        dek, salt = service.setup_encryption(user["id"], password)
+        # Store DEK in session for persistence (Issue #18)
+        service.store_dek_in_session(session_id, dek)
 
     # Redirect to gallery with session cookie
     response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
