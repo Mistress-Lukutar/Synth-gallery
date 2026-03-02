@@ -44,3 +44,8 @@ BACKUP_SCHEDULE = os.environ.get("BACKUP_SCHEDULE", "daily")  # daily, weekly, o
 
 # WebAuthn configuration
 WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
+
+# Cookie security settings
+# Set SYNTH_ENV=production to enable secure cookies (HTTPS only)
+SYNTH_ENV = os.environ.get("SYNTH_ENV", "development")
+COOKIE_SECURE = SYNTH_ENV == "production"

@@ -7,7 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import (
     PUBLIC_PATHS, SESSION_COOKIE,
     CSRF_TOKEN_NAME, CSRF_HEADER_NAME, CSRF_COOKIE_NAME,
-    ROOT_PATH
+    ROOT_PATH, COOKIE_SECURE
 )
 from .database import create_connection
 from .infrastructure.repositories import SessionRepository
@@ -125,9 +125,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         response.set_cookie(
             key=CSRF_COOKIE_NAME,
             value=token,
-            httponly=False,  # JavaScript needs to read this
+            httponly=False,  # JavaScript needs to read this for CSRF protection
             samesite="lax",
-            secure=False,  # Set to True in production with HTTPS
+            secure=COOKIE_SECURE,  # True in production (HTTPS only)
             max_age=60 * 60 * 24  # 24 hours
         )
         return response

@@ -22,7 +22,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
-| 🟢 Medium   | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings          | Small  | 🔲 Planned     |
+| 🟢 Medium   | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings          | Small  | ✅ **DONE**     |
 | 🔵 Low      | [#21](https://github.com/Nate-go/Synth-Gallery/issues/21) | Request Validation Models       | Small  | ✅ **DONE**     |
 
 ---
@@ -245,6 +245,59 @@ S3_SECRET_KEY=xxx
 - Existing files remain in place when switching backends
 - New files go to configured backend
 - Backups work with any backend (downloads from S3 if needed)
+
+---
+
+### Issue #20: Secure Cookie Settings 🟢 ✅
+
+**Status:** **COMPLETED** - 2026-03-02
+
+**Problem:**  
+CSRF and session cookies used insecure settings:
+```python
+response.set_cookie(
+    key=CSRF_COOKIE_NAME,
+    secure=False,      # Sent over HTTP
+    httponly=False,    # Accessible via JavaScript
+)
+```
+
+**Solution Implemented:**
+
+1. **Added environment-based configuration** (`app/config.py`):
+   ```python
+   SYNTH_ENV = os.environ.get("SYNTH_ENV", "development")
+   COOKIE_SECURE = SYNTH_ENV == "production"
+   ```
+
+2. **Updated all cookie settings:**
+   | Cookie | Before | After |
+   |--------|--------|-------|
+   | CSRF | `secure=False` | `secure=COOKIE_SECURE` |
+   | CSRF | `httponly=False` | `httponly=False` (JS needs it) |
+   | Session | `secure` not set | `secure=COOKIE_SECURE` |
+   | Session | `httponly=True` | `httponly=True` |
+
+3. **Files changed:**
+   - ✅ `app/config.py` - Added `SYNTH_ENV` and `COOKIE_SECURE`
+   - ✅ `app/middleware.py` - CSRF cookie uses `COOKIE_SECURE`
+   - ✅ `app/routes/auth.py` - Session cookie uses `COOKIE_SECURE`
+   - ✅ `app/routes/webauthn.py` - Session cookie uses `COOKIE_SECURE`
+
+**Usage:**
+```bash
+# Development (default) - cookies sent over HTTP
+# (no change needed)
+
+# Production - cookies require HTTPS
+set SYNTH_ENV=production  # Windows
+export SYNTH_ENV=production  # Linux/macOS
+```
+
+**Security Benefits:**
+- ✅ CSRF token cannot be stolen via MITM (HTTPS-only in production)
+- ✅ Session cookie is HTTP-only (XSS protection)
+- ✅ Session cookie requires HTTPS in production
 
 ---
 

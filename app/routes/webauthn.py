@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
+from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR, COOKIE_SECURE
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
@@ -279,8 +279,9 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
         response.set_cookie(
             key=SESSION_COOKIE,
             value=session_id,
-            httponly=True,
+            httponly=True,  # Session cookie not accessible via JavaScript
             samesite="lax",
+            secure=COOKIE_SECURE,  # True in production (HTTPS only)
             max_age=SESSION_MAX_AGE
         )
         return response
