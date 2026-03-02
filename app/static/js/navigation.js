@@ -261,7 +261,7 @@
                 const safeId = media.safe_id;
                 const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const mediaType = media.media_type || 'image';
-                const displayName = media.original_name || media.filename || 'Untitled';
+                const displayName = media.original_name || 'Untitled';
                 
                 // Use stored dimensions or default to 4:3 aspect ratio
                 const hasDims = media.thumb_width && media.thumb_height;

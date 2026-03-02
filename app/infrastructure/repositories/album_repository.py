@@ -157,7 +157,7 @@ class AlbumRepository(Repository):
                 i.*,
                 ai.position,
                 ai.added_at as added_to_album_at,
-                im.media_type, im.filename, im.original_name, im.content_type,
+                im.media_type, im.original_name, im.content_type,
                 im.width, im.height, im.duration,
                 im.thumb_width, im.thumb_height, im.taken_at
                FROM album_items ai

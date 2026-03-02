@@ -513,12 +513,11 @@ class UploadService:
             True if deleted, False if not found
         """
         # Phase 5: Try items table first, fallback to photos
-        if self.item_repo and self.media_repo:
+        if self.item_repo:
             item = self.item_repo.get_by_id(photo_id)
             if item:
-                media = self.media_repo.get_by_item_id(photo_id)
-                if media:
-                    await self.storage.delete(media["filename"], folder="uploads")
+                # Delete files using item_id (extension-less storage)
+                await self.storage.delete(photo_id, folder="uploads")
                 await self.storage.delete(photo_id, folder="thumbnails")
                 self.item_repo.delete(photo_id)
                 return True
@@ -552,10 +551,8 @@ class UploadService:
             
             deleted_items = 0
             for item in items:
-                # Delete item files
-                media = self.media_repo.get_by_item_id(item["id"]) if self.media_repo else None
-                if media:
-                    await self.storage.delete(media["filename"], folder="uploads")
+                # Delete item files using item_id (extension-less storage)
+                await self.storage.delete(item["id"], folder="uploads")
                 await self.storage.delete(item["id"], folder="thumbnails")
                 deleted_items += 1
             

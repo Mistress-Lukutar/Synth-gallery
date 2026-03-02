@@ -84,14 +84,14 @@ class FolderRepository(Repository):
         
         This deletes:
         - The folder and all subfolders (recursive)
-        - All photos in those folders
+        - All items in those folders (via CASCADE)
         - All albums in those folders
         
         Args:
             folder_id: Root folder ID to delete
             
         Returns:
-            List of filenames that should be deleted from storage
+            List of item IDs (used as filenames) that should be deleted from storage
         """
         # Get all folder IDs in the tree (recursive CTE)
         folder_ids = self._get_subtree_ids(folder_id)
@@ -99,20 +99,49 @@ class FolderRepository(Repository):
         if not folder_ids:
             return []
         
-        # Collect filenames for cleanup
-        filenames = self._get_filenames_in_folders(folder_ids)
+        # Collect item IDs for file cleanup (extension-less storage: filename = item_id)
+        placeholders = ",".join("?" * len(folder_ids))
+        cursor = self._execute(
+            f"SELECT id FROM items WHERE folder_id IN ({placeholders})",
+            tuple(folder_ids)
+        )
+        item_ids = [row["id"] for row in cursor.fetchall()]
         
-        # Delete photos in these folders
-        self._delete_photos_in_folders(folder_ids)
+        # Also get legacy photo filenames if any
+        cursor = self._execute(
+            f"SELECT filename FROM photos WHERE folder_id IN ({placeholders})",
+            tuple(folder_ids)
+        )
+        legacy_filenames = [row["filename"] for row in cursor.fetchall()]
         
-        # Delete albums in these folders
-        self._delete_albums_in_folders(folder_ids)
+        # Delete albums in these folders (items will be deleted via CASCADE from items table)
+        self._execute(
+            f"DELETE FROM albums WHERE folder_id IN ({placeholders})",
+            tuple(folder_ids)
+        )
+        
+        # Delete items in these folders (this cascades to item_media)
+        self._execute(
+            f"DELETE FROM items WHERE folder_id IN ({placeholders})",
+            tuple(folder_ids)
+        )
+        
+        # Delete legacy photos
+        self._execute(
+            f"DELETE FROM photos WHERE folder_id IN ({placeholders})",
+            tuple(folder_ids)
+        )
         
         # Delete the folders themselves
-        self._delete_folders_by_ids(folder_ids)
+        self._execute(
+            f"DELETE FROM folders WHERE id IN ({placeholders})",
+            tuple(folder_ids)
+        )
         
         self._commit()
-        return filenames
+        
+        # Return all file IDs that need to be deleted from storage
+        return item_ids + legacy_filenames
     
     def list_by_user(self, user_id: int) -> list[dict]:
         """Get all folders owned by user.
@@ -282,84 +311,8 @@ class FolderRepository(Repository):
         )
         return [row["id"] for row in cursor.fetchall()]
     
-    def _get_filenames_in_folders(self, folder_ids: list[str]) -> list[str]:
-        """Get all item filenames in folders (Phase 5: polymorphic items)."""
-        if not folder_ids:
-            return []
-        
-        placeholders = ",".join("?" * len(folder_ids))
-        
-        # Phase 5: Get filenames from item_media via items table
-        cursor = self._execute(
-            f"""SELECT im.filename 
-                FROM items i
-                JOIN item_media im ON i.id = im.item_id
-                WHERE i.folder_id IN ({placeholders})""",
-            tuple(folder_ids)
-        )
-        filenames = [row["filename"] for row in cursor.fetchall()]
-        
-        # Legacy: Also check photos table for any remaining legacy records
-        cursor = self._execute(
-            f"""SELECT p.filename FROM photos p
-                WHERE p.folder_id IN ({placeholders})
-                   OR p.album_id IN (SELECT a.id FROM albums a WHERE a.folder_id IN ({placeholders}))""",
-            tuple(folder_ids + folder_ids)
-        )
-        filenames.extend([row["filename"] for row in cursor.fetchall()])
-        
-        return filenames
-    
-    def _delete_photos_in_folders(self, folder_ids: list[str]) -> None:
-        """Delete items in folders (Phase 5: polymorphic items).
-        
-        Deletes from items table which cascades to item_media via FK.
-        Also cleans up legacy photos for backward compatibility.
-        """
-        if not folder_ids:
-            return
-        
-        placeholders = ",".join("?" * len(folder_ids))
-        
-        # Phase 5: Delete polymorphic items (items table has CASCADE to item_media)
-        self._execute(
-            f"""DELETE FROM items
-                WHERE folder_id IN ({placeholders})""",
-            tuple(folder_ids)
-        )
-        
-        # Legacy: Also delete from photos table if any legacy records exist
-        self._execute(
-            f"""DELETE FROM photos
-                WHERE folder_id IN ({placeholders})
-                   OR album_id IN (SELECT id FROM albums WHERE folder_id IN ({placeholders}))""",
-            tuple(folder_ids + folder_ids)
-        )
-    
-    def _delete_albums_in_folders(self, folder_ids: list[str]) -> None:
-        """Delete albums in folders."""
-        if not folder_ids:
-            return
-        
-        placeholders = ",".join("?" * len(folder_ids))
-        self._execute(
-            f"DELETE FROM albums WHERE folder_id IN ({placeholders})",
-            tuple(folder_ids)
-        )
-    
-    def _delete_folders_by_ids(self, folder_ids: list[str]) -> None:
-        """Delete folders by IDs."""
-        if not folder_ids:
-            return
-        
-        placeholders = ",".join("?" * len(folder_ids))
-        self._execute(
-            f"DELETE FROM folders WHERE id IN ({placeholders})",
-            tuple(folder_ids)
-        )
-    
     # =========================================================================
-    # Folder Key Operations (Envelope Encryption)
+    # Folder Statistics
     # =========================================================================
     
     def get_folder_key(self, folder_id: str) -> dict | None:
@@ -525,7 +478,7 @@ class FolderRepository(Repository):
             List of item dicts with media data
         """
         cursor = self._execute("""
-            SELECT i.*, im.media_type, im.filename, im.original_name, im.content_type,
+            SELECT i.*, im.media_type, im.original_name, im.content_type,
                    im.width, im.height, im.thumb_width, im.thumb_height, im.taken_at
             FROM items i
             LEFT JOIN item_media im ON i.id = im.item_id

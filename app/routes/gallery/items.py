@@ -352,14 +352,12 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                 continue
                 
             new_item_id = str(uuid.uuid4())
-            old_filename = media["filename"]
-            ext = Path(old_filename).suffix if "." in old_filename else ""
-            new_filename = f"{new_item_id}{ext}"
 
-            old_upload = UPLOADS_DIR / old_filename
-            new_upload = UPLOADS_DIR / new_filename
-            old_thumb = THUMBNAILS_DIR / item_id  # Extension-less
-            new_thumb = THUMBNAILS_DIR / new_item_id  # Extension-less
+            # Extension-less storage: filename = item_id
+            old_upload = UPLOADS_DIR / item_id
+            new_upload = UPLOADS_DIR / new_item_id
+            old_thumb = THUMBNAILS_DIR / item_id
+            new_thumb = THUMBNAILS_DIR / new_item_id
 
             try:
                 if not _copy_and_reencrypt_file(
@@ -384,11 +382,10 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                     is_encrypted=is_encrypted
                 )
                 
-                # Create media record
+                # Create media record (no filename - uses item_id)
                 media_repo.create(
                     item_id=new_item_id,
                     media_type=media["media_type"],
-                    filename=new_filename,
                     original_name=media["original_name"],
                     content_type=media["content_type"],
                     thumb_width=media["thumb_width"],
@@ -441,12 +438,10 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
 
             for idx, item in enumerate(album_items):
                 new_item_id = str(uuid.uuid4())
-                old_filename = item.get("filename", "")
-                ext = Path(old_filename).suffix if "." in old_filename else ""
-                new_filename = f"{new_item_id}{ext}"
 
-                old_upload = UPLOADS_DIR / old_filename
-                new_upload = UPLOADS_DIR / new_filename
+                # Extension-less storage: filename = item_id
+                old_upload = UPLOADS_DIR / item["id"]
+                new_upload = UPLOADS_DIR / new_item_id
                 old_thumb = THUMBNAILS_DIR / item["id"]
                 new_thumb = THUMBNAILS_DIR / new_item_id
 
@@ -564,7 +559,8 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             ).fetchone()
 
             if item:
-                file_path = UPLOADS_DIR / item["filename"]
+                # Extension-less storage: filename = item_id
+                file_path = UPLOADS_DIR / item_id
                 if file_path.exists():
                     archive_path = f"{date_folder}/{item['original_name']}"
                     files_to_download.append((
@@ -589,7 +585,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get items from album via album_items
             album_items = db.execute(
-                """SELECT i.id, im.filename, im.original_name, i.is_encrypted, i.user_id
+                """SELECT i.id, im.original_name, i.is_encrypted, i.user_id
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    JOIN album_items ai ON i.id = ai.item_id
@@ -603,7 +599,8 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 safe_album_name = "album"
 
             for item in album_items:
-                file_path = UPLOADS_DIR / item["filename"]
+                # Extension-less storage: filename = item_id
+                file_path = UPLOADS_DIR / item["id"]
                 if file_path.exists():
                     archive_path = f"{date_folder}/{safe_album_name}/{item['original_name']}"
                     files_to_download.append((

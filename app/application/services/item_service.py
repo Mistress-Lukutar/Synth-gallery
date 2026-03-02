@@ -357,11 +357,10 @@ class ItemService:
             created_at=file_data.get('uploaded_at')
         )
         
-        # Create media details
+        # Create media details (no filename - uses item_id as filename in storage)
         self.media_repo.create(
             item_id=item_id,
             media_type=media_data.get('media_type', 'image'),
-            filename=item_id,  # Storage uses item_id as filename
             original_name=file_data.get('filename', ''),
             content_type=file_data.get('content_type', 'application/octet-stream'),
             thumb_width=media_data.get('thumb_width', 0),
@@ -391,7 +390,16 @@ class ItemService:
         if base['type'] == 'media':
             media = self.media_repo.get_by_item_id(item_id)
             if media:
-                base.update(media)
+                # Add only necessary fields (exclude internal/db-specific)
+                # Note: filename is not needed - we use item_id as filename
+                base.update({
+                    'media_type': media.get('media_type'),
+                    'original_name': media.get('original_name'),
+                    'content_type': media.get('content_type'),
+                    'thumb_width': media.get('thumb_width'),
+                    'thumb_height': media.get('thumb_height'),
+                    'taken_at': media.get('taken_at'),
+                })
         
         return base
     
@@ -426,7 +434,14 @@ class ItemService:
             if item['type'] == 'media':
                 media = self.media_repo.get_by_item_id(item['id'])
                 if media:
-                    item.update(media)
+                    item.update({
+                        'media_type': media.get('media_type'),
+                        'original_name': media.get('original_name'),
+                        'content_type': media.get('content_type'),
+                        'thumb_width': media.get('thumb_width'),
+                        'thumb_height': media.get('thumb_height'),
+                        'taken_at': media.get('taken_at'),
+                    })
         
         return items
     
@@ -563,15 +578,12 @@ class ItemService:
         from ...config import UPLOADS_DIR, THUMBNAILS_DIR
         from pathlib import Path
         
-        media = self.media_repo.get_by_item_id(item_id)
+        # Delete from uploads (extension-less storage: filename == item_id)
+        upload_path = UPLOADS_DIR / item_id
+        if upload_path.exists():
+            upload_path.unlink()
         
-        if media and media.get('filename'):
-            # Delete from uploads
-            upload_path = UPLOADS_DIR / media['filename']
-            if upload_path.exists():
-                upload_path.unlink()
-        
-        # Delete thumbnail (extension-less storage)
+        # Delete thumbnail
         thumb_path = THUMBNAILS_DIR / item_id
         if thumb_path.exists():
             thumb_path.unlink()

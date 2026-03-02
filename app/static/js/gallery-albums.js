@@ -86,7 +86,7 @@
                 id: item.id,
                 safeId: item.safe_id,
                 original_name: item.original_name || item.title || '',
-                filename: item.filename || item.title || '',
+
                 albumId: albumId
             }));
             currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
@@ -257,7 +257,7 @@
             // Render items in grid layout with cover selection
             let html = items.map((item, index) => {
                 const isCover = item.id === effectiveCoverId;
-                const displayName = item.original_name || item.filename || item.title || '';
+                const displayName = item.original_name || '';
                 return `
                     <div class="photo-grid-item${isCover ? ' is-cover' : ''}" data-item-id="${item.id}" draggable="true" data-index="${index}" onclick="handleItemClick(event, '${item.id}')" title="${isCover ? 'Current cover' : 'Click to set as cover'}">
                         <img src="${getBaseUrl()}/files/${item.id}/thumbnail" alt="${escapeHtml(displayName)}">
@@ -389,7 +389,7 @@
                 .filter(item => item.type === 'photo' || (item.type === 'item' && item.item_type === 'media'))
                 .map(item => ({ 
                     id: item.id, 
-                    original_name: item.original_name || item.filename || item.title || '' 
+                    original_name: item.original_name || '' 
                 }));
             
             renderAvailablePhotos();

@@ -184,10 +184,11 @@ def _migrate_to_polymorphic_items(db):
     """)
     
     # Migrate photo media details
+    # Note: filename is not migrated - we use item_id as filename in extension-less storage
     db.execute("""
         INSERT INTO item_media (
-            item_id, media_type, filename, original_name, content_type,
-            width, height, duration, thumb_width, thumb_height, taken_at, storage_mode
+            item_id, media_type, original_name, content_type,
+            width, height, duration, thumb_width, thumb_height, taken_at
         )
         SELECT 
             p.id as item_id,
@@ -195,7 +196,6 @@ def _migrate_to_polymorphic_items(db):
                 WHEN p.media_type = 'video' THEN 'video'
                 ELSE 'image'
             END as media_type,
-            p.filename,
             p.original_name,
             p.content_type,
             NULL as width,  -- Will be populated from metadata if available
@@ -203,8 +203,7 @@ def _migrate_to_polymorphic_items(db):
             NULL as duration,
             p.thumb_width,
             p.thumb_height,
-            p.taken_at,
-            p.storage_mode
+            p.taken_at
         FROM photos p
     """)
     
@@ -405,7 +404,6 @@ def init_db():
         CREATE TABLE IF NOT EXISTS item_media (
             item_id TEXT PRIMARY KEY,
             media_type TEXT NOT NULL,  -- 'image' or 'video'
-            filename TEXT NOT NULL,
             original_name TEXT,
             content_type TEXT,
             width INTEGER,
@@ -414,7 +412,6 @@ def init_db():
             thumb_width INTEGER,
             thumb_height INTEGER,
             taken_at TIMESTAMP,
-            storage_mode TEXT,
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
         )
     """)
