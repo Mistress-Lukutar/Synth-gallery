@@ -30,7 +30,7 @@ class ItemRepository(Repository):
         metadata: dict = None,
         safe_id: str = None,
         is_encrypted: bool = False,
-        created_at: datetime = None
+        uploaded_at: datetime = None
     ) -> str:
         """Create a new item.
         
@@ -43,7 +43,7 @@ class ItemRepository(Repository):
             metadata: Type-specific metadata dict (stored as JSON)
             safe_id: Safe ID if in encrypted vault
             is_encrypted: Whether item is encrypted
-            created_at: Creation timestamp
+            uploaded_at: Upload timestamp
             
         Returns:
             New item UUID
@@ -53,12 +53,12 @@ class ItemRepository(Repository):
         
         self._execute(
             """INSERT INTO items 
-               (id, type, folder_id, safe_id, user_id, created_at, 
+               (id, type, folder_id, safe_id, user_id, uploaded_at, 
                 title, metadata, is_encrypted)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_id, item_type, folder_id, safe_id, user_id,
-                created_at or datetime.now(),
+                uploaded_at or datetime.now(),
                 title,
                 json.dumps(metadata) if metadata else None,
                 1 if is_encrypted else 0
@@ -122,7 +122,7 @@ class ItemRepository(Repository):
         if sort_by == "title":
             order_by = "COALESCE(title, id) ASC"
         else:
-            order_by = "created_at DESC"
+            order_by = "uploaded_at DESC"
         
         cursor = self._execute(
             f"""SELECT * FROM items 
@@ -144,14 +144,14 @@ class ItemRepository(Repository):
             cursor = self._execute(
                 """SELECT * FROM items 
                    WHERE safe_id = ? AND type = ?
-                   ORDER BY created_at DESC""",
+                   ORDER BY uploaded_at DESC""",
                 (safe_id, item_type)
             )
         else:
             cursor = self._execute(
                 """SELECT * FROM items 
                    WHERE safe_id = ?
-                   ORDER BY created_at DESC""",
+                   ORDER BY uploaded_at DESC""",
                 (safe_id,)
             )
         items = []

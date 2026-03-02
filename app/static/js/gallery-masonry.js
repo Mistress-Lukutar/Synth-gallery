@@ -99,8 +99,22 @@
                 bDate = b.dataset.uploadedAt || b.dataset.takenAt;
             }
             
-            // Parse dates (handle ISO strings)
-            const parseDate = (d) => d ? new Date(d).getTime() : 0;
+            // Parse dates (handle ISO strings with microseconds)
+            const parseDate = (d) => {
+                if (!d) return 0;
+                // Normalize Python datetime format (2026-03-02T11:02:41.820010)
+                let normalized = d.replace(' ', 'T');
+                // Trim microseconds to milliseconds if needed
+                const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
+                if (match && match[2] && match[2].length > 4) {
+                    normalized = match[1] + match[2].substring(0, 4);
+                }
+                // Add Z if no timezone
+                if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
+                    normalized += 'Z';
+                }
+                return new Date(normalized).getTime() || 0;
+            };
             const aTime = parseDate(aDate);
             const bTime = parseDate(bDate);
             

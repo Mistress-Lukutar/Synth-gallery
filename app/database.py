@@ -167,7 +167,7 @@ def _migrate_to_polymorphic_items(db):
     # Migrate photos to items + item_media
     db.execute("""
         INSERT INTO items (
-            id, type, folder_id, safe_id, user_id, created_at, 
+            id, type, folder_id, safe_id, user_id, uploaded_at, 
             title, metadata, is_encrypted
         )
         SELECT 
@@ -176,7 +176,7 @@ def _migrate_to_polymorphic_items(db):
             p.folder_id,
             p.safe_id,
             p.user_id,
-            p.uploaded_at as created_at,
+            p.uploaded_at,
             p.original_name as title,
             NULL as metadata,
             p.is_encrypted
@@ -389,7 +389,7 @@ def init_db():
             folder_id TEXT,
             safe_id TEXT,
             user_id INTEGER,
-            created_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+            uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
             title TEXT,
             metadata TEXT,  -- JSON for type-specific data
             is_encrypted INTEGER DEFAULT 0,
@@ -601,6 +601,13 @@ def init_db():
     try:
         db.execute("ALTER TABLE albums RENAME COLUMN cover_photo_id TO cover_item_id")
         print("[Migration] Renamed albums.cover_photo_id to cover_item_id")
+    except sqlite3.OperationalError:
+        pass  # Column already renamed or doesn't exist
+    
+    # Migration: Rename items.created_at to uploaded_at
+    try:
+        db.execute("ALTER TABLE items RENAME COLUMN created_at TO uploaded_at")
+        print("[Migration] Renamed items.created_at to uploaded_at")
     except sqlite3.OperationalError:
         pass  # Column already renamed or doesn't exist
 
