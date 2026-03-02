@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository, SafeRepository
+from ...infrastructure.repositories import PermissionRepository, FolderRepository, ItemRepository, AlbumRepository, SafeRepository
 
 
 class PermissionService:
@@ -27,12 +27,14 @@ class PermissionService:
         self,
         permission_repository: PermissionRepository,
         folder_repository: FolderRepository,
-        photo_repository: PhotoRepository = None,
+        item_repository: ItemRepository = None,
+        album_repository: AlbumRepository = None,
         safe_repository: SafeRepository = None
     ):
         self.perm_repo = permission_repository
         self.folder_repo = folder_repository
-        self.photo_repo = photo_repository
+        self.item_repo = item_repository
+        self.album_repo = album_repository
         self.safe_repo = safe_repository
     
     def grant_permission(
@@ -302,95 +304,87 @@ class PermissionService:
     # Photo & Album Permission Checks
     # =========================================================================
     
-    def can_access_photo(self, photo_id: str, user_id: int) -> bool:
-        """Check if user can access photo.
+    def can_access_item(self, item_id: str, user_id: int) -> bool:
+        """Check if user can access item.
         
         Args:
-            photo_id: Photo ID
+            item_id: Item ID
             user_id: User ID
             
         Returns:
-            True if user can access the photo
+            True if user can access the item
         """
-        if not self.photo_repo:
-            raise RuntimeError("PhotoRepository not configured")
+        if not self.item_repo:
+            raise RuntimeError("ItemRepository not configured")
         
-        photo = self.photo_repo.get_by_id(photo_id)
-        if not photo:
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
             return False
         
         # Owner always has access
-        if photo["user_id"] == user_id:
+        if item["user_id"] == user_id:
             return True
         
-        # Check folder access if photo is in a folder
-        if photo.get("folder_id"):
-            return self.can_access(photo["folder_id"], user_id)
-        
-        # Check album's folder if photo is in album
-        # Note: Album repository not yet implemented in v1.0
-        # if photo.get("album_id"):
-        #     album = self.album_repo.get_by_id(photo["album_id"]) if self.album_repo else None
-        #     if album:
-        #         if album["user_id"] == user_id:
-        #             return True
-        #         if album.get("folder_id"):
-        #             return self.can_access(album["folder_id"], user_id)
-        
-        # Legacy photos without folder/user - accessible to all authenticated users
-        if photo.get("folder_id") is None and photo.get("user_id") is None:
-            return True
+        # Check folder access if item is in a folder
+        if item.get("folder_id"):
+            return self.can_access(item["folder_id"], user_id)
         
         return False
     
-    def can_delete_photo(self, photo_id: str, user_id: int) -> bool:
-        """Check if user can delete photo.
+    # Legacy alias for backward compatibility
+    can_access_photo = can_access_item
+    
+    def can_delete_item(self, item_id: str, user_id: int) -> bool:
+        """Check if user can delete item.
         
         Rules:
-        - Photo owner can always delete (if safe is unlocked)
-        - Folder owner can delete any photo in their folder (if safe is unlocked)
-        - Editor can only delete photos they uploaded (if safe is unlocked)
+        - Item owner can always delete (if safe is unlocked)
+        - Folder owner can delete any item in their folder (if safe is unlocked)
+        - Editor can only delete items they uploaded (if safe is unlocked)
         - Viewer cannot delete
-        - Photos in locked safes cannot be deleted
+        - Items in locked safes cannot be deleted
         
         Args:
-            photo_id: Photo ID
+            item_id: Item ID
             user_id: User ID
             
         Returns:
-            True if user can delete the photo
+            True if user can delete the item
         """
-        if not self.photo_repo:
-            raise RuntimeError("PhotoRepository not configured")
+        if not self.item_repo:
+            raise RuntimeError("ItemRepository not configured")
         
-        photo = self.photo_repo.get_by_id(photo_id)
-        if not photo:
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
             return False
         
-        # Check if photo is in a safe - safe must be unlocked
-        safe_id = photo.get("safe_id")
+        # Check if item is in a safe - safe must be unlocked
+        safe_id = item.get("safe_id")
         if safe_id and self.safe_repo:
             if not self.safe_repo.is_unlocked(safe_id, user_id):
-                return False  # Cannot delete photos from locked safes
+                return False  # Cannot delete items from locked safes
         
-        # Photo owner can always delete
-        if photo["user_id"] == user_id:
+        # Item owner can always delete
+        if item["user_id"] == user_id:
             return True
         
         # Check folder permissions
-        if photo.get("folder_id"):
-            folder = self.folder_repo.get_by_id(photo["folder_id"])
+        if item.get("folder_id"):
+            folder = self.folder_repo.get_by_id(item["folder_id"])
             if folder:
-                # Folder owner can delete any photo
+                # Folder owner can delete any item
                 if folder["user_id"] == user_id:
                     return True
                 
                 # Editor can only delete their own uploads
-                perm = self.perm_repo.get_permission(photo["folder_id"], user_id)
+                perm = self.perm_repo.get_permission(item["folder_id"], user_id)
                 if perm == "editor":
-                    return False  # Editor can't delete others' photos
+                    return False  # Editor can't delete others' items
         
         return False
+    
+    # Legacy alias for backward compatibility
+    can_delete_photo = can_delete_item
     
     def can_access_album(self, album_id: str, user_id: int) -> bool:
         """Check if user can access album.
@@ -402,10 +396,10 @@ class PermissionService:
         Returns:
             True if user can access the album
         """
-        if not self.photo_repo:
-            raise RuntimeError("PhotoRepository not configured")
+        if not self.album_repo:
+            raise RuntimeError("AlbumRepository not configured")
         
-        album = self.photo_repo.get_album(album_id)
+        album = self.album_repo.get_by_id(album_id)
         if not album:
             return False
         
@@ -416,10 +410,6 @@ class PermissionService:
         # Check folder access
         if album.get("folder_id"):
             return self.can_access(album["folder_id"], user_id)
-        
-        # Legacy albums without folder/user - accessible to all
-        if album.get("folder_id") is None and album.get("user_id") is None:
-            return True
         
         return False
     
@@ -440,10 +430,10 @@ class PermissionService:
         Returns:
             True if user can delete the album
         """
-        if not self.photo_repo:
-            raise RuntimeError("PhotoRepository not configured")
+        if not self.album_repo:
+            raise RuntimeError("AlbumRepository not configured")
         
-        album = self.photo_repo.get_album(album_id)
+        album = self.album_repo.get_by_id(album_id)
         if not album:
             return False
         
@@ -480,10 +470,10 @@ class PermissionService:
         Returns:
             True if user can edit the album
         """
-        if not self.photo_repo:
-            raise RuntimeError("PhotoRepository not configured")
+        if not self.album_repo:
+            raise RuntimeError("AlbumRepository not configured")
         
-        album = self.photo_repo.get_album(album_id)
+        album = self.album_repo.get_by_id(album_id)
         if not album:
             return False
         
