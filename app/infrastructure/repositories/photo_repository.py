@@ -1,32 +1,35 @@
-"""Photo repository - handles all photo-related database operations.
+"""Photo repository - DEPRECATED.
 
-Manages photos and videos including:
-- File metadata and storage references
-- Album membership and ordering
-- Encryption status
-- EXIF metadata (taken_at dates)
-- Thumbnail tracking
+⚠️  DEPRECATED: This repository is for legacy migration only.
+All new code should use:
+- ItemRepository (for items table)
+- ItemMediaRepository (for item_media table)  
+- AlbumRepository (for albums and album_items tables)
+
+The photos table has been removed in Phase 5C.
+This file is kept temporarily for reference only.
 """
+import warnings
 import uuid
 from datetime import datetime
 
 from .base import Repository
 
+# Emit deprecation warning on module import
+warnings.warn(
+    "PhotoRepository is deprecated. Use ItemRepository, ItemMediaRepository, or AlbumRepository.",
+    DeprecationWarning,
+    stacklevel=2
+)
+
 
 class PhotoRepository(Repository):
-    """Repository for photo/video entity operations.
+    """DEPRECATED: Repository for legacy photo operations.
     
-    Photos can be:
-    - Standalone (directly in folder)
-    - In albums (with position ordering)
-    - Encrypted (is_encrypted flag)
-    - In safes (safe_id reference)
+    ⚠️  This repository references the 'photos' table which has been removed.
+    All functionality has been migrated to ItemRepository and ItemMediaRepository.
     
-    Examples:
-        >>> repo = PhotoRepository(db)
-        >>> photo_id = repo.create(filename, folder_id, user_id, 
-        ...                        media_type="image", thumb_width=400)
-        >>> photos = repo.get_by_folder(folder_id, sort_by="taken")
+    DO NOT USE FOR NEW CODE.
     """
     
     def create(
