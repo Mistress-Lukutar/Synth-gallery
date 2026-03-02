@@ -129,7 +129,6 @@ class AlbumService:
             "safe_id": album.get("safe_id"),
             "item_count": album.get("item_count", 0),
             "items": items,
-            "photos": items,  # Legacy alias for backward compatibility
             "can_edit": self._can_edit(album_id, user_id),
         }
     
