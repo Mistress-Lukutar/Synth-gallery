@@ -209,7 +209,7 @@
                 if (coverId) {
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <img data-photo-id="${coverId}"
+                        <img data-item-id="${coverId}"
                              ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"

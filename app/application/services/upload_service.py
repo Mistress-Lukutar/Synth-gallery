@@ -13,7 +13,7 @@ from typing import Optional, Tuple, List
 from fastapi import UploadFile, HTTPException
 
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR, ALLOWED_MEDIA_TYPES
-from ...infrastructure.repositories import PhotoRepository
+from ...infrastructure.repositories import PhotoRepository, ItemRepository, ItemMediaRepository, AlbumRepository
 from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.services.media import (
     create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type
@@ -38,15 +38,19 @@ class UploadService:
     
     def __init__(
         self,
-        photo_repository: PhotoRepository,
+        photo_repository: PhotoRepository = None,
         uploads_dir: Path = UPLOADS_DIR,
         thumbnails_dir: Path = THUMBNAILS_DIR,
-        storage: Optional[StorageInterface] = None
+        storage: Optional[StorageInterface] = None,
+        item_repository: ItemRepository = None,
+        item_media_repository: ItemMediaRepository = None
     ):
         self.photo_repo = photo_repository
         self.uploads_dir = uploads_dir
         self.thumbnails_dir = thumbnails_dir
         self.storage = storage or get_storage()
+        self.item_repo = item_repository
+        self.media_repo = item_media_repository
     
     async def upload_single(
         self,
@@ -500,15 +504,26 @@ class UploadService:
         }
     
     async def delete_photo(self, photo_id: str) -> bool:
-        """Delete a single photo and its files.
+        """Delete a single photo/item and its files.
         
         Args:
-            photo_id: Photo UUID to delete
+            photo_id: Photo/Item UUID to delete
             
         Returns:
             True if deleted, False if not found
         """
-        # Get photo info
+        # Phase 5: Try items table first, fallback to photos
+        if self.item_repo and self.media_repo:
+            item = self.item_repo.get_by_id(photo_id)
+            if item:
+                media = self.media_repo.get_by_item_id(photo_id)
+                if media:
+                    await self.storage.delete(media["filename"], folder="uploads")
+                await self.storage.delete(photo_id, folder="thumbnails")
+                self.item_repo.delete(photo_id)
+                return True
+        
+        # Legacy: photos table
         photo = self.photo_repo.get_by_id(photo_id)
         if not photo:
             return False
@@ -522,20 +537,42 @@ class UploadService:
         return True
     
     async def delete_album(self, album_id: str) -> tuple[int, int]:
-        """Delete an album and all its photos.
+        """Delete an album and all its items.
         
         Args:
             album_id: Album UUID to delete
             
         Returns:
-            Tuple of (deleted_photos_count, deleted_album_count)
+            Tuple of (deleted_items_count, deleted_album_count)
         """
-        # Delete album with photos using repository method
+        # Phase 5: Use AlbumRepository to get items and delete them
+        if self.item_repo:
+            album_repo = AlbumRepository(self.item_repo._conn)
+            items = album_repo.get_items(album_id)
+            
+            deleted_items = 0
+            for item in items:
+                # Delete item files
+                media = self.media_repo.get_by_item_id(item["id"]) if self.media_repo else None
+                if media:
+                    await self.storage.delete(media["filename"], folder="uploads")
+                await self.storage.delete(item["id"], folder="thumbnails")
+                deleted_items += 1
+            
+            # Delete album (cascades to album_items)
+            album_repo.delete(album_id)
+            
+            # Delete items from items table
+            for item in items:
+                self.item_repo.delete(item["id"])
+            
+            return deleted_items, 1
+        
+        # Legacy: photos table
         photos = self.photo_repo.delete_album_with_photos(album_id)
         
         deleted_photos = 0
         for photo in photos:
-            # Delete photo files from storage (extension-less)
             await self.storage.delete(photo["filename"], folder="uploads")
             await self.storage.delete(photo["id"], folder="thumbnails")
             deleted_photos += 1

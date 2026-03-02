@@ -337,7 +337,7 @@
         
         // Get all item ids (exclude the add button)
         const itemIds = Array.from(container.querySelectorAll('.photo-grid-item:not(.add-item)'))
-            .map(item => item.dataset.photoId);
+            .map(item => item.dataset.itemId);
         
         try {
             await csrfFetch(`${getBaseUrl()}/api/albums/${editingAlbumId}/reorder`, {
@@ -415,7 +415,7 @@
         
         container.innerHTML = availablePhotos.map(photo => `
             <div class="available-photo-item ${selectedPhotosForAlbum.has(photo.id) ? 'selected' : ''}" 
-                 data-photo-id="${photo.id}"
+                 data-item-id="${photo.id}"
                  onclick="togglePhotoForAlbum('${photo.id}')">
                 <img src="${getBaseUrl()}/files/${photo.id}/thumbnail" alt="${escapeHtml(photo.original_name)}">
             </div>

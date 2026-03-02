@@ -268,7 +268,7 @@
                 if (coverId) {
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <img data-photo-id="${coverId}"
+                        <img data-item-id="${coverId}"
                              ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
@@ -323,14 +323,14 @@
                 // Unified template for all photos - uses data attributes for async resolution
                 html += `
                     <div class="gallery-item" 
-                         data-photo-id="${photo.id}"
+                         data-item-id="${photo.id}"
                          data-item-type="photo"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
                          ${safeIdAttr}>
                         <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
-                            <img data-photo-id="${photo.id}"
+                            <img data-item-id="${photo.id}"
                                  ${safeId ? `data-safe-id="${safeId}"` : ''}
                                  alt="${escapeHtml(photo.original_name)}"
                                  loading="lazy"

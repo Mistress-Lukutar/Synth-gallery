@@ -63,7 +63,7 @@
 
             albumItem.classList.remove('drag-over');
 
-            const photoId = draggedItem.dataset.photoId;
+            const photoId = draggedItem.dataset.itemId;
             const albumId = albumItem.dataset.albumId;
 
             if (photoId && albumId) {
@@ -83,7 +83,7 @@
             if (!resp.ok) throw new Error('Failed to add photo to album');
 
             // Visual feedback
-            const photoEl = document.querySelector(`.gallery-item[data-photo-id="${photoId}"]`);
+            const photoEl = document.querySelector(`.gallery-item[data-item-id="${photoId}"]`);
             if (photoEl) {
                 photoEl.style.opacity = '0.5';
                 setTimeout(() => {
@@ -98,7 +98,7 @@
 
     window.movePhotosToFolder = async function(photoIds, targetFolderId) {
         try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/photos/move`, {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/move`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

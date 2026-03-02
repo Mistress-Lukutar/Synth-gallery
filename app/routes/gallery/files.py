@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from ...database import create_connection
 from ...dependencies import require_user
-from ...infrastructure.repositories import PhotoRepository, ItemRepository, ItemMediaRepository
+from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
 from ...infrastructure.storage import get_storage, LocalStorage
 from .deps import get_permission_service
@@ -58,24 +58,18 @@ async def _get_storage_response(filename: str, folder: str) -> Response:
     return FileResponse(file_path)
 
 
-def _get_file_record(photo_id: str, photo_repo: PhotoRepository, item_repo: ItemRepository, item_media_repo=None):
-    """Get file record from legacy photos or new items table."""
-    # Try legacy photos table first
-    photo = photo_repo.get_by_id(photo_id)
-    if photo:
-        return photo
-    
-    # Fallback to new items table
-    item = item_repo.get_by_id(photo_id)
+def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=None):
+    """Get file record from items table."""
+    item = item_repo.get_by_id(item_id)
     if item and item.get("type") == "media":
         # Get media details if available
-        media = item_media_repo.get_by_item_id(photo_id) if item_media_repo else None
+        media = item_media_repo.get_by_item_id(item_id) if item_media_repo else None
         # Convert item format to photo-like dict for backward compat
         # Storage uses item_id as filename
         return {
             "id": item["id"],
-            "filename": photo_id,  # Storage uses item_id as filename
-            "original_name": item.get("title", photo_id),
+            "filename": item_id,  # Storage uses item_id as filename
+            "original_name": media.get("original_name", item_id) if media else item.get("title", item_id),
             "safe_id": item.get("safe_id"),
             "is_encrypted": item.get("is_encrypted", False),
             "user_id": item.get("user_id"),
@@ -101,14 +95,13 @@ async def get_file(photo_id: str, request: Request):
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        photo_repo = PhotoRepository(db)
         item_repo = ItemRepository(db)
         item_media_repo = ItemMediaRepository(db)
         
-        # Try to get file record from either table
-        file_record = _get_file_record(photo_id, photo_repo, item_repo, item_media_repo)
+        # Get file record from items table
+        file_record = _get_file_record(photo_id, item_repo, item_media_repo)
         if not file_record:
-            raise HTTPException(status_code=404, detail="Photo not found")
+            raise HTTPException(status_code=404, detail="Item not found")
         
         # Check permissions using folder_id
         folder_id = file_record.get("folder_id")
@@ -181,14 +174,13 @@ async def get_file_thumbnail(photo_id: str, request: Request):
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        photo_repo = PhotoRepository(db)
         item_repo = ItemRepository(db)
         item_media_repo = ItemMediaRepository(db)
         
-        # Get file record from either table
-        file_record = _get_file_record(photo_id, photo_repo, item_repo, item_media_repo)
+        # Get file record from items table
+        file_record = _get_file_record(photo_id, item_repo, item_media_repo)
         if not file_record:
-            raise HTTPException(status_code=404, detail="Photo not found")
+            raise HTTPException(status_code=404, detail="Item not found")
         
         # Check permissions using folder_id
         folder_id = file_record.get("folder_id")

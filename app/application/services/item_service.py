@@ -452,8 +452,100 @@ class ItemService:
         
         return self.item_repo.move_to_folder(item_id, folder_id)
     
+    def batch_move(
+        self,
+        item_ids: list[str],
+        album_ids: list[str],
+        dest_folder_id: str,
+        user_id: int
+    ) -> dict:
+        """Move multiple items and albums to another folder.
+        
+        Args:
+            item_ids: List of item UUIDs to move
+            album_ids: List of album UUIDs to move
+            dest_folder_id: Destination folder UUID
+            user_id: User performing the move
+            
+        Returns:
+            Dict with counts of moved and skipped items
+        """
+        from ...infrastructure.repositories import FolderRepository, AlbumRepository
+        
+        folder_repo = FolderRepository(self.item_repo._conn)
+        album_repo = AlbumRepository(self.item_repo._conn)
+        
+        # Check destination permission (must be owner or editor)
+        dest_folder = folder_repo.get_by_id(dest_folder_id)
+        if not dest_folder:
+            raise HTTPException(403, "Destination folder not found")
+        
+        if dest_folder['user_id'] != user_id:
+            # Check if user has editor permission
+            from ...infrastructure.repositories import PermissionRepository
+            perm_repo = PermissionRepository(self.item_repo._conn)
+            perm = perm_repo.get_permission(dest_folder_id, user_id)
+            if perm != 'editor':
+                raise HTTPException(403, "Cannot move to this folder")
+        
+        moved_items = 0
+        moved_albums = 0
+        skipped_items = 0
+        skipped_albums = 0
+        
+        # Move items
+        for item_id in item_ids:
+            item = self.item_repo.get_by_id(item_id)
+            
+            if not item:
+                skipped_items += 1
+                continue
+            
+            # Check ownership
+            if item['user_id'] != user_id:
+                skipped_items += 1
+                continue
+            
+            # Skip if already in target folder
+            if item.get('folder_id') == dest_folder_id:
+                continue
+            
+            if self.item_repo.move_to_folder(item_id, dest_folder_id):
+                moved_items += 1
+            else:
+                skipped_items += 1
+        
+        # Move albums
+        for album_id in album_ids:
+            album = album_repo.get_by_id(album_id)
+            
+            if not album:
+                skipped_albums += 1
+                continue
+            
+            # Check ownership
+            if album['user_id'] != user_id:
+                skipped_albums += 1
+                continue
+            
+            # Skip if already in target folder
+            if album.get('folder_id') == dest_folder_id:
+                continue
+            
+            if album_repo.move_to_folder(album_id, dest_folder_id):
+                moved_albums += 1
+            else:
+                skipped_albums += 1
+        
+        return {
+            'moved_photos': moved_items,
+            'moved_albums': moved_albums,
+            'skipped_photos': skipped_items,
+            'skipped_albums': skipped_albums
+        }
+    
     def delete_item(self, item_id: str, user_id: int) -> bool:
-        """Delete item and all its data."""
+        """Delete item and all its data including files."""
         item = self.item_repo.get_by_id(item_id)
         if not item:
             return False
@@ -461,10 +553,28 @@ class ItemService:
         if item['user_id'] != user_id:
             raise HTTPException(403, "Not owner")
         
-        # Delete from storage
-        # TODO: async delete
+        # Delete files from storage
+        self._delete_item_files(item_id)
         
         return self.item_repo.delete(item_id)
+    
+    def _delete_item_files(self, item_id: str) -> None:
+        """Delete item files from storage."""
+        from ...config import UPLOADS_DIR, THUMBNAILS_DIR
+        from pathlib import Path
+        
+        media = self.media_repo.get_by_item_id(item_id)
+        
+        if media and media.get('filename'):
+            # Delete from uploads
+            upload_path = UPLOADS_DIR / media['filename']
+            if upload_path.exists():
+                upload_path.unlink()
+        
+        # Delete thumbnail (extension-less storage)
+        thumb_path = THUMBNAILS_DIR / item_id
+        if thumb_path.exists():
+            thumb_path.unlink()
     
     # ========================================================================
     # Rendering Helpers

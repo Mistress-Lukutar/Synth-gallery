@@ -357,7 +357,7 @@
         
         // Check access permissions on the gallery item
         const gallery = document.getElementById('gallery');
-        const galleryItem = gallery?.querySelector(`.gallery-item[data-photo-id="${photoId}"]`);
+        const galleryItem = gallery?.querySelector(`.gallery-item[data-item-id="${photoId}"]`);
         
         if (galleryItem) {
             const access = galleryItem.dataset.access;
