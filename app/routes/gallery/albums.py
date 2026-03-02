@@ -4,9 +4,9 @@ from pydantic import BaseModel
 
 from ...database import create_connection
 from ...dependencies import require_user
-from ...infrastructure.repositories import AlbumRepository, ItemRepository
+from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository
 from ...application.services import AlbumService
-from .deps import get_permission_service
+from .deps import get_permission_service, get_album_service
 
 router = APIRouter()
 
@@ -32,14 +32,16 @@ def create_album_endpoint(data: AlbumCreate, request: Request):
     
     db = create_connection()
     try:
-        service = get_photo_service(db)
-        album = service.create_album(
+        service = get_album_service(db)
+        album_id = service.create_album(
             name=data.name,
             folder_id=data.folder_id,
-            photo_ids=data.photo_ids or [],
             user_id=user["id"]
         )
-        return {"status": "ok", "album": album}
+        # Add photos if provided
+        if data.photo_ids:
+            service.add_items(album_id, data.photo_ids, user["id"])
+        return {"status": "ok", "album": {"id": album_id}}
     finally:
         db.close()
 
@@ -119,8 +121,8 @@ def add_photos_to_album_endpoint(album_id: str, data: AlbumPhotosInput, request:
     
     db = create_connection()
     try:
-        service = get_photo_service(db)
-        added = service.add_photos_to_album(album_id, data.photo_ids, user["id"])
+        service = get_album_service(db)
+        added = service.add_items(album_id, data.photo_ids, user["id"])
         return {"status": "ok", "added": added}
     finally:
         db.close()
@@ -133,8 +135,8 @@ def remove_photos_from_album_endpoint(album_id: str, data: AlbumPhotosInput, req
     
     db = create_connection()
     try:
-        service = get_photo_service(db)
-        removed = service.remove_photos_from_album(album_id, data.photo_ids, user["id"])
+        service = get_album_service(db)
+        removed = service.remove_items(album_id, data.photo_ids, user["id"])
         return {"status": "ok", "removed": removed}
     finally:
         db.close()
@@ -147,8 +149,9 @@ def reorder_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Reque
     
     db = create_connection()
     try:
-        service = get_photo_service(db)
-        return service.reorder_album_photos(album_id, data.photo_ids, user["id"])
+        service = get_album_service(db)
+        service.reorder_items(album_id, data.photo_ids)
+        return {"status": "ok"}
     finally:
         db.close()
 
@@ -160,8 +163,9 @@ def set_album_cover_endpoint(album_id: str, data: AlbumCoverInput, request: Requ
     
     db = create_connection()
     try:
-        service = get_photo_service(db)
-        return service.set_album_cover(album_id, data.photo_id, user["id"])
+        service = get_album_service(db)
+        service.set_cover(album_id, data.photo_id, user["id"])
+        return {"status": "ok"}
     finally:
         db.close()
 
@@ -177,7 +181,8 @@ def move_album_endpoint(album_id: str, data: AlbumMoveInput, request: Request):
     
     db = create_connection()
     try:
-        service = get_photo_service(db)
-        return service.move_album(album_id, data.folder_id, user["id"])
+        service = get_album_service(db)
+        service.move_album(album_id, data.folder_id, user["id"])
+        return {"status": "ok"}
     finally:
         db.close()

@@ -3,33 +3,13 @@
 This module contains factory functions for creating services
 used across all gallery sub-modules.
 """
-from ...application.services import UploadService, PhotoService, FolderService, PermissionService
+from ...application.services import FolderService, PermissionService, AlbumService
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR
 from ...database import create_connection
 from ...infrastructure.repositories import (
-    PhotoRepository, FolderRepository, PermissionRepository,
+    FolderRepository, PermissionRepository,
     SafeRepository, ItemRepository, ItemMediaRepository, AlbumRepository
 )
-
-
-def get_upload_service(db) -> UploadService:
-    """Create UploadService with repositories."""
-    return UploadService(
-        photo_repository=PhotoRepository(db),
-        uploads_dir=UPLOADS_DIR,
-        thumbnails_dir=THUMBNAILS_DIR,
-        item_repository=ItemRepository(db),
-        item_media_repository=ItemMediaRepository(db)
-    )
-
-
-def get_photo_service(db) -> PhotoService:
-    """Create PhotoService with repositories."""
-    return PhotoService(
-        photo_repository=PhotoRepository(db),
-        folder_repository=FolderRepository(db),
-        permission_repository=PermissionRepository(db)
-    )
 
 
 def get_folder_service(db) -> FolderService:
@@ -49,4 +29,13 @@ def get_permission_service(db) -> PermissionService:
         item_repository=ItemRepository(db),
         album_repository=AlbumRepository(db),
         safe_repository=SafeRepository(db)
+    )
+
+
+def get_album_service(db) -> AlbumService:
+    """Create AlbumService with repositories."""
+    return AlbumService(
+        album_repository=AlbumRepository(db),
+        item_repository=ItemRepository(db),
+        folder_repository=FolderRepository(db)
     )
