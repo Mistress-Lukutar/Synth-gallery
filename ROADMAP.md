@@ -20,7 +20,7 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | ✅ **Phases 1-4 DONE** |
 | 🔴 Critical | [#28](https://github.com/Nate-go/Synth-Gallery/issues/28) | Phase 5: Complete Legacy Removal | Large  | 🔫 **IN PROGRESS** |
 | 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
-| 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | 🔲 Planned     |
+| 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | ✅ **DONE**     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
 | 🟢 Medium   | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings          | Small  | ✅ **DONE**     |
 | 🔵 Low      | [#21](https://github.com/Nate-go/Synth-Gallery/issues/21) | Request Validation Models       | Small  | ✅ **DONE**     |
@@ -245,6 +245,79 @@ S3_SECRET_KEY=xxx
 - Existing files remain in place when switching backends
 - New files go to configured backend
 - Backups work with any backend (downloads from S3 if needed)
+
+---
+
+### Issue #18: DEK Cache Persistence (DB Sessions) 🟡 ✅
+
+**Status:** **COMPLETED** - 2026-03-02
+
+**Problem:**  
+Current DEK (Data Encryption Key) cache is in-memory Python dict:
+```python
+dek_cache: dict[int, tuple[bytes, datetime]] = {}
+```
+
+This causes several issues:
+- ❌ Lost on server restart (all users must re-login)
+- ❌ Doesn't work with multiple workers (Gunicorn)
+- ❌ No cross-process invalidation
+- ❌ Cannot do remote logout
+
+**Solution Implemented (Option B - DB Sessions):**
+
+1. **Database Migration** (`app/database.py`):
+   ```sql
+   ALTER TABLE sessions ADD COLUMN encrypted_dek BLOB
+   ```
+
+2. **SessionDEKService** (`app/infrastructure/services/session_dek.py`):
+   - Encrypts DEK with AES-256-GCM using session-derived key
+   - Session ID acts as encryption key (via PBKDF2)
+   - Security: even with DB access, DEK cannot be decrypted without session_id
+
+3. **Updated SessionRepository** (`app/infrastructure/repositories/session_repository.py`):
+   - `create()` - accepts optional `encrypted_dek` parameter
+   - `set_encrypted_dek()` - store encrypted DEK for session
+   - `get_encrypted_dek()` - retrieve encrypted DEK
+
+4. **AuthService Integration** (`app/application/services/auth_service.py`):
+   - `store_dek_in_session()` - encrypt and store DEK
+   - `get_dek_from_session()` - retrieve and decrypt DEK
+   - `decrypt_and_cache_dek()` - now accepts `session_id` for persistence
+
+5. **Middleware DEK Restoration** (`app/middleware.py`):
+   ```python
+   # On each request: if DEK not in memory, try to restore from session
+   if dek_cache.get(user_id) is None and session.get("encrypted_dek"):
+       dek = SessionDEKService.decrypt_dek(session["encrypted_dek"], session_id)
+       dek_cache.set(user_id, dek)
+   ```
+
+**Security Model:**
+```
+Login: Password → KEK → Decrypt DEK → Encrypt with session_id → Store in DB
+Request: Cookie (session_id) → Get from DB → Decrypt with session_id → Cache in memory
+Logout: Delete session from DB → DEK no longer accessible
+```
+
+**Benefits:**
+- ✅ DEK persists across server restarts
+- ✅ Works with multiple workers (Gunicorn)
+- ✅ Remote logout possible (delete session)
+- ✅ No plaintext DEK in database
+- ✅ Session ID never leaves server (HTTP-only cookie)
+
+**Files Changed:**
+- ✅ `app/database.py` - migration for `encrypted_dek` column
+- ✅ `app/infrastructure/services/session_dek.py` - NEW service
+- ✅ `app/infrastructure/repositories/session_repository.py` - DEK methods
+- ✅ `app/application/services/auth_service.py` - session DEK integration
+- ✅ `app/middleware.py` - DEK restoration from session
+- ✅ `app/routes/auth.py` - store DEK on login
+- ✅ `app/routes/webauthn.py` - store DEK on WebAuthN login
+- ✅ `tests/unit/test_session_dek_service.py` - NEW unit tests
+- ✅ `tests/unit/test_session_repository_dek.py` - NEW unit tests
 
 ---
 

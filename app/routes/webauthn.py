@@ -270,6 +270,11 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
                 )
                 dek = EncryptionService.decrypt_dek(cred["encrypted_dek"], cred_key)
                 dek_cache.set(cred["user_id"], dek, ttl_seconds=SESSION_MAX_AGE)
+                
+                # Also store in session for persistence (Issue #18)
+                from ..infrastructure.services.session_dek import SessionDEKService
+                encrypted_dek = SessionDEKService.encrypt_dek(dek, session_id)
+                session_repo.set_encrypted_dek(session_id, encrypted_dek)
             except Exception:
                 # DEK decryption failed - user may need to re-authenticate with password
                 pass

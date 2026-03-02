@@ -11,6 +11,8 @@ from .config import (
 )
 from .database import create_connection
 from .infrastructure.repositories import SessionRepository
+from .infrastructure.services.encryption import dek_cache
+from .infrastructure.services.session_dek import SessionDEKService
 
 
 def strip_root_path(path: str) -> str:
@@ -49,9 +51,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 session_repo = SessionRepository(conn)
                 session = session_repo.get_valid(session_id)
                 if session:
+                    user_id = session["user_id"]
+                    
+                    # Restore DEK from session storage if not in memory cache
+                    # This supports server restarts and multiple workers (Issue #18)
+                    if dek_cache.get(user_id) is None and session.get("encrypted_dek"):
+                        try:
+                            dek = SessionDEKService.decrypt_dek(session["encrypted_dek"], session_id)
+                            dek_cache.set(user_id, dek)
+                        except Exception:
+                            # Failed to restore DEK - user may need to re-login
+                            pass
+                    
                     # Valid session - attach user info to request state
                     request.state.user = {
-                        "id": session["user_id"],
+                        "id": user_id,
                         "username": session["username"],
                         "display_name": session["display_name"]
                     }

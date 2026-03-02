@@ -614,4 +614,11 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already renamed or doesn't exist
 
+    # Migration: Add encrypted_dek column to sessions for DB-based DEK storage (Issue #18)
+    try:
+        db.execute("ALTER TABLE sessions ADD COLUMN encrypted_dek BLOB")
+        print("[Migration] Added sessions.encrypted_dek column")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     db.commit()
