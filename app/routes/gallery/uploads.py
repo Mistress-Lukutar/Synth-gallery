@@ -17,6 +17,7 @@ from ...dependencies import require_user
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.storage import get_storage
 from ...infrastructure.services.media import create_thumbnail_bytes, create_video_thumbnail_bytes
+from ...infrastructure.services.metadata import extract_taken_date
 from ...application.services import ItemService
 
 router = APIRouter()
@@ -69,6 +70,17 @@ async def _process_upload(
         # Determine media type
         media_type = item_service.detect_media_type(file.filename, content)
         
+        # Extract taken_at from EXIF for images
+        taken_at = None
+        if media_type == 'image':
+            try:
+                with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                    tmp.write(content)
+                    tmp.flush()
+                    taken_at = extract_taken_date(tmp.name)
+            except Exception:
+                pass
+        
         # Generate thumbnail
         thumb_w, thumb_h = 0, 0
         thumb_bytes = None
@@ -101,6 +113,7 @@ async def _process_upload(
                 "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "user_id": user["id"],
                 "is_encrypted": is_encrypted,
+                "taken_at": taken_at,
             },
             media_data={
                 "media_type": media_type,
@@ -162,7 +175,13 @@ async def upload_file(
         "type": "media",
         "folder_id": folder_id,
         "media_type": item.get("media_type", "image"),
-        "original_name": item.get("title", ""),
+        "title": item.get("title", ""),
+        "filename": item["id"],  # Extension-less: filename = item_id
+        "content_type": item.get("content_type"),
+        "thumb_width": item.get("thumb_width", 0),
+        "thumb_height": item.get("thumb_height", 0),
+        "taken_at": item.get("taken_at"),
+        "is_encrypted": item.get("is_encrypted", False),
         "status": "ok"
     }
 
@@ -211,7 +230,7 @@ async def upload_batch(
                 "type": "media",
                 "folder_id": folder_id,
                 "media_type": item.get("media_type", "image"),
-                "original_name": item.get("title", "")
+                "title": item.get("title", "")
             })
         except Exception as e:
             errors.append({
@@ -303,6 +322,17 @@ async def upload_chunk(
             # Determine media type
             media_type = item_service.detect_media_type(filename, assembled_content)
             
+            # Extract taken_at from EXIF for images
+            taken_at = None
+            if media_type == 'image':
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                        tmp.write(assembled_content)
+                        tmp.flush()
+                        taken_at = extract_taken_date(tmp.name)
+                except Exception:
+                    pass
+            
             item = item_service.create_media_item_sync(
                 item_id=item_id,
                 file_data={
@@ -312,6 +342,7 @@ async def upload_chunk(
                     "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
                     "user_id": user["id"],
                     "is_encrypted": is_encrypted,
+                    "taken_at": taken_at,
                 },
                 media_data={
                     "media_type": media_type,
@@ -415,7 +446,11 @@ async def upload_album(
                     "id": item["id"],
                     "title": item.get("title", ""),
                     "media_type": item.get("media_type", "image"),
-                    "original_name": item.get("original_name", "")
+                    "content_type": item.get("content_type"),
+                    "thumb_width": item.get("thumb_width"),
+                    "thumb_height": item.get("thumb_height"),
+                    "taken_at": item.get("taken_at"),
+                    "is_encrypted": item.get("is_encrypted", False),
                 })
         
         return {

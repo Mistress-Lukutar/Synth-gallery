@@ -459,7 +459,7 @@ class FolderRepository(Repository):
             and max photo dates for sorting
         """
         cursor = self._execute("""
-            SELECT a.id, a.name, a.uploaded_at, a.folder_id, a.user_id, a.safe_id,
+            SELECT a.id, a.name, a.created_at as uploaded_at, a.folder_id, a.user_id, a.safe_id,
                    (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as photo_count,
                    COALESCE(a.cover_item_id, 
                        (SELECT item_id FROM album_items WHERE album_id = a.id ORDER BY position LIMIT 1)
@@ -503,7 +503,7 @@ class FolderRepository(Repository):
                       SELECT id FROM albums WHERE folder_id = ?
                   )
               )
-            ORDER BY i.created_at DESC
+            ORDER BY i.uploaded_at DESC
         """, (folder_id, folder_id))
         return [dict(row) for row in cursor.fetchall()]
     

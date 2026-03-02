@@ -400,10 +400,12 @@ def init_db():
     """)
     
     # Item media table - photo/video specific data
+    # Note: filename = item_id in extension-less storage
     db.execute("""
         CREATE TABLE IF NOT EXISTS item_media (
             item_id TEXT PRIMARY KEY,
             media_type TEXT NOT NULL,  -- 'image' or 'video'
+            filename TEXT NOT NULL,  -- Same as item_id in extension-less storage
             original_name TEXT,
             content_type TEXT,
             width INTEGER,
@@ -412,6 +414,7 @@ def init_db():
             thumb_width INTEGER,
             thumb_height INTEGER,
             taken_at TIMESTAMP,
+            storage_mode TEXT DEFAULT 'standard',  -- 'standard' or 'legacy'
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
         )
     """)

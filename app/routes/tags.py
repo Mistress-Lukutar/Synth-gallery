@@ -193,7 +193,7 @@ def search_items_by_tags(tags: str = "", folder_id: str = None):
     # Find standalone items (not in albums) in this folder with ALL specified tags
     # Phase 5: Use items + item_media tables, exclude items in albums via album_items
     standalone_items = db.execute(f"""
-        SELECT DISTINCT i.id, im.original_name, im.media_type, im.taken_at, im.uploaded_at,
+        SELECT DISTINCT i.id, i.title, im.media_type, im.taken_at, i.uploaded_at,
                im.thumb_width, im.thumb_height, i.safe_id,
                (SELECT COUNT(*) FROM tags WHERE photo_id = i.id) as tag_count
         FROM items i
@@ -206,7 +206,7 @@ def search_items_by_tags(tags: str = "", folder_id: str = None):
             FROM tags t
             WHERE t.photo_id = i.id AND LOWER(t.tag) IN ({placeholders})
         ) = ?
-        ORDER BY im.uploaded_at DESC
+        ORDER BY i.uploaded_at DESC
     """, (folder_id, *tag_list, len(tag_list))).fetchall()
     
     # Find albums in this folder where at least one item has ALL specified tags
@@ -241,7 +241,7 @@ def search_items_by_tags(tags: str = "", folder_id: str = None):
         item_results.append({
             "type": "photo",
             "id": item["id"],
-            "original_name": item["original_name"],
+            "title": item["title"],
             "media_type": item["media_type"] or "image",
             "taken_at": item["taken_at"],
             "uploaded_at": item["uploaded_at"],

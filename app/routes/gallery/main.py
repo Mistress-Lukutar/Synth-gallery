@@ -211,9 +211,9 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "type": "item",           # Polymorphic type
                 "item_type": item["type"], # 'media', 'note', etc
                 "id": item["id"],
-                "filename": item.get("filename", ""),
-                "original_name": item.get("original_name", ""),
+                "title": item.get("title", ""),
                 "media_type": item.get("media_type", "image"),
+                "content_type": item.get("content_type"),
                 "thumb_width": item.get("thumb_width"),
                 "thumb_height": item.get("thumb_height"),
                 "safe_id": item.get("safe_id"),

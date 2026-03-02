@@ -44,7 +44,7 @@ class AlbumRepository(Repository):
         
         self._execute(
             """INSERT INTO albums 
-               (id, name, folder_id, user_id, cover_item_id, safe_id, uploaded_at)
+               (id, name, folder_id, user_id, cover_item_id, safe_id, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 album_id, name, folder_id, user_id, 
@@ -73,7 +73,7 @@ class AlbumRepository(Repository):
                 (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as item_count
                FROM albums a 
                WHERE a.folder_id = ?
-               ORDER BY a.uploaded_at DESC""",
+               ORDER BY a.created_at DESC""",
             (folder_id,)
         )
         return [self._row_to_dict(row) for row in cursor.fetchall()]
