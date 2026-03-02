@@ -273,8 +273,8 @@ class TestAlbumNavigation:
         assert response.status_code == 200
         
         data = response.json()
-        assert "photos" in data
-        assert len(data["photos"]) == 3
+        assert "items" in data
+        assert len(data["items"]) == 3
 
 
 class TestAlbumReorder:
@@ -327,5 +327,5 @@ class TestAlbumReorder:
         response = authenticated_client.get(f"/api/albums/{album_id}")
         assert response.status_code == 200
         
-        returned_ids = [p["id"] for p in response.json()["photos"]]
+        returned_ids = [p["id"] for p in response.json()["items"]]
         assert returned_ids == reversed_ids
