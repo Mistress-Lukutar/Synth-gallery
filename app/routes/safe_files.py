@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse, Response
 from ..application.services import SafeFileService, PermissionService
 from ..database import create_connection
 from ..dependencies import require_user
-from ..infrastructure.repositories import SafeRepository, PhotoRepository
+from ..infrastructure.repositories import SafeRepository, ItemRepository, ItemMediaRepository
 
 router = APIRouter(prefix="/api/safe-files", tags=["safe-files"])
 
@@ -13,17 +13,18 @@ router = APIRouter(prefix="/api/safe-files", tags=["safe-files"])
 def get_safe_file_service(db) -> SafeFileService:
     """Get configured SafeFileService instance."""
     safe_repo = SafeRepository(db)
-    photo_repo = PhotoRepository(db)
-    return SafeFileService(safe_repo, photo_repo)
+    item_repo = ItemRepository(db)
+    return SafeFileService(safe_repo, item_repo)
 
 
 def get_permission_service(db) -> PermissionService:
     """Get configured PermissionService instance."""
-    from ..infrastructure.repositories import PermissionRepository, FolderRepository, PhotoRepository, SafeRepository
+    from ..infrastructure.repositories import PermissionRepository, FolderRepository, ItemRepository, AlbumRepository, SafeRepository
     return PermissionService(
         permission_repository=PermissionRepository(db),
         folder_repository=FolderRepository(db),
-        photo_repository=PhotoRepository(db),
+        item_repository=ItemRepository(db),
+        album_repository=AlbumRepository(db),
         safe_repository=SafeRepository(db)
     )
 
@@ -155,7 +156,7 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
     try:
         service = get_safe_file_service(db)
         perm_service = get_permission_service(db)
-        photo_repo = PhotoRepository(db)
+        item_media_repo = ItemMediaRepository(db)
         
         return service.upload_thumbnail(
             photo_id=photo_id,
@@ -164,7 +165,7 @@ async def upload_safe_photo_thumbnail(photo_id: str, request: Request):
             thumb_width=thumb_width,
             thumb_height=thumb_height,
             can_access_photo_fn=lambda pid, uid: perm_service.can_access_photo(pid, uid),
-            update_dimensions_fn=lambda pid, w, h: photo_repo.update_thumbnail_dimensions(pid, w, h)
+            update_dimensions_fn=lambda pid, w, h: item_media_repo.update_thumbnail_dimensions(pid, w, h)
         )
     finally:
         db.close()

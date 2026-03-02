@@ -4,8 +4,9 @@ from pydantic import BaseModel
 
 from ...database import create_connection
 from ...dependencies import require_user
-from ...infrastructure.repositories import PhotoRepository
-from .deps import get_permission_service, get_photo_service
+from ...infrastructure.repositories import AlbumRepository, ItemRepository
+from ...application.services import AlbumService
+from .deps import get_permission_service
 
 router = APIRouter()
 
@@ -51,25 +52,24 @@ def get_album_data(album_id: str, request: Request):
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        photo_repo = PhotoRepository(db)
+        album_repo = AlbumRepository(db)
         
         if not perm_service.can_access_album(album_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
 
-        album = photo_repo.get_album(album_id)
+        album = album_repo.get_by_id(album_id)
         if not album:
             raise HTTPException(status_code=404, detail="Album not found")
 
-        photos = photo_repo.get_album_photos(album_id)
+        items = album_repo.get_items(album_id)
 
         return {
             "id": album["id"],
             "name": album["name"],
             "created_at": album["created_at"],
-            "cover_photo_id": album.get("cover_photo_id"),
-            "effective_cover_photo_id": album.get("effective_cover_photo_id"),
+            "cover_item_id": album.get("cover_item_id"),
             "can_edit": perm_service.can_edit_album(album_id, user["id"]),
-            "photos": [{"id": p["id"], "filename": p["filename"], "media_type": p["media_type"] or "image"} for p in photos]
+            "items": [{"id": i["id"], "title": i.get("title", ""), "media_type": i.get("media_type", "image")} for i in items]
         }
     finally:
         db.close()
@@ -83,7 +83,8 @@ def get_available_photos(album_id: str, request: Request):
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        photo_repo = PhotoRepository(db)
+        album_repo = AlbumRepository(db)
+        item_repo = ItemRepository(db)
         
         if not perm_service.can_access_album(album_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
@@ -91,8 +92,22 @@ def get_available_photos(album_id: str, request: Request):
         if not perm_service.can_edit_album(album_id, user["id"]):
             raise HTTPException(status_code=403, detail="Cannot edit this album")
 
-        photos = photo_repo.get_available_for_album(album_id, user["id"])
-        return {"photos": photos}
+        # Get album to find its folder
+        album = album_repo.get_by_id(album_id)
+        if not album:
+            raise HTTPException(status_code=404, detail="Album not found")
+        
+        # Get standalone items in the same folder (not already in albums)
+        folder_id = album.get("folder_id")
+        if not folder_id:
+            return {"items": []}
+        
+        items = item_repo.get_by_folder(folder_id, item_type='media')
+        # Filter out items already in albums
+        album_item_ids = {ai["item_id"] for ai in album_repo.get_items(album_id)}
+        available = [i for i in items if i["id"] not in album_item_ids]
+        
+        return {"items": available}
     finally:
         db.close()
 
