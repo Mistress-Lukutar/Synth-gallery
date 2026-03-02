@@ -18,8 +18,8 @@ This document tracks planned architectural improvements, refactoring goals, and 
 | 🟡 High     | [#22](https://github.com/Nate-go/Synth-Gallery/issues/22) | Album Entity + File Storage Refactoring | Medium | ✅ **DONE**     |
 | 🔴 Critical | [#23](https://github.com/Nate-go/Synth-Gallery/issues/23) | Unified File Access Service     | Large  | ✅ **DONE** |
 | 🔴 Critical | [#24](https://github.com/Nate-go/Synth-Gallery/issues/24) | Polymorphic Items & Albums v1.0 | Large  | ✅ **Phases 1-4 DONE** |
-| 🔴 Critical | [#28](https://github.com/Nate-go/Synth-Gallery/issues/28) | Phase 5: Complete Legacy Removal | Large  | 🔫 **IN PROGRESS** |
-| 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | 🔲 Planned     |
+| 🔴 Critical | [#28](https://github.com/Nate-go/Synth-Gallery/issues/28) | Phase 5: Complete Legacy Removal | Large  | ✅ **DONE** |
+| 🟡 High     | [#17](https://github.com/Nate-go/Synth-Gallery/issues/17) | SQLAlchemy Core / Alembic       | Large  | ⏸️ **Postponed** |
 | 🟡 High     | [#18](https://github.com/Nate-go/Synth-Gallery/issues/18) | Redis / Encrypted Sessions      | Medium | ✅ **DONE**     |
 | 🟢 Medium   | [#19](https://github.com/Nate-go/Synth-Gallery/issues/19) | Storage Interface (S3/local)    | Medium | ✅ **DONE**     |
 | 🟢 Medium   | [#20](https://github.com/Nate-go/Synth-Gallery/issues/20) | Secure Cookie Settings          | Small  | ✅ **DONE**     |
@@ -529,7 +529,9 @@ After:  uploads/abc123       + thumbnails/abc123
 
 ---
 
-### Issue #17: Database Abstraction & Migrations 🟡
+### Issue #17: Database Abstraction & Migrations 🟡 ⏸️
+
+**Status:** **POSTPONED** - Not critical for current use case
 
 **Problem:**  
 - Raw SQL migrations mixed in `init_db()`
@@ -541,6 +543,16 @@ After:  uploads/abc123       + thumbnails/abc123
 1. **Alembic** for schema migrations
 2. **SQLAlchemy Core** for type-safe queries
 3. **Abstract database backend** (SQLite today, PostgreSQL tomorrow)
+
+**Reason for postponement:**
+Current Repository Pattern with raw SQL works well for single-instance SQLite deployment.
+Migration to SQLAlchemy is only needed if:
+- Switching to PostgreSQL is planned
+- Team grows and ORM familiarity becomes important
+- Complex schema migrations become frequent
+
+**Effort:** Large (~2-3 weeks)
+**Priority:** Low (current architecture is stable)
 
 ---
 
@@ -924,9 +936,9 @@ ItemService.RENDERERS['note'] = NoteRenderer()
 
 ---
 
-### Issue #28: Phase 5 - Complete Legacy Removal 🔴 🔫
+### Issue #28: Phase 5 - Complete Legacy Removal 🔴 ✅
 
-**Status:** **IN PROGRESS** - 2026-03-01  
+**Status:** **COMPLETED** - 2026-03-02  
 **Part of:** v1.0 Breaking Release  
 **Depends on:** Issue #24 (Phases 1-4)
 
@@ -952,27 +964,19 @@ Complete migration to polymorphic items, remove all legacy code.
 - [x] Mark legacy photos as `migrated_to_items` in database
 - [x] Ensure all queries use `items` table exclusively
 
-#### Step 5: Database Cleanup (Post-Stabilization) ⏸️ STOPPED
-**Status:** Awaiting user confirmation before proceeding
+#### Step 5: Database Cleanup ✅
+- [x] Remove `photos.album_id` column after confirming no references
+- [x] Archive or drop `photos` table after full migration
+- [x] Update foreign key references
 
-- [ ] Remove `photos.album_id` column after confirming no references
-- [ ] Archive or drop `photos` table after full migration
-- [ ] Update foreign key references
-
-**Note:** Step 5 involves destructive database changes. Legacy `photos` table data should be verified backed up before proceeding.
+**Note:** Legacy `photos` table has been removed. All data migrated to `items`/`item_media` tables.
 
 **Acceptance Criteria:**
-- [ ] No legacy photo methods used in new code
-- [ ] Upload creates only Item records
-- [ ] All navigation works with polymorphic items
-- [ ] Tests pass without legacy fallbacks
-- [ ] Database size reduced (no duplicate records)
-
-**Files to Modify:**
-- `app/infrastructure/repositories/photo_repository.py` - remove album methods
-- `app/infrastructure/repositories/folder_repository.py` - use items table
-- `app/routes/gallery/uploads.py` - remove dual-write
-- `app/database.py` - migration for marking legacy photos
+- [x] No legacy photo methods used in new code
+- [x] Upload creates only Item records
+- [x] All navigation works with polymorphic items
+- [x] Tests pass without legacy fallbacks
+- [x] Database size reduced (no duplicate records)
 
 ---
 
