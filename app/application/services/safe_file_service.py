@@ -9,7 +9,7 @@ from typing import Optional, Dict, Callable
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import SafeRepository, PhotoRepository
+from ...infrastructure.repositories import SafeRepository, ItemRepository
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR
 
 
@@ -26,10 +26,10 @@ class SafeFileService:
     def __init__(
         self,
         safe_repository: SafeRepository,
-        photo_repository: Optional[PhotoRepository] = None
+        item_repository: Optional[ItemRepository] = None
     ):
         self.safe_repo = safe_repository
-        self.photo_repo = photo_repository
+        self.item_repo = item_repository
     
     def get_photo_key(
         self,
@@ -56,18 +56,18 @@ class SafeFileService:
         if not can_access_photo_fn(photo_id, user_id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        if not self.photo_repo:
-            raise HTTPException(status_code=500, detail="Photo repository not configured")
+        if not self.item_repo:
+            raise HTTPException(status_code=500, detail="Item repository not configured")
         
-        photo = self.photo_repo.get_by_id(photo_id)
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
+        item = self.item_repo.get_by_id(photo_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         
-        # Check if photo is in a safe
-        if not photo.get("safe_id"):
+        # Check if item is in a safe
+        if not item.get("safe_id"):
             raise HTTPException(status_code=400, detail="Photo is not in a safe")
         
-        safe_id = photo["safe_id"]
+        safe_id = item["safe_id"]
         safe = self.safe_repo.get_by_id(safe_id)
         
         if not safe:
@@ -119,22 +119,22 @@ class SafeFileService:
         if not can_access_photo_fn(photo_id, user_id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        if not self.photo_repo:
-            raise HTTPException(status_code=500, detail="Photo repository not configured")
+        if not self.item_repo:
+            raise HTTPException(status_code=500, detail="Item repository not configured")
         
-        photo = self.photo_repo.get_by_id(photo_id)
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
+        item = self.item_repo.get_by_id(photo_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         
-        # Check if photo is in a safe
-        if not photo.get("safe_id"):
+        # Check if item is in a safe
+        if not item.get("safe_id"):
             # Not in safe - redirect to regular endpoint
             raise HTTPException(
                 status_code=400, 
                 detail="Use regular /uploads endpoint"
             )
         
-        safe_id = photo["safe_id"]
+        safe_id = item["safe_id"]
         safe = self.safe_repo.get_by_id(safe_id)
         
         if not safe or safe["user_id"] != user_id:
@@ -171,21 +171,21 @@ class SafeFileService:
         if not can_access_photo_fn(photo_id, user_id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        if not self.photo_repo:
-            raise HTTPException(status_code=500, detail="Photo repository not configured")
+        if not self.item_repo:
+            raise HTTPException(status_code=500, detail="Item repository not configured")
         
-        photo = self.photo_repo.get_by_id(photo_id)
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
+        item = self.item_repo.get_by_id(photo_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         
-        # Check if photo is in a safe
-        if not photo.get("safe_id"):
+        # Check if item is in a safe
+        if not item.get("safe_id"):
             raise HTTPException(
                 status_code=400, 
                 detail="Use regular /thumbnails endpoint"
             )
         
-        safe_id = photo["safe_id"]
+        safe_id = item["safe_id"]
         safe = self.safe_repo.get_by_id(safe_id)
         
         if not safe or safe["user_id"] != user_id:
@@ -259,18 +259,18 @@ class SafeFileService:
         if not can_access_photo_fn(photo_id, user_id):
             raise HTTPException(status_code=403, detail="Access denied")
         
-        if not self.photo_repo:
-            raise HTTPException(status_code=500, detail="Photo repository not configured")
+        if not self.item_repo:
+            raise HTTPException(status_code=500, detail="Item repository not configured")
         
-        photo = self.photo_repo.get_by_id(photo_id)
-        if not photo:
-            raise HTTPException(status_code=404, detail="Photo not found")
+        item = self.item_repo.get_by_id(photo_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         
-        # Check if photo is in a safe
-        if not photo.get("safe_id"):
+        # Check if item is in a safe
+        if not item.get("safe_id"):
             raise HTTPException(status_code=400, detail="Photo is not in a safe")
         
-        safe_id = photo["safe_id"]
+        safe_id = item["safe_id"]
         safe = self.safe_repo.get_by_id(safe_id)
         
         if not safe or safe["user_id"] != user_id:
