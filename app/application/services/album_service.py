@@ -133,41 +133,12 @@ class AlbumService:
         }
     
     def delete_album(self, album_id: str, user_id: int) -> bool:
-        """Delete album and all its items (photos/videos)."""
+        """Delete album. Items stay in folder."""
         if not self._can_delete(album_id, user_id):
             raise HTTPException(403, "Cannot delete this album")
         
-        # Get all items in album before deleting
-        album_items = self.album_repo.get_items(album_id)
-        
-        # Delete album (this also deletes album_items via CASCADE)
-        result = self.album_repo.delete(album_id)
-        
-        # Delete all items and their files
-        for item in album_items:
-            try:
-                self._delete_item_files(item['id'], user_id)
-                self.item_repo.delete(item['id'])
-            except Exception:
-                # Log error but continue deleting other items
-                pass
-        
-        return result
-    
-    def _delete_item_files(self, item_id: str, user_id: int) -> None:
-        """Delete item files from storage."""
-        from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-        from pathlib import Path
-        
-        # Delete from uploads (extension-less storage: filename == item_id)
-        upload_path = UPLOADS_DIR / item_id
-        if upload_path.exists():
-            upload_path.unlink()
-        
-        # Delete thumbnail
-        thumb_path = THUMBNAILS_DIR / item_id
-        if thumb_path.exists():
-            thumb_path.unlink()
+        # Delete album (album_items deleted via CASCADE)
+        return self.album_repo.delete(album_id)
     
     def move_album(self, album_id: str, dest_folder_id: str, user_id: int) -> bool:
         """Move album and its items to different folder."""
