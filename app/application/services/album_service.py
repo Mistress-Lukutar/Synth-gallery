@@ -7,7 +7,8 @@ from typing import List, Dict, Optional
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository
+from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository, ItemMediaRepository
+from .item_service import ItemService
 
 
 class AlbumService:
@@ -133,12 +134,31 @@ class AlbumService:
         }
     
     def delete_album(self, album_id: str, user_id: int) -> bool:
-        """Delete album. Items stay in folder."""
+        """Delete album and all its items including files."""
         if not self._can_delete(album_id, user_id):
             raise HTTPException(403, "Cannot delete this album")
         
-        # Delete album (album_items deleted via CASCADE)
-        return self.album_repo.delete(album_id)
+        # Get all items in album before deleting
+        album_items = self.album_repo.get_items(album_id)
+        
+        # Delete album (this also deletes album_items via CASCADE)
+        result = self.album_repo.delete(album_id)
+        
+        # Delete all items and their files
+        item_media_repo = ItemMediaRepository(self.album_repo._conn)
+        item_service = ItemService(
+            item_repository=self.item_repo,
+            item_media_repository=item_media_repo
+        )
+        for item in album_items:
+            try:
+                item_service._delete_item_files(item['id'])
+                self.item_repo.delete(item['id'])
+            except Exception:
+                # Log error but continue deleting other items
+                pass
+        
+        return result
     
     def move_album(self, album_id: str, dest_folder_id: str, user_id: int) -> bool:
         """Move album and its items to different folder."""

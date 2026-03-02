@@ -833,7 +833,7 @@ def update_album(album_id: str, data: dict, request: Request):
 
 @router.delete("/api/albums/{album_id}")
 def delete_album(album_id: str, request: Request):
-    """Delete album (items stay in folder)."""
+    """Delete album and all its items including files."""
     user = require_user(request)
     
     db = create_connection()
