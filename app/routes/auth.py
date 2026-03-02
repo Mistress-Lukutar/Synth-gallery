@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..application.services import AuthService
-from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR
+from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, COOKIE_SECURE, BASE_DIR
 from ..database import create_connection
 from ..dependencies import get_csrf_token
 from ..infrastructure.repositories import UserRepository, SessionRepository
@@ -104,8 +104,9 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_id,
-        httponly=True,
+        httponly=True,  # Session cookie not accessible via JavaScript
         samesite="lax",
+        secure=COOKIE_SECURE,  # True in production (HTTPS only)
         max_age=SESSION_MAX_AGE
     )
     return response
