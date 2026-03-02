@@ -121,13 +121,14 @@ class AlbumService:
                 "position": item.get("position", 0),
             })
         
-        # Build optimized response
+        # Build optimized response (user_id needed for permission checks)
         return {
             "id": album["id"],
             "name": album["name"],
             "created_at": album["created_at"],
             "cover_item_id": album.get("cover_item_id"),
             "safe_id": album.get("safe_id"),
+            "user_id": album.get("user_id"),
             "item_count": album.get("item_count", 0),
             "items": items,
             "can_edit": self._can_edit(album_id, user_id),
