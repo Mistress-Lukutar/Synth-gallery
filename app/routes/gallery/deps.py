@@ -8,7 +8,7 @@ from ...config import UPLOADS_DIR, THUMBNAILS_DIR
 from ...database import create_connection
 from ...infrastructure.repositories import (
     PhotoRepository, FolderRepository, PermissionRepository,
-    SafeRepository, ItemRepository, ItemMediaRepository
+    SafeRepository, ItemRepository, ItemMediaRepository, AlbumRepository
 )
 
 
@@ -46,6 +46,7 @@ def get_permission_service(db) -> PermissionService:
     return PermissionService(
         permission_repository=PermissionRepository(db),
         folder_repository=FolderRepository(db),
-        photo_repository=PhotoRepository(db),
+        item_repository=ItemRepository(db),
+        album_repository=AlbumRepository(db),
         safe_repository=SafeRepository(db)
     )
