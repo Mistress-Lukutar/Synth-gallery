@@ -292,8 +292,22 @@
                 bDate = b.dataset.uploadedAt || b.dataset.takenAt;
             }
             
-            // Parse dates (handle ISO strings)
-            const parseDate = (d) => d ? new Date(d).getTime() : 0;
+            // Parse dates (handle ISO strings with microseconds)
+            const parseDate = (d) => {
+                if (!d) return 0;
+                // Normalize Python datetime format (2026-03-02T11:02:41.820010)
+                let normalized = d.replace(' ', 'T');
+                // Trim microseconds to milliseconds if needed
+                const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
+                if (match && match[2] && match[2].length > 4) {
+                    normalized = match[1] + match[2].substring(0, 4);
+                }
+                // Add Z if no timezone
+                if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
+                    normalized += 'Z';
+                }
+                return new Date(normalized).getTime() || 0;
+            };
             const aTime = parseDate(aDate);
             const bTime = parseDate(bDate);
             
@@ -778,9 +792,32 @@
 
             // Update info
             if (datesEl) {
-                datesEl.textContent = photo.taken_at 
-                    ? new Date(photo.taken_at).toLocaleDateString()
-                    : new Date(photo.uploaded_at).toLocaleDateString();
+                // Parse date string - handles both old and new formats
+                // New format: 2026-03-02T11:02:41.820010 (Python datetime.isoformat())
+                // Old format: 2026-03-02 11:02:41 or other variations
+                const parseDate = (dateStr) => {
+                    if (!dateStr) return null;
+                    // Replace space with T for consistency
+                    let normalized = dateStr.replace(' ', 'T');
+                    // If has microseconds (more than 3 digits after dot), trim to milliseconds
+                    const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
+                    if (match) {
+                        const [, base, frac] = match;
+                        if (frac && frac.length > 4) {
+                            // Trim to 3 decimal places (milliseconds)
+                            normalized = base + frac.substring(0, 4);
+                        }
+                    }
+                    // Add Z if missing timezone info
+                    if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
+                        normalized += 'Z';
+                    }
+                    const date = new Date(normalized);
+                    return isNaN(date.getTime()) ? null : date;
+                };
+                
+                const date = parseDate(photo.taken_at) || parseDate(photo.uploaded_at);
+                datesEl.textContent = date ? date.toLocaleDateString() : '';
             }
 
             if (tagsEl) {

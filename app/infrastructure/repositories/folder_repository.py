@@ -416,22 +416,35 @@ class FolderRepository(Repository):
     # =========================================================================
     
     def get_subfolders(self, folder_id: str, user_id: int) -> list[dict]:
-        """Get subfolders accessible by user.
+        """Get subfolders accessible by user with photo counts.
         
         Args:
             folder_id: Parent folder ID
             user_id: User ID
             
         Returns:
-            List of subfolder dicts
+            List of subfolder dicts with photo_count
         """
         cursor = self._execute("""
-            SELECT * FROM folders
-            WHERE parent_id = ? AND (
-                user_id = ?
-                OR id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
+            SELECT f.*,
+                   (
+                       SELECT COUNT(*) FROM items i
+                       WHERE i.folder_id IN (
+                           WITH RECURSIVE subfolder_tree AS (
+                               SELECT id FROM folders WHERE id = f.id
+                               UNION ALL
+                               SELECT child.id FROM folders child
+                               JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
+                           )
+                           SELECT id FROM subfolder_tree
+                       )
+                   ) as photo_count
+            FROM folders f
+            WHERE f.parent_id = ? AND (
+                f.user_id = ?
+                OR f.id IN (SELECT folder_id FROM folder_permissions WHERE user_id = ?)
             )
-            ORDER BY name
+            ORDER BY f.name
         """, (folder_id, user_id, user_id))
         return [dict(row) for row in cursor.fetchall()]
     
@@ -446,7 +459,7 @@ class FolderRepository(Repository):
             and max photo dates for sorting
         """
         cursor = self._execute("""
-            SELECT a.id, a.name, a.created_at, a.folder_id, a.user_id, a.safe_id,
+            SELECT a.id, a.name, a.uploaded_at, a.folder_id, a.user_id, a.safe_id,
                    (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as photo_count,
                    COALESCE(a.cover_item_id, 
                        (SELECT item_id FROM album_items WHERE album_id = a.id ORDER BY position LIMIT 1)
