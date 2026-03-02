@@ -5,18 +5,21 @@ Complete migration from legacy PhotoRepository to polymorphic Item/Album archite
 
 ## Phase 5A: Code Migration (CRITICAL - Blocks Step 5)
 
-### Priority 1: Core Services (Blocks everything)
-- [ ] `application/services/permission_service.py`
+### ✅ Priority 1: Core Services (COMPLETE)
+- [x] `application/services/permission_service.py`
   - Replace `photo_repo.get_by_id()` with `item_repo.get_by_id()`
   - Replace `photo_repo.get_album()` with `album_repo.get_by_id()`
-  - Update `can_access_photo()` → `can_access_item()`
+  - Update `can_access_photo()` → `can_access_item()` (with legacy alias)
+  - Update `can_delete_photo()` → `can_delete_item()` (with legacy alias)
   - Update `can_access_album()` → use AlbumRepository
+  - Update `can_delete_album()` → use AlbumRepository
+  - Update `can_edit_album()` → use AlbumRepository
 
+### 🔄 Priority 2: File Operations
 - [ ] `application/services/folder_service.py`
   - Replace `photo_repo.get_by_folder()` with `item_repo.get_by_folder()`
   - Update `_delete_photo_files()` → `_delete_item_files()`
 
-### Priority 2: File Operations
 - [ ] `application/services/safe_file_service.py`
   - Replace `photo_repo.get_by_id()` with `item_repo.get_by_id()`
   - Update E2E encryption metadata handling
@@ -25,22 +28,23 @@ Complete migration from legacy PhotoRepository to polymorphic Item/Album archite
   - Replace PhotoRepository with ItemRepository
   - Update thumbnail dimension updates
 
-### Priority 3: Legacy Upload (Optional - can deprecate later)
+### ⏳ Priority 3: Legacy Upload (Optional - can deprecate later)
 - [ ] `application/services/upload_service.py`
   - Mark as @deprecated
   - Or rewrite to use ItemRepository (large task)
   - NOTE: New uploads already use ItemService
 
-### Priority 4: Routes Cleanup
+### ⏳ Priority 4: Routes Cleanup
 - [ ] `routes/gallery/albums.py`
   - Replace `photo_repo.get_album()` with `album_repo.get_by_id()`
   - Replace `photo_repo.get_album_photos()` with `album_repo.get_items()`
   - Replace `photo_repo.get_available_for_album()` with custom query
 
-- [ ] `routes/gallery/deps.py`
-  - Update service factory functions
+- [ ] `routes/gallery/deps.py` (partially done)
+  - ✅ Updated get_permission_service
+  - ⏳ Other services still use PhotoRepository
 
-### Priority 5: Remove Legacy Code
+### ⏳ Priority 5: Remove Legacy Code
 - [ ] `application/services/photo_service.py`
   - Deprecate or remove (functionality moved to album_service.py)
 
@@ -89,4 +93,11 @@ AND NOT EXISTS (
 
 ## Progress Tracking
 Started: 2026-03-02
-Current: Phase 5A - Priority 1
+Updated: 2026-03-02
+
+### Completed:
+- ✅ Phase 5A Priority 1: PermissionService migrated
+- ✅ All tests passing (32 passed, 1 skipped)
+
+### Next:
+- 🔄 Phase 5A Priority 2: folder_service.py
