@@ -97,7 +97,7 @@ class AlbumService:
         }
     
     def get_album(self, album_id: str, user_id: int) -> Optional[Dict]:
-        """Get album with items."""
+        """Get album with optimized items list."""
         album = self.album_repo.get_by_id(album_id)
         if not album:
             return None
@@ -106,16 +106,32 @@ class AlbumService:
         if not self._can_view(album_id, user_id):
             raise HTTPException(403, "Access denied")
         
-        # Get items with full data
-        items = self.album_repo.get_items(album_id)
+        # Get items and optimize fields
+        raw_items = self.album_repo.get_items(album_id)
+        items = []
+        for item in raw_items:
+            items.append({
+                "id": item["id"],
+                "title": item.get("title", ""),
+                "media_type": item.get("media_type", "image"),
+                "thumb_width": item.get("thumb_width"),
+                "thumb_height": item.get("thumb_height"),
+                "taken_at": item.get("taken_at"),
+                "position": item.get("position", 0),
+            })
         
-        album['items'] = items
-        album['photos'] = items  # Legacy alias for backward compatibility
-        album['photo_count'] = len(items)  # Legacy alias
-        album['item_count'] = len(items)   # New name
-        album['can_edit'] = self._can_edit(album_id, user_id)
-        
-        return album
+        # Build optimized response
+        return {
+            "id": album["id"],
+            "name": album["name"],
+            "created_at": album["created_at"],
+            "cover_item_id": album.get("cover_item_id"),
+            "safe_id": album.get("safe_id"),
+            "item_count": album.get("item_count", 0),
+            "items": items,
+            "photos": items,  # Legacy alias for backward compatibility
+            "can_edit": self._can_edit(album_id, user_id),
+        }
     
     def delete_album(self, album_id: str, user_id: int) -> bool:
         """Delete album and all its items (photos/videos)."""

@@ -45,19 +45,22 @@ class ItemMediaRepository(Repository):
             taken_at: EXIF capture date
         """
         try:
+            # Extension-less storage: filename = item_id
+            filename = item_id
             self._execute(
                 """INSERT INTO item_media 
-                   (item_id, media_type, original_name, content_type,
+                   (item_id, media_type, filename, original_name, content_type,
                     width, height, duration, thumb_width, thumb_height, taken_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    item_id, media_type, original_name, content_type,
+                    item_id, media_type, filename, original_name, content_type,
                     width, height, duration, thumb_width, thumb_height, taken_at
                 )
             )
             self._commit()
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[ItemMediaRepository.create] Error: {e}")
             return False
     
     def get_by_item_id(self, item_id: str) -> Optional[Dict]:
@@ -151,7 +154,7 @@ class ItemMediaRepository(Repository):
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    WHERE i.folder_id = ? AND i.type = 'media' AND im.media_type = ?
-                   ORDER BY i.created_at DESC""",
+                   ORDER BY i.uploaded_at DESC""",
                 (folder_id, media_type)
             )
         else:
@@ -164,7 +167,7 @@ class ItemMediaRepository(Repository):
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    WHERE i.folder_id = ? AND i.type = 'media'
-                   ORDER BY i.created_at DESC""",
+                   ORDER BY i.uploaded_at DESC""",
                 (folder_id,)
             )
         return [dict(row) for row in cursor.fetchall()]

@@ -69,7 +69,7 @@ def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=No
         return {
             "id": item["id"],
             "filename": item_id,  # Storage uses item_id as filename
-            "original_name": media.get("original_name", item_id) if media else item.get("title", item_id),
+            "title": item.get("title", item_id),
             "safe_id": item.get("safe_id"),
             "is_encrypted": item.get("is_encrypted", False),
             "user_id": item.get("user_id"),

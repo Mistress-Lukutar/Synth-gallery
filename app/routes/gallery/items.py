@@ -377,7 +377,7 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                     folder_id=data.folder_id,
                     user_id=user["id"],
                     item_id=new_item_id,
-                    title=item.get("title", media["original_name"]),
+                    title=item.get("title", "Untitled"),
                     safe_id=item.get("safe_id"),
                     is_encrypted=is_encrypted
                 )
@@ -386,7 +386,7 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                 media_repo.create(
                     item_id=new_item_id,
                     media_type=media["media_type"],
-                    original_name=media["original_name"],
+                    # original_name removed - using title only
                     content_type=media["content_type"],
                     thumb_width=media["thumb_width"],
                     thumb_height=media["thumb_height"],
@@ -469,11 +469,11 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                     
                     # Create media record
                     db.execute(
-                        """INSERT INTO item_media (item_id, media_type, filename, original_name,
+                        """INSERT INTO item_media (item_id, media_type,
                              thumb_width, thumb_height, taken_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (new_item_id, item.get("media_type", "image"), new_filename,
-                         item.get("original_name", ""), item.get("thumb_width", 0),
+                         VALUES (?, ?, ?, ?, ?)""",
+                        (new_item_id, item.get("media_type", "image"),
+                         item.get("thumb_width", 0),
                          item.get("thumb_height", 0), item.get("taken_at"))
                     )
 
@@ -551,9 +551,8 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get from items + item_media tables
             item = db.execute(
-                """SELECT i.id, im.filename, im.original_name, i.is_encrypted, i.user_id 
+                """SELECT i.id, i.title, i.is_encrypted, i.user_id 
                    FROM items i
-                   JOIN item_media im ON i.id = im.item_id
                    WHERE i.id = ?""",
                 (item_id,)
             ).fetchone()
@@ -562,7 +561,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 # Extension-less storage: filename = item_id
                 file_path = UPLOADS_DIR / item_id
                 if file_path.exists():
-                    archive_path = f"{date_folder}/{item['original_name']}"
+                    archive_path = f"{date_folder}/{item['title']}"
                     files_to_download.append((
                         archive_path,
                         file_path,
@@ -585,9 +584,8 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get items from album via album_items
             album_items = db.execute(
-                """SELECT i.id, im.original_name, i.is_encrypted, i.user_id
+                """SELECT i.id, i.title, i.is_encrypted, i.user_id
                    FROM items i
-                   JOIN item_media im ON i.id = im.item_id
                    JOIN album_items ai ON i.id = ai.item_id
                    WHERE ai.album_id = ?
                    ORDER BY ai.position""",
@@ -602,7 +600,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 # Extension-less storage: filename = item_id
                 file_path = UPLOADS_DIR / item["id"]
                 if file_path.exists():
-                    archive_path = f"{date_folder}/{safe_album_name}/{item['original_name']}"
+                    archive_path = f"{date_folder}/{safe_album_name}/{item['title']}"
                     files_to_download.append((
                         archive_path,
                         file_path,

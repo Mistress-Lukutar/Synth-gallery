@@ -65,7 +65,7 @@ class MediaRenderer(ItemRenderer):
     def get_dimensions(self, item: Dict) -> tuple:
         thumb_w = item.get('thumb_width', 280)
         thumb_h = item.get('thumb_height', 210)
-        return (thumb_w, thumb_h)
+        return thumb_w, thumb_h
     
     def render_gallery_item(self, item: Dict) -> str:
         # Returns data attributes for frontend rendering
@@ -82,7 +82,7 @@ class MediaRenderer(ItemRenderer):
             'type': 'media',
             'media_type': item.get('media_type', 'image'),
             'url': self.get_full_url(item),
-            'title': item.get('title', item.get('original_name', ''))
+            'title': item.get('title', '')
         }
 
 
@@ -201,7 +201,7 @@ class ItemService:
             item_id=item_id,
             media_type='video' if media_type == 'video' else 'image',
             filename=filename,
-            original_name=file.filename,
+            # original_name removed - using title only
             content_type=content_type,
             thumb_width=thumb_w,
             thumb_height=thumb_h,
@@ -354,27 +354,39 @@ class ItemService:
             title=file_data.get('filename', ''),
             safe_id=safe_id,
             is_encrypted=file_data.get('is_encrypted', False),
-            created_at=file_data.get('uploaded_at')
+            uploaded_at=file_data.get('uploaded_at')
         )
         
         # Create media details (no filename - uses item_id as filename in storage)
+        # Fallback: if no EXIF date, use upload date
+        taken_at = file_data.get('taken_at') or file_data.get('uploaded_at')
         self.media_repo.create(
             item_id=item_id,
             media_type=media_data.get('media_type', 'image'),
-            original_name=file_data.get('filename', ''),
+            # original_name removed - using title only
             content_type=file_data.get('content_type', 'application/octet-stream'),
             thumb_width=media_data.get('thumb_width', 0),
             thumb_height=media_data.get('thumb_height', 0),
-            taken_at=file_data.get('taken_at')
+            taken_at=taken_at
         )
         
         return {
             'id': item_id,
             'type': 'media',
-            'media_type': media_data.get('media_type', 'image'),
-            'title': file_data.get('filename', ''),
             'folder_id': folder_id,
-            'user_id': user_id
+            'safe_id': safe_id,
+            'user_id': user_id,
+            'uploaded_at': file_data.get('uploaded_at'),
+            'title': file_data.get('filename', ''),
+            'is_encrypted': file_data.get('is_encrypted', False),
+            'media_type': media_data.get('media_type', 'image'),
+            # original_name removed - using title only
+            'content_type': file_data.get('content_type', 'application/octet-stream'),
+            'thumb_width': media_data.get('thumb_width', 0),
+            'thumb_height': media_data.get('thumb_height', 0),
+            'taken_at': taken_at,
+            # Extension-less storage: filename equals item_id
+            'filename': item_id,
         }
     
     # ========================================================================
@@ -394,7 +406,7 @@ class ItemService:
                 # Note: filename is not needed - we use item_id as filename
                 base.update({
                     'media_type': media.get('media_type'),
-                    'original_name': media.get('original_name'),
+                    # original_name removed - using title only
                     'content_type': media.get('content_type'),
                     'thumb_width': media.get('thumb_width'),
                     'thumb_height': media.get('thumb_height'),
@@ -436,7 +448,7 @@ class ItemService:
                 if media:
                     item.update({
                         'media_type': media.get('media_type'),
-                        'original_name': media.get('original_name'),
+                        # original_name removed - using title only
                         'content_type': media.get('content_type'),
                         'thumb_width': media.get('thumb_width'),
                         'thumb_height': media.get('thumb_height'),
