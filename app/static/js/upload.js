@@ -71,7 +71,7 @@
             
             for (const photoId of uploadedFileIds) {
                 try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/photos/batch-delete`, {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-delete`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ photo_ids: [photoId], album_ids: [] })
@@ -734,7 +734,7 @@
                 // Apply AI tags
                 if (useAiTags && uploadedIds.length > 0) {
                     progressText.textContent = 'Generating AI tags...';
-                    await csrfFetch(`${getBaseUrl()}/api/photos/batch-ai-tags`, {
+                    await csrfFetch(`${getBaseUrl()}/api/items/batch-ai-tags`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ photo_ids: uploadedIds })
@@ -746,7 +746,7 @@
                     progressText.textContent = 'Applying tags...';
                     for (const photoId of uploadedIds) {
                         for (const tag of manualTags) {
-                            await csrfFetch(`${getBaseUrl()}/api/photos/${photoId}/tag`, {
+                            await csrfFetch(`${getBaseUrl()}/api/items/${photoId}/tag`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ tag: tag, category_id: 6 })

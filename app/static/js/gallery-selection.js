@@ -17,7 +17,7 @@
     function checkSafeContent(photos, albums) {
         // Check photos
         for (const photoId of photos) {
-            const item = gallery.querySelector(`[data-photo-id="${photoId}"]`);
+            const item = gallery.querySelector(`[data-item-id="${photoId}"]`);
             if (item && item.dataset.safeId) {
                 return true;
             }
@@ -39,7 +39,7 @@
         
         // Check photos
         for (const photoId of photos) {
-            const item = gallery.querySelector(`[data-photo-id="${photoId}"]`);
+            const item = gallery.querySelector(`[data-item-id="${photoId}"]`);
             if (item && item.dataset.safeId) {
                 const safeId = item.dataset.safeId;
                 // Check if we have the key in memory (SafeCrypto.isUnlocked)
@@ -78,7 +78,7 @@
             const item = e.target.closest('.gallery-item');
             if (!item || e.target.closest('.gallery-link')) return;
 
-            const photoId = item.dataset.photoId;
+            const photoId = item.dataset.itemId;
             const albumId = item.dataset.albumId;
 
             if (photoId) {
@@ -100,7 +100,7 @@
                     if (item.dataset.itemType === 'album') {
                         selectedAlbums.add(item.dataset.albumId);
                     } else {
-                        selectedPhotos.add(item.dataset.photoId);
+                        selectedPhotos.add(item.dataset.itemId);
                     }
                 });
                 window.updateSelectionUI();
@@ -129,7 +129,7 @@
                 downloadBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" class="spinner"><circle cx="12" cy="12" r="10" stroke-dasharray="60" stroke-dashoffset="20"/></svg>';
 
                 try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/photos/batch-download`, {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-download`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ photo_ids: Array.from(selectedPhotos) })
@@ -270,7 +270,7 @@
                 if (!confirm(`Delete ${total} items?`)) return;
 
                 try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/photos/batch-delete`, {
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-delete`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -306,7 +306,7 @@
         const total = selectedPhotos.size + selectedAlbums.size;
 
         document.querySelectorAll('.gallery-item').forEach(item => {
-            const photoId = item.dataset.photoId;
+            const photoId = item.dataset.itemId;
             const albumId = item.dataset.albumId;
             const isSelected = photoId ? selectedPhotos.has(photoId) : selectedAlbums.has(albumId);
             item.classList.toggle('selected', isSelected);

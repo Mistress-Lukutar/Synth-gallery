@@ -311,7 +311,7 @@
             // Remove tags
             for (const tag of toRemove) {
                 if (tag.id) {
-                    await csrfFetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}/tag/${tag.id}`, { 
+                    await csrfFetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}/tag/${tag.id}`, { 
                         method: 'DELETE' 
                     });
                 }
@@ -319,7 +319,7 @@
 
             // Add new tags
             for (const tag of toAdd) {
-                await csrfFetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}/tag`, {
+                await csrfFetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}/tag`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
@@ -392,7 +392,7 @@
         }
 
         try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/photos/${currentEditingPhotoId}/ai-tags`, {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}/ai-tags`, {
                 method: 'POST'
             });
 

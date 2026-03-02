@@ -14,12 +14,15 @@ def get_untagged(api_key_valid: bool = Depends(verify_api_key)):
     Requires API key authentication via X-API-Key header.
     """
     db = get_db()
+    # Phase 5: Query items + item_media instead of photos
     photos = db.execute("""
-        SELECT p.*
-        FROM photos p
-        LEFT JOIN tags t ON p.id = t.photo_id
-        WHERE t.id IS NULL
-        ORDER BY p.uploaded_at ASC
+        SELECT i.id, im.filename
+        FROM items i
+        JOIN item_media im ON i.id = im.item_id
+        LEFT JOIN tags t ON i.id = t.photo_id
+        WHERE i.type = 'media'
+          AND t.id IS NULL
+        ORDER BY im.uploaded_at ASC
         LIMIT 10
     """).fetchall()
 
@@ -34,9 +37,9 @@ def set_tags(photo_id: str, tags: list[str], api_key_valid: bool = Depends(verif
     """
     db = get_db()
 
-    # Check if photo exists
-    photo = db.execute("SELECT id FROM photos WHERE id = ?", (photo_id,)).fetchone()
-    if not photo:
+    # Phase 5: Check if item exists in items table
+    item = db.execute("SELECT id FROM items WHERE id = ?", (photo_id,)).fetchone()
+    if not item:
         raise HTTPException(status_code=404)
 
     # Delete old tags and add new ones
@@ -47,8 +50,8 @@ def set_tags(photo_id: str, tags: list[str], api_key_valid: bool = Depends(verif
             (photo_id, tag.lower().strip())
         )
 
-    # Mark as AI processed
-    db.execute("UPDATE photos SET ai_processed = 1 WHERE id = ?", (photo_id,))
+    # Phase 5: Mark as AI processed in item_media table
+    db.execute("UPDATE item_media SET ai_processed = 1 WHERE item_id = ?", (photo_id,))
     db.commit()
 
     return {"status": "ok", "tags": tags}
@@ -62,13 +65,24 @@ def get_stats(api_key_valid: bool = Depends(verify_api_key)):
     """
     db = get_db()
 
-    total_photos = db.execute("SELECT COUNT(*) as count FROM photos").fetchone()["count"]
+    # Phase 5: Count from items + item_media tables
+    total_photos = db.execute("""
+        SELECT COUNT(*) as count 
+        FROM items i
+        JOIN item_media im ON i.id = im.item_id
+        WHERE i.type = 'media'
+    """).fetchone()["count"]
+    
     tagged_photos = db.execute("""
         SELECT COUNT(DISTINCT photo_id) as count FROM tags
     """).fetchone()["count"]
-    ai_processed = db.execute(
-        "SELECT COUNT(*) as count FROM photos WHERE ai_processed = 1"
-    ).fetchone()["count"]
+    
+    ai_processed = db.execute("""
+        SELECT COUNT(*) as count 
+        FROM item_media 
+        WHERE ai_processed = 1
+    """).fetchone()["count"]
+    
     total_tags = db.execute("SELECT COUNT(*) as count FROM tags").fetchone()["count"]
 
     return {

@@ -143,7 +143,7 @@ class SafeRepository(Repository):
         cursor = self._execute(
             """SELECT s.*,
                    (SELECT COUNT(*) FROM folders WHERE safe_id = s.id) as folder_count,
-                   (SELECT COUNT(*) FROM photos WHERE safe_id = s.id) as photo_count
+                   (SELECT COUNT(*) FROM items WHERE safe_id = s.id) as photo_count
                FROM safes s
                WHERE s.user_id = ?
                ORDER BY s.created_at DESC""",
@@ -188,7 +188,8 @@ class SafeRepository(Repository):
         folders = [row["id"] for row in cursor.fetchall()]
         
         # Delete photos in safe
-        self._execute("DELETE FROM photos WHERE safe_id = ?", (safe_id,))
+        # Phase 5: Delete items in safe (cascades to item_media)
+        self._execute("DELETE FROM items WHERE safe_id = ?", (safe_id,))
         
         # Delete albums in safe
         self._execute("DELETE FROM albums WHERE safe_id = ?", (safe_id,))
@@ -448,7 +449,7 @@ class SafeRepository(Repository):
         """
         cursor = self._execute(
             """SELECT f.*, 
-                   (SELECT COUNT(*) FROM photos WHERE folder_id = f.id) as photo_count
+                   (SELECT COUNT(*) FROM items WHERE folder_id = f.id) as photo_count
                FROM folders f
                WHERE f.safe_id = ?
                ORDER BY f.name""",
@@ -476,7 +477,7 @@ class SafeRepository(Repository):
         
         # Photo count
         cursor = self._execute(
-            "SELECT COUNT(*) as count FROM photos WHERE safe_id = ?",
+            "SELECT COUNT(*) as count FROM items WHERE safe_id = ?",
             (safe_id,)
         )
         photo_count = cursor.fetchone()["count"]

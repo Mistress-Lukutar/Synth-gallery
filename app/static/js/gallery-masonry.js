@@ -197,7 +197,7 @@
 
     window.saveDimensionsToServer = async function(photoId, width, height) {
         try {
-            await csrfFetch(`${getBaseUrl()}/api/photos/${photoId}/dimensions`, {
+            await csrfFetch(`${getBaseUrl()}/api/items/${photoId}/dimensions`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ width, height })

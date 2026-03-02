@@ -165,7 +165,7 @@ class FolderRepository(Repository):
         if include_shared:
             cursor = self._execute(
                 """SELECT f.*, u.display_name as owner_name,
-                       (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+                       (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id) as photo_count
                    FROM folders f
                    JOIN users u ON f.user_id = u.id
                    WHERE f.user_id = ? 
@@ -176,7 +176,7 @@ class FolderRepository(Repository):
         else:
             cursor = self._execute(
                 """SELECT f.*, u.display_name as owner_name,
-                       (SELECT COUNT(*) FROM photos p WHERE p.folder_id = f.id) as photo_count
+                       (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id) as photo_count
                    FROM folders f
                    JOIN users u ON f.user_id = u.id
                    WHERE f.user_id = ?
@@ -260,7 +260,7 @@ class FolderRepository(Repository):
         
         placeholders = ",".join("?" * len(folder_ids))
         cursor = self._execute(
-            f"SELECT COUNT(*) as count FROM photos WHERE folder_id IN ({placeholders})",
+            f"SELECT COUNT(*) as count FROM items WHERE folder_id IN ({placeholders})",
             tuple(folder_ids)
         )
         row = cursor.fetchone()
@@ -579,8 +579,8 @@ class FolderRepository(Repository):
         query = f"""
             SELECT f.*, u.display_name as owner_name,
                    (
-                       SELECT COUNT(*) FROM photos p
-                       WHERE p.folder_id IN (
+                       SELECT COUNT(*) FROM items i
+                       WHERE i.folder_id IN (
                            WITH RECURSIVE subfolder_tree AS (
                                SELECT id FROM folders WHERE id = f.id
                                UNION ALL

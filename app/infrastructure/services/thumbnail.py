@@ -23,8 +23,12 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     from ...config import UPLOADS_DIR, THUMBNAILS_DIR
     
     db = get_db()
+    # Phase 5: Get from item_media + items tables
     photo = db.execute(
-        "SELECT filename, media_type, is_encrypted, user_id FROM photos WHERE id = ?",
+        """SELECT im.filename, im.media_type, i.is_encrypted, i.user_id 
+            FROM item_media im
+            JOIN items i ON im.item_id = i.id
+            WHERE i.id = ?""",
         (photo_id,)
     ).fetchone()
 
@@ -93,7 +97,8 @@ def cleanup_orphaned_thumbnails() -> dict:
     db = get_db()
 
     # Get all photo IDs from database
-    photos = db.execute("SELECT id FROM photos").fetchall()
+    # Phase 5: Get item IDs from items table
+    photos = db.execute("SELECT id FROM items WHERE type = 'media'").fetchall()
     valid_photo_ids = {p["id"] for p in photos}
 
     # Scan thumbnails directory
@@ -163,8 +168,12 @@ def regenerate_missing_thumbnails() -> dict:
     db = get_db()
 
     # Get all photos including current dimension status
+    # Phase 5: Get from item_media + items tables
     photos = db.execute(
-        "SELECT id, filename, media_type, is_encrypted, user_id, thumb_width FROM photos"
+        """SELECT i.id, im.filename, im.media_type, i.is_encrypted, i.user_id, im.thumb_width 
+            FROM items i
+            JOIN item_media im ON i.id = im.item_id
+            WHERE i.type = 'media'"""
     ).fetchall()
 
     regenerated = 0
@@ -210,9 +219,10 @@ def regenerate_missing_thumbnails() -> dict:
                             
                             # Update dimensions in DB
                             aspect_ratio = width / height if height > 0 else None
+                            # Phase 5: Update item_media table
                             db.execute(
-                                "UPDATE photos SET thumb_width = ?, thumb_height = ?, aspect_ratio = ? WHERE id = ?",
-                                (width, height, aspect_ratio, photo["id"])
+                                "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
+                                (width, height, photo["id"])
                             )
                             db.commit()
                             regenerated += 1
@@ -320,7 +330,10 @@ def get_thumbnail_stats() -> dict:
 
     # Get all photos with their dimension status
     photos = db.execute(
-        "SELECT id, filename, thumb_width, is_encrypted FROM photos"
+        """SELECT i.id, im.filename, im.thumb_width, i.is_encrypted 
+            FROM items i
+            JOIN item_media im ON i.id = im.item_id
+            WHERE i.type = 'media'"""
     ).fetchall()
     total_photos = len(photos)
 

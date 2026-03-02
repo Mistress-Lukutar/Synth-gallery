@@ -8,7 +8,7 @@ from ...config import UPLOADS_DIR, THUMBNAILS_DIR
 from ...database import create_connection
 from ...infrastructure.repositories import (
     PhotoRepository, FolderRepository, PermissionRepository,
-    SafeRepository
+    SafeRepository, ItemRepository, ItemMediaRepository
 )
 
 
@@ -17,7 +17,9 @@ def get_upload_service(db) -> UploadService:
     return UploadService(
         photo_repository=PhotoRepository(db),
         uploads_dir=UPLOADS_DIR,
-        thumbnails_dir=THUMBNAILS_DIR
+        thumbnails_dir=THUMBNAILS_DIR,
+        item_repository=ItemRepository(db),
+        item_media_repository=ItemMediaRepository(db)
     )
 
 
