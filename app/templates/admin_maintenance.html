@@ -161,6 +161,10 @@
                 <div class="stat-value">{{ stats.missing_originals }}</div>
                 <div class="stat-label">Missing Originals</div>
             </div>
+            <div class="stat-card {% if stats.orphaned_uploads > 0 %}warning{% endif %}">
+                <div class="stat-value">{{ stats.orphaned_uploads }}</div>
+                <div class="stat-label">Orphaned Uploads</div>
+            </div>
         </div>
 
         <div class="section">
@@ -215,6 +219,29 @@
         <div class="section">
             <h2>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                    <path d="M19 11v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h8"/>
+                </svg>
+                Clean Up Orphaned Uploads
+            </h2>
+            <p>
+                Remove upload files that are not registered in the database.
+                These can be leftover files from failed uploads or deleted photos.
+                {% if stats.orphaned_uploads > 0 %}
+                <strong>{{ stats.orphaned_uploads }} orphaned uploads ({{ (stats.orphaned_uploads_size / 1024 / 1024) | round(2) }} MB) can be cleaned up.</strong>
+                {% endif %}
+            </p>
+            <div class="section-actions">
+                <button id="cleanup-uploads-btn" class="btn btn-secondary" {% if stats.orphaned_uploads == 0 %}disabled{% endif %}>
+                    Clean Up Uploads
+                </button>
+                <span id="cleanup-uploads-result" class="result-message"></span>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
                     <circle cx="12" cy="12" r="10"/>
                     <line x1="12" y1="8" x2="12" y2="12"/>
                     <line x1="12" y1="16" x2="12.01" y2="16"/>
@@ -222,6 +249,7 @@
                 Storage Info
             </h2>
             <p>
+                Total uploads storage: <strong>{{ (stats.uploads_total_size / 1024 / 1024) | round(2) }} MB</strong><br>
                 Total thumbnail storage: <strong>{{ (stats.total_thumbnail_size / 1024 / 1024) | round(2) }} MB</strong>
                 for {{ stats.total_photos }} photos.
             </p>
@@ -306,6 +334,31 @@
                 result.textContent = 'Error: ' + err.message;
                 btn.disabled = false;
                 btn.textContent = 'Clean Up';
+            }
+        });
+
+        document.getElementById('cleanup-uploads-btn').addEventListener('click', async function() {
+            const btn = this;
+            const result = document.getElementById('cleanup-uploads-result');
+            btn.disabled = true;
+            btn.textContent = 'Cleaning...';
+            result.textContent = '';
+
+            try {
+                const resp = await csrfFetch('{{ base_url }}/api/admin/uploads/cleanup', { method: 'POST' });
+                if (!resp.ok) throw new Error('Failed to clean up uploads');
+
+                const data = await resp.json();
+                const freedMB = (data.freed_bytes / 1024 / 1024).toFixed(2);
+                result.className = 'result-message success';
+                result.textContent = `Deleted ${data.deleted} orphaned uploads, freed ${freedMB} MB`;
+
+                setTimeout(() => location.reload(), 2000);
+            } catch (err) {
+                result.className = 'result-message error';
+                result.textContent = 'Error: ' + err.message;
+                btn.disabled = false;
+                btn.textContent = 'Clean Up Uploads';
             }
         });
     </script>

@@ -17,8 +17,8 @@ from ..infrastructure.services.backup import (
     FullBackupService, backup_scheduler
 )
 from ..infrastructure.services.thumbnail import (
-    cleanup_orphaned_thumbnails, regenerate_missing_thumbnails,
-    get_thumbnail_stats
+    cleanup_orphaned_thumbnails, cleanup_orphaned_uploads,
+    regenerate_missing_thumbnails, get_thumbnail_stats
 )
 
 router = APIRouter()
@@ -275,6 +275,15 @@ def cleanup_thumbnails_endpoint(request: Request):
     require_admin(request)
 
     result = cleanup_orphaned_thumbnails()
+    return {"status": "ok", **result}
+
+
+@router.post("/api/admin/uploads/cleanup")
+def cleanup_uploads_endpoint(request: Request):
+    """Remove orphaned uploads (files not registered in database)."""
+    require_admin(request)
+
+    result = cleanup_orphaned_uploads()
     return {"status": "ok", **result}
 
 
