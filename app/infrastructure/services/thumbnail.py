@@ -134,6 +134,60 @@ def cleanup_orphaned_thumbnails() -> dict:
     }
 
 
+def cleanup_orphaned_uploads() -> dict:
+    """Remove upload files that are not registered in the database.
+
+    These are files in uploads/ directory that don't have corresponding
+    entries in the item_media table.
+
+    Returns dict with cleanup statistics.
+    """
+    # Import config here to respect test patches (Issue #16)
+    from ...config import UPLOADS_DIR
+    
+    db = get_db()
+
+    # Get all filenames from database
+    photos = db.execute(
+        """SELECT im.filename 
+            FROM item_media im
+            JOIN items i ON im.item_id = i.id
+            WHERE i.type = 'media'"""
+    ).fetchall()
+    valid_filenames = {p["filename"] for p in photos}
+
+    # Scan uploads directory
+    orphaned = []
+    kept = 0
+
+    for upload_file in UPLOADS_DIR.iterdir():
+        if upload_file.is_file():
+            if upload_file.name not in valid_filenames:
+                orphaned.append(upload_file)
+            else:
+                kept += 1
+
+    # Delete orphaned uploads
+    deleted = 0
+    failed = 0
+    freed_bytes = 0
+
+    for upload_file in orphaned:
+        try:
+            freed_bytes += upload_file.stat().st_size
+            upload_file.unlink()
+            deleted += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "deleted": deleted,
+        "failed": failed,
+        "kept": kept,
+        "freed_bytes": freed_bytes
+    }
+
+
 def _update_photo_dimensions(photo_id: str, thumb_path: Path, db):
     """Update thumb_width, thumb_height, aspect_ratio in database from thumbnail file."""
     try:
@@ -337,6 +391,9 @@ def get_thumbnail_stats() -> dict:
     ).fetchall()
     total_photos = len(photos)
 
+    # Get all valid filenames from database (for orphaned uploads check)
+    valid_filenames = {p["filename"] for p in photos}
+
     # Check thumbnail status for each photo
     missing_thumbnails = 0  # No file OR no dimensions in DB
     missing_dimensions = 0  # File exists but no dimensions (needs repair)
@@ -375,6 +432,24 @@ def get_thumbnail_stats() -> dict:
                 except Exception:
                     pass
 
+    # Count orphaned uploads (files in uploads/ not registered in DB)
+    orphaned_uploads = 0
+    orphaned_uploads_size = 0
+    uploads_total_size = 0
+
+    for upload_file in UPLOADS_DIR.iterdir():
+        if upload_file.is_file():
+            file_size = 0
+            try:
+                file_size = upload_file.stat().st_size
+                uploads_total_size += file_size
+            except Exception:
+                pass
+            
+            if upload_file.name not in valid_filenames:
+                orphaned_uploads += 1
+                orphaned_uploads_size += file_size
+
     # Total thumbnail directory size
     total_thumb_size = sum(
         f.stat().st_size for f in THUMBNAILS_DIR.iterdir() if f.is_file()
@@ -389,5 +464,8 @@ def get_thumbnail_stats() -> dict:
         "orphaned_thumbnails": orphaned_thumbnails,
         "orphaned_size": orphaned_size,
         "total_thumbnail_size": total_thumb_size,
-        "encrypted_no_dek": encrypted_no_dek
+        "encrypted_no_dek": encrypted_no_dek,
+        "orphaned_uploads": orphaned_uploads,
+        "orphaned_uploads_size": orphaned_uploads_size,
+        "uploads_total_size": uploads_total_size
     }
