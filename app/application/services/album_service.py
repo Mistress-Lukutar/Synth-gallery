@@ -185,6 +185,13 @@ class AlbumService:
         if album.get('safe_id') != dest_folder.get('safe_id'):
             raise HTTPException(400, "Cannot move between different safes")
         
+        # Get all items in album
+        album_items = self.album_repo.get_items(album_id)
+        
+        # Move all items to destination folder
+        for item in album_items:
+            self.item_repo.move_to_folder(item['id'], dest_folder_id)
+        
         # Move album
         return self.album_repo.move_to_folder(album_id, dest_folder_id)
     

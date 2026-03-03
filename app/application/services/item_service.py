@@ -559,6 +559,11 @@ class ItemService:
             if album.get('folder_id') == dest_folder_id:
                 continue
             
+            # Move all items in album to destination folder
+            album_items = album_repo.get_items(album_id)
+            for item in album_items:
+                self.item_repo.move_to_folder(item['id'], dest_folder_id)
+            
             if album_repo.move_to_folder(album_id, dest_folder_id):
                 moved_albums += 1
             else:
