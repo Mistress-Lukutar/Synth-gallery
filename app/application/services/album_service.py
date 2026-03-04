@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 from fastapi import HTTPException
 
 from .item_service import ItemService
-from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository, ItemMediaRepository
+from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository, ItemMediaRepository, PermissionRepository
 
 
 class AlbumService:
@@ -26,11 +26,13 @@ class AlbumService:
         self,
         album_repository: AlbumRepository,
         item_repository: ItemRepository,
-        folder_repository: FolderRepository
+        folder_repository: FolderRepository,
+        permission_repository: PermissionRepository = None
     ):
         self.album_repo = album_repository
         self.item_repo = item_repository
         self.folder_repo = folder_repository
+        self.perm_repo = permission_repository
     
     # ========================================================================
     # Album CRUD
@@ -296,14 +298,18 @@ class AlbumService:
         if album['user_id'] == user_id:
             return True
         
-        # Check folder permissions
+        # Check folder permissions (including sharing)
         if album.get('folder_id'):
             folder = self.folder_repo.get_by_id(album['folder_id'])
             if folder:
-                # Shared folder - check permissions
-                # TODO: check sharing permissions
+                # Folder owner can view
                 if folder['user_id'] == user_id:
                     return True
+                # Check sharing permissions (viewer or editor)
+                if self.perm_repo:
+                    perm = self.perm_repo.get_permission(album['folder_id'], user_id)
+                    if perm in ('viewer', 'editor'):
+                        return True
         
         return False
     

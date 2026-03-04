@@ -35,5 +35,6 @@ def get_album_service(db) -> AlbumService:
     return AlbumService(
         album_repository=AlbumRepository(db),
         item_repository=ItemRepository(db),
-        folder_repository=FolderRepository(db)
+        folder_repository=FolderRepository(db),
+        permission_repository=PermissionRepository(db)
     )
