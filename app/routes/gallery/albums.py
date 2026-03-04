@@ -150,7 +150,7 @@ def reorder_album_endpoint(album_id: str, data: AlbumPhotosInput, request: Reque
     db = create_connection()
     try:
         service = get_album_service(db)
-        service.reorder_items(album_id, data.photo_ids)
+        service.reorder_items(album_id, data.photo_ids, user["id"])
         return {"status": "ok"}
     finally:
         db.close()

@@ -64,7 +64,7 @@ class S3Storage(StorageInterface):
         # Custom endpoint for MinIO/DigitalOcean
         if config.endpoint_url:
             client_kwargs["endpoint_url"] = config.endpoint_url
-            client_kwargs["use_ssl"] = str(config.use_ssl).lower() == 'true'
+            client_kwargs["use_ssl"] = config.use_ssl
         
         self.client = boto3.client(**client_kwargs)
         

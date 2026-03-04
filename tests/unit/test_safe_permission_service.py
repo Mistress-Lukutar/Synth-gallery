@@ -31,7 +31,7 @@ class TestPermissionServiceSafeChecks:
         return PermissionService(
             permission_repository=mock_perm_repo,
             folder_repository=mock_folder_repo,
-            photo_repository=mock_photo_repo,
+            item_repository=mock_photo_repo,
             safe_repository=mock_safe_repo
         )
     
@@ -179,7 +179,7 @@ class TestPermissionServiceSafeChecks:
         service = PermissionService(
             permission_repository=mock_perm_repo,
             folder_repository=mock_folder_repo,
-            photo_repository=mock_photo_repo,
+            item_repository=mock_photo_repo,
             safe_repository=None  # No safe repo
         )
         
@@ -228,7 +228,7 @@ class TestPermissionServiceSafeAccess:
         return PermissionService(
             permission_repository=mock_perm_repo,
             folder_repository=mock_folder_repo,
-            photo_repository=mock_photo_repo,
+            item_repository=mock_photo_repo,
             safe_repository=mock_safe_repo
         )
     
