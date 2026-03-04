@@ -48,11 +48,10 @@ Synth-Gallery/
 │   │       ├── auth_service.py       # Authentication, sessions, DEK management
 │   │       ├── folder_service.py     # Folder CRUD, tree operations
 │   │       ├── permission_service.py # Access control logic
-│   │       ├── photo_service.py      # Photo/album operations
-│   │       ├── upload_service.py     # File uploads with encryption
+│   │       ├── item_service.py       # Item (photo/video) operations
+│   │       ├── album_service.py      # Album CRUD and operations
 │   │       ├── safe_service.py       # Encrypted vault operations
 │   │       ├── safe_file_service.py  # File access in safes
-│   │       ├── envelope_service.py   # Envelope encryption key management
 │   │       └── user_settings_service.py # User preferences
 │   ├── infrastructure/           # Infrastructure layer
 │   │   ├── repositories/         # Repository pattern (DB operations)
@@ -61,7 +60,9 @@ Synth-Gallery/
 │   │   │   ├── session_repository.py
 │   │   │   ├── folder_repository.py
 │   │   │   ├── permission_repository.py
-│   │   │   ├── photo_repository.py
+│   │   │   ├── item_repository.py    # Polymorphic items (photos, videos, etc.)
+│   │   │   ├── item_media_repository.py  # Media-specific data
+│   │   │   ├── album_repository.py
 │   │   │   ├── safe_repository.py
 │   │   │   └── webauthn_repository.py
 │   │   ├── services/             # Infrastructure services
@@ -79,7 +80,7 @@ Synth-Gallery/
 │   │       └── factory.py            # get_storage() factory
 │   ├── routes/                   # API routes
 │   │   ├── auth.py                   # Login/logout
-│   │   ├── admin.py                  # Admin panel, backups
+│   │   ├── admin.py                  # Admin panel (users, backups)
 │   │   ├── api.py                    # AI service endpoints
 │   │   ├── folders.py                # Folder management
 │   │   ├── tags.py                   # Tag management
@@ -87,10 +88,11 @@ Synth-Gallery/
 │   │   ├── safes.py                  # Safe (vault) management
 │   │   ├── safe_files.py             # File operations in safes
 │   │   ├── envelope.py               # Envelope encryption
+│   │   ├── user_settings.py          # User profile settings
 │   │   └── gallery/                  # Gallery routes
 │   │       ├── main.py               # Main gallery view
 │   │       ├── albums.py             # Album operations
-│   │       ├── photos.py             # Photo display
+│   │       ├── items.py              # Item (photo/video) operations
 │   │       ├── files.py              # File serving
 │   │       ├── uploads.py            # Upload handling
 │   │       └── deps.py               # Gallery dependencies
@@ -115,15 +117,11 @@ Synth-Gallery/
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
 │   └── unit/                     # Unit tests
-├── scripts/                      # Utility scripts
-│   └── manage_users.py           # CLI for user/backup management
 ├── uploads/                      # Uploaded files (encrypted)
 ├── thumbnails/                   # Generated thumbnails (encrypted)
 ├── backups/                      # Backup storage
 ├── gallery.db                    # SQLite database
 ├── requirements.txt              # Python dependencies
-├── Dockerfile                    # Docker build
-├── docker-compose.yml            # Docker Compose config
 ├── Start.bat                     # Windows startup script
 └── AGENTS.md                     # This file
 ```
@@ -264,14 +262,7 @@ uvicorn app.main:app --reload --port 8000
 Start.bat
 ```
 
-### Docker
-
-```bash
-# Build and run
-docker-compose up --build
-
-# The app runs on port 8008 by default
-```
+The app runs on port 8008 by default.
 
 ## Testing
 
@@ -305,30 +296,22 @@ pytest --cov=app --cov-report=html
 - `test_folder`: Created folder for testing
 - `uploaded_photo`: Pre-uploaded test photo
 
-## User Management (CLI)
+## User Management
 
-```bash
-# Create user
-python scripts/manage_users.py add <username> <password> <display_name>
+User management is available through the web UI at `/admin/users` (admin only):
+- Create, edit, delete users
+- Grant/revoke admin rights
+- View user list
 
-# List users
-python scripts/manage_users.py list
+Profile settings (change password, recovery key, display name) are available at `/settings`.
 
-# Change password (re-encrypts all data)
-python scripts/manage_users.py passwd <username> <old_password> <new_password>
+### First Run
 
-# Generate recovery key
-python scripts/manage_users.py recovery-key <username> <password>
+On first startup, if no users exist, a temporary admin account is created automatically:
+- **Username:** admin
+- **Password:** admin
 
-# Recover with recovery key
-python scripts/manage_users.py recover <username> <recovery_key>
-
-# Backup operations
-python scripts/manage_users.py backup
-python scripts/manage_users.py backup-list
-python scripts/manage_users.py verify <filename>
-python scripts/manage_users.py restore <filename>
-```
+**Important:** Log in with these credentials, then immediately create a new admin user and delete the temporary account for security.
 
 ## Configuration (Environment Variables)
 
