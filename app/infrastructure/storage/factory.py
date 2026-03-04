@@ -66,7 +66,7 @@ def get_storage_config() -> StorageConfig:
         raise ValueError(f"Unknown storage backend: {backend}")
 
 
-def get_storage_from_config(config: StorageConfig) -> LocalStorage:
+def get_storage_from_config(config: StorageConfig) -> StorageInterface:
     """Create storage backend from configuration.
     
     Args:

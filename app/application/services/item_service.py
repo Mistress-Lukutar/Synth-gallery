@@ -67,7 +67,7 @@ class MediaRenderer(ItemRenderer):
         thumb_h = item.get('thumb_height', 210)
         return thumb_w, thumb_h
     
-    def render_gallery_item(self, item: Dict) -> str:
+    def render_gallery_item(self, item: Dict) -> Dict:
         # Returns data attributes for frontend rendering
         return {
             'type': 'media',
@@ -77,7 +77,7 @@ class MediaRenderer(ItemRenderer):
             'height': item.get('thumb_height', 210)
         }
     
-    def render_lightbox(self, item: Dict) -> str:
+    def render_lightbox(self, item: Dict) -> Dict:
         return {
             'type': 'media',
             'media_type': item.get('media_type', 'image'),
@@ -200,8 +200,7 @@ class ItemService:
         self.media_repo.create(
             item_id=item_id,
             media_type='video' if media_type == 'video' else 'image',
-            filename=filename,
-            # original_name removed - using title only
+            original_name=filename,
             content_type=content_type,
             thumb_width=thumb_w,
             thumb_height=thumb_h,
