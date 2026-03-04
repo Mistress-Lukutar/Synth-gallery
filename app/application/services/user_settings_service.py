@@ -11,6 +11,7 @@ from typing import Optional, List
 from fastapi import HTTPException
 
 from ...infrastructure.repositories import FolderRepository, PermissionRepository, UserRepository
+from ...infrastructure.services.encryption import EncryptionService
 
 
 class UserSettingsService:
@@ -265,3 +266,145 @@ class UserSettingsService:
             return perm is not None
         
         return False
+    
+    # =========================================================================
+    # Profile Settings
+    # =========================================================================
+    
+    def update_display_name(self, user_id: int, display_name: str) -> bool:
+        """Update user's display name.
+        
+        Args:
+            user_id: User ID
+            display_name: New display name
+            
+        Returns:
+            True if successful
+        """
+        if not self.user_repo:
+            raise HTTPException(status_code=500, detail="UserRepository not configured")
+        
+        return self.user_repo.update_display_name(user_id, display_name)
+    
+    def change_password(
+        self,
+        user_id: int,
+        old_password: str,
+        new_password: str
+    ) -> bool:
+        """Change user password and re-encrypt DEK.
+        
+        Args:
+            user_id: User ID
+            old_password: Current password
+            new_password: New password
+            
+        Returns:
+            True if successful
+            
+        Raises:
+            HTTPException: If old password is wrong or operation fails
+        """
+        if len(new_password) < 4:
+            raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+        
+        if not self.user_repo:
+            raise HTTPException(status_code=500, detail="UserRepository not configured")
+        
+        # Verify old password
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        from ...database import verify_password
+        if not verify_password(old_password, user["password_hash"], user.get("password_salt", "")):
+            raise HTTPException(status_code=400, detail="Current password is incorrect")
+        
+        # Check if user has encryption keys
+        enc_keys = self.user_repo.get_encryption_keys(user_id)
+        if enc_keys:
+            # Decrypt DEK with old password
+            old_kek = EncryptionService.derive_kek(old_password, enc_keys["dek_salt"])
+            try:
+                dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], old_kek)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to decrypt encryption key: {e}")
+            
+            # Re-encrypt DEK with new password
+            new_salt = EncryptionService.generate_salt()
+            new_kek = EncryptionService.derive_kek(new_password, new_salt)
+            new_encrypted_dek = EncryptionService.encrypt_dek(dek, new_kek)
+            
+            # Update password and encryption keys
+            self.user_repo.update_password(user_id, new_password)
+            self.user_repo.set_encryption_keys(user_id, new_encrypted_dek, new_salt)
+        else:
+            # No encryption - just update password
+            self.user_repo.update_password(user_id, new_password)
+        
+        return True
+    
+    # =========================================================================
+    # Recovery Key
+    # =========================================================================
+    
+    def has_recovery_key(self, user_id: int) -> bool:
+        """Check if user has recovery key configured.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            True if recovery key exists
+        """
+        if not self.user_repo:
+            return False
+        
+        recovery_dek = self.user_repo.get_recovery_encrypted_dek(user_id)
+        return recovery_dek is not None
+    
+    def generate_recovery_key(self, user_id: int, password: str) -> str:
+        """Generate recovery key for user.
+        
+        Args:
+            user_id: User ID
+            password: Current password (to decrypt DEK)
+            
+        Returns:
+            Formatted recovery key (shown ONCE)
+            
+        Raises:
+            HTTPException: If password is wrong or DEK cannot be decrypted
+        """
+        if not self.user_repo:
+            raise HTTPException(status_code=500, detail="UserRepository not configured")
+        
+        # Verify password
+        user = self.user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        from ...database import verify_password
+        if not verify_password(password, user["password_hash"], user.get("password_salt", "")):
+            raise HTTPException(status_code=400, detail="Invalid password")
+        
+        # Get encryption keys
+        enc_keys = self.user_repo.get_encryption_keys(user_id)
+        if not enc_keys:
+            raise HTTPException(status_code=400, detail="No encryption keys found")
+        
+        # Decrypt DEK with password
+        try:
+            kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
+            dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not decrypt encryption key")
+        
+        # Generate recovery key and encrypt DEK with it
+        formatted_key, raw_key = EncryptionService.generate_recovery_key()
+        recovery_encrypted_dek = EncryptionService.encrypt_dek_with_recovery_key(dek, raw_key)
+        
+        # Store in database
+        self.user_repo.set_recovery_encrypted_dek(user_id, recovery_encrypted_dek)
+        
+        return formatted_key

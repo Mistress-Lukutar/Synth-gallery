@@ -125,10 +125,10 @@ class UserRepository(Repository):
         """List all users.
         
         Returns:
-            List of user dicts
+            List of user dicts with admin status
         """
         cursor = self._execute(
-            "SELECT id, username, display_name, created_at FROM users ORDER BY id"
+            "SELECT id, username, display_name, created_at, is_admin FROM users ORDER BY id"
         )
         return [dict(row) for row in cursor.fetchall()]
     

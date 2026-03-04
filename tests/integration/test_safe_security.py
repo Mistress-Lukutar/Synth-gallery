@@ -2,7 +2,7 @@
 
 Tests security-critical aspects of E2E-encrypted safes:
 - Deletion from locked safes is blocked
-- File access requires unlocked safe
+- File access requires to be unlocked safe
 - Session management and expiration
 - Permission boundaries
 """
@@ -20,13 +20,14 @@ class TestSafeDeleteSecurity:
         photos from locked safes through the UI because client and server
         state were out of sync.
         """
-        from app.infrastructure.repositories import SafeRepository, FolderRepository, PhotoRepository
+        from app.infrastructure.repositories import SafeRepository, FolderRepository, ItemRepository, ItemMediaRepository
         from app.application.services import SafeService
         
         # Create a safe with folder
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)
-        photo_repo = PhotoRepository(db_connection)
+        item_repo = ItemRepository(db_connection)
+        media_repo = ItemMediaRepository(db_connection)
         
         # Create safe (simulating E2E setup)
         safe_id = safe_repo.create(
@@ -43,14 +44,19 @@ class TestSafeDeleteSecurity:
         # Create photo in safe folder (simulating already uploaded)
         import uuid
         photo_id = str(uuid.uuid4())
-        photo_repo.create(
-            filename=f"{photo_id}.jpg",
+        item_repo.create(
+            item_type="media",
             folder_id=folder_id,
             user_id=test_user["id"],
-            photo_id=photo_id,
-            original_name="test.jpg",
-            media_type="image",
+            item_id=photo_id,
+            title="test.jpg",
             safe_id=safe_id
+        )
+        media_repo.create(
+            item_id=photo_id,
+            media_type="image",
+            original_name="test.jpg",
+            content_type="image/jpeg"
         )
         
         # Safe is NOT unlocked (no session created)
@@ -75,11 +81,10 @@ class TestSafeDeleteSecurity:
     
     def test_cannot_delete_album_from_locked_safe(self, authenticated_client, test_user, db_connection):
         """Server-side: Deleting album from locked safe should fail."""
-        from app.infrastructure.repositories import SafeRepository, FolderRepository, PhotoRepository
+        from app.infrastructure.repositories import SafeRepository, FolderRepository
         
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)
-        photo_repo = PhotoRepository(db_connection)
         
         # Create safe
         safe_id = safe_repo.create(
@@ -120,11 +125,12 @@ class TestSafeDeleteSecurity:
     
     def test_can_delete_from_unlocked_safe(self, authenticated_client, test_user, db_connection):
         """Server-side: Deleting from unlocked safe should succeed."""
-        from app.infrastructure.repositories import SafeRepository, FolderRepository, PhotoRepository
+        from app.infrastructure.repositories import SafeRepository, FolderRepository, ItemRepository, ItemMediaRepository
         
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)
-        photo_repo = PhotoRepository(db_connection)
+        item_repo = ItemRepository(db_connection)
+        media_repo = ItemMediaRepository(db_connection)
         
         # Create safe
         safe_id = safe_repo.create(
@@ -140,15 +146,19 @@ class TestSafeDeleteSecurity:
         
         import uuid
         photo_id = str(uuid.uuid4())
-        photo_repo.create(
-            photo_id=photo_id,
-            filename=f"{photo_id}.jpg",
-            original_name="test.jpg",
-            media_type="image",
-            user_id=test_user["id"],
+        item_repo.create(
+            item_type="media",
             folder_id=folder_id,
-            safe_id=safe_id,
-
+            user_id=test_user["id"],
+            item_id=photo_id,
+            title="test.jpg",
+            safe_id=safe_id
+        )
+        media_repo.create(
+            item_id=photo_id,
+            media_type="image",
+            original_name="test.jpg",
+            content_type="image/jpeg"
         )
         
         # UNLOCK the safe - create session
@@ -243,7 +253,7 @@ class TestSafeSessionSecurity:
         safe_repo = SafeRepository(db_connection)
         
         # Create safe for first user (test_user from authenticated_client)
-        # But we need to login as second_user to test this...
+        # But we need to log in as second_user to test this...
         # This test needs different setup
         pass  # Will be covered by permission tests
 
@@ -253,11 +263,12 @@ class TestSafeFileAccessSecurity:
     
     def test_cannot_access_safe_file_without_unlock(self, authenticated_client, test_user, db_connection):
         """File access should fail for locked safe."""
-        from app.infrastructure.repositories import SafeRepository, FolderRepository, PhotoRepository
+        from app.infrastructure.repositories import SafeRepository, FolderRepository, ItemRepository, ItemMediaRepository
         
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)
-        photo_repo = PhotoRepository(db_connection)
+        item_repo = ItemRepository(db_connection)
+        media_repo = ItemMediaRepository(db_connection)
         
         # Create safe
         safe_id = safe_repo.create(
@@ -273,14 +284,19 @@ class TestSafeFileAccessSecurity:
         
         import uuid
         photo_id = str(uuid.uuid4())
-        photo_repo.create(
-            photo_id=photo_id,
-            filename=f"{photo_id}.jpg",
-            original_name="test.jpg",
-            media_type="image",
-            user_id=test_user["id"],
+        item_repo.create(
+            item_type="media",
             folder_id=folder_id,
+            user_id=test_user["id"],
+            item_id=photo_id,
+            title="test.jpg",
             safe_id=safe_id
+        )
+        media_repo.create(
+            item_id=photo_id,
+            media_type="image",
+            original_name="test.jpg",
+            content_type="image/jpeg"
         )
         
         # Try to access file without unlocking
@@ -292,11 +308,12 @@ class TestSafeFileAccessSecurity:
     
     def test_cannot_access_safe_thumbnail_without_unlock(self, authenticated_client, test_user, db_connection):
         """Thumbnail access should fail for locked safe."""
-        from app.infrastructure.repositories import SafeRepository, FolderRepository, PhotoRepository
+        from app.infrastructure.repositories import SafeRepository, FolderRepository, ItemRepository, ItemMediaRepository
         
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)
-        photo_repo = PhotoRepository(db_connection)
+        item_repo = ItemRepository(db_connection)
+        media_repo = ItemMediaRepository(db_connection)
         
         # Create safe
         safe_id = safe_repo.create(
@@ -312,14 +329,19 @@ class TestSafeFileAccessSecurity:
         
         import uuid
         photo_id = str(uuid.uuid4())
-        photo_repo.create(
-            photo_id=photo_id,
-            filename=f"{photo_id}.jpg",
-            original_name="test.jpg",
-            media_type="image",
-            user_id=test_user["id"],
+        item_repo.create(
+            item_type="media",
             folder_id=folder_id,
+            user_id=test_user["id"],
+            item_id=photo_id,
+            title="test.jpg",
             safe_id=safe_id
+        )
+        media_repo.create(
+            item_id=photo_id,
+            media_type="image",
+            original_name="test.jpg",
+            content_type="image/jpeg"
         )
         
         # Try to access thumbnail without unlocking
@@ -367,11 +389,12 @@ class TestSafePermissionSecurity:
     
     def test_user_cannot_access_other_user_safe_files(self, client, test_user, second_user, db_connection):
         """User should not access files in another user's safe."""
-        from app.infrastructure.repositories import SafeRepository, FolderRepository, PhotoRepository
+        from app.infrastructure.repositories import SafeRepository, FolderRepository, ItemRepository, ItemMediaRepository
         
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)
-        photo_repo = PhotoRepository(db_connection)
+        item_repo = ItemRepository(db_connection)
+        media_repo = ItemMediaRepository(db_connection)
         
         # Create safe for test_user
         safe_id = safe_repo.create(
@@ -387,14 +410,19 @@ class TestSafePermissionSecurity:
         
         import uuid
         photo_id = str(uuid.uuid4())
-        photo_repo.create(
-            photo_id=photo_id,
-            filename=f"{photo_id}.jpg",
-            original_name="test.jpg",
-            media_type="image",
-            user_id=test_user["id"],
+        item_repo.create(
+            item_type="media",
             folder_id=folder_id,
+            user_id=test_user["id"],
+            item_id=photo_id,
+            title="test.jpg",
             safe_id=safe_id
+        )
+        media_repo.create(
+            item_id=photo_id,
+            media_type="image",
+            original_name="test.jpg",
+            content_type="image/jpeg"
         )
         
         # Unlock safe as owner

@@ -30,7 +30,6 @@ class EncryptedStorage(StorageInterface):
         self.backend = backend
         self.encryption = encryption_service
         self.user_id = user_id
-        self.config = backend.config
     
     async def _get_dek(self):
         """Get user's Data Encryption Key."""

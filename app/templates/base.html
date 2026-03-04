@@ -131,7 +131,7 @@
                 </div>
 
                 <div id="manual-tags-section" class="manual-tags-section">
-                    <label>Add tags:</label>
+                    <label for="upload-tags-input">Add tags:</label>
                     <input type="text" id="upload-tags-input" placeholder="tag1, tag2, tag3..." autocomplete="off">
                     <p class="input-hint">Comma-separated tags to apply to all photos</p>
                 </div>
@@ -214,7 +214,7 @@
 
             <form id="safe-form" onsubmit="event.preventDefault();" autocomplete="off">
                 <!-- Hidden username field for accessibility and password manager compatibility -->
-                <input type="text" id="safe-username" name="username" value="synth-safe-user" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" aria-hidden="true">
+                <input type="text" id="safe-username" name="username" value="synth-safe-user" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" aria-hidden="true" aria-label="Username">
                 
                 <!-- Password protection section -->
                 <div id="safe-password-section" class="form-group safe-password-group">
@@ -294,7 +294,7 @@
 
             <form id="safe-unlock-form" onsubmit="event.preventDefault();" autocomplete="off">
                 <!-- Hidden username field for accessibility -->
-                <input type="text" id="safe-unlock-username" name="username" value="synth-safe-user" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" aria-hidden="true">
+                <input type="text" id="safe-unlock-username" name="username" value="synth-safe-user" autocomplete="username" style="position: absolute; opacity: 0; pointer-events: none;" aria-hidden="true" aria-label="Username">
                 
                 <!-- Password unlock section -->
                 <div id="safe-unlock-password-section" class="form-group safe-password-group">
@@ -379,14 +379,14 @@
 
             <!-- User search -->
             <div class="share-search">
-                <input type="text" id="user-search-input" placeholder="Search users..." autocomplete="off">
+                <input type="text" id="user-search-input" placeholder="Search users..." autocomplete="off" aria-label="Search users">
                 <div id="user-search-results" class="user-search-results hidden"></div>
             </div>
 
             <!-- Add permission form -->
             <div id="add-permission-form" class="add-permission-form hidden">
                 <span id="selected-user-name"></span>
-                <select id="permission-level-select">
+                <select id="permission-level-select" aria-label="Permission level">
                     <option value="viewer">Viewer (view only)</option>
                     <option value="editor">Editor (can upload)</option>
                 </select>

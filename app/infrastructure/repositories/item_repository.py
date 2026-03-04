@@ -221,3 +221,37 @@ class ItemRepository(Repository):
             )
         row = cursor.fetchone()
         return row["count"] if row else 0
+    
+    def get_unencrypted_by_user(self, user_id: int) -> List[Dict]:
+        """Get all unencrypted items for a user.
+        
+        Args:
+            user_id: User ID
+            
+        Returns:
+            List of unencrypted items with media info
+        """
+        cursor = self._execute(
+            """SELECT i.*, im.filename 
+               FROM items i
+               JOIN item_media im ON i.id = im.item_id
+               WHERE i.user_id = ? AND i.is_encrypted = 0 AND i.type = 'media'""",
+            (user_id,)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def mark_encrypted(self, item_id: str) -> bool:
+        """Mark item as encrypted.
+        
+        Args:
+            item_id: Item ID
+            
+        Returns:
+            True if updated
+        """
+        cursor = self._execute(
+            "UPDATE items SET is_encrypted = 1 WHERE id = ?",
+            (item_id,)
+        )
+        self._commit()
+        return cursor.rowcount > 0
