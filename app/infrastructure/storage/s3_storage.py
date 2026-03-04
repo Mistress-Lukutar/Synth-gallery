@@ -59,12 +59,12 @@ class S3Storage(StorageInterface):
             "aws_access_key_id": config.access_key,
             "aws_secret_access_key": config.secret_key,
             "region_name": config.region,
+            "use_ssl": config.use_ssl,
         }
         
         # Custom endpoint for MinIO/DigitalOcean
         if config.endpoint_url:
             client_kwargs["endpoint_url"] = config.endpoint_url
-            client_kwargs["use_ssl"] = config.use_ssl
         
         self.client = boto3.client(**client_kwargs)
         
