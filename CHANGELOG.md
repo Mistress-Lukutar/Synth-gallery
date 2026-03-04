@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **User Management Page** (`/admin/users`)
+  - Web UI for user CRUD operations
+  - Grant/revoke admin rights
+  - User list with search and filtering
+  - Default admin account creation on first run
+- **Profile Settings** (`/settings`)
+  - Change display name
+  - Change password (with automatic DEK re-encryption)
+  - Recovery key generation and management
+- **Polymorphic Items Architecture** (Issue #24)
+  - Unified `items` table for photos, videos, notes, files
+  - `item_media` table for media-specific data
+  - Migration from legacy `photos` table
+- **Default Admin Account**
+  - Auto-creates `admin/admin` account on first run if no users exist
+  - Warning in console to create proper admin and delete temporary account
+
+### Removed
+- **Docker Support** - Removed Docker-related files and documentation
+  - Use `Start.bat` (Windows) or direct uvicorn launch instead
+- **manage_users.py CLI Script** - Replaced by web UI
+  - User management now at `/admin/users`
+  - Profile settings (password, recovery key) at `/settings`
+  - Backup management at `/admin/backups`
+
+### Fixed
+- Type checker warnings across codebase
+- IDE inspection warnings (JS/CSS)
+- Accessibility: Added labels to form inputs
+- Code cleanup: Removed dead code (UploadService/PhotoService tests)
+
 ### Changed (Breaking) - Unified File Access Service (Issue #23)
 - **New unified file endpoints**:
   - `/files/{photo_id}` - Returns file with encryption headers
@@ -56,8 +88,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `AuthService` - Authentication and session management
     - `FolderService` - Folder CRUD and tree operations
     - `PermissionService` - Access control (can_access, can_edit, etc.)
-    - `PhotoService` - Photo/album operations (move, cover, reorder)
-    - `UploadService` - File uploads with encryption
+    - `ItemService` - Item (photo/video) operations
+    - `AlbumService` - Album CRUD and operations
     - `SafeService` - Encrypted vault operations
     - `SafeFileService` - File access in safes
     - `EnvelopeService` - Envelope encryption key management
@@ -73,7 +105,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SafeRepository enhancements:**
   - `get_safe_id_for_folder()` - Check if folder is in safe
   - `is_unlocked()` - Check safe unlock status
-- **PhotoRepository enhancements:**
+- **ItemRepository enhancements:**
+  - Polymorphic storage for photos, videos, notes, files
+  - `get_unencrypted_by_user()` - For encryption migration
+  - `mark_encrypted()` - Mark items as encrypted
+- **AlbumRepository:**
   - `move_album_to_folder()` - Move album between folders
   - `get_available_for_album()` - Photos available to add to album
 
@@ -87,7 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Service Layer Extraction (Issue #16 - Completed)**
   - New `app/application/services/` module for business logic
   - Created 8 application services:
-    - `UploadService` - File uploads, thumbnails, encryption, batch operations
+    - `ItemService` - Item operations, file uploads, thumbnails
     - `FolderService` - Folder CRUD and hierarchy management  
     - `PermissionService` - Access control and sharing
     - `SafeService` - Encrypted vault operations (safe CRUD, unlock/lock, sessions)
