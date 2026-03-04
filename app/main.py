@@ -19,6 +19,7 @@ from .routes.admin import router as admin_router
 from .routes.webauthn import router as webauthn_router, settings_router
 from .routes.safes import router as safes_router
 from .routes.safe_files import router as safe_files_router
+from .routes.user_settings import router as user_settings_router
 
 
 @asynccontextmanager
@@ -54,3 +55,4 @@ app.include_router(webauthn_router)
 app.include_router(settings_router)
 app.include_router(safes_router)
 app.include_router(safe_files_router)
+app.include_router(user_settings_router)

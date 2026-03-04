@@ -69,8 +69,9 @@ def get_safe_photo_file(photo_id: str, request: Request):
         )
         
         # Get safe_id for header
-        photo_repo = PhotoRepository(db)
-        safe_id = photo_repo.get_by_id(photo_id).get("safe_id", "")
+        item_repo = ItemRepository(db)
+        item = item_repo.get_by_id(photo_id)
+        safe_id = item.get("safe_id", "") if item else ""
         
         # Return file with header indicating it's encrypted
         return FileResponse(

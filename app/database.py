@@ -621,4 +621,35 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # =============================================================================
+    # Create default admin user if no users exist (first run)
+    # =============================================================================
+    cursor = db.execute("SELECT COUNT(*) as count FROM users")
+    if cursor.fetchone()["count"] == 0:
+        import secrets
+        import bcrypt
+        
+        default_username = "admin"
+        default_password = "admin"
+        
+        # Hash password using bcrypt
+        hashed = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt())
+        
+        db.execute(
+            """INSERT INTO users 
+               (username, password_hash, password_salt, display_name, is_admin) 
+               VALUES (?, ?, ?, ?, ?)""",
+            (default_username, hashed.decode('utf-8'), "", "Administrator", 1)
+        )
+        
+        print("=" * 70)
+        print("⚠️  FIRST RUN: Default admin account created")
+        print("=" * 70)
+        print(f"   Username: {default_username}")
+        print(f"   Password: {default_password}")
+        print("")
+        print("   Please log in and create a new admin user immediately,")
+        print("   then delete this temporary account for security.")
+        print("=" * 70)
+
     db.commit()

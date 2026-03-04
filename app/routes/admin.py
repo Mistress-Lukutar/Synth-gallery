@@ -10,6 +10,8 @@ templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
 from ..database import create_connection
 from ..infrastructure.repositories import UserRepository
+from pydantic import BaseModel
+import logging
 from ..dependencies import require_user, get_csrf_token
 from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,
@@ -236,6 +238,127 @@ def delete_full_backup_endpoint(request: Request, filename: str):
         raise HTTPException(status_code=404, detail=result.get("error", "Delete failed"))
 
     return {"status": "ok"}
+
+
+# === User Management Page ===
+
+@router.get("/admin/users")
+def users_page(request: Request):
+    """User management page."""
+    user = require_admin(request)
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+        users = user_repo.list_all()
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        {
+            "user": user,
+            "users": users,
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH,
+            "default_admin_created": request.query_params.get("default_admin") == "1"
+        }
+    )
+
+
+# === User Management API ===
+
+class CreateUserRequest(BaseModel):
+    username: str
+    display_name: str
+    password: str
+    is_admin: bool = False
+
+
+@router.post("/api/admin/users")
+def create_user_endpoint(request: Request, data: CreateUserRequest):
+    """Create a new user."""
+    require_admin(request)
+
+    if len(data.password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+
+        # Check if username already exists
+        existing = user_repo.get_by_username(data.username)
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+        # Create user
+        user_id = user_repo.create(data.username, data.password, data.display_name)
+
+        # Set admin status if requested
+        if data.is_admin:
+            user_repo.set_admin(user_id, True)
+
+        return {"status": "ok", "user_id": user_id}
+    finally:
+        db.close()
+
+
+@router.delete("/api/admin/users/{user_id}")
+def delete_user_endpoint(request: Request, user_id: int):
+    """Delete a user."""
+    current_user = require_admin(request)
+
+    # Prevent self-deletion
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+
+        # Check if user exists
+        user = user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Delete user
+        user_repo.delete(user_id)
+
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+class SetAdminRequest(BaseModel):
+    is_admin: bool
+
+
+@router.post("/api/admin/users/{user_id}/admin")
+def set_admin_endpoint(request: Request, user_id: int, data: SetAdminRequest):
+    """Set user admin status."""
+    current_user = require_admin(request)
+
+    # Prevent removing own admin rights
+    if user_id == current_user["id"] and not data.is_admin:
+        raise HTTPException(status_code=400, detail="Cannot revoke your own admin rights")
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+
+        # Check if user exists
+        user = user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Update admin status
+        user_repo.set_admin(user_id, data.is_admin)
+
+        return {"status": "ok", "is_admin": data.is_admin}
+    finally:
+        db.close()
 
 
 # === Maintenance Page ===

@@ -141,7 +141,7 @@ class SafeFileService:
             raise HTTPException(status_code=403, detail="Access denied")
         
         # Return file path
-        file_path = UPLOADS_DIR / photo["filename"]
+        file_path = UPLOADS_DIR / item["filename"]
         
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")

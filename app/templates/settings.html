@@ -242,6 +242,115 @@
             gap: 0.5rem;
             margin-top: 0.5rem;
         }
+
+        /* Form styles */
+        .form-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .form-row input {
+            flex: 1;
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .form-row input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            max-width: 400px;
+        }
+
+        .form-stack input {
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .form-stack input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* Recovery key styles */
+        .recovery-status {
+            padding: 1rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .recovery-actions {
+            margin-top: 1rem;
+        }
+
+        .warning-text {
+            color: #eab308;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .success-text {
+            color: #22c55e;
+            font-size: 0.9rem;
+        }
+
+        .recovery-result {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: rgba(34, 197, 94, 0.05);
+            border: 2px solid #22c55e;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .recovery-key-box {
+            margin-bottom: 1.5rem;
+        }
+
+        .recovery-key-box h4 {
+            margin: 0 0 1rem 0;
+            color: #22c55e;
+        }
+
+        .recovery-key-value {
+            font-family: monospace;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: 2px;
+            padding: 1rem;
+            background: var(--bg);
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            word-break: break-all;
+            color: var(--text);
+        }
+
+        .recovery-warning {
+            color: #ef4444;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin: 0;
+        }
+
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -264,7 +373,7 @@
                 </svg>
                 Account
             </h2>
-            <p>Logged in as <strong>{{ user.display_name }}</strong> (@{{ user.username }})</p>
+            <p>Logged in as <strong id="current-display-name">{{ user.display_name }}</strong> (@{{ user.username }})</p>
             <a href="{{ base_url }}/logout" class="btn btn-secondary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -273,6 +382,78 @@
                 </svg>
                 Logout
             </a>
+        </div>
+
+        <!-- Profile Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Profile
+            </h2>
+            <p>Update your display name.</p>
+            <div class="form-row">
+                <input type="text" id="display-name-input" value="{{ user.display_name }}" placeholder="Display name" maxlength="50" aria-label="Display name">
+                <button id="update-name-btn" class="btn">Update Name</button>
+            </div>
+        </div>
+
+        <!-- Security Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Security
+            </h2>
+            <p>Change your password. You'll need to enter your current password.</p>
+            <div class="form-stack">
+                <input type="password" id="old-password" placeholder="Current password" aria-label="Current password">
+                <input type="password" id="new-password" placeholder="New password (min 4 chars)" aria-label="New password">
+                <input type="password" id="confirm-password" placeholder="Confirm new password" aria-label="Confirm new password">
+                <button id="change-password-btn" class="btn">Change Password</button>
+            </div>
+        </div>
+
+        <!-- Recovery Key Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                </svg>
+                Recovery Key
+            </h2>
+            <p>A recovery key allows you to recover access to your encrypted files if you forget your password. Save it in a secure location!</p>
+            
+            <div id="recovery-key-status" class="recovery-status">
+                <span class="loading-spinner"></span> Checking status...
+            </div>
+            
+            <div id="recovery-key-actions" class="recovery-actions hidden">
+                <div id="recovery-key-no-key" class="hidden">
+                    <p class="warning-text">You don't have a recovery key set up yet. Generate one to protect your encrypted files.</p>
+                    <div class="form-row">
+                        <input type="password" id="recovery-password" placeholder="Enter your password to generate" aria-label="Password">
+                        <button id="generate-recovery-btn" class="btn">Generate Recovery Key</button>
+                    </div>
+                </div>
+                
+                <div id="recovery-key-has-key" class="hidden">
+                    <p class="success-text">Recovery key is configured.</p>
+                </div>
+            </div>
+            
+            <div id="recovery-key-result" class="recovery-result hidden">
+                <div class="recovery-key-box">
+                    <h4>Your Recovery Key (shown ONCE)</h4>
+                    <div id="recovery-key-value" class="recovery-key-value"></div>
+                    <p class="recovery-warning">Save this key in a secure location! If you lose both your password AND this key, your encrypted files will be UNRECOVERABLE!</p>
+                </div>
+                <button id="recovery-key-done-btn" class="btn btn-secondary">I've Saved It</button>
+            </div>
         </div>
 
         <!-- Hardware Keys Section -->
@@ -292,7 +473,7 @@
 
             <div class="add-key-section">
                 <div class="add-key-form">
-                    <input type="text" id="key-name-input" placeholder="Key name (e.g., YubiKey 5)" maxlength="50">
+                    <input type="text" id="key-name-input" placeholder="Key name (e.g., YubiKey 5)" maxlength="50" aria-label="Key name">
                     <button id="add-key-btn" class="btn">Add Key</button>
                 </div>
             </div>
@@ -303,7 +484,7 @@
     <div id="rename-modal" class="rename-modal hidden">
         <div class="rename-modal-content">
             <h3>Rename Key</h3>
-            <input type="text" id="rename-input" placeholder="New name" maxlength="50">
+            <input type="text" id="rename-input" placeholder="New name" maxlength="50" aria-label="New key name">
             <div class="rename-modal-actions">
                 <button id="rename-cancel-btn" class="btn btn-secondary">Cancel</button>
                 <button id="rename-save-btn" class="btn">Save</button>
@@ -573,6 +754,188 @@
 
         // Initialize
         loadCredentials();
+
+        // ============================================================================
+        // Profile & Security Settings
+        // ============================================================================
+
+        // Update display name
+        document.getElementById('update-name-btn').addEventListener('click', async () => {
+            const input = document.getElementById('display-name-input');
+            const newName = input.value.trim();
+            
+            if (!newName) {
+                alert('Display name cannot be empty');
+                return;
+            }
+            
+            const btn = document.getElementById('update-name-btn');
+            btn.disabled = true;
+            btn.textContent = 'Saving...';
+            
+            try {
+                const resp = await csrfFetch('{{ base_url }}/api/user/profile/display-name', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ display_name: newName })
+                });
+                
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to update');
+                }
+                
+                document.getElementById('current-display-name').textContent = newName;
+                btn.textContent = 'Updated!';
+                setTimeout(() => {
+                    btn.textContent = 'Update Name';
+                    btn.disabled = false;
+                }, 2000);
+            } catch (err) {
+                alert('Error: ' + err.message);
+                btn.textContent = 'Update Name';
+                btn.disabled = false;
+            }
+        });
+
+        // Change password
+        document.getElementById('change-password-btn').addEventListener('click', async () => {
+            const oldPass = document.getElementById('old-password').value;
+            const newPass = document.getElementById('new-password').value;
+            const confirmPass = document.getElementById('confirm-password').value;
+            
+            if (!oldPass || !newPass) {
+                alert('Please fill in all password fields');
+                return;
+            }
+            
+            if (newPass.length < 4) {
+                alert('New password must be at least 4 characters');
+                return;
+            }
+            
+            if (newPass !== confirmPass) {
+                alert('New passwords do not match');
+                return;
+            }
+            
+            const btn = document.getElementById('change-password-btn');
+            btn.disabled = true;
+            btn.textContent = 'Changing...';
+            
+            try {
+                const resp = await csrfFetch('{{ base_url }}/api/user/profile/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        old_password: oldPass,
+                        new_password: newPass
+                    })
+                });
+                
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to change password');
+                }
+                
+                // Clear inputs
+                document.getElementById('old-password').value = '';
+                document.getElementById('new-password').value = '';
+                document.getElementById('confirm-password').value = '';
+                
+                btn.textContent = 'Changed!';
+                setTimeout(() => {
+                    btn.textContent = 'Change Password';
+                    btn.disabled = false;
+                }, 2000);
+            } catch (err) {
+                alert('Error: ' + err.message);
+                btn.textContent = 'Change Password';
+                btn.disabled = false;
+            }
+        });
+
+        // ============================================================================
+        // Recovery Key
+        // ============================================================================
+
+        async function loadRecoveryKeyStatus() {
+            try {
+                const resp = await fetch('{{ base_url }}/api/user/recovery-key/status');
+                if (!resp.ok) throw new Error('Failed to load status');
+                
+                const data = await resp.json();
+                const statusEl = document.getElementById('recovery-key-status');
+                const actionsEl = document.getElementById('recovery-key-actions');
+                const noKeyEl = document.getElementById('recovery-key-no-key');
+                const hasKeyEl = document.getElementById('recovery-key-has-key');
+                
+                statusEl.classList.add('hidden');
+                actionsEl.classList.remove('hidden');
+                
+                if (data.has_recovery_key) {
+                    hasKeyEl.classList.remove('hidden');
+                    noKeyEl.classList.add('hidden');
+                } else {
+                    noKeyEl.classList.remove('hidden');
+                    hasKeyEl.classList.add('hidden');
+                }
+            } catch (err) {
+                console.error('Failed to load recovery key status:', err);
+                document.getElementById('recovery-key-status').textContent = 'Failed to load status';
+            }
+        }
+
+        // Generate recovery key
+        document.getElementById('generate-recovery-btn').addEventListener('click', async () => {
+            const password = document.getElementById('recovery-password').value;
+            
+            if (!password) {
+                alert('Please enter your password');
+                return;
+            }
+            
+            const btn = document.getElementById('generate-recovery-btn');
+            btn.disabled = true;
+            btn.textContent = 'Generating...';
+            
+            try {
+                const resp = await csrfFetch('{{ base_url }}/api/user/recovery-key/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: password })
+                });
+                
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to generate');
+                }
+                
+                const data = await resp.json();
+                
+                // Show the key
+                document.getElementById('recovery-key-value').textContent = data.recovery_key;
+                document.getElementById('recovery-key-result').classList.remove('hidden');
+                document.getElementById('recovery-key-no-key').classList.add('hidden');
+                document.getElementById('recovery-password').value = '';
+                
+            } catch (err) {
+                alert('Error: ' + err.message);
+                btn.textContent = 'Generate Recovery Key';
+                btn.disabled = false;
+            }
+        });
+
+        // Done button after saving recovery key
+        document.getElementById('recovery-key-done-btn').addEventListener('click', () => {
+            document.getElementById('recovery-key-result').classList.add('hidden');
+            document.getElementById('recovery-key-has-key').classList.remove('hidden');
+            document.getElementById('generate-recovery-btn').textContent = 'Generate Recovery Key';
+            document.getElementById('generate-recovery-btn').disabled = false;
+        });
+
+        // Load recovery key status on page load
+        loadRecoveryKeyStatus();
     </script>
 </body>
 </html>
