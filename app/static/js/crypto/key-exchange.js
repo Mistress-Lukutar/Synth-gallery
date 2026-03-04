@@ -9,7 +9,7 @@
  * Uses ECDH (Elliptic Curve Diffie-Hellman) for key agreement.
  */
 
-const KeyExchange = (function() {
+var KeyExchange = (function() {
     'use strict';
     
     // ECDH parameters

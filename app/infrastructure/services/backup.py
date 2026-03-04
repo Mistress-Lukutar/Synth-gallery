@@ -9,11 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
 
+from ..storage import get_storage
 from ...config import (
-    BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR,
-    BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE
+    BASE_DIR, BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE
 )
-from ..storage import get_storage, StorageInterface
 
 DATABASE_PATH = BASE_DIR / "gallery.db"
 BACKUPS_DIR = BASE_DIR / "backups"  # Legacy DB-only backups

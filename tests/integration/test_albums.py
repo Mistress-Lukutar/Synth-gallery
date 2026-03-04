@@ -7,7 +7,6 @@ Verifies:
 - Album photo reordering
 - Album access control
 """
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -35,7 +34,6 @@ class TestAlbumCreation:
             photo_ids.append(response.json()["id"])
         
         # Create album via upload-album endpoint
-        import io
         files = []
         for i, photo_id in enumerate(photo_ids):
             files.append(("files", (f"album_{i}.jpg", test_image_bytes, "image/jpeg")))

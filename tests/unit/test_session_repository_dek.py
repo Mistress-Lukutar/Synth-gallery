@@ -1,5 +1,4 @@
 """Unit tests for SessionRepository DEK storage."""
-import pytest
 
 from app.infrastructure.repositories import SessionRepository, UserRepository
 

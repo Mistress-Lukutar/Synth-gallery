@@ -1,13 +1,11 @@
 """User settings routes - profile, password, recovery key."""
 from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from ..config import ROOT_PATH
-from ..database import create_connection
-from ..dependencies import require_user, get_csrf_token
-from ..infrastructure.repositories import UserRepository, FolderRepository, PermissionRepository
 from ..application.services import UserSettingsService
+from ..database import create_connection
+from ..dependencies import require_user
+from ..infrastructure.repositories import UserRepository, FolderRepository, PermissionRepository
 
 router = APIRouter()
 

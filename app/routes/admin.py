@@ -11,7 +11,6 @@ templates.env.globals["base_url"] = ROOT_PATH
 from ..database import create_connection
 from ..infrastructure.repositories import UserRepository
 from pydantic import BaseModel
-import logging
 from ..dependencies import require_user, get_csrf_token
 from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,

@@ -626,7 +626,6 @@ def init_db():
     # =============================================================================
     cursor = db.execute("SELECT COUNT(*) as count FROM users")
     if cursor.fetchone()["count"] == 0:
-        import secrets
         import bcrypt
         
         default_username = "admin"

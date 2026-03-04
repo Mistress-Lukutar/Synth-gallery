@@ -1,7 +1,6 @@
 """S3-compatible storage implementation (AWS S3, MinIO, DigitalOcean Spaces)."""
 from pathlib import Path
 from typing import BinaryIO, Optional, Union, Iterator
-import io
 
 from .base import (
     StorageInterface,
@@ -65,7 +64,7 @@ class S3Storage(StorageInterface):
         # Custom endpoint for MinIO/DigitalOcean
         if config.endpoint_url:
             client_kwargs["endpoint_url"] = config.endpoint_url
-            client_kwargs["use_ssl"] = config.use_ssl
+            client_kwargs["use_ssl"] = str(config.use_ssl).lower() == 'true'
         
         self.client = boto3.client(**client_kwargs)
         

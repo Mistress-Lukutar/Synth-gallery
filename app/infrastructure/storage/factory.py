@@ -3,14 +3,12 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from ...config import BASE_DIR, UPLOADS_DIR, THUMBNAILS_DIR
-
-from .base import StorageConfig
+from .base import StorageConfig, StorageInterface
 from .local_storage import LocalStorage
-
+from ...config import UPLOADS_DIR
 
 # Singleton instance
-_storage_instance: Optional[LocalStorage] = None
+_storage_instance: Optional[StorageInterface] = None
 
 
 def get_storage_config() -> StorageConfig:
@@ -88,7 +86,7 @@ def get_storage_from_config(config: StorageConfig) -> LocalStorage:
         raise ValueError(f"Unknown storage backend: {config.backend}")
 
 
-def get_storage() -> LocalStorage:
+def get_storage() -> StorageInterface:
     """Get or create singleton storage instance.
     
     This is the main entry point for getting storage.

@@ -217,8 +217,7 @@ def regenerate_missing_thumbnails() -> dict:
     """
     # Import config here to respect test patches (Issue #16)
     from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-    from PIL import Image
-    
+
     db = get_db()
 
     # Get all photos including current dimension status

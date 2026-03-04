@@ -1,9 +1,8 @@
 """Local filesystem storage implementation."""
-import os
 import shutil
 from pathlib import Path
 from typing import BinaryIO, Optional, Union, Iterator
-import io
+
 import aiofiles
 
 from .base import (

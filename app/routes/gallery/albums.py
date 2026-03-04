@@ -2,11 +2,10 @@
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
+from .deps import get_permission_service, get_album_service
 from ...database import create_connection
 from ...dependencies import require_user
-from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository
-from ...application.services import AlbumService
-from .deps import get_permission_service, get_album_service
+from ...infrastructure.repositories import AlbumRepository, ItemRepository
 
 router = APIRouter()
 
@@ -33,11 +32,12 @@ def create_album_endpoint(data: AlbumCreate, request: Request):
     db = create_connection()
     try:
         service = get_album_service(db)
-        album_id = service.create_album(
+        album_result = service.create_album(
             name=data.name,
             folder_id=data.folder_id,
             user_id=user["id"]
         )
+        album_id = album_result['id']
         # Add photos if provided
         if data.photo_ids:
             service.add_items(album_id, data.photo_ids, user["id"])

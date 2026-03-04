@@ -2,13 +2,12 @@
 
 Albums can contain any type of items (media, notes, etc.).
 """
-import uuid
 from typing import List, Dict, Optional
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository, ItemMediaRepository
 from .item_service import ItemService
+from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository, ItemMediaRepository
 
 
 class AlbumService:

@@ -4,19 +4,19 @@ Replaces the old photos.py with polymorphic item handling.
 """
 import uuid
 from pathlib import Path
+from typing import Optional, List
 
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
 
+from .deps import get_permission_service
+from ...application.services import ItemService, AlbumService
 from ...database import create_connection
 from ...dependencies import require_user
 from ...infrastructure.repositories import (
     ItemRepository, ItemMediaRepository, AlbumRepository, FolderRepository
 )
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
-from ...application.services import ItemService, AlbumService
-from .deps import get_permission_service
 
 router = APIRouter()
 
@@ -710,7 +710,6 @@ def remove_tag_from_item(item_id: str, tag_id: int, request: Request):
 @router.post("/api/items/{item_id}/ai-tags")
 def generate_ai_tags_for_item(item_id: str, request: Request):
     """Generate AI tags for an item."""
-    import random
     user = require_user(request)
     db = create_connection()
     try:
