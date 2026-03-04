@@ -1,0 +1,26 @@
+<inspections profile="Incorrect type"><group name="Python" path=""><inspection shortName="PyTypeCheckerInspection" defaultSeverity="WARNING" displayName="Incorrect type" enabled="true" language="Python" pluginId="PythonCore" pluginVersion="253.30387.173" isGlobalTool="false">&lt;html&gt;
+&lt;body&gt;
+&lt;p&gt;Reports type errors in function call expressions, targets, and return values. In a dynamically typed language, this is possible in a limited number of cases. &lt;/p&gt;
+&lt;p&gt;Types of function parameters can be specified in
+  docstrings or in Python 3 function annotations.&lt;/p&gt;
+&lt;p&gt;&lt;b&gt;Example:&lt;/b&gt;&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;
+def foo() -&gt; int:
+    return "abc" # Expected int, got str
+
+
+a: str
+a = foo() # Expected str, got int
+&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;With the quick-fix, you can modify the problematic types:&lt;/p&gt;
+&lt;pre&gt;&lt;code&gt;
+def foo() -&gt; str:
+    return "abc"
+
+
+a: str
+a = foo()
+&lt;/code&gt;&lt;/pre&gt;
+&lt;!-- tooltip end --&gt;&lt;p&gt;&lt;small&gt;Inspection ID: PyTypeCheckerInspection&lt;/small&gt;&lt;/p&gt;&lt;/body&gt;
+&lt;/html&gt;
+</inspection></group></inspections>

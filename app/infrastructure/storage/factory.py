@@ -115,7 +115,7 @@ def create_storage_for_migration(
     dest_backend: str,
     source_config: Optional[StorageConfig] = None,
     dest_config: Optional[StorageConfig] = None
-) -> tuple[LocalStorage, LocalStorage]:
+) -> tuple[StorageInterface, StorageInterface]:
     """Create source and destination storage for migration.
     
     Args:
