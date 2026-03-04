@@ -9,7 +9,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
-from .deps import get_permission_service
+from .deps import get_permission_service, get_album_service
 from ...application.services import ItemService, AlbumService
 from ...database import create_connection
 from ...dependencies import require_user
@@ -26,15 +26,6 @@ def get_item_service(db) -> ItemService:
     return ItemService(
         item_repository=ItemRepository(db),
         item_media_repository=ItemMediaRepository(db)
-    )
-
-
-def get_album_service(db) -> AlbumService:
-    """Get configured AlbumService."""
-    return AlbumService(
-        album_repository=AlbumRepository(db),
-        item_repository=ItemRepository(db),
-        folder_repository=FolderRepository(db)
     )
 
 

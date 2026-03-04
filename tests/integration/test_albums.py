@@ -61,18 +61,35 @@ class TestAlbumCreation:
         test_image_bytes: bytes,
         db_connection
     ):
-        """Album inherits permissions from parent folder."""
-        from app.infrastructure.repositories import FolderRepository, PermissionRepository
+        """Album inherits permissions from parent folder - viewer can access album."""
+        from app.infrastructure.repositories import FolderRepository, PermissionRepository, AlbumRepository
         
         folder_repo = FolderRepository(db_connection)
         perm_repo = PermissionRepository(db_connection)
+        album_repo = AlbumRepository(db_connection)
         
-        # Second user creates folder and shares with first user
+        # Second user creates folder and shares with first user as viewer
         folder_id = folder_repo.create("SharedAlbumFolder", second_user["id"])
         perm_repo.grant(folder_id, test_user["id"], "viewer", second_user["id"])
         
-        # First user should be able to view albums in shared folder
-        # (Actual implementation depends on permission checks)
+        # Second user creates album in the shared folder
+        album_id = album_repo.create(folder_id, second_user["id"], "Shared Album")
+        
+        # Login as first user (viewer)
+        resp = client.post("/login", data={
+            "username": test_user["username"],
+            "password": test_user["password"]
+        })
+        assert resp.status_code == 200
+        
+        # Viewer should be able to access the album
+        resp = client.get(f"/api/albums/{album_id}")
+        assert resp.status_code == 200, f"Viewer should be able to access album, got {resp.status_code}"
+        data = resp.json()
+        assert data["id"] == album_id
+        assert data["name"] == "Shared Album"
+        # Viewer should not have edit permission
+        assert data.get("can_edit") is False
     
     def test_album_shows_correct_photo_count(
         self,
