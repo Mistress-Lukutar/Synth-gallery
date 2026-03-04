@@ -1,14 +1,15 @@
 """Integration tests for backup service using storage abstraction layer."""
-import pytest
+import asyncio
+import json
 import tempfile
 import zipfile
-import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import asyncio
+from unittest.mock import patch
 
-from app.infrastructure.storage import LocalStorage, get_storage, StorageConfig
+import pytest
+
 from app.infrastructure.services.backup import FullBackupService
+from app.infrastructure.storage import LocalStorage, StorageConfig
 
 
 @pytest.fixture

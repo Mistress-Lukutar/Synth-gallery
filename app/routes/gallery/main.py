@@ -4,16 +4,16 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from .deps import get_folder_service, get_permission_service
 from ...application.services import UserSettingsService, ItemService
 from ...config import ROOT_PATH, BASE_DIR
 from ...database import create_connection
 from ...dependencies import get_current_user
 from ...infrastructure.repositories import (
-    FolderRepository, PermissionRepository, SafeRepository, UserRepository,
+    FolderRepository, SafeRepository, UserRepository,
     ItemRepository, ItemMediaRepository, AlbumRepository
 )
 from ...infrastructure.services.encryption import dek_cache
-from .deps import get_folder_service, get_permission_service
 
 router = APIRouter()
 

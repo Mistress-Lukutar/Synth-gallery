@@ -10,7 +10,7 @@
  * sessionStorage, or any persistent storage. It's cleared on page unload.
  */
 
-const DEKManager = (function() {
+var DEKManager = (function() {
     'use strict';
     
     // Check if Web Crypto is available (requires secure context)

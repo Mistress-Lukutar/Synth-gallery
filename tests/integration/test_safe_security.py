@@ -6,8 +6,6 @@ Tests security-critical aspects of E2E-encrypted safes:
 - Session management and expiration
 - Permission boundaries
 """
-import pytest
-from unittest.mock import Mock, patch
 
 
 class TestSafeDeleteSecurity:
@@ -21,8 +19,7 @@ class TestSafeDeleteSecurity:
         state were out of sync.
         """
         from app.infrastructure.repositories import SafeRepository, FolderRepository, ItemRepository, ItemMediaRepository
-        from app.application.services import SafeService
-        
+
         # Create a safe with folder
         safe_repo = SafeRepository(db_connection)
         folder_repo = FolderRepository(db_connection)

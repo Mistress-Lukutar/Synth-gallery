@@ -17,7 +17,7 @@
  * - E2E encrypted (Safes): Client fetches encrypted, decrypts with SafeCrypto,
  *   creates Blob URL
  */
-const FileAccessService = (function() {
+var FileAccessService = (function() {
     'use strict';
 
     // Cache for photo metadata to avoid repeated fetches

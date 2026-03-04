@@ -4,11 +4,9 @@ This module contains factory functions for creating services
 used across all gallery sub-modules.
 """
 from ...application.services import FolderService, PermissionService, AlbumService
-from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-from ...database import create_connection
 from ...infrastructure.repositories import (
     FolderRepository, PermissionRepository,
-    SafeRepository, ItemRepository, ItemMediaRepository, AlbumRepository
+    SafeRepository, ItemRepository, AlbumRepository
 )
 
 

@@ -11,7 +11,9 @@
 :root {
     --bg: #0f0f0f;
     --bg-secondary: #1a1a1a;
+    --bg-tertiary: #252525;
     --text: #e0e0e0;
+    --text-secondary: #a0a0a0;
     --text-muted: #808080;
     --accent: #3b82f6;
     --accent-hover: #2563eb;
@@ -1048,7 +1050,7 @@ main {
     height: 100%;
     background: var(--accent);
     transition: width 0.3s ease;
-    width: 0%;
+    width: 0;
 }
 
 .progress-text {
@@ -1125,7 +1127,7 @@ main {
     margin-bottom: 0.5rem;
     color: var(--cat-color);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.03em;
 }
 
 .preset-tags {
@@ -2205,7 +2207,7 @@ main {
     height: 100%;
     background: var(--accent);
     border-radius: 3px;
-    width: 0%;
+    width: 0;
     transition: width 0.2s ease;
 }
 
@@ -2505,7 +2507,7 @@ main {
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.03em;
     padding: 0.5rem 0.75rem;
     margin-bottom: 0.25rem;
 }

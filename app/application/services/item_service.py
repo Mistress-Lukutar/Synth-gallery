@@ -5,10 +5,11 @@ Uses Strategy Pattern for type-specific operations.
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, Dict, List, Any, BinaryIO
+from typing import Optional, Dict, List, Any
 
 from fastapi import UploadFile, HTTPException
 
+from ...config import ALLOWED_MEDIA_TYPES
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.services.media import (
@@ -16,7 +17,6 @@ from ...infrastructure.services.media import (
 )
 from ...infrastructure.services.metadata import extract_taken_date
 from ...infrastructure.storage import get_storage
-from ...config import ALLOWED_MEDIA_TYPES
 
 
 class ItemRenderer(ABC):
@@ -41,12 +41,12 @@ class ItemRenderer(ABC):
         pass
     
     @abstractmethod
-    def render_gallery_item(self, item: Dict) -> str:
+    def render_gallery_item(self, item: Dict) -> Dict:
         """Render HTML for gallery grid."""
         pass
     
     @abstractmethod
-    def render_lightbox(self, item: Dict) -> str:
+    def render_lightbox(self, item: Dict) -> Dict:
         """Render HTML for lightbox view."""
         pass
 
@@ -593,8 +593,7 @@ class ItemService:
     def _delete_item_files(self, item_id: str) -> None:
         """Delete item files from storage."""
         from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-        from pathlib import Path
-        
+
         # Delete from uploads (extension-less storage: filename == item_id)
         upload_path = UPLOADS_DIR / item_id
         if upload_path.exists():

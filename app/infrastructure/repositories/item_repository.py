@@ -6,7 +6,7 @@ polymorphic storage for photos, videos, notes, files, etc.
 import json
 import uuid
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict
 
 from .base import Repository
 

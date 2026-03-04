@@ -3,22 +3,22 @@
 Uses ItemService to create polymorphic items instead of photos directly.
 """
 import os
-import uuid
-import hashlib
 import tempfile
-from pathlib import Path
+import uuid
 from datetime import datetime
-from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
+from pathlib import Path
 from typing import Optional
 
+from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
+
+from ...application.services import ItemService
 from ...config import UPLOADS_DIR, ALLOWED_MEDIA_TYPES
 from ...database import create_connection
 from ...dependencies import require_user
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
-from ...infrastructure.storage import get_storage
 from ...infrastructure.services.media import create_thumbnail_bytes, create_video_thumbnail_bytes
 from ...infrastructure.services.metadata import extract_taken_date
-from ...application.services import ItemService
+from ...infrastructure.storage import get_storage
 
 router = APIRouter()
 
@@ -77,7 +77,7 @@ async def _process_upload(
                 with tempfile.NamedTemporaryFile(delete=False) as tmp:
                     tmp.write(content)
                     tmp.flush()
-                    taken_at = extract_taken_date(tmp.name)
+                    taken_at = extract_taken_date(Path(tmp.name))
             except Exception:
                 pass
         
@@ -329,7 +329,7 @@ async def upload_chunk(
                     with tempfile.NamedTemporaryFile(delete=False) as tmp:
                         tmp.write(assembled_content)
                         tmp.flush()
-                        taken_at = extract_taken_date(tmp.name)
+                        taken_at = extract_taken_date(Path(tmp.name))
                 except Exception:
                     pass
             

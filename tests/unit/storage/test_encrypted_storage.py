@@ -1,9 +1,10 @@
 """Unit tests for EncryptedStorage wrapper."""
 import asyncio
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
+
+import pytest
 
 from app.infrastructure.storage import LocalStorage, EncryptedStorage, StorageConfig
 

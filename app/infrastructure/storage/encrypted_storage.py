@@ -1,8 +1,8 @@
 """Encrypted storage wrapper - encrypts/decrypts data on top of any storage backend."""
-from typing import BinaryIO, Optional, Union, Iterator
 import io
+from typing import BinaryIO, Optional, Union, Iterator
 
-from .base import StorageInterface, StorageError, FileNotFoundError
+from .base import StorageInterface, StorageError
 
 
 class EncryptedStorage(StorageInterface):

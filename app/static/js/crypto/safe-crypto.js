@@ -9,7 +9,7 @@
  * Safe keys are stored in memory only and never persisted.
  */
 
-const SafeCrypto = (function() {
+var SafeCrypto = (function() {
     'use strict';
     
 

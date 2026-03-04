@@ -8,7 +8,7 @@ Tests verify that:
 5. Content-type validation works correctly
 """
 import io
-import pytest
+
 from fastapi.testclient import TestClient
 
 
