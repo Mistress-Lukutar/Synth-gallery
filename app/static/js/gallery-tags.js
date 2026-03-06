@@ -332,16 +332,22 @@
                     ${cat.name}
                 </div>
                 <div class="tag-group-tags">
-                    ${cat.tags.map(tag => `
-                        <span class="tag-chip" 
-                              style="--tag-color: ${cat.color}"
-                              title="${tag.path || tag.name}">
-                            ${tag.display_name || tag.name}
+                    ${cat.tags.map(tag => {
+                        const isExplicit = tag.is_explicit === 1 || tag.is_explicit === true;
+                        const removeBtn = isExplicit ? `
                             <button class="tag-remove" 
                                     onclick="window.removeTag(${tag.id})"
                                     title="Remove">×</button>
+                        ` : '';
+                        return `
+                        <span class="tag-chip ${isExplicit ? '' : 'tag-chip-inherited'}" 
+                              style="--tag-color: ${cat.color}"
+                              title="${tag.path || tag.name}${isExplicit ? '' : ' (auto-added)'}">
+                            ${tag.display_name || tag.name}
+                            ${removeBtn}
                         </span>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             </div>
         `).join('');

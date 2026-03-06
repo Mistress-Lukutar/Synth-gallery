@@ -127,8 +127,8 @@ class TagService:
         return {
             "tags": all_tags,
             "by_category": by_category,
-            "explicit": [t for t in all_tags if t.get('added_by_user')],
-            "inherited": [t for t in all_tags if not t.get('added_by_user')]
+            "explicit": [t for t in all_tags if t.get('is_explicit')],
+            "inherited": [t for t in all_tags if not t.get('is_explicit')]
         }
     
     def add_tag_to_item(self, item_id: str, tag_id: int) -> Dict:
@@ -155,19 +155,31 @@ class TagService:
         
         Args:
             remove_children: Also remove descendant tags
+            
+        Raises:
+            HTTPException: If trying to remove ancestor of explicit tag
         """
         tag = self.repo.get_by_id(tag_id)
         if not tag:
             raise HTTPException(404, "Tag not found")
         
+        # Check if this tag is an ancestor of any explicit tag
+        if self.repo.is_ancestor_of_explicit(item_id, tag_id):
+            if not remove_children:
+                raise HTTPException(400, 
+                    f"Cannot remove '{tag['name']}' - it's required by another tag. "
+                    "Remove child tags first or use remove_children=true")
+            # Cascade delete - remove all descendants too
+            remove_children = True
+        
         removed = []
         
         if remove_children:
-            # Remove all descendants
-            descendants = self.repo.get_descendants(tag_id)
-            for desc in descendants:
-                if self.repo.remove_tag_from_item(item_id, desc['id']):
-                    removed.append(desc['id'])
+            # Remove all descendants in this item
+            descendants = self.repo.get_descendants_in_item(item_id, tag_id)
+            for desc_id in descendants:
+                if self.repo.remove_tag_from_item(item_id, desc_id):
+                    removed.append(desc_id)
         
         # Remove the tag itself
         if self.repo.remove_tag_from_item(item_id, tag_id):
