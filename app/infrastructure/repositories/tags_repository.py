@@ -107,9 +107,13 @@ class TagsRepository(Repository):
     # =========================================================================
     
     def get_children(self, parent_id: int) -> List[Dict]:
-        """Get direct children of a tag."""
+        """Get direct children of a tag with count."""
         cursor = self._execute("""
-            SELECT t.*, c.name as category_name, c.color as category_color
+            SELECT t.*, c.name as category_name, c.color as category_color,
+                   (SELECT COUNT(DISTINCT it.item_id) 
+                    FROM item_tags it
+                    JOIN tags t2 ON it.tag_id = t2.id
+                    WHERE t2.path = t.path OR t2.path LIKE t.path || '.%') as count
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE t.parent_id = ?
@@ -152,18 +156,27 @@ class TagsRepository(Repository):
         return ancestors
     
     def get_root_tags(self, category_id: Optional[int] = None) -> List[Dict]:
-        """Get root tags (level 0) optionally filtered by category."""
+        """Get root tags (level 0) optionally filtered by category with count."""
+        count_sql = """
+            (SELECT COUNT(DISTINCT it.item_id) 
+             FROM item_tags it
+             JOIN tags t2 ON it.tag_id = t2.id
+             WHERE t2.path = t.path OR t2.path LIKE t.path || '.%') as count
+        """
+        
         if category_id:
-            cursor = self._execute("""
-                SELECT t.*, c.name as category_name, c.color as category_color
+            cursor = self._execute(f"""
+                SELECT t.*, c.name as category_name, c.color as category_color,
+                       {count_sql}
                 FROM tags t
                 LEFT JOIN tag_categories c ON t.category_id = c.id
                 WHERE t.level = 0 AND t.category_id = ?
                 ORDER BY t.name
             """, (category_id,))
         else:
-            cursor = self._execute("""
-                SELECT t.*, c.name as category_name, c.color as category_color
+            cursor = self._execute(f"""
+                SELECT t.*, c.name as category_name, c.color as category_color,
+                       {count_sql}
                 FROM tags t
                 LEFT JOIN tag_categories c ON t.category_id = c.id
                 WHERE t.level = 0
@@ -176,15 +189,19 @@ class TagsRepository(Repository):
     # =========================================================================
     
     def search(self, query: str, limit: int = 10) -> List[Dict]:
-        """Search tags by name with usage count."""
+        """Search tags by name with usage count (including inherited)."""
+        # Count includes items where this tag OR any descendant is explicitly tagged
         cursor = self._execute("""
             SELECT t.*, c.name as category_name, c.color as category_color,
-                   COUNT(it.item_id) as count
+                   (
+                       SELECT COUNT(DISTINCT it.item_id) 
+                       FROM item_tags it
+                       JOIN tags t2 ON it.tag_id = t2.id
+                       WHERE t2.path = t.path OR t2.path LIKE t.path || '.%'
+                   ) as count
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
-            LEFT JOIN item_tags it ON t.id = it.tag_id
             WHERE t.name LIKE ? OR t.display_name LIKE ?
-            GROUP BY t.id
             ORDER BY count DESC, t.name
             LIMIT ?
         """, (f"%{query}%", f"%{query}%", limit))
@@ -207,14 +224,14 @@ class TagsRepository(Repository):
         return self.get_root_tags()
     
     # =========================================================================
-    # Item Tags
+    # Item Tags - Store ONLY explicit tags (user input)
+    # Ancestors are calculated on-the-fly
     # =========================================================================
     
-    def get_item_tags(self, item_id: str) -> List[Dict]:
-        """Get all tags for an item with full hierarchy info."""
+    def get_item_tags_explicit(self, item_id: str) -> List[Dict]:
+        """Get only explicit (user-added) tags for an item."""
         cursor = self._execute("""
-            SELECT t.*, c.name as category_name, c.color as category_color,
-                   it.added_by_user, it.added_at
+            SELECT t.*, c.name as category_name, c.color as category_color
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -223,14 +240,38 @@ class TagsRepository(Repository):
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
     
-    def add_tag_to_item(self, item_id: str, tag_id: int, 
-                        added_by_user: bool = True) -> bool:
-        """Add tag to item. Returns True if added, False if already exists."""
+    def get_item_tags_with_ancestors(self, item_id: str) -> List[Dict]:
+        """Get all tags for item including ancestors of explicit tags."""
+        explicit = self.get_item_tags_explicit(item_id)
+        
+        # Collect all tags (explicit + ancestors)
+        all_tags = []
+        seen_ids = set()
+        
+        for tag in explicit:
+            # Add ancestors first
+            ancestors = self.get_ancestors(tag['id'])
+            for ancestor in ancestors:
+                if ancestor['id'] not in seen_ids:
+                    ancestor['is_inherited'] = True
+                    all_tags.append(ancestor)
+                    seen_ids.add(ancestor['id'])
+            
+            # Add explicit tag
+            if tag['id'] not in seen_ids:
+                tag['is_inherited'] = False
+                all_tags.append(tag)
+                seen_ids.add(tag['id'])
+        
+        return all_tags
+    
+    def add_tag_to_item(self, item_id: str, tag_id: int) -> bool:
+        """Add explicit tag to item. Returns True if added, False if already exists."""
         try:
             self._execute("""
-                INSERT INTO item_tags (item_id, tag_id, added_by_user)
-                VALUES (?, ?, ?)
-            """, (item_id, tag_id, 1 if added_by_user else 0))
+                INSERT INTO item_tags (item_id, tag_id)
+                VALUES (?, ?)
+            """, (item_id, tag_id))
             
             # Update usage count
             self._execute("""
@@ -244,7 +285,7 @@ class TagsRepository(Repository):
             return False
     
     def remove_tag_from_item(self, item_id: str, tag_id: int) -> bool:
-        """Remove tag from item."""
+        """Remove explicit tag from item."""
         self._execute("DELETE FROM item_tags WHERE item_id = ? AND tag_id = ?",
                      (item_id, tag_id))
         
@@ -289,26 +330,24 @@ class TagsRepository(Repository):
     # Bulk Operations
     # =========================================================================
     
-    def add_tags_with_ancestors(self, item_id: str, tag_id: int) -> List[int]:
-        """Add tag and all its ancestors to item.
+    def add_tag_explicit(self, item_id: str, tag_id: int) -> bool:
+        """Add explicit tag to item (ancestors are calculated on-the-fly)."""
+        return self.add_tag_to_item(item_id, tag_id)
+    
+    def set_item_tags(self, item_id: str, tag_ids: List[int]) -> None:
+        """Replace all explicit tags for item."""
+        # Remove existing
+        self._execute("DELETE FROM item_tags WHERE item_id = ?", (item_id,))
         
-        Returns list of added tag IDs (including ancestors).
-        """
-        added = []
+        # Add new
+        for tag_id in tag_ids:
+            try:
+                self._execute("INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
+                            (item_id, tag_id))
+                # Update usage count
+                self._execute("UPDATE tags SET usage_count = usage_count + 1 WHERE id = ?",
+                            (tag_id,))
+            except Exception:
+                pass  # Tag might not exist
         
-        # Get tag and all ancestors
-        tag = self.get_by_id(tag_id)
-        if not tag:
-            return added
-        
-        # Add ancestors first (root to leaf)
-        ancestors = self.get_ancestors(tag_id)
-        for ancestor in ancestors:
-            if self.add_tag_to_item(item_id, ancestor['id']):
-                added.append(ancestor['id'])
-        
-        # Add the tag itself
-        if self.add_tag_to_item(item_id, tag_id):
-            added.append(tag_id)
-        
-        return added
+        self._commit()

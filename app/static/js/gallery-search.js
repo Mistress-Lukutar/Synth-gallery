@@ -162,18 +162,13 @@
             
             if (currentWord.length < 2) return;
 
-            // Fetch matching tags
-            const resp = await fetch(`${getBaseUrl()}/api/tags/all`);
+            // Fetch matching tags from new API
+            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(currentWord)}&limit=8`);
             if (!resp.ok) return;
 
-            const allTags = await resp.json();
-            const existingWords = words.slice(0, -1).map(w => w.toLowerCase());
+            const data = await resp.json();
+            const matches = data.tags || [];
             
-            const matches = allTags.filter(t => 
-                t.tag.toLowerCase().includes(currentWord) &&
-                !existingWords.includes(t.tag.toLowerCase())
-            ).slice(0, 8);
-
             if (matches.length === 0) {
                 if (suggestions) suggestions.classList.add('hidden');
                 return;
@@ -182,9 +177,10 @@
             if (!suggestions) return;
 
             suggestions.innerHTML = matches.map(t => `
-                <div class="suggestion-item" data-tag="${escapeHtml(t.tag)}" style="--tag-color: ${t.color || '#6b7280'}">
-                    <span class="tag-dot" style="background-color: ${t.color || '#6b7280'}"></span>
-                    <span>${escapeHtml(t.tag)}</span>
+                <div class="suggestion-item" data-tag="${escapeHtml(t.name)}" style="--tag-color: ${t.category_color || '#6b7280'}">
+                    <span class="tag-dot" style="background-color: ${t.category_color || '#6b7280'}"></span>
+                    <span>${escapeHtml(t.display_name || t.name)}</span>
+                    <span class="tag-count">${t.count || 0}</span>
                 </div>
             `).join('');
 

@@ -147,15 +147,14 @@ def add_tag_to_item(item_id: str, data: TagAddInput, request: Request):
 def remove_tag_from_item(
     item_id: str, 
     tag_id: int,
-    request: Request,
-    remove_children: bool = False
+    request: Request
 ):
-    """Remove tag from item."""
+    """Remove explicit tag from item (inherited tags recalculate automatically)."""
     require_user(request)
     db = create_connection()
     try:
         service = TagService(TagsRepository(db))
-        result = service.remove_tag_from_item(item_id, tag_id, remove_children)
+        result = service.remove_tag_from_item(item_id, tag_id)
         return {"status": "ok", **result}
     finally:
         db.close()
@@ -215,60 +214,3 @@ def batch_tag_items(data: BatchTagInput, request: Request):
         db.close()
 
 
-# =============================================================================
-# Legacy Endpoints (DEPRECATED - for backward compatibility)
-# =============================================================================
-
-@router.get("/api/tag-presets")
-def get_tag_presets_legacy(search: str = ""):
-    """DEPRECATED: Use /api/tags/search instead.
-    
-    Returns leaf tags as "presets" for backward compatibility.
-    """
-    db = create_connection()
-    try:
-        repo = TagsRepository(db)
-        # Return tree structure formatted as old presets
-        tree = repo.get_tree()
-        return {
-            "deprecated": True,
-            "message": "Use /api/tags/search or /api/tags/tree",
-            "categories": tree
-        }
-    finally:
-        db.close()
-
-
-@router.get("/api/tags/all")
-def get_all_tags_legacy():
-    """DEPRECATED: Use /api/tags/search instead."""
-    db = create_connection()
-    try:
-        repo = TagsRepository(db)
-        # Return all leaf tags
-        cursor = repo._execute("""
-            SELECT t.*, c.name as category_name, c.color
-            FROM tags t
-            JOIN tag_categories c ON t.category_id = c.id
-            WHERE t.is_leaf = 1
-            ORDER BY t.usage_count DESC
-        """)
-        tags = [dict(row) for row in cursor.fetchall()]
-        return {
-            "deprecated": True,
-            "message": "Use /api/tags/search",
-            "tags": tags
-        }
-    finally:
-        db.close()
-
-
-@router.post("/api/items/batch-ai-tags")
-def batch_generate_ai_tags_legacy(request: Request):
-    """DEPRECATED: AI tagging not implemented in v2 yet."""
-    return {
-        "deprecated": True,
-        "message": "AI tagging will be reimplemented in future update",
-        "status": "ok",
-        "processed": 0
-    }

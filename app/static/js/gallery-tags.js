@@ -150,7 +150,7 @@
             
             if (resp.ok) {
                 const data = await resp.json();
-                currentTags = data.tags?.tags || [];
+                currentTags = data.tags?.all_tags || [];
                 renderCurrentTags();
                 
                 // Add to recent
@@ -180,7 +180,7 @@
             
             if (resp.ok) {
                 const data = await resp.json();
-                currentTags = data.tags?.tags || [];
+                currentTags = data.tags?.all_tags || [];
                 renderCurrentTags();
             }
         } catch (e) {
@@ -306,45 +306,60 @@
     function renderCurrentTags() {
         if (!currentTagsContainer) return;
         
-        if (currentTags.length === 0) {
-            currentTagsContainer.innerHTML = '<span class="no-tags-hint">No tags selected</span>';
-            return;
+        // Separate explicit and inherited
+        const explicit = currentTags.filter(t => !t.is_inherited);
+        const inherited = currentTags.filter(t => t.is_inherited);
+        
+        let html = '';
+        
+        // Section 1: Your Tags (explicit) - editable
+        if (explicit.length > 0) {
+            html += `
+                <div class="tags-section explicit-tags">
+                    <div class="tags-section-header">
+                        <span>Your Tags</span>
+                        <span class="tags-hint">Click × to remove</span>
+                    </div>
+                    <div class="tags-list">
+                        ${explicit.map(tag => `
+                            <span class="tag-chip tag-chip-editable" 
+                                  style="--tag-color: ${tag.category_color || '#6b7280'}"
+                                  title="${tag.path || tag.name}">
+                                ${tag.display_name || tag.name}
+                                <button class="tag-remove" 
+                                        onclick="window.removeTag(${tag.id})"
+                                        title="Remove">×</button>
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
         }
         
-        // Group by category
-        const byCategory = {};
-        currentTags.forEach(tag => {
-            const catSlug = tag.category_slug || 'other';
-            if (!byCategory[catSlug]) {
-                byCategory[catSlug] = {
-                    name: tag.category_name || 'Other',
-                    color: tag.category_color || '#6b7280',
-                    tags: []
-                };
-            }
-            byCategory[catSlug].tags.push(tag);
-        });
+        // Section 2: Inherited Tags - read-only
+        if (inherited.length > 0) {
+            html += `
+                <div class="tags-section inherited-tags">
+                    <div class="tags-section-header">
+                        <span>Inherited Tags</span>
+                        <span class="tags-hint">Auto-added from your tags</span>
+                    </div>
+                    <div class="tags-list">
+                        ${inherited.map(tag => `
+                            <span class="tag-chip tag-chip-inherited" 
+                                  style="--tag-color: ${tag.category_color || '#6b7280'}"
+                                  title="${tag.path || tag.name}">
+                                ${tag.display_name || tag.name}
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
         
-        // Render grouped
-        const html = Object.entries(byCategory).map(([slug, cat]) => `
-            <div class="tag-group" data-category="${slug}">
-                <div class="tag-group-header" style="color: ${cat.color}">
-                    ${cat.name}
-                </div>
-                <div class="tag-group-tags">
-                    ${cat.tags.map(tag => `
-                        <span class="tag-chip" 
-                              style="--tag-color: ${cat.color}"
-                              title="${tag.path || tag.name}">
-                            ${tag.display_name || tag.name}
-                            <button class="tag-remove" 
-                                    onclick="window.removeTag(${tag.id})"
-                                    title="Remove">×</button>
-                        </span>
-                    `).join('')}
-                </div>
-            </div>
-        `).join('');
+        if (explicit.length === 0 && inherited.length === 0) {
+            html = '<span class="no-tags-hint">No tags selected. Search or browse to add tags.</span>';
+        }
         
         currentTagsContainer.innerHTML = html;
     }
@@ -385,7 +400,8 @@
             const resp = await fetch(`${getBaseUrl()}/api/items/${editingItemId}/tags`);
             if (resp.ok) {
                 const data = await resp.json();
-                currentTags = data.tags || [];
+                // Combine explicit + inherited for display
+                currentTags = data.all_tags || [];
                 renderCurrentTags();
             }
         } catch (e) {
