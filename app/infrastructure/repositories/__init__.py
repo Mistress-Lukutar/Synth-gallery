@@ -21,6 +21,7 @@ from .webauthn_repository import WebAuthnRepository
 from .item_repository import ItemRepository
 from .item_media_repository import ItemMediaRepository
 from .album_repository import AlbumRepository
+from .tags_repository import TagsRepository
 
 __all__ = [
     "Repository",
@@ -34,4 +35,5 @@ __all__ = [
     "ItemRepository",
     "ItemMediaRepository",
     "AlbumRepository",
+    "TagsRepository",
 ]

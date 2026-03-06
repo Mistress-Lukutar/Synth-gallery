@@ -1,436 +1,448 @@
 /**
- * Gallery Tags module
- * Phase 4: Tag editor functionality
+ * Gallery Tags v2 - Hierarchical Tag System
+ * 
+ * Features:
+ * - Tree view for browsing tags
+ * - Autocomplete with usage count
+ * - Negative search support
+ * - Automatic ancestor inclusion
  */
 
 (function() {
-    // Tag editor elements
+    // DOM Elements
     let tagEditorPanel = null;
     let tagSearch = null;
-    let presetsContainer = null;
-    let addNewTagSection = null;
+    let tagTreeContainer = null;
     let currentTagsContainer = null;
+    let categoryTabs = null;
     let lightbox = null;
 
     // State
     let categories = [];
-    let editingTags = [];
-    let originalTags = [];
-    let selectedCategoryId = null;
-    let currentEditingPhotoId = null;
+    let currentCategory = null;
+    let currentTreeParent = null;
+    let editingItemId = null;
+    let currentTags = [];
+    let searchResults = [];
+    let recentTags = [];
 
     function init() {
         tagEditorPanel = document.getElementById('tag-editor-panel');
-        if (!tagEditorPanel) {
-            console.log('[gallery-tags] No tag editor panel');
-            return;
-        }
+        if (!tagEditorPanel) return;
 
         lightbox = document.getElementById('lightbox');
         tagSearch = document.getElementById('tag-search');
-        presetsContainer = document.getElementById('tag-presets-container');
-        addNewTagSection = document.getElementById('add-new-tag-section');
+        tagTreeContainer = document.getElementById('tag-tree-container');
         currentTagsContainer = document.getElementById('current-tags-container');
+        categoryTabs = document.getElementById('category-tabs');
 
         setupEventListeners();
-        console.log('[gallery-tags] Initialized');
+        loadCategories();
+        loadRecentTags();
+        console.log('[gallery-tags-v2] Initialized');
     }
 
     function setupEventListeners() {
-        // Search functionality with debounce
+        // Search with debounce
         let searchTimeout;
         if (tagSearch) {
-            tagSearch.addEventListener('input', () => {
+            tagSearch.addEventListener('input', (e) => {
                 clearTimeout(searchTimeout);
-                const query = tagSearch.value.trim();
-
-                searchTimeout = setTimeout(async () => {
-                    const presets = await loadTagPresets(query);
-
-                    if (query.length > 0) {
-                        const hasExactMatch = presets.some(cat =>
-                            cat.tags.some(t => t.name.toLowerCase() === query.toLowerCase())
-                        );
-
-                        if (!hasExactMatch) {
-                            const newTagName = document.getElementById('new-tag-name');
-                            if (newTagName) newTagName.textContent = query;
-                            if (addNewTagSection) addNewTagSection.classList.remove('hidden');
-                            selectedCategoryId = null;
-                            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('selected'));
-                            const addBtn = document.getElementById('add-new-tag-btn');
-                            if (addBtn) addBtn.disabled = true;
-                        } else {
-                            if (addNewTagSection) addNewTagSection.classList.add('hidden');
-                        }
-                    } else if (addNewTagSection) {
-                        addNewTagSection.classList.add('hidden');
-                    }
-                }, 300);
+                const query = e.target.value.trim();
+                
+                if (query.length === 0) {
+                    showTreeView();
+                    return;
+                }
+                
+                searchTimeout = setTimeout(() => searchTags(query), 200);
             });
+
+            tagSearch.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && searchResults.length > 0) {
+                    addTag(searchResults[0].id);
+                }
+                if (e.key === 'Escape') {
+                    tagSearch.value = '';
+                    showTreeView();
+                }
+            });
+        }
+
+        // Close on backdrop click
+        tagEditorPanel?.addEventListener('click', (e) => {
+            if (e.target === tagEditorPanel) {
+                closeTagEditor();
+            }
+        });
+    }
+
+    // ========================================================================
+    // API Calls
+    // ========================================================================
+
+    async function loadCategories() {
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/tag-categories`);
+            if (resp.ok) {
+                const data = await resp.json();
+                categories = data.categories || [];
+                renderCategoryTabs();
+            }
+        } catch (e) {
+            console.error('Failed to load categories:', e);
         }
     }
 
-    // Open tag editor - uses window.currentLightboxPhotoId if no photoId provided
-    window.openTagEditor = async function(photoId) {
-        // Use provided photoId or fall back to global currentLightboxPhotoId
-        const targetPhotoId = photoId || window.currentLightboxPhotoId;
-        if (!targetPhotoId) {
-            console.error('[gallery-tags] No photo ID available for tag editor');
-            return;
+    async function loadRecentTags() {
+        // Load from localStorage or fetch recent from API
+        const saved = localStorage.getItem('recentTags');
+        if (saved) {
+            recentTags = JSON.parse(saved);
         }
+    }
 
-        currentEditingPhotoId = targetPhotoId;
-        editingTags = [];
-        originalTags = [];
-        selectedCategoryId = null;
-
-        // Get current tags from item API (Phase 5: polymorphic items)
+    async function searchTags(query) {
+        if (!query || query.length < 1) return;
+        
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}`);
+            const resp = await fetch(
+                `${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=10`
+            );
             if (resp.ok) {
-                const photo = await resp.json();
-                originalTags = (photo.tags || []).map(t => ({
-                    id: t.id,
-                    name: t.tag || t.name,
-                    category_id: t.category_id,
-                    color: t.color
-                }));
-                editingTags = originalTags.map(t => ({ ...t }));
+                const data = await resp.json();
+                searchResults = data.tags || [];
+                renderSearchResults();
             }
         } catch (e) {
-            console.error('Failed to load photo tags:', e);
+            console.error('Search failed:', e);
         }
+    }
 
-        updateCurrentTagsDisplay();
-        
-        if (tagEditorPanel) {
-            tagEditorPanel.classList.add('open');
+    async function loadTagTree(categorySlug = null, parentId = null) {
+        try {
+            let url = `${getBaseUrl()}/api/tags/tree`;
+            if (categorySlug) url += `?category=${categorySlug}`;
+            if (parentId) url += `${categorySlug ? '&' : '?'}parent_id=${parentId}`;
+            
+            const resp = await fetch(url);
+            if (resp.ok) {
+                const data = await resp.json();
+                renderTagTree(data.tags, parentId);
+            }
+        } catch (e) {
+            console.error('Failed to load tree:', e);
         }
-        if (lightbox) {
-            lightbox.classList.add('panel-open');
+    }
+
+    async function addTag(tagId) {
+        if (!editingItemId) return;
+        
+        try {
+            const resp = await csrfFetch(
+                `${getBaseUrl()}/api/items/${editingItemId}/tags`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tag_id: tagId })
+                }
+            );
+            
+            if (resp.ok) {
+                const data = await resp.json();
+                currentTags = data.tags?.tags || [];
+                renderCurrentTags();
+                
+                // Add to recent
+                const tag = searchResults.find(t => t.id === tagId);
+                if (tag) addToRecent(tag);
+                
+                // Clear search
+                if (tagSearch) {
+                    tagSearch.value = '';
+                    tagSearch.focus();
+                    showTreeView();
+                }
+            }
+        } catch (e) {
+            console.error('Failed to add tag:', e);
+        }
+    }
+
+    async function removeTag(tagId) {
+        if (!editingItemId) return;
+        
+        try {
+            const resp = await csrfFetch(
+                `${getBaseUrl()}/api/items/${editingItemId}/tags/${tagId}`,
+                { method: 'DELETE' }
+            );
+            
+            if (resp.ok) {
+                const data = await resp.json();
+                currentTags = data.tags?.tags || [];
+                renderCurrentTags();
+            }
+        } catch (e) {
+            console.error('Failed to remove tag:', e);
+        }
+    }
+
+    async function saveChanges() {
+        closeTagEditor();
+        // Refresh gallery to show tag changes
+        if (window.refreshGallery) {
+            window.refreshGallery();
+        }
+    }
+
+    // ========================================================================
+    // Rendering
+    // ========================================================================
+
+    function renderCategoryTabs() {
+        if (!categoryTabs) return;
+        
+        const html = categories.map(cat => `
+            <button class="category-tab ${currentCategory === cat.slug ? 'active' : ''}" 
+                    data-slug="${cat.slug}"
+                    style="--category-color: ${cat.color}">
+                ${cat.name}
+            </button>
+        `).join('');
+        
+        categoryTabs.innerHTML = html;
+        
+        categoryTabs.querySelectorAll('.category-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                currentCategory = tab.dataset.slug;
+                currentTreeParent = null;
+                renderCategoryTabs();
+                loadTagTree(currentCategory);
+            });
+        });
+    }
+
+    function renderTagTree(tags, parentId) {
+        if (!tagTreeContainer) return;
+        
+        // Build breadcrumbs if inside hierarchy
+        let breadcrumbsHtml = '';
+        if (parentId) {
+            breadcrumbsHtml = `
+                <div class="tree-breadcrumbs">
+                    <button class="breadcrumb-back" onclick="window.tagTreeBack()">
+                        ← Back
+                    </button>
+                </div>
+            `;
         }
         
-        // Register with BackButtonManager for mobile back button support
+        // Group by parent for tree view
+        const html = tags.map(tag => {
+            const hasChildren = !tag.is_leaf;
+            const count = tag.count || tag.usage_count || 0;
+            
+            return `
+                <div class="tree-node ${hasChildren ? 'has-children' : ''}" 
+                     data-id="${tag.id}" data-has-children="${hasChildren}">
+                    <div class="tree-node-content">
+                        ${hasChildren ? `
+                            <button class="tree-expand" onclick="window.tagTreeDrillDown(${tag.id})">
+                                ▶
+                            </button>
+                        ` : '<span class="tree-leaf-icon">•</span>'}
+                        <span class="tree-node-name">${tag.display_name || tag.name}</span>
+                        ${count > 0 ? `<span class="tree-count">${count}</span>` : ''}
+                    </div>
+                    <button class="tree-add-btn" onclick="window.addTag(${tag.id})" title="Add tag">
+                        +
+                    </button>
+                </div>
+            `;
+        }).join('');
+        
+        tagTreeContainer.innerHTML = breadcrumbsHtml + html;
+    }
+
+    function renderSearchResults() {
+        if (!tagTreeContainer) return;
+        
+        if (searchResults.length === 0) {
+            tagTreeContainer.innerHTML = `
+                <div class="search-empty">
+                    No tags found. Try different search terms.
+                </div>
+            `;
+            return;
+        }
+        
+        const html = searchResults.map(tag => {
+            const pathParts = tag.path?.split('.') || [tag.name];
+            const pathDisplay = pathParts.slice(0, -1).join(' > ') || 'Root';
+            
+            return `
+                <div class="search-result" data-id="${tag.id}" onclick="window.addTag(${tag.id})">
+                    <div class="search-result-main">
+                        <span class="search-result-name" 
+                              style="--tag-color: ${tag.category_color || '#6b7280'}">
+                            ${tag.display_name || tag.name}
+                        </span>
+                        <span class="search-result-count">${tag.count || 0}</span>
+                    </div>
+                    <div class="search-result-path">${pathDisplay}</div>
+                </div>
+            `;
+        }).join('');
+        
+        tagTreeContainer.innerHTML = `
+            <div class="search-results-header">
+                ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}
+            </div>
+            ${html}
+        `;
+    }
+
+    function renderCurrentTags() {
+        if (!currentTagsContainer) return;
+        
+        if (currentTags.length === 0) {
+            currentTagsContainer.innerHTML = '<span class="no-tags-hint">No tags selected</span>';
+            return;
+        }
+        
+        // Group by category
+        const byCategory = {};
+        currentTags.forEach(tag => {
+            const catSlug = tag.category_slug || 'other';
+            if (!byCategory[catSlug]) {
+                byCategory[catSlug] = {
+                    name: tag.category_name || 'Other',
+                    color: tag.category_color || '#6b7280',
+                    tags: []
+                };
+            }
+            byCategory[catSlug].tags.push(tag);
+        });
+        
+        // Render grouped
+        const html = Object.entries(byCategory).map(([slug, cat]) => `
+            <div class="tag-group" data-category="${slug}">
+                <div class="tag-group-header" style="color: ${cat.color}">
+                    ${cat.name}
+                </div>
+                <div class="tag-group-tags">
+                    ${cat.tags.map(tag => `
+                        <span class="tag-chip" 
+                              style="--tag-color: ${cat.color}"
+                              title="${tag.path || tag.name}">
+                            ${tag.display_name || tag.name}
+                            <button class="tag-remove" 
+                                    onclick="window.removeTag(${tag.id})"
+                                    title="Remove">×</button>
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+        `).join('');
+        
+        currentTagsContainer.innerHTML = html;
+    }
+
+    function showTreeView() {
+        searchResults = [];
+        loadTagTree(currentCategory, currentTreeParent);
+    }
+
+    // ========================================================================
+    // Helpers
+    // ========================================================================
+
+    function addToRecent(tag) {
+        // Remove if exists
+        recentTags = recentTags.filter(t => t.id !== tag.id);
+        // Add to front
+        recentTags.unshift(tag);
+        // Keep only 10
+        recentTags = recentTags.slice(0, 10);
+        // Save
+        localStorage.setItem('recentTags', JSON.stringify(recentTags));
+    }
+
+    // ========================================================================
+    // Public API
+    // ========================================================================
+
+    window.openTagEditor = async function(itemId) {
+        editingItemId = itemId || window.currentLightboxPhotoId;
+        if (!editingItemId) {
+            console.error('[gallery-tags] No item ID');
+            return;
+        }
+        
+        // Load current tags
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/items/${editingItemId}/tags`);
+            if (resp.ok) {
+                const data = await resp.json();
+                currentTags = data.tags || [];
+                renderCurrentTags();
+            }
+        } catch (e) {
+            console.error('Failed to load tags:', e);
+        }
+        
+        // Show panel
+        tagEditorPanel?.classList.add('open');
+        lightbox?.classList.add('panel-open');
+        
+        // Reset state
+        currentCategory = null;
+        currentTreeParent = null;
+        if (tagSearch) tagSearch.value = '';
+        
+        // Load initial tree
+        showTreeView();
+        
+        // Register back button handler
         if (window.BackButtonManager) {
             window.BackButtonManager.register('tag-editor', window.closeTagEditor);
         }
-        
-        await loadCategories();
-        await loadTagPresets();
-        
-        if (tagSearch) {
-            tagSearch.value = '';
-            tagSearch.focus();
-        }
-        if (addNewTagSection) {
-            addNewTagSection.classList.add('hidden');
-        }
     };
 
-    // Close tag editor
     window.closeTagEditor = function() {
-        // Unregister from BackButtonManager first (skipHistoryBack = true for button clicks)
         if (window.BackButtonManager) {
             window.BackButtonManager.unregister('tag-editor', true);
         }
         
-        if (tagEditorPanel) {
-            tagEditorPanel.classList.remove('open');
-        }
-        if (lightbox) {
-            lightbox.classList.remove('panel-open');
-        }
-        selectedCategoryId = null;
-        editingTags = [];
-        originalTags = [];
-        currentEditingPhotoId = null;
+        tagEditorPanel?.classList.remove('open');
+        lightbox?.classList.remove('panel-open');
+        editingItemId = null;
+        currentTags = [];
+        searchResults = [];
     };
 
-    // Load tag categories
-    async function loadCategories() {
-        try {
-            const resp = await fetch(`${getBaseUrl()}/api/tag-categories`);
-            if (!resp.ok) return;
-            categories = await resp.json();
-            renderCategoryButtons();
-        } catch (err) {
-            console.error('Failed to load categories:', err);
-        }
-    }
-
-    // Load tag presets
-    async function loadTagPresets(search = "") {
-        try {
-            const url = search 
-                ? `${getBaseUrl()}/api/tag-presets?search=${encodeURIComponent(search)}`
-                : `${getBaseUrl()}/api/tag-presets`;
-            const resp = await fetch(url);
-            if (!resp.ok) return [];
-            
-            const data = await resp.json();
-            renderPresets(data);
-            return data;
-        } catch (err) {
-            console.error('Failed to load tag presets:', err);
-            return [];
-        }
-    }
-
-    // Render preset tags by category
-    function renderPresets(presetsData) {
-        if (!presetsContainer) return;
-        
-        if (!presetsData || presetsData.length === 0) {
-            presetsContainer.innerHTML = '<p class="no-presets">No matching tags found</p>';
-            return;
-        }
-
-        presetsContainer.innerHTML = presetsData.map(category => `
-            <div class="preset-category">
-                <h4 style="--cat-color: ${category.color}">${escapeHtml(category.name)}</h4>
-                <div class="preset-tags">
-                    ${(category.tags || []).map(tag => {
-                        const isSelected = editingTags.some(t => t.name.toLowerCase() === tag.name.toLowerCase());
-                        return `
-                            <button class="preset-tag ${isSelected ? 'selected' : ''}"
-                                    style="--tag-color: ${category.color}"
-                                    data-tag-name="${escapeHtml(tag.name)}"
-                                    data-category-id="${category.id}"
-                                    data-color="${category.color}">
-                                ${escapeHtml(tag.name)}
-                            </button>
-                        `;
-                    }).join('')}
-                </div>
-            </div>
-        `).join('');
-
-        // Add click handlers
-        presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
-            btn.onclick = () => toggleTag(btn.dataset.tagName, parseInt(btn.dataset.categoryId), btn.dataset.color);
-        });
-    }
-
-    // Render category buttons for new tags
-    function renderCategoryButtons() {
-        const container = document.getElementById('category-buttons');
-        if (!container) return;
-
-        container.innerHTML = categories.map(cat => `
-            <button class="category-btn" style="--cat-color: ${cat.color}" data-category-id="${cat.id}">
-                ${escapeHtml(cat.name)}
-            </button>
-        `).join('');
-
-        container.querySelectorAll('.category-btn').forEach(btn => {
-            btn.onclick = () => selectCategory(parseInt(btn.dataset.categoryId));
-        });
-    }
-
-    // Select category for new tag
-    window.selectCategory = function(categoryId) {
-        selectedCategoryId = categoryId;
-        document.querySelectorAll('.category-btn').forEach(btn => {
-            btn.classList.toggle('selected', parseInt(btn.dataset.categoryId) === categoryId);
-        });
-        const addBtn = document.getElementById('add-new-tag-btn');
-        if (addBtn) addBtn.disabled = false;
+    window.addTag = addTag;
+    window.removeTag = removeTag;
+    window.saveTagChanges = saveChanges;
+    
+    window.tagTreeDrillDown = function(tagId) {
+        currentTreeParent = tagId;
+        loadTagTree(currentCategory, tagId);
     };
-
-    // Toggle tag selection
-    window.toggleTag = function(tagName, categoryId, color) {
-        const index = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
-
-        if (index === -1) {
-            editingTags.push({ name: tagName, category_id: categoryId, color: color });
-        } else {
-            editingTags.splice(index, 1);
-        }
-
-        updateCurrentTagsDisplay();
-        updatePresetButtons();
-    };
-
-    // Remove tag from editing list
-    window.removeTagFromEditing = function(tagName) {
-        const index = editingTags.findIndex(t => t.name.toLowerCase() === tagName.toLowerCase());
-        if (index !== -1) {
-            editingTags.splice(index, 1);
-            updateCurrentTagsDisplay();
-            updatePresetButtons();
+    
+    window.tagTreeBack = function() {
+        if (currentTreeParent) {
+            // Need to find parent - for simplicity reload root
+            currentTreeParent = null;
+            loadTagTree(currentCategory);
         }
     };
 
-    // Update current tags display
-    function updateCurrentTagsDisplay() {
-        if (!currentTagsContainer) return;
-
-        if (editingTags.length === 0) {
-            currentTagsContainer.innerHTML = '<span class="no-tags-hint">No tags selected</span>';
-        } else {
-            currentTagsContainer.innerHTML = editingTags.map(tag => `
-                <span class="selected-tag" style="--tag-color: ${tag.color || '#6b7280'}">
-                    ${escapeHtml(tag.name)}
-                    <button class="tag-remove" onclick="window.removeTagFromEditing('${escapeHtml(tag.name)}')">&times;</button>
-                </span>
-            `).join('');
-        }
-    }
-
-    // Update preset button states
-    function updatePresetButtons() {
-        if (!presetsContainer) return;
-        presetsContainer.querySelectorAll('.preset-tag').forEach(btn => {
-            const tagName = btn.dataset.tagName;
-            const isSelected = editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase());
-            btn.classList.toggle('selected', isSelected);
-        });
-    }
-
-    // Save tag changes - add/remove individual tags like in v0.8.5
-    window.saveTagChanges = async function() {
-        if (!currentEditingPhotoId) return;
-
-        const saveBtn = document.getElementById('save-tags-btn');
-        if (saveBtn) {
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
-        }
-
-        try {
-            // Calculate differences
-            const toAdd = editingTags.filter(et =>
-                !originalTags.some(ot => ot.name.toLowerCase() === et.name.toLowerCase())
-            );
-
-            const toRemove = originalTags.filter(ot =>
-                !editingTags.some(et => et.name.toLowerCase() === ot.name.toLowerCase())
-            );
-
-            // Remove tags
-            for (const tag of toRemove) {
-                if (tag.id) {
-                    await csrfFetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}/tag/${tag.id}`, { 
-                        method: 'DELETE' 
-                    });
-                }
-            }
-
-            // Add new tags
-            for (const tag of toAdd) {
-                await csrfFetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}/tag`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ tag: tag.name, category_id: tag.category_id })
-                });
-            }
-
-            window.closeTagEditor();
-
-            // Refresh lightbox to show updated tags
-            if (typeof window.reloadCurrentPhoto === 'function') {
-                window.reloadCurrentPhoto();
-            }
-        } catch (err) {
-            console.error('Failed to save tags:', err);
-            alert('Failed to save tags: ' + err.message);
-        } finally {
-            if (saveBtn) {
-                saveBtn.disabled = false;
-                saveBtn.textContent = 'Save Changes';
-            }
-        }
-    };
-
-    // Add new tag to library
-    window.addNewTag = async function() {
-        if (!tagSearch || !selectedCategoryId) return;
-        
-        const tagName = tagSearch.value.trim();
-        if (!tagName) return;
-
-        if (editingTags.some(t => t.name.toLowerCase() === tagName.toLowerCase())) {
-            alert('This tag is already selected');
-            return;
-        }
-
-        try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/tag-presets`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: tagName, category_id: selectedCategoryId })
-            });
-
-            if (!resp.ok) throw new Error('Failed to add tag');
-
-            const category = categories.find(c => c.id === selectedCategoryId);
-            editingTags.push({
-                name: tagName.toLowerCase(),
-                category_id: selectedCategoryId,
-                color: category?.color || '#6b7280'
-            });
-
-            updateCurrentTagsDisplay();
-            tagSearch.value = '';
-            if (addNewTagSection) addNewTagSection.classList.add('hidden');
-            await loadTagPresets();
-        } catch (err) {
-            console.error('Failed to add tag:', err);
-            alert('Failed to add tag: ' + err.message);
-        }
-    };
-
-    // Request AI analysis
-    window.requestAIAnalysis = async function() {
-        if (!currentEditingPhotoId) return;
-
-        const btn = document.getElementById('request-ai-btn');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerHTML = 'Analyzing...';
-        }
-
-        try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/items/${currentEditingPhotoId}/ai-tags`, {
-                method: 'POST'
-            });
-
-            if (!resp.ok) throw new Error('Analysis failed');
-
-            const data = await resp.json();
-            if (data.status === 'ok') {
-                window.closeTagEditor();
-                // Refresh lightbox to show new tags
-                if (typeof window.loadPhoto === 'function') {
-                    await window.loadPhoto(currentEditingPhotoId);
-                }
-            } else {
-                throw new Error(data.message || 'Analysis failed');
-            }
-        } catch (err) {
-            console.error('AI analysis failed:', err);
-            alert('AI analysis failed: ' + err.message);
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.innerHTML = `
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
-                        <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
-                        <circle cx="12" cy="20" r="2"/>
-                        <path d="M12 18v-2"/>
-                    </svg>
-                    Request AI Analysis
-                `;
-            }
-        }
-    };
-
-    // Init on DOM ready
-    document.addEventListener('DOMContentLoaded', () => {
+    // Initialize on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
         init();
-    });
-
-    console.log('[gallery-tags.js] Loaded');
+    }
 })();

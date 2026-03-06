@@ -19,7 +19,6 @@
         <div class="lightbox-info">
             <div class="lightbox-meta">
                 <div class="lightbox-dates" id="lightbox-dates"></div>
-                <div class="lightbox-tags" id="lightbox-tags"></div>
             </div>
             <div class="lightbox-edit-buttons">
                 <button id="lightbox-edit-tags" class="lightbox-edit-btn" onclick="openTagEditor()" title="Edit Tags">
@@ -38,48 +37,38 @@
         </div>
     </div>
     
-    <!-- Tag Editor Panel - inside lightbox for proper positioning -->
+    <!-- Tag Editor Panel v2 - Hierarchical Tags -->
     <div id="tag-editor-panel" class="tag-editor-panel">
         <div class="tag-editor-header">
             <h3>Edit Tags</h3>
             <button class="btn-close tag-editor-close" onclick="closeTagEditor()">&times;</button>
         </div>
         <div class="tag-editor-body">
-            <!-- AI Analysis button -->
-            <div class="ai-analysis-section">
-                <button id="request-ai-btn" class="btn btn-secondary btn-block" onclick="requestAIAnalysis()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                        <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/>
-                        <path d="M16 14v1a4 4 0 0 1-8 0v-1"/>
-                        <circle cx="12" cy="20" r="2"/>
-                        <path d="M12 18v-2"/>
-                    </svg>
-                    Request AI Analysis
-                </button>
-            </div>
-            <!-- Current tags -->
+            <!-- Current tags grouped by category -->
             <div class="current-tags-section">
-                <label>Selected:</label>
+                <label>Selected Tags:</label>
                 <div id="current-tags-container" class="selected-tags-container">
                     <span class="no-tags-hint">No tags selected</span>
                 </div>
             </div>
+            
+            <!-- Search with autocomplete -->
             <div class="tag-search-container">
-                <input type="text" id="tag-search" placeholder="Search or add new tag..." autocomplete="off" aria-label="Search or add new tag">
+                <input type="text" 
+                       id="tag-search" 
+                       placeholder="Search tags (e.g., fox, night)..." 
+                       autocomplete="off" 
+                       aria-label="Search tags">
             </div>
-            <div id="tag-presets-container" class="tag-presets"></div>
-            <div id="add-new-tag-section" class="add-new-tag-section hidden">
-                <p>Tag "<span id="new-tag-name"></span>" not found</p>
-                <div class="category-select">
-                    <label>Select category:</label>
-                    <div id="category-buttons" class="category-buttons"></div>
-                </div>
-                <button id="add-new-tag-btn" class="btn btn-small" disabled onclick="addNewTag()">Add to Library</button>
-            </div>
+            
+            <!-- Category tabs -->
+            <div id="category-tabs" class="category-tabs"></div>
+            
+            <!-- Tag tree / search results -->
+            <div id="tag-tree-container" class="tag-tree-container"></div>
         </div>
         <div class="tag-editor-footer">
-            <button class="btn btn-secondary" onclick="closeTagEditor()">Cancel</button>
-            <button id="save-tags-btn" class="btn" onclick="saveTagChanges()">Save Changes</button>
+            <button class="btn btn-secondary" onclick="closeTagEditor()">Close</button>
         </div>
     </div>
     
