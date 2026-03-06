@@ -4278,11 +4278,6 @@ main {
     opacity: 1;
 }
 
-.tag-chip-inherited {
-    opacity: 0.7;
-    font-style: italic;
-}
-
 /* Search */
 .tag-search-container {
     margin-bottom: 16px;
