@@ -178,8 +178,6 @@ Complete checklist for manual testing of Synth Gallery functionality.
 - [ ] Video thumbnails show play icon
 
 ### Selection
-- [ ] Ctrl+Click selects multiple items
-- [ ] Shift+Click selects range
 - [ ] Select all checkbox works
 - [ ] Delete selected works
 - [ ] Move selected works
@@ -206,7 +204,6 @@ Complete checklist for manual testing of Synth Gallery functionality.
 - [ ] Escape key closes
 - [ ] Close removes photo_id from URL
 - [ ] Info panel shows metadata
-- [ ] Tags visible and clickable
 
 ### Video Playback
 - [ ] Video plays in lightbox
@@ -217,13 +214,6 @@ Complete checklist for manual testing of Synth Gallery functionality.
 ---
 
 ## Albums
-
-### Create Album
-- [ ] Select photos
-- [ ] Click "Create Album"
-- [ ] Enter album name
-- [ ] Verify album created
-- [ ] Verify album appears in folder
 
 ### Album View
 - [ ] Click album opens lightbox
@@ -240,24 +230,34 @@ Complete checklist for manual testing of Synth Gallery functionality.
 - [ ] Save changes
 
 ### Delete Album
-- [ ] Delete album (photos should remain)
+- [ ] Delete album (photos deleted with album)
 - [ ] Verify album removed
-- [ ] Verify photos still in folder
+- [ ] Verify photos removed from folder
 
 ---
 
-## Tags & Search
+## Tags & Search (Hierarchical v2)
 
-### Tag Management
-- [ ] Add tags to photo
-- [ ] Remove tags from photo
-- [ ] Create new tag
-- [ ] Tags persist after reload
+### Tag Editor
+- [ ] Open tag editor from lightbox
+- [ ] "Your Tags" section shows explicit tags
+- [ ] "Inherited Tags" section shows auto-calculated ancestors
+- [ ] Add tag via search
+- [ ] Add tag via tree browser
+- [ ] Remove explicit tag (inherited recalculates)
+- [ ] Cannot remove inherited tags directly
+
+### Hierarchical Tags
+- [ ] Adding "silver_fox" auto-adds "fox", "mammal", "animal"
+- [ ] Removing "silver_fox" removes its ancestors (if not needed by others)
+- [ ] Tag tree shows categories: Subject, Style, Environment, etc.
+- [ ] Navigate tree: animal → mammal → fox → silver_fox
 
 ### Tag Search
-- [ ] Click tag searches for it
-- [ ] Search results show correctly
-- [ ] Multiple tag filter works
+- [ ] Search "fox night" finds items with both tags
+- [ ] Search "fox -wolf" excludes wolf items
+- [ ] Results show item thumbnails
+- [ ] Clear search returns to folder view
 
 ### Global Search
 - [ ] Type in search box
