@@ -705,6 +705,9 @@
                         }
 
                         formData.append('folder_id', targetFolderId);
+                        if (targetSafeId) {
+                            formData.append('safe_id', targetSafeId);
+                        }
 
                         const resp = await csrfFetch(`${getBaseUrl()}/upload`, {
                             method: 'POST',
