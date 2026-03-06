@@ -395,7 +395,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             item_id TEXT NOT NULL,
             tag_id INTEGER NOT NULL,
-            is_explicit INTEGER DEFAULT 1,  -- 1 = user added, 0 = auto-added ancestor
+            added_by_user INTEGER DEFAULT 1,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(item_id, tag_id),
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
