@@ -109,72 +109,56 @@ class TagService:
     # ========================================================================
     
     def get_item_tags(self, item_id: str) -> Dict:
-        """Get tags for item organized by category.
+        """Get tags for item - two lists: explicit (user) and inherited (calculated).
         
         Returns:
-            Dict with all tags, explicit tags, and inherited tags
+            Dict with explicit_tags, inherited_tags, and all_tags
         """
-        all_tags = self.repo.get_item_tags(item_id)
+        # Explicit = stored in item_tags (user input)
+        explicit = self.repo.get_item_tags_explicit(item_id)
         
-        # Organize by category
-        by_category = {}
-        for tag in all_tags:
-            cat_slug = tag.get('category_slug', 'other')
-            if cat_slug not in by_category:
-                by_category[cat_slug] = []
-            by_category[cat_slug].append(tag)
+        # Inherited = calculated from explicit (ancestors)
+        all_with_ancestors = self.repo.get_item_tags_with_ancestors(item_id)
+        inherited = [t for t in all_with_ancestors if t.get('is_inherited')]
         
         return {
-            "tags": all_tags,
-            "by_category": by_category,
-            "explicit": [t for t in all_tags if t.get('added_by_user')],
-            "inherited": [t for t in all_tags if not t.get('added_by_user')]
+            "explicit_tags": explicit,
+            "inherited_tags": inherited,
+            "all_tags": all_with_ancestors
         }
     
     def add_tag_to_item(self, item_id: str, tag_id: int) -> Dict:
-        """Add tag to item with all ancestors.
+        """Add explicit tag to item.
         
         Returns:
-            Dict with added tags and full item tags
+            Dict with updated tags
         """
         tag = self.repo.get_by_id(tag_id)
         if not tag:
             raise HTTPException(404, "Tag not found")
         
-        # Add tag and ancestors
-        added_ids = self.repo.add_tags_with_ancestors(item_id, tag_id)
+        # Add explicit tag only
+        self.repo.add_tag_explicit(item_id, tag_id)
         
         return {
-            "added": added_ids,
+            "added": [tag_id],
             "tags": self.get_item_tags(item_id)
         }
     
-    def remove_tag_from_item(self, item_id: str, tag_id: int,
-                             remove_children: bool = False) -> Dict:
-        """Remove tag from item.
+    def remove_tag_from_item(self, item_id: str, tag_id: int) -> Dict:
+        """Remove explicit tag from item.
         
-        Args:
-            remove_children: Also remove descendant tags
+        Inherited tags are recalculated automatically.
         """
         tag = self.repo.get_by_id(tag_id)
         if not tag:
             raise HTTPException(404, "Tag not found")
         
-        removed = []
-        
-        if remove_children:
-            # Remove all descendants
-            descendants = self.repo.get_descendants(tag_id)
-            for desc in descendants:
-                if self.repo.remove_tag_from_item(item_id, desc['id']):
-                    removed.append(desc['id'])
-        
-        # Remove the tag itself
-        if self.repo.remove_tag_from_item(item_id, tag_id):
-            removed.append(tag_id)
+        # Remove explicit tag (inherited recalculated automatically)
+        self.repo.remove_tag_from_item(item_id, tag_id)
         
         return {
-            "removed": removed,
+            "removed": [tag_id],
             "tags": self.get_item_tags(item_id)
         }
     
@@ -256,19 +240,21 @@ class TagService:
     
     def _execute_tag_search(self, include_ids: set, exclude_ids: set,
                            folder_id: Optional[str]) -> List[Dict]:
-        """Execute tag search query."""
-        # Build SQL
-        include_list = list(include_ids) if include_ids else [0]  # dummy
+        """Execute tag search query with media metadata."""
+        include_list = list(include_ids) if include_ids else [0]
         exclude_list = list(exclude_ids) if exclude_ids else [0]
         
         placeholders_inc = ','.join('?' * len(include_list))
         placeholders_exc = ','.join('?' * len(exclude_list))
         
+        # Join with item_media to get thumbnail dimensions
         if folder_id:
-            # Include items with ANY include tag, exclude items with ANY exclude tag
             sql = f"""
-                SELECT i.* FROM items i
+                SELECT i.*, im.media_type, im.thumb_width, im.thumb_height
+                FROM items i
+                LEFT JOIN item_media im ON i.id = im.item_id
                 WHERE i.folder_id = ?
+                  AND i.type = 'media'
                   AND i.id IN (
                       SELECT item_id FROM item_tags 
                       WHERE tag_id IN ({placeholders_inc})
@@ -282,8 +268,11 @@ class TagService:
             params = [folder_id] + include_list + exclude_list + [1 if exclude_ids else 0]
         else:
             sql = f"""
-                SELECT i.* FROM items i
-                WHERE i.id IN (
+                SELECT i.*, im.media_type, im.thumb_width, im.thumb_height
+                FROM items i
+                LEFT JOIN item_media im ON i.id = im.item_id
+                WHERE i.type = 'media'
+                  AND i.id IN (
                     SELECT item_id FROM item_tags 
                     WHERE tag_id IN ({placeholders_inc})
                 )
@@ -296,7 +285,13 @@ class TagService:
             params = include_list + exclude_list + [1 if exclude_ids else 0]
         
         cursor = self.repo._conn.execute(sql, params)
-        return [dict(row) for row in cursor.fetchall()]
+        items = [dict(row) for row in cursor.fetchall()]
+        
+        # Format for frontend compatibility
+        for item in items:
+            item['type'] = 'photo'  # Frontend expects 'photo' not 'media'
+        
+        return items
     
     # ========================================================================
     # Bulk Operations

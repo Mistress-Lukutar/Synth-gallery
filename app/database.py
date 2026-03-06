@@ -389,13 +389,12 @@ def init_db():
         )
     """)
     
-    # Item-tags relationship (many-to-many)
+    # Item-tags relationship (many-to-many) - stores ONLY explicit tags
     db.execute("""
         CREATE TABLE IF NOT EXISTS item_tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             item_id TEXT NOT NULL,
             tag_id INTEGER NOT NULL,
-            added_by_user INTEGER DEFAULT 1,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(item_id, tag_id),
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
