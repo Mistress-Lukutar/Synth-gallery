@@ -348,6 +348,15 @@ def init_db():
     # Tag System v2: Hierarchical Tags
     # =============================================================================
     
+    # Migration: Drop old tags table if it has old schema (no path column)
+    try:
+        db.execute("SELECT path FROM tags LIMIT 1")
+    except sqlite3.OperationalError:
+        # Old schema - drop and recreate
+        db.execute("DROP TABLE IF EXISTS item_tags")  # FK dependency
+        db.execute("DROP TABLE IF EXISTS tags")
+        print("[Migration] Dropped old tags tables for v2 upgrade")
+    
     # Tag categories (fixed set)
     db.execute("""
         CREATE TABLE IF NOT EXISTS tag_categories (
