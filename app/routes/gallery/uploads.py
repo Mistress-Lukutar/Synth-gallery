@@ -37,11 +37,15 @@ async def _process_upload(
     safe_id: Optional[str],
     user: dict,
     is_encrypted: bool = False,
-    client_encryption_metadata: Optional[str] = None
+    client_encryption_metadata: Optional[str] = None,
+    thumbnail: Optional[UploadFile] = None,
+    thumb_width: int = 0,
+    thumb_height: int = 0
 ) -> dict:
     """Process single file upload.
     
     Creates Item + ItemMedia instead of direct Photo record.
+    For E2E encrypted uploads (safes), client provides encrypted thumbnail.
     """
     db = create_connection()
     try:
@@ -81,25 +85,30 @@ async def _process_upload(
             except Exception:
                 pass
         
-        # Generate thumbnail
-        thumb_w, thumb_h = 0, 0
+        # Handle thumbnail - use client-provided for E2E, generate otherwise
+        thumb_w, thumb_h = thumb_width, thumb_height
         thumb_bytes = None
-        if media_type == 'image':
-            try:
-                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(content)
-            except Exception:
-                pass
-        elif media_type == 'video':
-            try:
-                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(content)
-            except Exception:
-                pass
+        if is_encrypted and thumbnail:
+            # E2E: Use encrypted thumbnail from client
+            thumb_bytes = await thumbnail.read()
+        elif not is_encrypted:
+            # Server-side: Generate thumbnail
+            if media_type == 'image':
+                try:
+                    thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(content)
+                except Exception:
+                    pass
+            elif media_type == 'video':
+                try:
+                    thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(content)
+                except Exception:
+                    pass
         
         # Upload to storage
         upload_path = f"uploads/{filename}"
         await storage.upload(item_id, content, folder="uploads")
         
-        # Upload thumbnail if generated
+        # Upload thumbnail if available
         if thumb_bytes:
             await storage.upload(item_id, thumb_bytes, folder="thumbnails")
         
@@ -141,14 +150,26 @@ async def upload_file(
     folder_id: str = Form(...),
     safe_id: Optional[str] = Form(None),
     is_encrypted: bool = Form(False),
-    encryption_metadata: Optional[str] = Form(None)
+    encryption_metadata: Optional[str] = Form(None),
+    encrypted_ck: Optional[str] = Form(None),
+    thumbnail: Optional[UploadFile] = File(None),
+    thumb_width: int = Form(0),
+    thumb_height: int = Form(0)
 ):
     """Upload single file.
     
     Creates Item record with type='media' and associated ItemMedia.
     Legacy endpoint returns backward-compatible response format.
+    
+    For Safe (E2E encrypted) uploads:
+    - Pass encrypted_ck='safe' to skip server-side MIME validation
+    - Pass encrypted thumbnail via 'thumbnail' field
+    - Client must validate file type before encryption.
     """
     user = require_user(request)
+    
+    # Detect E2E encrypted upload for safes (client passes encrypted_ck)
+    is_e2e_encrypted = is_encrypted or (encrypted_ck is not None and encrypted_ck == 'safe')
     
     # Check permissions
     from .deps import get_permission_service
@@ -165,8 +186,11 @@ async def upload_file(
         folder_id=folder_id,
         safe_id=safe_id,
         user=user,
-        is_encrypted=is_encrypted,
-        client_encryption_metadata=encryption_metadata
+        is_encrypted=is_e2e_encrypted,
+        client_encryption_metadata=encryption_metadata,
+        thumbnail=thumbnail,
+        thumb_width=thumb_width,
+        thumb_height=thumb_height
     )
     
     # Clean response structure (use id as filename in extension-less storage)
@@ -193,13 +217,20 @@ async def upload_batch(
     folder_id: str = Form(...),
     safe_id: Optional[str] = Form(None),
     is_encrypted: bool = Form(False),
-    encryption_metadata: Optional[str] = Form(None)
+    encryption_metadata: Optional[str] = Form(None),
+    encrypted_ck: Optional[str] = Form(None)
 ):
     """Upload multiple files.
     
     Creates Item records for each file.
+    
+    For Safe (E2E encrypted) uploads, pass encrypted_ck='safe' to skip
+    server-side MIME validation (client must validate before encryption).
     """
     user = require_user(request)
+    
+    # Detect E2E encrypted upload for safes (client passes encrypted_ck)
+    is_e2e_encrypted = is_encrypted or (encrypted_ck is not None and encrypted_ck == 'safe')
     
     # Check permissions once
     from .deps import get_permission_service
@@ -221,7 +252,7 @@ async def upload_batch(
                 folder_id=folder_id,
                 safe_id=safe_id,
                 user=user,
-                is_encrypted=is_encrypted,
+                is_encrypted=is_e2e_encrypted,
                 client_encryption_metadata=encryption_metadata if idx == 0 else None
             )
             # Clean response structure (use id as filename)
@@ -368,6 +399,163 @@ async def upload_chunk(
         "received": received,
         "total": total_chunks,
         "complete": False
+    }
+
+
+@router.post("/upload-bulk")
+async def upload_bulk(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    folder_id: str = Form(...),
+    paths: str = Form(...),
+    safe_id: Optional[str] = Form(None),
+    encrypted_ck: Optional[str] = Form(None)
+):
+    """Bulk upload folder structure with files.
+    
+    Creates subfolders and albums from directory structure.
+    Files in root go to target folder, files in subfolders create albums.
+    
+    For Safe (E2E encrypted) uploads, pass encrypted_ck='safe' to skip
+    server-side MIME validation (client must validate before encryption).
+    """
+    import json
+    from ...infrastructure.repositories import FolderRepository, AlbumRepository
+    from ...application.services import FolderService
+    
+    user = require_user(request)
+    
+    # Detect E2E encrypted upload for safes (client passes encrypted_ck)
+    is_e2e_encrypted = encrypted_ck is not None and encrypted_ck == 'safe'
+    
+    # Parse paths
+    try:
+        file_paths = json.loads(paths)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid paths JSON")
+    
+    if len(files) != len(file_paths):
+        raise HTTPException(400, "Files and paths count mismatch")
+    
+    # Check permissions on target folder
+    from .deps import get_permission_service
+    db = create_connection()
+    try:
+        perm_service = get_permission_service(db)
+        if not perm_service.can_edit(folder_id, user["id"]):
+            raise HTTPException(403, "Cannot upload to this folder")
+    finally:
+        db.close()
+    
+    # Group files by their parent directory
+    root_files = []  # Files to upload directly to target folder
+    album_groups = {}  # folder_name -> list of (file, filename)
+    skipped_nested = 0
+    
+    for file, relative_path in zip(files, file_paths):
+        # Normalize path separators
+        relative_path = relative_path.replace('\\', '/')
+        parts = relative_path.split('/')
+        
+        if len(parts) == 1:
+            # Root level file
+            root_files.append((file, parts[0]))
+        elif len(parts) == 2:
+            # One level deep - create album
+            folder_name = parts[0]
+            filename = parts[1]
+            if folder_name not in album_groups:
+                album_groups[folder_name] = []
+            album_groups[folder_name].append((file, filename))
+        else:
+            # Nested too deep - skip
+            skipped_nested += 1
+    
+    # Track results
+    individual_photos = 0
+    albums_created = 0
+    photos_in_albums = 0
+    failed = 0
+    errors = []
+    
+    db = create_connection()
+    try:
+        folder_repo = FolderRepository(db)
+        album_repo = AlbumRepository(db)
+        folder_service = FolderService(folder_repo)
+        
+        # Upload root level files directly
+        for file, filename in root_files:
+            try:
+                await _process_upload(
+                    file=file,
+                    folder_id=folder_id,
+                    safe_id=safe_id,
+                    user=user,
+                    is_encrypted=is_e2e_encrypted
+                )
+                individual_photos += 1
+            except Exception as e:
+                failed += 1
+                errors.append(f"{filename}: {str(e)}")
+        
+        # Create albums from subfolders
+        for album_name, album_files in album_groups.items():
+            try:
+                # Create subfolder for the album
+                subfolder = folder_service.create_folder(
+                    name=album_name,
+                    user_id=user["id"],
+                    parent_id=folder_id,
+                    safe_id=safe_id
+                )
+                
+                # Upload files to subfolder
+                item_ids = []
+                for file, _ in album_files:
+                    try:
+                        item = await _process_upload(
+                            file=file,
+                            folder_id=subfolder["id"],
+                            safe_id=safe_id,
+                            user=user,
+                            is_encrypted=is_e2e_encrypted
+                        )
+                        item_ids.append(item["id"])
+                        photos_in_albums += 1
+                    except Exception as e:
+                        failed += 1
+                        errors.append(f"{file.filename}: {str(e)}")
+                
+                # Create album with uploaded items
+                if item_ids:
+                    album_id = album_repo.create(
+                        folder_id=subfolder["id"],
+                        user_id=user["id"],
+                        name=album_name,
+                        safe_id=safe_id
+                    )
+                    for position, item_id in enumerate(item_ids):
+                        album_repo.add_item(album_id, item_id, position)
+                    albums_created += 1
+                    
+            except Exception as e:
+                failed += len(album_files)
+                errors.append(f"Album {album_name}: {str(e)}")
+    finally:
+        db.close()
+    
+    return {
+        "status": "ok" if failed == 0 else "partial",
+        "summary": {
+            "total_files": len(files),
+            "individual_photos": individual_photos,
+            "albums_created": albums_created,
+            "photos_in_albums": photos_in_albums,
+            "failed": failed,
+            "skipped_nested": skipped_nested
+        },
+        "errors": errors if errors else None
     }
 
 
