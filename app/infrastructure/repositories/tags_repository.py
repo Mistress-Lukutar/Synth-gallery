@@ -214,7 +214,7 @@ class TagsRepository(Repository):
         """Get all tags for an item with full hierarchy info."""
         cursor = self._execute("""
             SELECT t.*, c.name as category_name, c.color as category_color,
-                   it.added_by_user, it.added_at
+                   it.is_explicit, it.added_at
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -228,7 +228,7 @@ class TagsRepository(Repository):
         """Add tag to item. Returns True if added, False if already exists."""
         try:
             self._execute("""
-                INSERT INTO item_tags (item_id, tag_id, added_by_user)
+                INSERT INTO item_tags (item_id, tag_id, is_explicit)
                 VALUES (?, ?, ?)
             """, (item_id, tag_id, 1 if added_by_user else 0))
             
@@ -301,14 +301,62 @@ class TagsRepository(Repository):
         if not tag:
             return added
         
-        # Add ancestors first (root to leaf)
+        # Add ancestors first (root to leaf) - as non-explicit
         ancestors = self.get_ancestors(tag_id)
         for ancestor in ancestors:
-            if self.add_tag_to_item(item_id, ancestor['id']):
+            if self.add_tag_to_item(item_id, ancestor['id'], added_by_user=False):
                 added.append(ancestor['id'])
         
-        # Add the tag itself
-        if self.add_tag_to_item(item_id, tag_id):
+        # Add the tag itself - as explicit
+        if self.add_tag_to_item(item_id, tag_id, added_by_user=True):
             added.append(tag_id)
         
         return added
+    
+    def get_explicit_item_tags(self, item_id: str) -> List[Dict]:
+        """Get only explicitly added tags for an item."""
+        cursor = self._execute("""
+            SELECT t.*, c.name as category_name, c.color as category_color
+            FROM item_tags it
+            JOIN tags t ON it.tag_id = t.id
+            LEFT JOIN tag_categories c ON t.category_id = c.id
+            WHERE it.item_id = ? AND it.is_explicit = 1
+            ORDER BY t.path
+        """, (item_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    
+    def is_ancestor_of_explicit(self, item_id: str, tag_id: int) -> bool:
+        """Check if tag is an ancestor of any explicit tag in item.
+        
+        Returns True if this tag is required by another explicit tag.
+        """
+        tag = self.get_by_id(tag_id)
+        if not tag:
+            return False
+        
+        # Find all explicit tags in item that have this tag as ancestor
+        cursor = self._execute("""
+            SELECT 1 FROM item_tags it
+            JOIN tags t ON it.tag_id = t.id
+            WHERE it.item_id = ? 
+              AND it.is_explicit = 1
+              AND t.path LIKE ?
+              AND t.id != ?
+            LIMIT 1
+        """, (item_id, f"{tag['path']}.%", tag_id))
+        
+        return cursor.fetchone() is not None
+    
+    def get_descendants_in_item(self, item_id: str, tag_id: int) -> List[int]:
+        """Get all descendant tag IDs that are in item."""
+        tag = self.get_by_id(tag_id)
+        if not tag:
+            return []
+        
+        cursor = self._execute("""
+            SELECT t.id FROM item_tags it
+            JOIN tags t ON it.tag_id = t.id
+            WHERE it.item_id = ? AND t.path LIKE ?
+        """, (item_id, f"{tag['path']}.%"))
+        
+        return [row[0] for row in cursor.fetchall()]
