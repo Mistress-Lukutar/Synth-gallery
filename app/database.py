@@ -344,38 +344,58 @@ def init_db():
         )
     """)
 
-    # Tag categories with colors
+    # =============================================================================
+    # Tag System v2: Hierarchical Tags
+    # =============================================================================
+    
+    # Tag categories (fixed set)
     db.execute("""
         CREATE TABLE IF NOT EXISTS tag_categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            color TEXT NOT NULL
-        )
-    """)
-
-    # Preset tags library
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tag_presets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
             name TEXT NOT NULL,
-            category_id INTEGER NOT NULL,
-            FOREIGN KEY (category_id) REFERENCES tag_categories(id),
-            UNIQUE(name, category_id)
+            color TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0
         )
     """)
-
-    # Photo tags with category reference
+    
+    # Hierarchical tags (materialized path)
     db.execute("""
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            photo_id TEXT NOT NULL,
-            tag TEXT NOT NULL,
+            name TEXT NOT NULL,
+            display_name TEXT,
             category_id INTEGER,
-            confidence REAL DEFAULT 1.0,
-            FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE,
-            FOREIGN KEY (category_id) REFERENCES tag_categories(id)
+            parent_id INTEGER,
+            path TEXT NOT NULL,
+            level INTEGER DEFAULT 0,
+            is_leaf INTEGER DEFAULT 1,
+            usage_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(path),
+            FOREIGN KEY (category_id) REFERENCES tag_categories(id),
+            FOREIGN KEY (parent_id) REFERENCES tags(id)
         )
     """)
+    
+    # Item-tags relationship (many-to-many)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS item_tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id TEXT NOT NULL,
+            tag_id INTEGER NOT NULL,
+            added_by_user INTEGER DEFAULT 1,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(item_id, tag_id),
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )
+    """)
+    
+    # Drop old tag tables if they exist (migration from v1)
+    db.execute("DROP TABLE IF EXISTS tag_presets")
+    # Note: old 'tags' table will be dropped after data migration if needed
+    # For now we keep it but don't use it - Phase 5 migration handles this
 
     # =============================================================================
     # v1.0: Polymorphic Items Architecture (Issue #24)
@@ -441,9 +461,12 @@ def init_db():
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_safe ON items(safe_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_photo_id ON tags(photo_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tag_presets_category ON tag_presets(category_id)")
+    # Tag system v2 indexes
+    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_path ON tags(path)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_item ON item_tags(item_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_photos_album_id ON photos(album_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)")
@@ -546,48 +569,11 @@ def init_db():
         )
     """)
 
-    # Insert default categories if not exist
-    default_categories = [
-        ("Subject", "#3b82f6"),
-        ("Location", "#22c55e"),
-        ("Mood", "#f59e0b"),
-        ("Style", "#a855f7"),
-        ("Event", "#ef4444"),
-        ("Other", "#6b7280"),
-    ]
-
-    for name, color in default_categories:
-        db.execute(
-            "INSERT OR IGNORE INTO tag_categories (name, color) VALUES (?, ?)",
-            (name, color)
-        )
-
-    # Insert some default preset tags
-    default_presets = [
-        ("person", "Subject"), ("people", "Subject"), ("portrait", "Subject"),
-        ("animal", "Subject"), ("dog", "Subject"), ("cat", "Subject"),
-        ("bird", "Subject"), ("flower", "Subject"), ("tree", "Subject"),
-        ("car", "Subject"), ("building", "Subject"), ("food", "Subject"),
-        ("outdoor", "Location"), ("indoor", "Location"), ("city", "Location"),
-        ("nature", "Location"), ("beach", "Location"), ("mountain", "Location"),
-        ("forest", "Location"), ("park", "Location"), ("home", "Location"),
-        ("street", "Location"), ("studio", "Location"),
-        ("happy", "Mood"), ("calm", "Mood"), ("dramatic", "Mood"),
-        ("romantic", "Mood"), ("mysterious", "Mood"), ("energetic", "Mood"),
-        ("peaceful", "Mood"), ("melancholic", "Mood"),
-        ("black and white", "Style"), ("vintage", "Style"), ("minimalist", "Style"),
-        ("abstract", "Style"), ("macro", "Style"), ("panorama", "Style"),
-        ("long exposure", "Style"), ("bokeh", "Style"),
-        ("wedding", "Event"), ("birthday", "Event"), ("travel", "Event"),
-        ("vacation", "Event"), ("concert", "Event"), ("sports", "Event"),
-        ("family", "Event"), ("party", "Event"),
-    ]
-
-    for tag_name, category_name in default_presets:
-        db.execute("""
-            INSERT OR IGNORE INTO tag_presets (name, category_id)
-            SELECT ?, id FROM tag_categories WHERE name = ?
-        """, (tag_name, category_name))
+    # Insert default tag categories (v2)
+    _init_tag_categories_v2(db)
+    
+    # Insert default tag hierarchy (v2)
+    _init_tag_hierarchy_v2(db)
 
     # Migration: Add content_type column for extension-less storage (Issue #22)
     try:
@@ -652,3 +638,139 @@ def init_db():
         print("=" * 70)
 
     db.commit()
+
+
+def _init_tag_categories_v2(db):
+    """Initialize tag categories for v2 hierarchical tag system."""
+    default_categories = [
+        (1, 'subject', 'Subject', '#3b82f6', 1),      # Blue
+        (2, 'style', 'Style', '#8b5cf6', 2),          # Purple
+        (3, 'environment', 'Environment', '#10b981', 3),  # Green
+        (4, 'quality', 'Quality', '#f59e0b', 4),      # Orange
+        (5, 'media_type', 'Media Type', '#6b7280', 5),    # Gray
+    ]
+    
+    for id_, slug, name, color, order in default_categories:
+        db.execute("""
+            INSERT OR IGNORE INTO tag_categories (id, slug, name, color, sort_order)
+            VALUES (?, ?, ?, ?, ?)
+        """, (id_, slug, name, color, order))
+
+
+def _init_tag_hierarchy_v2(db):
+    """Initialize default tag hierarchy for v2 system."""
+    
+    def create_tag(name, display_name, category_id, parent_id=None, path=None):
+        """Helper to create a tag and return its ID."""
+        level = 0 if parent_id is None else db.execute(
+            "SELECT level FROM tags WHERE id = ?", (parent_id,)
+        ).fetchone()[0] + 1
+        
+        if path is None:
+            path = name
+        
+        try:
+            cursor = db.execute("""
+                INSERT INTO tags (name, display_name, category_id, parent_id, path, level, is_leaf)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (name, display_name, category_id, parent_id, path, level, 1))
+            
+            # Mark parent as non-leaf
+            if parent_id:
+                db.execute("UPDATE tags SET is_leaf = 0 WHERE id = ?", (parent_id,))
+            
+            return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            # Tag already exists
+            row = db.execute("SELECT id FROM tags WHERE path = ?", (path,)).fetchone()
+            return row[0] if row else None
+    
+    # Subject category (id=1)
+    subject = create_tag('subject', 'Subject', 1, None, 'subject')
+    
+    # Animal branch
+    animal = create_tag('animal', 'Animal', 1, subject, 'subject.animal')
+    mammal = create_tag('mammal', 'Mammal', 1, animal, 'subject.animal.mammal')
+    fox = create_tag('fox', 'Fox', 1, mammal, 'subject.animal.mammal.fox')
+    create_tag('silver_fox', 'Silver Fox', 1, fox, 'subject.animal.mammal.fox.silver_fox')
+    create_tag('red_fox', 'Red Fox', 1, fox, 'subject.animal.mammal.fox.red_fox')
+    create_tag('arctic_fox', 'Arctic Fox', 1, fox, 'subject.animal.mammal.fox.arctic_fox')
+    
+    wolf = create_tag('wolf', 'Wolf', 1, mammal, 'subject.animal.mammal.wolf')
+    create_tag('gray_wolf', 'Gray Wolf', 1, wolf, 'subject.animal.mammal.wolf.gray_wolf')
+    create_tag('white_wolf', 'White Wolf', 1, wolf, 'subject.animal.mammal.wolf.white_wolf')
+    
+    create_tag('bear', 'Bear', 1, mammal, 'subject.animal.mammal.bear')
+    create_tag('cat', 'Cat', 1, mammal, 'subject.animal.mammal.cat')
+    create_tag('dog', 'Dog', 1, mammal, 'subject.animal.mammal.dog')
+    
+    bird = create_tag('bird', 'Bird', 1, animal, 'subject.animal.bird')
+    create_tag('eagle', 'Eagle', 1, bird, 'subject.animal.bird.eagle')
+    create_tag('owl', 'Owl', 1, bird, 'subject.animal.bird.owl')
+    create_tag('raven', 'Raven', 1, bird, 'subject.animal.bird.raven')
+    
+    reptile = create_tag('reptile', 'Reptile', 1, animal, 'subject.animal.reptile')
+    create_tag('snake', 'Snake', 1, reptile, 'subject.animal.reptile.snake')
+    create_tag('lizard', 'Lizard', 1, reptile, 'subject.animal.reptile.lizard')
+    
+    # Person branch
+    person = create_tag('person', 'Person', 1, subject, 'subject.person')
+    create_tag('woman', 'Woman', 1, person, 'subject.person.woman')
+    create_tag('man', 'Man', 1, person, 'subject.person.man')
+    create_tag('child', 'Child', 1, person, 'subject.person.child')
+    
+    # Object branch
+    obj = create_tag('object', 'Object', 1, subject, 'subject.object')
+    weapon = create_tag('weapon', 'Weapon', 1, obj, 'subject.object.weapon')
+    create_tag('sword', 'Sword', 1, weapon, 'subject.object.weapon.sword')
+    create_tag('gun', 'Gun', 1, weapon, 'subject.object.weapon.gun')
+    create_tag('bow', 'Bow', 1, weapon, 'subject.object.weapon.bow')
+    
+    furniture = create_tag('furniture', 'Furniture', 1, obj, 'subject.object.furniture')
+    create_tag('chair', 'Chair', 1, furniture, 'subject.object.furniture.chair')
+    create_tag('table', 'Table', 1, furniture, 'subject.object.furniture.table')
+    create_tag('bed', 'Bed', 1, furniture, 'subject.object.furniture.bed')
+    
+    vehicle = create_tag('vehicle', 'Vehicle', 1, obj, 'subject.object.vehicle')
+    create_tag('car', 'Car', 1, vehicle, 'subject.object.vehicle.car')
+    create_tag('airplane', 'Airplane', 1, vehicle, 'subject.object.vehicle.airplane')
+    create_tag('ship', 'Ship', 1, vehicle, 'subject.object.vehicle.ship')
+    
+    # Style category (id=2)
+    style = create_tag('style', 'Style', 2, None, 'style')
+    create_tag('photorealistic', 'Photorealistic', 2, style, 'style.photorealistic')
+    create_tag('anime', 'Anime', 2, style, 'style.anime')
+    create_tag('cartoon', 'Cartoon', 2, style, 'style.cartoon')
+    create_tag('pixel_art', 'Pixel Art', 2, style, 'style.pixel_art')
+    create_tag('oil_painting', 'Oil Painting', 2, style, 'style.oil_painting')
+    create_tag('sketch', 'Sketch', 2, style, 'style.sketch')
+    create_tag('minimalist', 'Minimalist', 2, style, 'style.minimalist')
+    create_tag('vintage', 'Vintage', 2, style, 'style.vintage')
+    create_tag('abstract', 'Abstract', 2, style, 'style.abstract')
+    
+    # Environment category (id=3)
+    env = create_tag('environment', 'Environment', 3, None, 'environment')
+    create_tag('indoor', 'Indoor', 3, env, 'environment.indoor')
+    create_tag('outdoor', 'Outdoor', 3, env, 'environment.outdoor')
+    create_tag('forest', 'Forest', 3, env, 'environment.forest')
+    create_tag('city', 'City', 3, env, 'environment.city')
+    create_tag('space', 'Space', 3, env, 'environment.space')
+    create_tag('underwater', 'Underwater', 3, env, 'environment.underwater')
+    create_tag('beach', 'Beach', 3, env, 'environment.beach')
+    create_tag('mountain', 'Mountain', 3, env, 'environment.mountain')
+    create_tag('night', 'Night', 3, env, 'environment.night')
+    create_tag('day', 'Day', 3, env, 'environment.day')
+    
+    # Quality category (id=4)
+    quality = create_tag('quality', 'Quality', 4, None, 'quality')
+    create_tag('masterpiece', 'Masterpiece', 4, quality, 'quality.masterpiece')
+    create_tag('high_quality', 'High Quality', 4, quality, 'quality.high_quality')
+    create_tag('medium_quality', 'Medium Quality', 4, quality, 'quality.medium_quality')
+    create_tag('low_quality', 'Low Quality', 4, quality, 'quality.low_quality')
+    
+    # Media Type category (id=5)
+    media = create_tag('media_type', 'Media Type', 5, None, 'media_type')
+    create_tag('photo', 'Photo', 5, media, 'media_type.photo')
+    create_tag('illustration', 'Illustration', 5, media, 'media_type.illustration')
+    create_tag('render', '3D Render', 5, media, 'media_type.render')
+    create_tag('video', 'Video', 5, media, 'media_type.video')

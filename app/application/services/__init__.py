@@ -8,6 +8,7 @@ from .user_settings_service import UserSettingsService
 from .auth_service import AuthService
 from .item_service import ItemService
 from .album_service import AlbumService
+from .tag_service import TagService
 
 __all__ = [
     "FolderService",
@@ -18,4 +19,5 @@ __all__ = [
     "AuthService",
     "ItemService",
     "AlbumService",
+    "TagService",
 ]
