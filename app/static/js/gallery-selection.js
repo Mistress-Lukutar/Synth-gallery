@@ -360,70 +360,14 @@
         }
     };
 
-    // Build folder tree HTML for picker (similar to sidebar)
+    // Build folder tree HTML for picker using shared utilities (Issue #26)
     // excludeFolderId - folder to exclude (for move folder: prevent moving into itself or its descendants)
     function buildPickerTreeHTML(parentId, level, folders, excludeFolderId = null) {
-        // Filter: owner only, no safe folders (safe_id is null/undefined), exclude specified folder
-        const children = folders.filter(f => 
-            f.parent_id === parentId && 
-            f.permission === 'owner' && 
-            !f.safe_id &&
-            f.id !== excludeFolderId
-        );
-        if (children.length === 0) return '';
-
-        // Use sidebar collapsed state
-        const collapsed = window.collapsedFolders || new Set();
-
-        return children.map(folder => {
-            const hasChildren = folders.some(f => f.parent_id === folder.id);
-            const isCollapsed = collapsed.has(folder.id);
-            const photoCount = folder.photo_count || 0;
-            
-            // Same color logic as sidebar
-            let folderClass = '';
-            if (folder.permission === 'owner') {
-                if (folder.share_status === 'has_editors') {
-                    folderClass = 'shared-editors';
-                } else if (folder.share_status === 'has_viewers') {
-                    folderClass = 'shared-viewers';
-                } else {
-                    folderClass = 'private';
-                }
-            } else if (folder.permission === 'editor') {
-                folderClass = 'incoming-editor';
-            } else {
-                folderClass = 'incoming-viewer';
-            }
-            
-            const expandArrow = hasChildren ? `
-                <button class="folder-expand-btn ${isCollapsed ? 'collapsed' : ''}"
-                        onclick="togglePickerFolderCollapse('${folder.id}', event)">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                </button>
-            ` : '<span class="folder-expand-placeholder"></span>';
-            
-            const childrenHtml = hasChildren && !isCollapsed 
-                ? buildPickerTreeHTML(folder.id, level + 1, folders, excludeFolderId) 
-                : '';
-            
-            return `
-                <div class="folder-item-wrapper picker-folder-item" style="padding-left: ${level * 16}px">
-                    ${expandArrow}
-                    <div class="folder-item ${folderClass}"
-                         data-folder-id="${folder.id}"
-                         onclick="selectFolderForPicker('${folder.id}')">
-                        <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                        </svg>
-                        <span class="folder-name">${escapeHtml(folder.name)}</span>
-                        <span class="folder-count">${photoCount}</span>
-                    </div>
-                </div>
-            ` + childrenHtml;
-        }).join('');
+        return FolderTreeUtils.buildTreeHTML(parentId, level, folders, {
+            mode: 'picker',
+            excludeFolderId,
+            collapsed: window.collapsedFolders || new Set()
+        });
     }
 
     // Show folder picker modal with both folders and safes

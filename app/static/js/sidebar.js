@@ -239,58 +239,13 @@
         folderTreeContainer.innerHTML = html;
     }
 
+    // Use shared folder tree utilities (Issue #26)
     function buildTreeHTML(parentId, level, folders) {
-        if (parentId && collapsedFolders.has(parentId)) return '';
-
-        const children = folders.filter(f => f.parent_id === parentId);
-        if (children.length === 0) return '';
-
-        return children.map(folder => {
-            const isActive = folder.id === window.currentFolderId;
-            const hasChildren = folders.some(f => f.parent_id === folder.id);
-            const isCollapsed = collapsedFolders.has(folder.id);
-            const photoCount = folder.photo_count || 0;
-            
-            // Determine folder class based on permission/share status
-            let folderClass = '';
-            if (folder.permission === 'owner') {
-                if (folder.share_status === 'has_editors') {
-                    folderClass = 'shared-editors';
-                } else if (folder.share_status === 'has_viewers') {
-                    folderClass = 'shared-viewers';
-                } else {
-                    folderClass = 'private';
-                }
-            } else if (folder.permission === 'editor') {
-                folderClass = 'incoming-editor';
-            } else {
-                folderClass = 'incoming-viewer';
-            }
-            
-            const expandArrow = hasChildren ? `
-                <button class="folder-expand-btn ${isCollapsed ? 'collapsed' : ''}"
-                        onclick="toggleFolderCollapse('${folder.id}', event)">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="6 9 12 15 18 9"/>
-                    </svg>
-                </button>
-            ` : '<span class="folder-expand-placeholder"></span>';
-            
-            return `
-                <div class="folder-item-wrapper" style="padding-left: ${level * 16}px">
-                    ${expandArrow}
-                    <div class="folder-item ${folderClass} ${isActive ? 'active' : ''}"
-                         data-folder-id="${folder.id}"
-                         onclick="navigateToFolder('${folder.id}', true, event)">
-                        <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                        </svg>
-                        <span class="folder-name">${escapeHtml(folder.name)}</span>
-                        <span class="folder-count">${photoCount}</span>
-                    </div>
-                </div>
-            ` + buildTreeHTML(folder.id, level + 1, folders);
-        }).join('');
+        return FolderTreeUtils.buildTreeHTML(parentId, level, folders, {
+            mode: 'sidebar',
+            currentFolderId: window.currentFolderId,
+            collapsed: collapsedFolders
+        });
     }
 
     // Init sidebar toggle - get elements dynamically to handle DOM ready timing
