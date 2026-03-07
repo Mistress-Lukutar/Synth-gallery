@@ -547,27 +547,17 @@ class UserRepository(Repository):
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         return hashed.decode('utf-8'), ""
     
-    def _verify_password(self, password: str, hashed: str, salt: str) -> bool:
-        """Verify password against hash.
-        
-        Supports both bcrypt and legacy SHA-256.
+    def _verify_password(self, password: str, hashed: str, salt: str = None) -> bool:
+        """Verify password against bcrypt hash.
         
         Args:
             password: Plain text password
-            hashed: Stored hash
-            salt: Stored salt (for legacy)
+            hashed: Stored bcrypt hash
+            salt: Ignored (for API compatibility)
             
         Returns:
             True if password matches
         """
-        # Check if bcrypt hash
         if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
             return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-        
-        # Legacy SHA-256 (for migration)
-        if salt:
-            import hashlib
-            check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
-            return check_hash == hashed
-        
         return False

@@ -1,9 +1,9 @@
-"""Database module for v1.0 - minimal utilities only.
+"""Database module for v2.0 - clean schema, no migrations.
 
 This module contains only essential database utilities:
 - Connection management (sync)
-- Password hashing
-- Database initialization
+- Password hashing (bcrypt only)
+- Database initialization with current schema
 - Session cleanup
 
 All CRUD operations have been moved to repositories in infrastructure/repositories/.
@@ -52,21 +52,9 @@ def hash_password(password: str, salt: str = None) -> tuple[str, str]:
 
 
 def verify_password(password: str, hashed: str, salt: str = None) -> bool:
-    """Verify password against bcrypt hash.
-
-    Also handles legacy SHA-256 hashes for migration.
-    """
-    # Check if this is a bcrypt hash (starts with $2b$)
+    """Verify password against bcrypt hash."""
     if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
         return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
-
-    # Legacy SHA-256 verification for old passwords
-    import hashlib
-    if salt:
-        check_hash = hashlib.sha256((salt + password).encode()).hexdigest()
-        if check_hash == hashed:
-            return True
-
     return False
 
 
@@ -74,23 +62,6 @@ def verify_password(password: str, hashed: str, salt: str = None) -> bool:
 # Database Connection
 # =============================================================================
 _local = threading.local()
-_migration_backup_done = False
-
-
-def _backup_before_migration():
-    """Create backup before running migrations (once per init)."""
-    global _migration_backup_done
-    if _migration_backup_done:
-        return
-
-    try:
-        from .infrastructure.services.backup import create_backup
-        if DATABASE_PATH.exists():
-            create_backup("pre-migration")
-            _migration_backup_done = True
-    except Exception as e:
-        # Don't fail init if backup fails, just log
-        print(f"Warning: Could not create pre-migration backup: {e}")
 
 
 def get_db() -> sqlite3.Connection:
@@ -140,92 +111,6 @@ def cleanup_expired_sessions():
 
 
 # =============================================================================
-# Migration: Polymorphic Items (Issue #24)
-# =============================================================================
-def _migrate_to_polymorphic_items(db):
-    """Migrate photos to polymorphic items architecture.
-    
-    This migration:
-    1. Creates items from existing photos
-    2. Creates item_media from photo media data
-    3. Migrates photos.album_id to album_items junction table
-    4. Updates albums.cover_photo_id to cover_item_id
-    """
-    # Check if migration already done
-    cursor = db.execute("SELECT COUNT(*) as count FROM items LIMIT 1")
-    if cursor.fetchone()["count"] > 0:
-        return  # Migration already done
-    
-    # Check if there are any photos to migrate
-    cursor = db.execute("SELECT COUNT(*) as count FROM photos")
-    photo_count = cursor.fetchone()["count"]
-    if photo_count == 0:
-        return  # Nothing to migrate
-    
-    print(f"[Migration] Starting polymorphic items migration for {photo_count} photos...")
-    
-    # Migrate photos to items + item_media
-    db.execute("""
-        INSERT INTO items (
-            id, type, folder_id, safe_id, user_id, uploaded_at, 
-            title, metadata, is_encrypted
-        )
-        SELECT 
-            p.id,
-            'media' as type,
-            p.folder_id,
-            p.safe_id,
-            p.user_id,
-            p.uploaded_at,
-            p.original_name as title,
-            NULL as metadata,
-            p.is_encrypted
-        FROM photos p
-    """)
-    
-    # Migrate photo media details
-    # Note: filename is not migrated - we use item_id as filename in extension-less storage
-    db.execute("""
-        INSERT INTO item_media (
-            item_id, media_type, original_name, content_type,
-            width, height, duration, thumb_width, thumb_height, taken_at
-        )
-        SELECT 
-            p.id as item_id,
-            CASE 
-                WHEN p.media_type = 'video' THEN 'video'
-                ELSE 'image'
-            END as media_type,
-            p.original_name,
-            p.content_type,
-            NULL as width,  -- Will be populated from metadata if available
-            NULL as height,
-            NULL as duration,
-            p.thumb_width,
-            p.thumb_height,
-            p.taken_at
-        FROM photos p
-    """)
-    
-    # Migrate album memberships
-    db.execute("""
-        INSERT INTO album_items (album_id, item_id, position, added_at)
-        SELECT 
-            p.album_id,
-            p.id as item_id,
-            p.position,
-            p.uploaded_at as added_at
-        FROM photos p
-        WHERE p.album_id IS NOT NULL
-    """)
-    
-    # Update albums cover_photo_id to reference items
-    # Note: We keep the column name for now, but it now references items.id
-    
-    print(f"[Migration] Migrated {photo_count} photos to polymorphic items")
-
-
-# =============================================================================
 # Database Schema Initialization
 # =============================================================================
 def init_db():
@@ -238,7 +123,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
-            password_salt TEXT NOT NULL,
+            password_salt TEXT NOT NULL DEFAULT '',
             display_name TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_admin INTEGER DEFAULT 0
@@ -252,6 +137,8 @@ def init_db():
             user_id INTEGER NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             expires_at TIMESTAMP NOT NULL,
+            encrypted_dek BLOB,
+            fingerprint TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
@@ -319,45 +206,9 @@ def init_db():
         )
     """)
 
-    # Photos table
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS photos (
-            id TEXT PRIMARY KEY,
-            filename TEXT NOT NULL,
-            original_name TEXT,
-            uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
-            folder_id TEXT,
-            user_id INTEGER,
-            album_id TEXT,
-            position INTEGER DEFAULT 0,
-            media_type TEXT DEFAULT 'image',
-            is_encrypted INTEGER DEFAULT 0,
-            safe_id TEXT,
-            taken_at TIMESTAMP,
-            thumb_width INTEGER,
-            thumb_height INTEGER,
-            storage_mode TEXT,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-            FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE SET NULL,
-            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL
-        )
-    """)
-
     # =============================================================================
     # Tag System v2: Hierarchical Tags
     # =============================================================================
-    
-    # Migration: Drop old tag tables if they have v1 schema
-    try:
-        db.execute("SELECT path FROM tags LIMIT 1")
-    except sqlite3.OperationalError:
-        # Old schema - drop all tag tables and recreate
-        db.execute("DROP TABLE IF EXISTS item_tags")
-        db.execute("DROP TABLE IF EXISTS tags")
-        db.execute("DROP TABLE IF EXISTS tag_presets")
-        db.execute("DROP TABLE IF EXISTS tag_categories")
-        print("[Migration] Dropped old tag tables for v2 upgrade")
     
     # Tag categories (fixed set)
     db.execute("""
@@ -389,7 +240,7 @@ def init_db():
         )
     """)
     
-    # Item-tags relationship (many-to-many) - stores ONLY explicit tags
+    # Item-tags relationship (many-to-many)
     db.execute("""
         CREATE TABLE IF NOT EXISTS item_tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -401,27 +252,22 @@ def init_db():
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
         )
     """)
-    
-    # Drop old tag tables if they exist (migration from v1)
-    db.execute("DROP TABLE IF EXISTS tag_presets")
-    # Note: old 'tags' table will be dropped after data migration if needed
-    # For now we keep it but don't use it - Phase 5 migration handles this
 
     # =============================================================================
-    # v1.0: Polymorphic Items Architecture (Issue #24)
+    # Polymorphic Items Architecture
     # =============================================================================
     
     # Items table - polymorphic base for all content types
     db.execute("""
         CREATE TABLE IF NOT EXISTS items (
             id TEXT PRIMARY KEY,
-            type TEXT NOT NULL,  -- 'media', 'note', 'file', etc.
+            type TEXT NOT NULL,
             folder_id TEXT,
             safe_id TEXT,
             user_id INTEGER,
             uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
             title TEXT,
-            metadata TEXT,  -- JSON for type-specific data
+            metadata TEXT,
             is_encrypted INTEGER DEFAULT 0,
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL,
@@ -430,26 +276,25 @@ def init_db():
     """)
     
     # Item media table - photo/video specific data
-    # Note: filename = item_id in extension-less storage
     db.execute("""
         CREATE TABLE IF NOT EXISTS item_media (
             item_id TEXT PRIMARY KEY,
-            media_type TEXT NOT NULL,  -- 'image' or 'video'
-            filename TEXT NOT NULL,  -- Same as item_id in extension-less storage
+            media_type TEXT NOT NULL,
+            filename TEXT NOT NULL,
             original_name TEXT,
             content_type TEXT,
             width INTEGER,
             height INTEGER,
-            duration INTEGER,  -- for video (seconds)
+            duration INTEGER,
             thumb_width INTEGER,
             thumb_height INTEGER,
             taken_at TIMESTAMP,
-            storage_mode TEXT DEFAULT 'standard',  -- 'standard' or 'legacy'
+            storage_mode TEXT DEFAULT 'standard',
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
         )
     """)
     
-    # Album items junction table - replaces photos.album_id
+    # Album items junction table
     db.execute("""
         CREATE TABLE IF NOT EXISTS album_items (
             album_id TEXT NOT NULL,
@@ -462,27 +307,20 @@ def init_db():
         )
     """)
     
-    # Update albums table - change cover_photo_id to cover_item_id
-    # (Migration handled separately)
-    
     # Indexes
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_type ON items(type)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_folder ON items(folder_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_safe ON items(safe_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
-    # Tag system v2 indexes
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_path ON tags(path)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_item ON item_tags(item_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_photos_album_id ON photos(album_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_photos_folder_id ON photos(folder_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at)")
 
     # User folder preferences (sort settings per user per folder)
     db.execute("""
@@ -558,13 +396,13 @@ def init_db():
     """)
 
     db.execute("""
-        CREATE TABLE IF NOT EXISTS photo_keys (
-            photo_id TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS item_keys (
+            item_id TEXT PRIMARY KEY,
             encrypted_ck BLOB NOT NULL,
             thumbnail_encrypted_ck BLOB,
             shared_ck_map TEXT DEFAULT '{}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (photo_id) REFERENCES photos(id) ON DELETE CASCADE
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
         )
     """)
 
@@ -585,48 +423,7 @@ def init_db():
     # Insert default tag hierarchy (v2)
     _init_tag_hierarchy_v2(db)
 
-    # Migration: Add content_type column for extension-less storage (Issue #22)
-    try:
-        db.execute("ALTER TABLE photos ADD COLUMN content_type TEXT")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-
-    # =============================================================================
-    # Migration: Polymorphic Items Architecture (Issue #24)
-    # =============================================================================
-    _migrate_to_polymorphic_items(db)
-    
-    # Migration: Rename albums.cover_photo_id to cover_item_id
-    try:
-        db.execute("ALTER TABLE albums RENAME COLUMN cover_photo_id TO cover_item_id")
-        print("[Migration] Renamed albums.cover_photo_id to cover_item_id")
-    except sqlite3.OperationalError:
-        pass  # Column already renamed or doesn't exist
-    
-    # Migration: Rename items.created_at to uploaded_at
-    try:
-        db.execute("ALTER TABLE items RENAME COLUMN created_at TO uploaded_at")
-        print("[Migration] Renamed items.created_at to uploaded_at")
-    except sqlite3.OperationalError:
-        pass  # Column already renamed or doesn't exist
-
-    # Migration: Add encrypted_dek column to sessions for DB-based DEK storage (Issue #18)
-    try:
-        db.execute("ALTER TABLE sessions ADD COLUMN encrypted_dek BLOB")
-        print("[Migration] Added sessions.encrypted_dek column")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-
-    # Migration: Add fingerprint column to sessions for session hijacking protection
-    try:
-        db.execute("ALTER TABLE sessions ADD COLUMN fingerprint TEXT")
-        print("[Migration] Added sessions.fingerprint column")
-    except sqlite3.OperationalError:
-        pass  # Column already exists
-
-    # =============================================================================
     # Create default admin user if no users exist (first run)
-    # =============================================================================
     cursor = db.execute("SELECT COUNT(*) as count FROM users")
     if cursor.fetchone()["count"] == 0:
         import bcrypt
@@ -634,7 +431,6 @@ def init_db():
         default_username = "admin"
         default_password = "admin"
         
-        # Hash password using bcrypt
         hashed = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt())
         
         db.execute(
@@ -645,7 +441,7 @@ def init_db():
         )
         
         print("=" * 70)
-        print("⚠️  FIRST RUN: Default admin account created")
+        print("FIRST RUN: Default admin account created")
         print("=" * 70)
         print(f"   Username: {default_username}")
         print(f"   Password: {default_password}")
@@ -660,11 +456,11 @@ def init_db():
 def _init_tag_categories_v2(db):
     """Initialize tag categories for v2 hierarchical tag system."""
     default_categories = [
-        (1, 'subject', 'Subject', '#3b82f6', 1),      # Blue
-        (2, 'style', 'Style', '#8b5cf6', 2),          # Purple
-        (3, 'environment', 'Environment', '#10b981', 3),  # Green
-        (4, 'quality', 'Quality', '#f59e0b', 4),      # Orange
-        (5, 'media_type', 'Media Type', '#6b7280', 5),    # Gray
+        (1, 'subject', 'Subject', '#3b82f6', 1),
+        (2, 'style', 'Style', '#8b5cf6', 2),
+        (3, 'environment', 'Environment', '#10b981', 3),
+        (4, 'quality', 'Quality', '#f59e0b', 4),
+        (5, 'media_type', 'Media Type', '#6b7280', 5),
     ]
     
     for id_, slug, name, color, order in default_categories:
@@ -692,17 +488,15 @@ def _init_tag_hierarchy_v2(db):
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (name, display_name, category_id, parent_id, path, level, 1))
             
-            # Mark parent as non-leaf
             if parent_id:
                 db.execute("UPDATE tags SET is_leaf = 0 WHERE id = ?", (parent_id,))
             
             return cursor.lastrowid
         except sqlite3.IntegrityError:
-            # Tag already exists
             row = db.execute("SELECT id FROM tags WHERE path = ?", (path,)).fetchone()
             return row[0] if row else None
     
-    # Subject category (id=1)
+    # Subject category
     subject = create_tag('subject', 'Subject', 1, None, 'subject')
     
     # Animal branch
@@ -753,7 +547,7 @@ def _init_tag_hierarchy_v2(db):
     create_tag('airplane', 'Airplane', 1, vehicle, 'subject.object.vehicle.airplane')
     create_tag('ship', 'Ship', 1, vehicle, 'subject.object.vehicle.ship')
     
-    # Style category (id=2)
+    # Style category
     style = create_tag('style', 'Style', 2, None, 'style')
     create_tag('photorealistic', 'Photorealistic', 2, style, 'style.photorealistic')
     create_tag('anime', 'Anime', 2, style, 'style.anime')
@@ -765,7 +559,7 @@ def _init_tag_hierarchy_v2(db):
     create_tag('vintage', 'Vintage', 2, style, 'style.vintage')
     create_tag('abstract', 'Abstract', 2, style, 'style.abstract')
     
-    # Environment category (id=3)
+    # Environment category
     env = create_tag('environment', 'Environment', 3, None, 'environment')
     create_tag('indoor', 'Indoor', 3, env, 'environment.indoor')
     create_tag('outdoor', 'Outdoor', 3, env, 'environment.outdoor')
@@ -778,14 +572,14 @@ def _init_tag_hierarchy_v2(db):
     create_tag('night', 'Night', 3, env, 'environment.night')
     create_tag('day', 'Day', 3, env, 'environment.day')
     
-    # Quality category (id=4)
+    # Quality category
     quality = create_tag('quality', 'Quality', 4, None, 'quality')
     create_tag('masterpiece', 'Masterpiece', 4, quality, 'quality.masterpiece')
     create_tag('high_quality', 'High Quality', 4, quality, 'quality.high_quality')
     create_tag('medium_quality', 'Medium Quality', 4, quality, 'quality.medium_quality')
     create_tag('low_quality', 'Low Quality', 4, quality, 'quality.low_quality')
     
-    # Media Type category (id=5)
+    # Media Type category
     media = create_tag('media_type', 'Media Type', 5, None, 'media_type')
     create_tag('photo', 'Photo', 5, media, 'media_type.photo')
     create_tag('illustration', 'Illustration', 5, media, 'media_type.illustration')
