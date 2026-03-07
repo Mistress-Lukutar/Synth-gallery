@@ -182,6 +182,123 @@
             margin-bottom: 1.25rem;
             font-size: 0.9rem;
         }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 1rem;
+        }
+
+        .forgot-password a {
+            color: var(--accent);
+            font-size: 0.9rem;
+            text-decoration: none;
+        }
+
+        .forgot-password a:hover {
+            text-decoration: underline;
+        }
+
+        /* Recovery Key Modal */
+        .recovery-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+
+        .recovery-modal.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .recovery-modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .recovery-modal h3 {
+            margin-top: 0;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        .recovery-modal p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .recovery-key-input {
+            font-family: monospace;
+            font-size: 1rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .recovery-modal-actions {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 1.5rem;
+        }
+
+        .recovery-modal-actions button {
+            flex: 1;
+            padding: 0.75rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .recovery-modal-actions .btn-primary {
+            background: var(--accent);
+            color: white;
+            border: none;
+        }
+
+        .recovery-modal-actions .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .recovery-modal-actions .btn-secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .recovery-modal-actions .btn-secondary:hover {
+            background: var(--bg-secondary);
+        }
+
+        .recovery-modal-actions .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .success-message {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.25rem;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -217,6 +334,10 @@
 
                 <button type="submit" class="login-btn">Sign In</button>
             </form>
+
+            <div class="forgot-password">
+                <a href="#" id="recovery-key-link">Forgot password? Use recovery key</a>
+            </div>
 
             <!-- Hardware Key Login Section (shown when user has keys) -->
             <div id="hardware-key-section" class="hardware-key-section">
@@ -392,6 +513,101 @@
             }
             return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
+
+        // Recovery Key Login
+        const recoveryKeyLink = document.getElementById('recovery-key-link');
+        const recoveryModal = document.getElementById('recovery-modal');
+        const recoveryKeyInput = document.getElementById('recovery-key-input');
+        const recoveryUsernameInput = document.getElementById('recovery-username');
+        const recoveryCancelBtn = document.getElementById('recovery-cancel-btn');
+        const recoverySubmitBtn = document.getElementById('recovery-submit-btn');
+        const recoveryError = document.getElementById('recovery-error');
+        const recoverySuccess = document.getElementById('recovery-success');
+
+        recoveryKeyLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            recoveryModal.classList.add('visible');
+            recoveryKeyInput.value = '';
+            recoveryUsernameInput.value = usernameInput.value || '';
+            recoveryError.classList.add('hidden');
+            recoverySuccess.classList.add('hidden');
+            if (recoveryUsernameInput.value) {
+                recoveryKeyInput.focus();
+            } else {
+                recoveryUsernameInput.focus();
+            }
+        });
+
+        recoveryCancelBtn.addEventListener('click', () => {
+            recoveryModal.classList.remove('visible');
+        });
+
+        recoveryModal.addEventListener('click', (e) => {
+            if (e.target === recoveryModal) {
+                recoveryModal.classList.remove('visible');
+            }
+        });
+
+        recoverySubmitBtn.addEventListener('click', async () => {
+            const username = recoveryUsernameInput.value.trim();
+            const recoveryKey = recoveryKeyInput.value.trim().toUpperCase();
+
+            if (!username) {
+                recoveryError.textContent = 'Please enter your username';
+                recoveryError.classList.remove('hidden');
+                return;
+            }
+
+            if (!recoveryKey || recoveryKey.length < 20) {
+                recoveryError.textContent = 'Please enter a valid recovery key';
+                recoveryError.classList.remove('hidden');
+                return;
+            }
+
+            recoveryError.classList.add('hidden');
+            recoverySubmitBtn.disabled = true;
+            recoverySubmitBtn.textContent = 'Verifying...';
+
+            try {
+                const resp = await fetch('{{ base_url }}/api/auth/recover', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, recovery_key: recoveryKey })
+                });
+
+                const data = await resp.json();
+
+                if (resp.ok) {
+                    recoverySuccess.textContent = 'Success! Redirecting...';
+                    recoverySuccess.classList.remove('hidden');
+                    // Redirect to password reset page
+                    window.location.href = '{{ base_url }}/reset-password?token=' + encodeURIComponent(data.reset_token);
+                } else {
+                    recoveryError.textContent = data.detail || 'Invalid recovery key';
+                    recoveryError.classList.remove('hidden');
+                    recoverySubmitBtn.disabled = false;
+                    recoverySubmitBtn.textContent = 'Sign In with Recovery Key';
+                }
+            } catch (err) {
+                recoveryError.textContent = 'Network error. Please try again.';
+                recoveryError.classList.remove('hidden');
+                recoverySubmitBtn.disabled = false;
+                recoverySubmitBtn.textContent = 'Sign In with Recovery Key';
+            }
+        });
+
+        // Allow Enter key to submit recovery form
+        recoveryKeyInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                recoverySubmitBtn.click();
+            }
+        });
+
+        recoveryUsernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                recoveryKeyInput.focus();
+            }
+        });
     </script>
 
     <style>
@@ -399,5 +615,31 @@
             to { transform: rotate(360deg); }
         }
     </style>
+
+    <!-- Recovery Key Modal -->
+    <div id="recovery-modal" class="recovery-modal">
+        <div class="recovery-modal-content">
+            <h3>Sign in with Recovery Key</h3>
+            <p>Enter your username and recovery key to regain access to your account. You will be required to set a new password.</p>
+            
+            <div id="recovery-error" class="error-message hidden"></div>
+            <div id="recovery-success" class="success-message hidden"></div>
+            
+            <div class="form-group">
+                <label for="recovery-username">Username</label>
+                <input type="text" id="recovery-username" class="recovery-key-input" placeholder="Enter your username" autocomplete="username">
+            </div>
+            
+            <div class="form-group">
+                <label for="recovery-key-input">Recovery Key</label>
+                <input type="text" id="recovery-key-input" class="recovery-key-input" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off">
+            </div>
+            
+            <div class="recovery-modal-actions">
+                <button id="recovery-cancel-btn" class="btn-secondary">Cancel</button>
+                <button id="recovery-submit-btn" class="btn-primary">Sign In with Recovery Key</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
