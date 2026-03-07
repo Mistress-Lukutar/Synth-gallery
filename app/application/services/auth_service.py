@@ -35,17 +35,18 @@ class AuthService:
         """
         return self.user_repo.authenticate(username, password)
     
-    def create_session(self, user_id: int, expires_hours: int = 24 * 7) -> str:
+    def create_session(self, user_id: int, expires_hours: int = 24 * 7, fingerprint: str | None = None) -> str:
         """Create new session for user.
         
         Args:
             user_id: User ID
             expires_hours: Session lifetime
+            fingerprint: Optional browser fingerprint for session validation
             
         Returns:
             Session ID
         """
-        return self.session_repo.create(user_id, expires_hours, encrypted_dek=None)
+        return self.session_repo.create(user_id, expires_hours, encrypted_dek=None, fingerprint=fingerprint)
     
     def store_dek_in_session(self, session_id: str, dek: bytes) -> bool:
         """Encrypt DEK with session key and store in database.

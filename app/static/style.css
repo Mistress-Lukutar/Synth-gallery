@@ -2754,11 +2754,15 @@ main {
     left: 0;
     right: 0;
     z-index: 10;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
     padding: 2rem;
     display: flex;
     justify-content: flex-start;
     align-items: flex-end;
+    pointer-events: none;
+}
+
+.lightbox-info > * {
+    pointer-events: auto;
 }
 
 .lightbox-meta {

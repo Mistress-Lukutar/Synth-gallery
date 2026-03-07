@@ -123,4 +123,42 @@ window.handleImageError = function(img, errorType = 'access', context = {}) {
     container.appendChild(errorPlaceholder);
 };
 
+/**
+ * Bind Enter key on input to trigger button click
+ * Usage: bindEnterKey('input-id', 'button-id')
+ */
+function bindEnterKey(inputId, buttonId) {
+    const input = document.getElementById(inputId);
+    const button = document.getElementById(buttonId);
+    if (!input || !button) return;
+
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !button.disabled) {
+            e.preventDefault();
+            button.click();
+        }
+    });
+}
+
+// Auto-bind via data attribute: data-submit-on-enter="#button-id"
+// or data-submit-on-enter="button-id" (without #)
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+
+    const input = e.target;
+    if (!input.matches('input[data-submit-on-enter]')) return;
+
+    const btnRef = input.getAttribute('data-submit-on-enter');
+    const btnId = btnRef.startsWith('#') ? btnRef.slice(1) : btnRef;
+    const button = document.getElementById(btnId);
+
+    if (button && !button.disabled) {
+        e.preventDefault();
+        button.click();
+    }
+});
+
+// Export to window
+window.bindEnterKey = bindEnterKey;
+
 console.log('[core.js] Loaded');

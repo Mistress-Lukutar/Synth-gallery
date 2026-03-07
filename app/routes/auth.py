@@ -1,4 +1,6 @@
 """Authentication routes."""
+import hashlib
+
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -9,6 +11,14 @@ from ..database import create_connection
 from ..dependencies import get_csrf_token
 from ..infrastructure.repositories import UserRepository, SessionRepository
 from ..infrastructure.services.encryption import dek_cache
+
+
+def _generate_fingerprint(request: Request) -> str:
+    """Generate browser fingerprint from request headers."""
+    user_agent = request.headers.get("user-agent", "")
+    accept_lang = request.headers.get("accept-language", "")
+    fingerprint_data = f"{user_agent}:{accept_lang}"
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
 
 router = APIRouter()
 
@@ -86,8 +96,9 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
             status_code=401
         )
 
-    # Create session
-    session_id = service.create_session(user["id"])
+    # Create session with fingerprint for hijacking protection
+    fingerprint = _generate_fingerprint(request)
+    session_id = service.create_session(user["id"], fingerprint=fingerprint)
 
     # Handle encryption key
     enc_keys = service.get_encryption_keys(user["id"])
