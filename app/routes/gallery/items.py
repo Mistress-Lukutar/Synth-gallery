@@ -284,41 +284,29 @@ def _copy_and_reencrypt_file(
     try:
         # If not encrypted or same owner - just copy
         if not is_encrypted or source_owner_id == dest_owner_id:
-            # Manual copy to avoid Windows file locking issues
-            print(f"[COPY] Copying {old_path} -> {new_path}")
             data = old_path.read_bytes()
-            print(f"[COPY] Read {len(data)} bytes")
             new_path.write_bytes(data)
-            exists = new_path.exists()
-            print(f"[COPY] File exists: {exists}")
-            return exists
+            return new_path.exists()
 
         # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
-        print(f"[COPY] Re-encrypting {old_path} -> {new_path}")
         source_dek = dek_cache.get(source_owner_id)
         dest_dek = dek_cache.get(dest_owner_id)
-        print(f"[COPY] source_dek={source_dek is not None}, dest_dek={dest_dek is not None}")
 
         if not source_dek or not dest_dek:
-            print("[COPY] Missing DEK, aborting")
             return False
 
         # Read and decrypt
         encrypted_data = old_path.read_bytes()
         try:
             plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
-        except Exception as e:
-            print(f"[COPY] Decryption failed: {e}")
+        except Exception:
             return False
 
         # Re-encrypt with destination owner's key
         new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
         new_path.write_bytes(new_encrypted)
-        exists = new_path.exists()
-        print(f"[COPY] Re-encrypt result: {exists}")
-        return exists
-    except Exception as e:
-        print(f"[COPY] Exception: {e}")
+        return new_path.exists()
+    except Exception:
         return False
 
 
@@ -412,15 +400,15 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                     taken_at=media["taken_at"]
                 )
 
-                # Copy tags
-                tags = db.execute(
-                    "SELECT tag, category_id, confidence FROM tags WHERE photo_id = ?",
+                # Copy tags (v2.0 schema: item_tags junction table)
+                item_tags = db.execute(
+                    "SELECT tag_id FROM item_tags WHERE item_id = ?",
                     (item_id,)
                 ).fetchall()
-                for tag in tags:
+                for item_tag in item_tags:
                     db.execute(
-                        "INSERT INTO tags (photo_id, tag, category_id, confidence) VALUES (?, ?, ?, ?)",
-                        (new_item_id, tag["tag"], tag["category_id"], tag["confidence"])
+                        "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
+                        (new_item_id, item_tag["tag_id"])
                     )
 
                 # Copy encryption keys
@@ -514,15 +502,15 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                         (new_album_id, new_item_id, idx)
                     )
 
-                    # Copy tags
-                    tags = db.execute(
-                        "SELECT tag, category_id, confidence FROM tags WHERE photo_id = ?",
+                    # Copy tags (v2.0 schema: item_tags junction table)
+                    item_tags = db.execute(
+                        "SELECT tag_id FROM item_tags WHERE item_id = ?",
                         (item["id"],)
                     ).fetchall()
-                    for tag in tags:
+                    for item_tag in item_tags:
                         db.execute(
-                            "INSERT INTO tags (photo_id, tag, category_id, confidence) VALUES (?, ?, ?, ?)",
-                            (new_item_id, tag["tag"], tag["category_id"], tag["confidence"])
+                            "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
+                            (new_item_id, item_tag["tag_id"])
                         )
 
                     # Copy encryption keys
