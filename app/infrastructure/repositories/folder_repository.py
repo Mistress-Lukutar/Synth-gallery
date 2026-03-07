@@ -107,13 +107,6 @@ class FolderRepository(Repository):
         )
         item_ids = [row["id"] for row in cursor.fetchall()]
         
-        # Also get legacy photo filenames if any
-        cursor = self._execute(
-            f"SELECT filename FROM photos WHERE folder_id IN ({placeholders})",
-            tuple(folder_ids)
-        )
-        legacy_filenames = [row["filename"] for row in cursor.fetchall()]
-        
         # Delete albums in these folders (items will be deleted via CASCADE from items table)
         self._execute(
             f"DELETE FROM albums WHERE folder_id IN ({placeholders})",
@@ -126,12 +119,6 @@ class FolderRepository(Repository):
             tuple(folder_ids)
         )
         
-        # Delete legacy photos
-        self._execute(
-            f"DELETE FROM photos WHERE folder_id IN ({placeholders})",
-            tuple(folder_ids)
-        )
-        
         # Delete the folders themselves
         self._execute(
             f"DELETE FROM folders WHERE id IN ({placeholders})",
@@ -141,7 +128,7 @@ class FolderRepository(Repository):
         self._commit()
         
         # Return all file IDs that need to be deleted from storage
-        return item_ids + legacy_filenames
+        return item_ids
     
     def list_by_user(self, user_id: int) -> list[dict]:
         """Get all folders owned by user.
