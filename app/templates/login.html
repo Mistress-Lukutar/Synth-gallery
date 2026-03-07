@@ -299,6 +299,10 @@
             margin-bottom: 1.25rem;
             font-size: 0.9rem;
         }
+
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -349,6 +353,32 @@
                     </svg>
                     Sign in with Hardware Key
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recovery Key Modal -->
+    <div id="recovery-modal" class="recovery-modal">
+        <div class="recovery-modal-content">
+            <h3>Sign in with Recovery Key</h3>
+            <p>Enter your username and recovery key to regain access to your account. You will be required to set a new password.</p>
+            
+            <div id="recovery-error" class="error-message hidden"></div>
+            <div id="recovery-success" class="success-message hidden"></div>
+            
+            <div class="form-group">
+                <label for="recovery-username">Username</label>
+                <input type="text" id="recovery-username" class="recovery-key-input" placeholder="Enter your username" autocomplete="username">
+            </div>
+            
+            <div class="form-group">
+                <label for="recovery-key-input">Recovery Key</label>
+                <input type="text" id="recovery-key-input" class="recovery-key-input" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off">
+            </div>
+            
+            <div class="recovery-modal-actions">
+                <button id="recovery-cancel-btn" class="btn-secondary">Cancel</button>
+                <button id="recovery-submit-btn" class="btn-primary">Sign In with Recovery Key</button>
             </div>
         </div>
     </div>
@@ -517,17 +547,14 @@
         // Recovery Key Login
         const recoveryKeyLink = document.getElementById('recovery-key-link');
         const recoveryModal = document.getElementById('recovery-modal');
-        
-        // Only initialize if modal exists (elements are in DOM)
-        if (recoveryKeyLink && recoveryModal) {
-            const recoveryKeyInput = document.getElementById('recovery-key-input');
-            const recoveryUsernameInput = document.getElementById('recovery-username');
-            const recoveryCancelBtn = document.getElementById('recovery-cancel-btn');
-            const recoverySubmitBtn = document.getElementById('recovery-submit-btn');
-            const recoveryError = document.getElementById('recovery-error');
-            const recoverySuccess = document.getElementById('recovery-success');
+        const recoveryKeyInput = document.getElementById('recovery-key-input');
+        const recoveryUsernameInput = document.getElementById('recovery-username');
+        const recoveryCancelBtn = document.getElementById('recovery-cancel-btn');
+        const recoverySubmitBtn = document.getElementById('recovery-submit-btn');
+        const recoveryError = document.getElementById('recovery-error');
+        const recoverySuccess = document.getElementById('recovery-success');
 
-            recoveryKeyLink.addEventListener('click', (e) => {
+        recoveryKeyLink.addEventListener('click', (e) => {
             e.preventDefault();
             recoveryModal.classList.add('visible');
             recoveryKeyInput.value = '';
@@ -611,7 +638,6 @@
                 recoveryKeyInput.focus();
             }
         });
-        } // End of recovery key initialization check
     </script>
 
     <style>
@@ -619,31 +645,5 @@
             to { transform: rotate(360deg); }
         }
     </style>
-
-    <!-- Recovery Key Modal -->
-    <div id="recovery-modal" class="recovery-modal">
-        <div class="recovery-modal-content">
-            <h3>Sign in with Recovery Key</h3>
-            <p>Enter your username and recovery key to regain access to your account. You will be required to set a new password.</p>
-            
-            <div id="recovery-error" class="error-message hidden"></div>
-            <div id="recovery-success" class="success-message hidden"></div>
-            
-            <div class="form-group">
-                <label for="recovery-username">Username</label>
-                <input type="text" id="recovery-username" class="recovery-key-input" placeholder="Enter your username" autocomplete="username">
-            </div>
-            
-            <div class="form-group">
-                <label for="recovery-key-input">Recovery Key</label>
-                <input type="text" id="recovery-key-input" class="recovery-key-input" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off">
-            </div>
-            
-            <div class="recovery-modal-actions">
-                <button id="recovery-cancel-btn" class="btn-secondary">Cancel</button>
-                <button id="recovery-submit-btn" class="btn-primary">Sign In with Recovery Key</button>
-            </div>
-        </div>
-    </div>
 </body>
 </html>
