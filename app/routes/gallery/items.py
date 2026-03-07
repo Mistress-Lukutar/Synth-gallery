@@ -266,35 +266,32 @@ def _copy_and_reencrypt_file(
 ) -> bool:
     """Copy file, re-encrypting if needed when owner changes."""
     import shutil
-    print(f"[COPY DEBUG] old_path={old_path}, exists={old_path.exists()}")
-    print(f"[COPY DEBUG] new_path={new_path}, parent={new_path.parent}")
-    print(f"[COPY DEBUG] is_encrypted={is_encrypted}, source_owner={source_owner_id}, dest_owner={dest_owner_id}")
+    import os
+    
+    # Convert Path objects to strings for Windows compatibility
+    old_path_str = str(old_path)
+    new_path_str = str(new_path)
     
     if not old_path.exists():
-        print("[COPY DEBUG] old_path does not exist, returning False")
         return False
 
     # Ensure parent directory exists
     try:
         new_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[COPY DEBUG] parent dir created/exists: {new_path.parent}")
-    except Exception as e:
-        print(f"[COPY DEBUG] failed to create parent dir: {e}")
+    except Exception:
         return False
 
     try:
         # If not encrypted or same owner - just copy
         if not is_encrypted or source_owner_id == dest_owner_id:
-            print("[COPY DEBUG] using shutil.copy2")
-            shutil.copy2(old_path, new_path)
-            result = new_path.exists()
-            print(f"[COPY DEBUG] copy result: {result}")
-            return result
+            # Manual copy to avoid Windows file locking issues
+            data = old_path.read_bytes()
+            new_path.write_bytes(data)
+            return new_path.exists()
 
         # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
         source_dek = dek_cache.get(source_owner_id)
         dest_dek = dek_cache.get(dest_owner_id)
-        print(f"[COPY DEBUG] source_dek={source_dek is not None}, dest_dek={dest_dek is not None}")
 
         if not source_dek or not dest_dek:
             return False
@@ -303,24 +300,14 @@ def _copy_and_reencrypt_file(
         encrypted_data = old_path.read_bytes()
         try:
             plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
-        except Exception as e:
-            print(f"[COPY DEBUG] decryption failed: {e}")
+        except Exception:
             return False
 
         # Re-encrypt with destination owner's key
         new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
         new_path.write_bytes(new_encrypted)
-        result = new_path.exists()
-        print(f"[COPY DEBUG] re-encrypt result: {result}")
-        return result
-    except Exception as e:
-        print(f"[COPY DEBUG] exception: {e}")
-        # Clean up partial file if exists
-        if new_path.exists():
-            try:
-                new_path.unlink()
-            except Exception:
-                pass
+        return new_path.exists()
+    except Exception:
         return False
 
 
