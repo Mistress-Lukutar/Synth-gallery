@@ -1,6 +1,9 @@
 """Authentication service - handles login/logout and session management."""
 from typing import Optional, Tuple
 
+import secrets
+from fastapi import HTTPException
+
 from ...infrastructure.repositories import UserRepository, SessionRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
 from ...infrastructure.services.session_dek import SessionDEKService
@@ -217,3 +220,120 @@ class AuthService:
             return self.get_dek_from_session(session_id) is not None
         
         return False
+    
+    # =========================================================================
+    # Recovery Key Authentication
+    # =========================================================================
+    
+    def authenticate_with_recovery_key(
+        self,
+        username: str,
+        recovery_key: str
+    ) -> tuple[Optional[dict], Optional[str]]:
+        """Authenticate user with recovery key.
+        
+        Args:
+            username: Username
+            recovery_key: Recovery key (formatted with dashes)
+            
+        Returns:
+            Tuple of (user dict, reset token) if successful, (None, None) otherwise
+        """
+        # Get user by username
+        user = self.user_repo.get_by_username(username)
+        if not user:
+            return None, None
+        
+        # Get encryption keys
+        enc_keys = self.get_encryption_keys(user["id"])
+        if not enc_keys or not enc_keys.get("recovery_encrypted_dek"):
+            return None, None
+        
+        # Parse recovery key
+        try:
+            raw_recovery_key = EncryptionService.parse_recovery_key(recovery_key)
+        except Exception:
+            return None, None
+        
+        # Decrypt DEK with recovery key
+        try:
+            dek = EncryptionService.decrypt_dek_with_recovery_key(
+                enc_keys["recovery_encrypted_dek"],
+                raw_recovery_key
+            )
+        except Exception:
+            return None, None
+        
+        # Generate password reset token
+        reset_token = secrets.token_urlsafe(32)
+        
+        # Store reset token and DEK temporarily
+        # We'll store DEK in cache with the reset token as key
+        dek_cache.set(f"reset_{reset_token}", dek, ttl_seconds=3600)  # 1 hour
+        dek_cache.set(f"reset_user_{reset_token}", user["id"], ttl_seconds=3600)
+        
+        return user, reset_token
+    
+    def validate_reset_token(self, reset_token: str) -> Optional[int]:
+        """Validate password reset token and return user ID.
+        
+        Args:
+            reset_token: Reset token from recovery login
+            
+        Returns:
+            User ID if valid, None otherwise
+        """
+        user_id = dek_cache.get(f"reset_user_{reset_token}")
+        return user_id
+    
+    def complete_password_reset(
+        self,
+        reset_token: str,
+        new_password: str,
+        fingerprint: str | None = None
+    ) -> tuple[Optional[dict], Optional[str]]:
+        """Complete password reset after recovery login.
+        
+        Args:
+            reset_token: Reset token from recovery login
+            new_password: New password
+            fingerprint: Optional browser fingerprint
+            
+        Returns:
+            Tuple of (user dict, session_id) if successful
+        """
+        # Validate token
+        user_id = self.validate_reset_token(reset_token)
+        if not user_id:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        
+        # Get DEK from cache
+        dek = dek_cache.get(f"reset_{reset_token}")
+        if not dek:
+            raise HTTPException(status_code=400, detail="Session expired. Please use recovery key again.")
+        
+        # Update password
+        self.user_repo.update_password(user_id, new_password)
+        
+        # Re-encrypt DEK with new password
+        salt = EncryptionService.generate_salt()
+        kek = EncryptionService.derive_kek(new_password, salt)
+        encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
+        self.user_repo.save_encryption_keys(user_id, encrypted_dek, salt)
+        
+        # Create session
+        session_id = self.create_session(user_id, fingerprint=fingerprint)
+        
+        # Store DEK in session
+        self.store_dek_in_session(session_id, dek)
+        
+        # Cache DEK
+        dek_cache.set(user_id, dek)
+        
+        # Clean up reset tokens
+        dek_cache.invalidate(f"reset_{reset_token}")
+        dek_cache.invalidate(f"reset_user_{reset_token}")
+        
+        # Return user info
+        user = self.user_repo.get_by_id(user_id)
+        return user, session_id

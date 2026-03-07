@@ -419,6 +419,55 @@ function finishRecoveryKey() {
     getEl('generate-recovery-btn').disabled = false;
 }
 
+async function regenerateRecoveryKey() {
+    if (!confirm('WARNING: This will invalidate your current recovery key.\n\nIf you have not saved the current key and lose your password, your files will be UNRECOVERABLE.\n\nAre you sure you want to generate a new recovery key?')) {
+        return;
+    }
+
+    const passwordInput = getEl('recovery-password');
+    const password = passwordInput.value;
+
+    if (!password) {
+        // Show password input if hidden
+        getEl('recovery-key-no-key').classList.remove('hidden');
+        getEl('recovery-key-has-key').classList.add('hidden');
+        passwordInput.focus();
+        alert('Please enter your password to generate a new recovery key');
+        return;
+    }
+
+    const btn = getEl('regenerate-recovery-btn');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+
+    try {
+        const resp = await csrfFetch(`${BASE_URL}/api/user/recovery-key/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: password })
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to generate');
+        }
+
+        const data = await resp.json();
+
+        // Show the new key
+        getEl('recovery-key-value').textContent = data.recovery_key;
+        getEl('recovery-key-result').classList.remove('hidden');
+        getEl('recovery-key-no-key').classList.add('hidden');
+        getEl('recovery-key-has-key').classList.add('hidden');
+        passwordInput.value = '';
+
+    } catch (err) {
+        alert('Error: ' + err.message);
+        btn.textContent = 'Generate New Recovery Key';
+        btn.disabled = false;
+    }
+}
+
 // ============================================================================
 // Initialization
 // ============================================================================
@@ -466,6 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
         generateRecoveryKey();
     });
     getEl('recovery-key-done-btn').addEventListener('click', finishRecoveryKey);
+    getEl('regenerate-recovery-btn').addEventListener('click', regenerateRecoveryKey);
     loadRecoveryKeyStatus();
 
     // Bind Enter keys for non-form inputs

@@ -1,9 +1,10 @@
 """Authentication routes."""
 import hashlib
 
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from ..application.services import AuthService
 from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, COOKIE_SECURE, BASE_DIR
@@ -141,3 +142,136 @@ def logout(request: Request):
     response = RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
     response.delete_cookie(SESSION_COOKIE)
     return response
+
+
+# ============================================================================
+# Recovery Key Login
+# ============================================================================
+
+class RecoveryKeyLoginRequest(BaseModel):
+    username: str
+    recovery_key: str
+
+
+class PasswordResetRequest(BaseModel):
+    reset_token: str
+    new_password: str
+
+
+@router.post("/api/auth/recover")
+def recover_with_key(request: Request, data: RecoveryKeyLoginRequest):
+    """Authenticate with recovery key and get reset token."""
+    service = get_auth_service()
+    
+    user, reset_token = service.authenticate_with_recovery_key(
+        data.username,
+        data.recovery_key
+    )
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or recovery key")
+    
+    return {
+        "status": "ok",
+        "message": "Recovery successful. Please set a new password.",
+        "reset_token": reset_token,
+        "username": user["username"]
+    }
+
+
+@router.get("/reset-password")
+def reset_password_page(
+    request: Request,
+    token: str = None,
+    error: str = None
+):
+    """Show password reset page after recovery key login."""
+    if not token:
+        return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
+    
+    # Validate token
+    service = get_auth_service()
+    user_id = service.validate_reset_token(token)
+    
+    if not user_id:
+        return templates.TemplateResponse(
+            request,
+            "reset_password.html",
+            {
+                "error": "Invalid or expired reset link. Please use recovery key again.",
+                "valid_token": False,
+                "reset_token": None,
+                "csrf_token": get_csrf_token(request),
+                "base_url": ROOT_PATH
+            }
+        )
+    
+    return templates.TemplateResponse(
+        request,
+        "reset_password.html",
+        {
+            "error": error,
+            "valid_token": True,
+            "reset_token": token,
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH
+        }
+    )
+
+
+@router.post("/reset-password")
+def reset_password(
+    request: Request,
+    reset_token: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    csrf_token: str = Form(...)
+):
+    """Process password reset after recovery key login."""
+    # Verify CSRF
+    from ..middleware import csrf_manager
+    if not csrf_manager.verify(request, csrf_token):
+        return RedirectResponse(
+            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error=Invalid+CSRF+token",
+            status_code=302
+        )
+    
+    if new_password != confirm_password:
+        return RedirectResponse(
+            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error=Passwords+do+not+match",
+            status_code=302
+        )
+    
+    if len(new_password) < 4:
+        return RedirectResponse(
+            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error=Password+must+be+at+least+4+characters",
+            status_code=302
+        )
+    
+    service = get_auth_service()
+    
+    try:
+        fingerprint = _generate_fingerprint(request)
+        user, session_id = service.complete_password_reset(
+            reset_token,
+            new_password,
+            fingerprint=fingerprint
+        )
+        
+        # Redirect to gallery with session cookie
+        response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
+        response.set_cookie(
+            key=SESSION_COOKIE,
+            value=session_id,
+            httponly=True,
+            samesite="lax",
+            secure=COOKIE_SECURE,
+            max_age=SESSION_MAX_AGE
+        )
+        return response
+        
+    except HTTPException as e:
+        return RedirectResponse(
+            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error={e.detail}",
+            status_code=302
+        )
