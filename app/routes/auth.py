@@ -229,8 +229,8 @@ def reset_password(
 ):
     """Process password reset after recovery key login."""
     # Verify CSRF
-    from ..middleware import csrf_manager
-    if not csrf_manager.verify(request, csrf_token):
+    expected_token = getattr(request.state, "csrf_token", "")
+    if not expected_token or csrf_token != expected_token:
         return RedirectResponse(
             url=f"{ROOT_PATH}/reset-password?token={reset_token}&error=Invalid+CSRF+token",
             status_code=302
