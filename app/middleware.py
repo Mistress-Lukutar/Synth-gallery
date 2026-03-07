@@ -113,7 +113,15 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     PROTECTED_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
     # Paths exempt from CSRF (e.g., API endpoints with their own auth)
-    EXEMPT_PATHS = {"/api/ai/", "/api/webauthn/", "/api/safes/", "/upload", "/upload-album", "/upload-bulk"}
+    EXEMPT_PATHS = {
+        "/api/ai/",
+        "/api/webauthn/",
+        "/api/safes/",
+        "/api/auth/recover",
+        "/upload",
+        "/upload-album",
+        "/upload-bulk"
+    }
 
     async def dispatch(self, request: Request, call_next):
         # Generate CSRF token if not present
