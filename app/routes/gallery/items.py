@@ -285,29 +285,40 @@ def _copy_and_reencrypt_file(
         # If not encrypted or same owner - just copy
         if not is_encrypted or source_owner_id == dest_owner_id:
             # Manual copy to avoid Windows file locking issues
+            print(f"[COPY] Copying {old_path} -> {new_path}")
             data = old_path.read_bytes()
+            print(f"[COPY] Read {len(data)} bytes")
             new_path.write_bytes(data)
-            return new_path.exists()
+            exists = new_path.exists()
+            print(f"[COPY] File exists: {exists}")
+            return exists
 
         # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
+        print(f"[COPY] Re-encrypting {old_path} -> {new_path}")
         source_dek = dek_cache.get(source_owner_id)
         dest_dek = dek_cache.get(dest_owner_id)
+        print(f"[COPY] source_dek={source_dek is not None}, dest_dek={dest_dek is not None}")
 
         if not source_dek or not dest_dek:
+            print("[COPY] Missing DEK, aborting")
             return False
 
         # Read and decrypt
         encrypted_data = old_path.read_bytes()
         try:
             plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
-        except Exception:
+        except Exception as e:
+            print(f"[COPY] Decryption failed: {e}")
             return False
 
         # Re-encrypt with destination owner's key
         new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
         new_path.write_bytes(new_encrypted)
-        return new_path.exists()
-    except Exception:
+        exists = new_path.exists()
+        print(f"[COPY] Re-encrypt result: {exists}")
+        return exists
+    except Exception as e:
+        print(f"[COPY] Exception: {e}")
         return False
 
 
