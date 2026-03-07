@@ -269,29 +269,41 @@ def _copy_and_reencrypt_file(
     if not old_path.exists():
         return False
 
-    # If not encrypted or same owner - just copy
-    if not is_encrypted or source_owner_id == dest_owner_id:
-        shutil.copy2(old_path, new_path)
-        return True
+    # Ensure parent directory exists
+    new_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
-    source_dek = dek_cache.get(source_owner_id)
-    dest_dek = dek_cache.get(dest_owner_id)
-
-    if not source_dek or not dest_dek:
-        return False
-
-    # Read and decrypt
-    encrypted_data = old_path.read_bytes()
     try:
-        plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
-    except Exception:
-        return False
+        # If not encrypted or same owner - just copy
+        if not is_encrypted or source_owner_id == dest_owner_id:
+            shutil.copy2(old_path, new_path)
+            return new_path.exists()
 
-    # Re-encrypt with destination owner's key
-    new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
-    new_path.write_bytes(new_encrypted)
-    return True
+        # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
+        source_dek = dek_cache.get(source_owner_id)
+        dest_dek = dek_cache.get(dest_owner_id)
+
+        if not source_dek or not dest_dek:
+            return False
+
+        # Read and decrypt
+        encrypted_data = old_path.read_bytes()
+        try:
+            plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
+        except Exception:
+            return False
+
+        # Re-encrypt with destination owner's key
+        new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
+        new_path.write_bytes(new_encrypted)
+        return new_path.exists()
+    except Exception:
+        # Clean up partial file if exists
+        if new_path.exists():
+            try:
+                new_path.unlink()
+            except Exception:
+                pass
+        return False
 
 
 @router.post("/api/items/copy")
