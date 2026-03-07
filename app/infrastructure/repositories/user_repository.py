@@ -243,29 +243,6 @@ class UserRepository(Repository):
             }
         return None
     
-    def set_encryption_keys(self, user_id: int, encrypted_dek: bytes, dek_salt: bytes) -> bool:
-        """Set user's encryption keys.
-        
-        Args:
-            user_id: User ID
-            encrypted_dek: Encrypted DEK
-            dek_salt: Salt for KEK derivation
-            
-        Returns:
-            True if successful
-        """
-        try:
-            self._execute(
-                """INSERT OR REPLACE INTO user_settings 
-                   (user_id, encrypted_dek, dek_salt, encryption_version)
-                   VALUES (?, ?, ?, 1)""",
-                (user_id, encrypted_dek, dek_salt)
-            )
-            self._commit()
-            return True
-        except Exception:
-            return False
-    
     def get_recovery_encrypted_dek(self, user_id: int) -> bytes | None:
         """Get recovery-encrypted DEK.
         

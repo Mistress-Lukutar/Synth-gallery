@@ -337,7 +337,7 @@ class UserSettingsService:
             
             # Update password and encryption keys
             self.user_repo.update_password(user_id, new_password)
-            self.user_repo.set_encryption_keys(user_id, new_encrypted_dek, new_salt)
+            self.user_repo.save_encryption_keys(user_id, new_encrypted_dek, new_salt)
         else:
             # No encryption - just update password
             self.user_repo.update_password(user_id, new_password)
