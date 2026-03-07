@@ -19,13 +19,14 @@ class SessionRepository(Repository):
         >>> repo.delete(session_id)  # logout
     """
     
-    def create(self, user_id: int, expires_hours: int = 24 * 7, encrypted_dek: bytes | None = None) -> str:
+    def create(self, user_id: int, expires_hours: int = 24 * 7, encrypted_dek: bytes | None = None, fingerprint: str | None = None) -> str:
         """Create new session for user.
         
         Args:
             user_id: User ID to create session for
             expires_hours: Session lifetime in hours (default: 7 days)
             encrypted_dek: Optional encrypted DEK for session-based key storage
+            fingerprint: Optional browser fingerprint for session validation
             
         Returns:
             Secure random session ID
@@ -33,9 +34,9 @@ class SessionRepository(Repository):
         session_id = secrets.token_urlsafe(32)
         
         self._execute(
-            """INSERT INTO sessions (id, user_id, expires_at, encrypted_dek) 
-               VALUES (?, ?, datetime('now', '+' || ? || ' hours'), ?)""",
-            (session_id, user_id, expires_hours, encrypted_dek)
+            """INSERT INTO sessions (id, user_id, expires_at, encrypted_dek, fingerprint) 
+               VALUES (?, ?, datetime('now', '+' || ? || ' hours'), ?, ?)""",
+            (session_id, user_id, expires_hours, encrypted_dek, fingerprint)
         )
         self._commit()
         return session_id
@@ -50,7 +51,7 @@ class SessionRepository(Repository):
             Session dict with user info, or None if invalid/expired
         """
         cursor = self._execute(
-            """SELECT s.id, s.user_id, s.created_at, s.expires_at, s.encrypted_dek,
+            """SELECT s.id, s.user_id, s.created_at, s.expires_at, s.encrypted_dek, s.fingerprint,
                       u.username, u.display_name 
                FROM sessions s 
                JOIN users u ON s.user_id = u.id 

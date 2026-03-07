@@ -1,4 +1,5 @@
 """Application middleware."""
+import hashlib
 import secrets
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -13,6 +14,20 @@ from .database import create_connection
 from .infrastructure.repositories import SessionRepository
 from .infrastructure.services.encryption import dek_cache
 from .infrastructure.services.session_dek import SessionDEKService
+
+
+def _generate_fingerprint(request: Request) -> str:
+    """Generate browser fingerprint from request headers.
+    
+    Used to detect session hijacking (cookie copied to different browser).
+    """
+    # Combine User-Agent and Accept-Language for basic fingerprinting
+    user_agent = request.headers.get("user-agent", "")
+    accept_lang = request.headers.get("accept-language", "")
+    
+    # Create simple hash - not perfect but catches most copy-paste attacks
+    fingerprint_data = f"{user_agent}:{accept_lang}"
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
 
 
 def strip_root_path(path: str) -> str:
@@ -53,23 +68,33 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if session:
                     user_id = session["user_id"]
                     
-                    # Restore DEK from session storage if not in memory cache
-                    # This supports server restarts and multiple workers (Issue #18)
-                    if dek_cache.get(user_id) is None and session.get("encrypted_dek"):
-                        try:
-                            dek = SessionDEKService.decrypt_dek(session["encrypted_dek"], session_id)
-                            dek_cache.set(user_id, dek)
-                        except Exception:
-                            # Failed to restore DEK - user may need to re-login
-                            pass
+                    # Check fingerprint to prevent session hijacking
+                    current_fingerprint = _generate_fingerprint(request)
+                    stored_fingerprint = session.get("fingerprint")
                     
-                    # Valid session - attach user info to request state
-                    request.state.user = {
-                        "id": user_id,
-                        "username": session["username"],
-                        "display_name": session["display_name"]
-                    }
-                    return await call_next(request)
+                    if stored_fingerprint and stored_fingerprint != current_fingerprint:
+                        # Fingerprint mismatch - possible session hijacking
+                        # Delete the session and require re-authentication
+                        session_repo.delete(session_id)
+                        # Continue to "no valid session" handling below
+                    else:
+                        # Restore DEK from session storage if not in memory cache
+                        # This supports server restarts and multiple workers (Issue #18)
+                        if dek_cache.get(user_id) is None and session.get("encrypted_dek"):
+                            try:
+                                dek = SessionDEKService.decrypt_dek(session["encrypted_dek"], session_id)
+                                dek_cache.set(user_id, dek)
+                            except Exception:
+                                # Failed to restore DEK - user may need to re-login
+                                pass
+                        
+                        # Valid session - attach user info to request state
+                        request.state.user = {
+                            "id": user_id,
+                            "username": session["username"],
+                            "display_name": session["display_name"]
+                        }
+                        return await call_next(request)
             finally:
                 conn.close()
 

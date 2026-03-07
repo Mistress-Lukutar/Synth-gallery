@@ -1,10 +1,19 @@
 """WebAuthn routes for hardware key authentication."""
 import base64
+import hashlib
 
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+
+
+def _generate_fingerprint(request: Request) -> str:
+    """Generate browser fingerprint from request headers."""
+    user_agent = request.headers.get("user-agent", "")
+    accept_lang = request.headers.get("accept-language", "")
+    fingerprint_data = f"{user_agent}:{accept_lang}"
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
 
 from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR, COOKIE_SECURE
 
@@ -257,9 +266,10 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
         # Update sign count
         webauthn_repo.update_sign_count(credential_id, new_sign_count)
 
-        # Create session
+        # Create session with fingerprint for hijacking protection
         session_repo = SessionRepository(db)
-        session_id = session_repo.create(cred["user_id"])
+        fingerprint = _generate_fingerprint(request)
+        session_id = session_repo.create(cred["user_id"], fingerprint=fingerprint)
 
         # Decrypt DEK from credential if available
         if cred.get("encrypted_dek"):

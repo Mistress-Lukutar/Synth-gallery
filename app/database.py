@@ -617,6 +617,13 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # Migration: Add fingerprint column to sessions for session hijacking protection
+    try:
+        db.execute("ALTER TABLE sessions ADD COLUMN fingerprint TEXT")
+        print("[Migration] Added sessions.fingerprint column")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
     # =============================================================================
     # Create default admin user if no users exist (first run)
     # =============================================================================
