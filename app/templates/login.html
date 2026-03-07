@@ -517,14 +517,17 @@
         // Recovery Key Login
         const recoveryKeyLink = document.getElementById('recovery-key-link');
         const recoveryModal = document.getElementById('recovery-modal');
-        const recoveryKeyInput = document.getElementById('recovery-key-input');
-        const recoveryUsernameInput = document.getElementById('recovery-username');
-        const recoveryCancelBtn = document.getElementById('recovery-cancel-btn');
-        const recoverySubmitBtn = document.getElementById('recovery-submit-btn');
-        const recoveryError = document.getElementById('recovery-error');
-        const recoverySuccess = document.getElementById('recovery-success');
+        
+        // Only initialize if modal exists (elements are in DOM)
+        if (recoveryKeyLink && recoveryModal) {
+            const recoveryKeyInput = document.getElementById('recovery-key-input');
+            const recoveryUsernameInput = document.getElementById('recovery-username');
+            const recoveryCancelBtn = document.getElementById('recovery-cancel-btn');
+            const recoverySubmitBtn = document.getElementById('recovery-submit-btn');
+            const recoveryError = document.getElementById('recovery-error');
+            const recoverySuccess = document.getElementById('recovery-success');
 
-        recoveryKeyLink.addEventListener('click', (e) => {
+            recoveryKeyLink.addEventListener('click', (e) => {
             e.preventDefault();
             recoveryModal.classList.add('visible');
             recoveryKeyInput.value = '';
@@ -608,6 +611,7 @@
                 recoveryKeyInput.focus();
             }
         });
+        } // End of recovery key initialization check
     </script>
 
     <style>
