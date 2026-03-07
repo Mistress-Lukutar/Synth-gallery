@@ -26,7 +26,13 @@ SESSION_COOKIE = "synth_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 # Paths that don't require authentication (without BASE_URL prefix)
-PUBLIC_PATHS = {"/login", "/static", "/favicon.ico"}
+PUBLIC_PATHS = {
+    "/login",
+    "/static",
+    "/favicon.ico",
+    "/api/auth/recover",
+    "/reset-password"
+}
 
 # API key for AI service (should be set via environment variable)
 AI_API_KEY = os.environ.get("SYNTH_AI_API_KEY", None)
