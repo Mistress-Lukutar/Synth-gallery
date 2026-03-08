@@ -7,33 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **Album Copy Fix** - Fixed album copying with correct column names
-- **SPA Gallery Refresh** - Gallery updates after album editor changes in lightbox
-
-### Removed
-- **AI Service** - Removed unused AI tagging feature
-  - Deleted `app/routes/api.py`
-  - Removed AI tags endpoints (`/api/items/{id}/ai-tags`, `/api/items/batch-ai-tags`)
-  - Removed AI tags UI elements (checkbox, button)
-  - Removed `AI_API_KEY` configuration
-- **item_keys Table** - Removed unused encryption key storage
-  - Table was empty (0 rows)
-  - Encryption uses direct DEK approach
-- **Debug Logging** - Removed 150+ console.log statements from JS
-
-### Fixed
-- **Album Copy** - Fixed `created_at` → `uploaded_at` column name
-- **Schema Fix** - API endpoints now use `item_tags` instead of legacy `tags.photo_id`
-- **Orphaned Uploads** - Files cleaned up on DB insert failure
-
-### Changed
-- **Dependencies** - Cleaned up requirements.txt
-  - Removed aiosqlite (unused)
-  - Removed pydantic (included with fastapi)
-  - Removed starlette (included with fastapi)
-  - Removed opencv-python duplicate
-
 ## [1.0.0] - 2026-03-08
 
 ### Added
@@ -110,6 +83,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - ❌ Removed async wrapper functions from database.py
   - ❌ Removed `tests/test_async_repositories.py`
   - **Reason:** No production usage, added complexity without benefit, Issue #17 (SQLAlchemy) will provide better async abstraction
+- **AI Service** - Removed unused AI tagging feature
+  - Deleted `app/routes/api.py`
+  - Removed AI tags endpoints (`/api/items/{id}/ai-tags`, `/api/items/batch-ai-tags`)
+  - Removed AI tags UI elements (checkbox, button)
+  - Removed `AI_API_KEY` configuration
+- **item_keys Table** - Removed unused encryption key storage
+  - Table was empty (0 rows)
+  - Encryption uses direct DEK approach (no Content Keys)
+- **Debug Logging** - Removed 150+ console.log statements from JS
+
+### Fixed
+- **Album Copy** - Fixed `created_at` → `uploaded_at` column name
+- **Schema Fix** - API endpoints now use `item_tags` instead of legacy `tags.photo_id`
+- **Orphaned Uploads** - Files cleaned up on DB insert failure
+- **SPA Gallery Refresh** - Gallery updates after album editor changes in lightbox
+
+### Changed
+- **Dependencies** - Cleaned up requirements.txt
+  - Removed aiosqlite (unused)
+  - Removed pydantic (included with fastapi)
+  - Removed starlette (included with fastapi)
+  - Removed opencv-python duplicate
 
 ### Added (Internal) - Service Layer Complete
 - **Application Services (Issue #16 - Completed)**
