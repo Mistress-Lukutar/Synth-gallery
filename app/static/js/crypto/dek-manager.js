@@ -10,7 +10,7 @@
  * sessionStorage, or any persistent storage. It's cleared on page unload.
  */
 
-const DEKManager = (function() {
+var DEKManager = (function() {
     'use strict';
     
     // Check if Web Crypto is available (requires secure context)
@@ -331,4 +331,3 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DEKManager };
 }
 
-console.log('dek-manager.js loaded, DEKManager:', typeof DEKManager);

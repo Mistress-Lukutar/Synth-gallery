@@ -1,24 +1,25 @@
 """Admin routes - backup management and admin-only features."""
-from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 
 from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR
-from fastapi.templating import Jinja2Templates
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
-from ..database import is_user_admin
-from ..dependencies import get_current_user, require_user, get_csrf_token
-from ..services.backup import (
+from ..database import create_connection
+from ..infrastructure.repositories import UserRepository
+from pydantic import BaseModel
+from ..dependencies import require_user, get_csrf_token
+from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,
     restore_backup, delete_backup,
     FullBackupService, backup_scheduler
 )
-from ..services.thumbnail import (
-    cleanup_orphaned_thumbnails, regenerate_missing_thumbnails,
-    get_thumbnail_stats
+from ..infrastructure.services.thumbnail import (
+    cleanup_orphaned_thumbnails, cleanup_orphaned_uploads,
+    regenerate_missing_thumbnails, get_thumbnail_stats
 )
 
 router = APIRouter()
@@ -27,9 +28,15 @@ router = APIRouter()
 def require_admin(request: Request):
     """Check if current user is admin. Raises 403 if not."""
     user = require_user(request)
-    if not is_user_admin(user["id"]):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return user
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+        user_data = user_repo.get_by_id(user["id"])
+        if not user_data or not user_data.get("is_admin"):
+            raise HTTPException(status_code=403, detail="Admin access required")
+        return user
+    finally:
+        db.close()
 
 
 # === Admin Pages ===
@@ -50,9 +57,9 @@ def backups_page(request: Request):
     scheduler_status = backup_scheduler.status
 
     return templates.TemplateResponse(
+        request,
         "admin_backups.html",
         {
-            "request": request,
             "user": user,
             "backups": db_backups,
             "full_backups": full_backups,
@@ -232,6 +239,127 @@ def delete_full_backup_endpoint(request: Request, filename: str):
     return {"status": "ok"}
 
 
+# === User Management Page ===
+
+@router.get("/admin/users")
+def users_page(request: Request):
+    """User management page."""
+    user = require_admin(request)
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+        users = user_repo.list_all()
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        {
+            "user": user,
+            "users": users,
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH,
+            "default_admin_created": request.query_params.get("default_admin") == "1"
+        }
+    )
+
+
+# === User Management API ===
+
+class CreateUserRequest(BaseModel):
+    username: str
+    display_name: str
+    password: str
+    is_admin: bool = False
+
+
+@router.post("/api/admin/users")
+def create_user_endpoint(request: Request, data: CreateUserRequest):
+    """Create a new user."""
+    require_admin(request)
+
+    if len(data.password) < 4:
+        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+
+        # Check if username already exists
+        existing = user_repo.get_by_username(data.username)
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+
+        # Create user
+        user_id = user_repo.create(data.username, data.password, data.display_name)
+
+        # Set admin status if requested
+        if data.is_admin:
+            user_repo.set_admin(user_id, True)
+
+        return {"status": "ok", "user_id": user_id}
+    finally:
+        db.close()
+
+
+@router.delete("/api/admin/users/{user_id}")
+def delete_user_endpoint(request: Request, user_id: int):
+    """Delete a user."""
+    current_user = require_admin(request)
+
+    # Prevent self-deletion
+    if user_id == current_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+
+        # Check if user exists
+        user = user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Delete user
+        user_repo.delete(user_id)
+
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+class SetAdminRequest(BaseModel):
+    is_admin: bool
+
+
+@router.post("/api/admin/users/{user_id}/admin")
+def set_admin_endpoint(request: Request, user_id: int, data: SetAdminRequest):
+    """Set user admin status."""
+    current_user = require_admin(request)
+
+    # Prevent removing own admin rights
+    if user_id == current_user["id"] and not data.is_admin:
+        raise HTTPException(status_code=400, detail="Cannot revoke your own admin rights")
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+
+        # Check if user exists
+        user = user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Update admin status
+        user_repo.set_admin(user_id, data.is_admin)
+
+        return {"status": "ok", "is_admin": data.is_admin}
+    finally:
+        db.close()
+
+
 # === Maintenance Page ===
 
 @router.get("/admin/maintenance")
@@ -242,9 +370,9 @@ def maintenance_page(request: Request):
     stats = get_thumbnail_stats()
 
     return templates.TemplateResponse(
+        request,
         "admin_maintenance.html",
         {
-            "request": request,
             "user": user,
             "stats": stats,
             "csrf_token": get_csrf_token(request),
@@ -269,6 +397,15 @@ def cleanup_thumbnails_endpoint(request: Request):
     require_admin(request)
 
     result = cleanup_orphaned_thumbnails()
+    return {"status": "ok", **result}
+
+
+@router.post("/api/admin/uploads/cleanup")
+def cleanup_uploads_endpoint(request: Request):
+    """Remove orphaned uploads (files not registered in database)."""
+    require_admin(request)
+
+    result = cleanup_orphaned_uploads()
     return {"status": "ok", **result}
 
 

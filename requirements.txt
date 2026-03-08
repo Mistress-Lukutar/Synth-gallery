@@ -1,14 +1,15 @@
-fastapi==0.128.0
-uvicorn[standard]==0.40.0
-python-multipart==0.0.21
-Pillow==12.0.0
+fastapi>=0.129.0
+uvicorn[standard]==0.41.0
+python-multipart==0.0.22
+Pillow==12.1.1
 Jinja2==3.1.6
-opencv-python-headless==4.12.0.88
+opencv-python-headless==4.13.0.92
 passlib[bcrypt]==1.7.4
 bcrypt==5.0.0
 cryptography>=42.0.0
 webauthn>=2.0.0
+aiofiles>=24.1.0
 
-opencv-python
-pydantic
-starlette
+# Optional: S3/MinIO storage support
+# Install with: pip install boto3
+boto3>=1.34.0

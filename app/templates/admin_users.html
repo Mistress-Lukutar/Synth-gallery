@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>User Management - Synth Admin</title>
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <style>
+        .admin-layout {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .admin-header h1 {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .admin-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .admin-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .admin-nav a:hover {
+            color: var(--text);
+        }
+        .admin-nav a.active {
+            color: var(--accent);
+        }
+        .back-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .back-link:hover {
+            color: var(--text);
+        }
+        .user-actions {
+            margin-bottom: 1.5rem;
+        }
+        .user-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .user-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: white;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .user-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .user-name {
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .user-meta {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .user-meta span {
+            margin-right: 1rem;
+        }
+        .admin-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.125rem 0.5rem;
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .user-item-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        .status-message {
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+        }
+        .status-message.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+        .status-message.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+        .status-message.warning {
+            display: block;
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            color: #eab308;
+        }
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal-content {
+            background: var(--bg-secondary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            width: 90%;
+            max-width: 400px;
+        }
+        .modal-content h3 {
+            margin-bottom: 1rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
+        }
+        .default-admin-notice {
+            background: rgba(234, 179, 8, 0.1);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            color: #eab308;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 1.5rem;
+        }
+        .default-admin-notice strong {
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-layout">
+        <header class="admin-header">
+            <h1>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
+                User Management
+            </h1>
+            <nav class="admin-nav">
+                <a href="{{ base_url }}/admin/users" class="active">Users</a>
+                <a href="{{ base_url }}/admin/backups">Backups</a>
+                <a href="{{ base_url }}/admin/maintenance">Maintenance</a>
+                <span style="color: var(--border);">|</span>
+                <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
+            </nav>
+        </header>
+
+        <div id="status-message" class="status-message"></div>
+
+        {% if default_admin_created %}
+        <div class="default-admin-notice">
+            <strong>⚠️ Default Admin Account Created</strong>
+            <p>A temporary admin account has been created:</p>
+            <p><strong>Username:</strong> admin<br><strong>Password:</strong> admin</p>
+            <p style="margin-top: 0.5rem; font-size: 0.875rem;">
+                Please log out and log back in with these credentials, then create a new admin user and delete this temporary account for security.
+            </p>
+        </div>
+        {% endif %}
+
+        <div class="user-actions">
+            <button id="add-user-btn" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add User
+            </button>
+        </div>
+
+        <div id="user-list" class="user-list">
+            {% if users %}
+                {% for user in users %}
+                <div class="user-item" data-id="{{ user.id }}">
+                    <div class="user-avatar">{{ user.display_name[0]|upper }}</div>
+                    <div class="user-info">
+                        <div class="user-name">
+                            {{ user.display_name }}
+                            {% if user.is_admin %}
+                            <span class="admin-badge">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                </svg>
+                                Admin
+                            </span>
+                            {% endif %}
+                        </div>
+                        <div class="user-meta">
+                            <span>@{{ user.username }}</span>
+                            <span>ID: {{ user.id }}</span>
+                            <span>Created: {{ user.created_at.strftime('%Y-%m-%d') if user.created_at else 'Unknown' }}</span>
+                        </div>
+                    </div>
+                    <div class="user-item-actions">
+                        {% if not user.is_admin %}
+                        <button class="btn btn-small btn-secondary" onclick="makeAdmin({{ user.id }})">
+                            Make Admin
+                        </button>
+                        {% else %}
+                        <button class="btn btn-small btn-secondary" onclick="revokeAdmin({{ user.id }})">
+                            Revoke Admin
+                        </button>
+                        {% endif %}
+                        <button class="btn btn-small btn-danger" onclick="deleteUser({{ user.id }}, '{{ user.username }}')">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <p>No users found</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="add-user-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Add New User</h3>
+            <div class="form-group">
+                <label for="new-username">Username</label>
+                <input type="text" id="new-username" placeholder="username" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="new-display-name">Display Name</label>
+                <input type="text" id="new-display-name" placeholder="Full Name" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="new-password">Password</label>
+                <input type="password" id="new-password" placeholder="Password (min 4 chars)" autocomplete="new-password">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="new-is-admin"> Grant admin rights
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn" onclick="addUser()">Create User</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function getCsrfToken() {
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            return meta ? meta.getAttribute('content') : '';
+        }
+
+        async function csrfFetch(url, options = {}) {
+            const headers = options.headers || {};
+            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
+                headers['X-CSRF-Token'] = getCsrfToken();
+            }
+            return fetch(url, { ...options, headers });
+        }
+
+        function showStatus(message, type = 'success') {
+            const el = document.getElementById('status-message');
+            el.textContent = message;
+            el.className = 'status-message ' + type;
+            setTimeout(() => { el.className = 'status-message'; }, 5000);
+        }
+
+        // Add User Modal
+        document.getElementById('add-user-btn').addEventListener('click', () => {
+            document.getElementById('add-user-modal').classList.add('active');
+        });
+
+        function closeModal() {
+            document.getElementById('add-user-modal').classList.remove('active');
+            document.getElementById('new-username').value = '';
+            document.getElementById('new-display-name').value = '';
+            document.getElementById('new-password').value = '';
+            document.getElementById('new-is-admin').checked = false;
+        }
+
+        async function addUser() {
+            const username = document.getElementById('new-username').value.trim();
+            const displayName = document.getElementById('new-display-name').value.trim();
+            const password = document.getElementById('new-password').value;
+            const isAdmin = document.getElementById('new-is-admin').checked;
+
+            if (!username || !displayName || !password) {
+                showStatus('Please fill in all fields', 'error');
+                return;
+            }
+
+            if (password.length < 4) {
+                showStatus('Password must be at least 4 characters', 'error');
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch('{{ base_url }}/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username,
+                        display_name: displayName,
+                        password,
+                        is_admin: isAdmin
+                    })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to create user');
+                }
+
+                showStatus('User created successfully');
+                closeModal();
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) {
+                showStatus(err.message, 'error');
+            }
+        }
+
+        async function deleteUser(userId, username) {
+            if (!confirm(`Delete user "${username}"?\n\nThis action cannot be undone!`)) {
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/users/${userId}`, {
+                    method: 'DELETE'
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to delete user');
+                }
+
+                showStatus('User deleted');
+                const item = document.querySelector(`.user-item[data-id="${userId}"]`);
+                if (item) item.remove();
+
+                // Check if list is empty
+                if (document.querySelectorAll('.user-item').length === 0) {
+                    document.getElementById('user-list').innerHTML = `
+                        <div class="empty-state">
+                            <p>No users found</p>
+                        </div>
+                    `;
+                }
+            } catch (err) {
+                showStatus(err.message, 'error');
+            }
+        }
+
+        async function makeAdmin(userId) {
+            try {
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/users/${userId}/admin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_admin: true })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to grant admin rights');
+                }
+
+                showStatus('Admin rights granted');
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) {
+                showStatus(err.message, 'error');
+            }
+        }
+
+        async function revokeAdmin(userId) {
+            if (!confirm('Revoke admin rights from this user?')) {
+                return;
+            }
+
+            try {
+                const resp = await csrfFetch(`{{ base_url }}/api/admin/users/${userId}/admin`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_admin: false })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    throw new Error(err.detail || 'Failed to revoke admin rights');
+                }
+
+                showStatus('Admin rights revoked');
+                setTimeout(() => location.reload(), 1000);
+            } catch (err) {
+                showStatus(err.message, 'error');
+            }
+        }
+
+        // Close modal on overlay click
+        document.getElementById('add-user-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('add-user-modal')) {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -9,7 +9,7 @@
  * Uses ECDH (Elliptic Curve Diffie-Hellman) for key agreement.
  */
 
-const KeyExchange = (function() {
+var KeyExchange = (function() {
     'use strict';
     
     // ECDH parameters
@@ -409,4 +409,3 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { KeyExchange };
 }
 
-console.log('key-exchange.js loaded, KeyExchange:', typeof KeyExchange);

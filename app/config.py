@@ -26,10 +26,13 @@ SESSION_COOKIE = "synth_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 # Paths that don't require authentication (without BASE_URL prefix)
-PUBLIC_PATHS = {"/login", "/static", "/favicon.ico"}
-
-# API key for AI service (should be set via environment variable)
-AI_API_KEY = os.environ.get("SYNTH_AI_API_KEY", None)
+PUBLIC_PATHS = {
+    "/login",
+    "/static",
+    "/favicon.ico",
+    "/api/auth/recover",
+    "/reset-password"
+}
 
 # CSRF configuration
 CSRF_TOKEN_NAME = "csrf_token"
@@ -44,3 +47,8 @@ BACKUP_SCHEDULE = os.environ.get("BACKUP_SCHEDULE", "daily")  # daily, weekly, o
 
 # WebAuthn configuration
 WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
+
+# Cookie security settings
+# Set SYNTH_ENV=production to enable secure cookies (HTTPS only)
+SYNTH_ENV = os.environ.get("SYNTH_ENV", "development")
+COOKIE_SECURE = SYNTH_ENV == "production"

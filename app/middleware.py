@@ -1,4 +1,5 @@
 """Application middleware."""
+import hashlib
 import secrets
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -7,9 +8,26 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import (
     PUBLIC_PATHS, SESSION_COOKIE,
     CSRF_TOKEN_NAME, CSRF_HEADER_NAME, CSRF_COOKIE_NAME,
-    ROOT_PATH
+    ROOT_PATH, COOKIE_SECURE
 )
-from .database import get_session
+from .database import create_connection
+from .infrastructure.repositories import SessionRepository
+from .infrastructure.services.encryption import dek_cache
+from .infrastructure.services.session_dek import SessionDEKService
+
+
+def _generate_fingerprint(request: Request) -> str:
+    """Generate browser fingerprint from request headers.
+    
+    Used to detect session hijacking (cookie copied to different browser).
+    """
+    # Combine User-Agent and Accept-Language for basic fingerprinting
+    user_agent = request.headers.get("user-agent", "")
+    accept_lang = request.headers.get("accept-language", "")
+    
+    # Create simple hash - not perfect but catches most copy-paste attacks
+    fingerprint_data = f"{user_agent}:{accept_lang}"
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
 
 
 def strip_root_path(path: str) -> str:
@@ -40,18 +58,45 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if check_path.startswith("/api/webauthn/authenticate/") or check_path.startswith("/api/webauthn/check/"):
             return await call_next(request)
 
-        # Check session cookie
+        # Check session cookie - use separate connection to avoid conflicts
         session_id = request.cookies.get(SESSION_COOKIE)
         if session_id:
-            session = get_session(session_id)
-            if session:
-                # Valid session - attach user info to request state
-                request.state.user = {
-                    "id": session["user_id"],
-                    "username": session["username"],
-                    "display_name": session["display_name"]
-                }
-                return await call_next(request)
+            conn = create_connection()
+            try:
+                session_repo = SessionRepository(conn)
+                session = session_repo.get_valid(session_id)
+                if session:
+                    user_id = session["user_id"]
+                    
+                    # Check fingerprint to prevent session hijacking
+                    current_fingerprint = _generate_fingerprint(request)
+                    stored_fingerprint = session.get("fingerprint")
+                    
+                    if stored_fingerprint and stored_fingerprint != current_fingerprint:
+                        # Fingerprint mismatch - possible session hijacking
+                        # Delete the session and require re-authentication
+                        session_repo.delete(session_id)
+                        # Continue to "no valid session" handling below
+                    else:
+                        # Restore DEK from session storage if not in memory cache
+                        # This supports server restarts and multiple workers (Issue #18)
+                        if dek_cache.get(user_id) is None and session.get("encrypted_dek"):
+                            try:
+                                dek = SessionDEKService.decrypt_dek(session["encrypted_dek"], session_id)
+                                dek_cache.set(user_id, dek)
+                            except Exception:
+                                # Failed to restore DEK - user may need to re-login
+                                pass
+                        
+                        # Valid session - attach user info to request state
+                        request.state.user = {
+                            "id": user_id,
+                            "username": session["username"],
+                            "display_name": session["display_name"]
+                        }
+                        return await call_next(request)
+            finally:
+                conn.close()
 
         # No valid session - redirect to login
         if request.method == "GET":
@@ -68,7 +113,15 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     PROTECTED_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
     # Paths exempt from CSRF (e.g., API endpoints with their own auth)
-    EXEMPT_PATHS = {"/api/ai/", "/api/webauthn/"}
+    EXEMPT_PATHS = {
+        "/api/ai/",
+        "/api/webauthn/",
+        "/api/safes/",
+        "/api/auth/recover",
+        "/upload",
+        "/upload-album",
+        "/upload-bulk"
+    }
 
     async def dispatch(self, request: Request, call_next):
         # Generate CSRF token if not present
@@ -119,9 +172,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         response.set_cookie(
             key=CSRF_COOKIE_NAME,
             value=token,
-            httponly=False,  # JavaScript needs to read this
+            httponly=False,  # JavaScript needs to read this for CSRF protection
             samesite="lax",
-            secure=False,  # Set to True in production with HTTPS
+            secure=COOKIE_SECURE,  # True in production (HTTPS only)
             max_age=60 * 60 * 24  # 24 hours
         )
         return response

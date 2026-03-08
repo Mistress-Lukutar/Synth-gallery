@@ -7,18 +7,18 @@ from fastapi.staticfiles import StaticFiles
 from .config import BASE_DIR, ROOT_PATH
 from .database import init_db, cleanup_expired_sessions
 from .middleware import AuthMiddleware, CSRFMiddleware
-from .services.backup import backup_scheduler
+from .infrastructure.services.backup import backup_scheduler
 
 # Import routers
 from .routes.auth import router as auth_router
 from .routes.gallery import router as gallery_router
 from .routes.folders import router as folders_router, users_router
 from .routes.tags import router as tags_router
-from .routes.api import router as api_router
 from .routes.admin import router as admin_router
 from .routes.webauthn import router as webauthn_router, settings_router
 from .routes.safes import router as safes_router
 from .routes.safe_files import router as safe_files_router
+from .routes.user_settings import router as user_settings_router
 
 
 @asynccontextmanager
@@ -48,9 +48,9 @@ app.include_router(gallery_router)
 app.include_router(folders_router)
 app.include_router(users_router)
 app.include_router(tags_router)
-app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(webauthn_router)
 app.include_router(settings_router)
 app.include_router(safes_router)
 app.include_router(safe_files_router)
+app.include_router(user_settings_router)

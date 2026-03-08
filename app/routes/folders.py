@@ -4,31 +4,35 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
+from ..database import create_connection
 from ..config import UPLOADS_DIR, THUMBNAILS_DIR
-from ..database import (
-    get_db, get_folder, get_folder_tree, get_folder_contents,
-    create_folder, update_folder, delete_folder as db_delete_folder,
-    get_user_default_folder, set_user_default_folder,
-    can_access_folder, can_edit_folder,
-    add_folder_permission, remove_folder_permission, update_folder_permission,
-    get_folder_permissions, search_users,
-    get_folder_sort_preference, set_folder_sort_preference,
-    get_safe, is_safe_unlocked_for_user, create_folder_in_safe,
-    is_folder_in_safe, get_folder_safe_id
-)
 from ..dependencies import require_user
+
+# Service layer imports (Issue #16)
+from ..infrastructure.repositories import (
+    FolderRepository, PermissionRepository, SafeRepository, UserRepository
+)
+from ..application.services import FolderService, PermissionService, UserSettingsService
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
 
 
+# Pydantic models for request validation
 class FolderCreate(BaseModel):
     name: str
     parent_id: str | None = None
-    safe_id: str | None = None  # If set, folder will be created inside this safe
+    safe_id: str | None = None
+    
+    class Config:
+        extra = 'ignore'  # Ignore extra fields for forward compatibility
 
 
 class FolderUpdate(BaseModel):
     name: str | None = None
+
+
+class FolderMove(BaseModel):
+    parent_id: str | None = None
 
 
 class PermissionCreate(BaseModel):
@@ -37,104 +41,132 @@ class PermissionCreate(BaseModel):
 
 
 class PermissionUpdate(BaseModel):
-    permission: str  # 'viewer' | 'editor'
+    permission: str
 
+
+class SortPreference(BaseModel):
+    sort_by: str  # 'uploaded' | 'taken'
+
+
+# Service factory functions
+def get_folder_service() -> FolderService:
+    """Create FolderService with repositories."""
+    db = create_connection()
+    return FolderService(
+        folder_repository=FolderRepository(db),
+        safe_repository=SafeRepository(db)
+    )
+
+
+def get_user_settings_service() -> UserSettingsService:
+    """Create UserSettingsService with repositories."""
+    db = create_connection()
+    return UserSettingsService(
+        folder_repository=FolderRepository(db),
+        permission_repository=PermissionRepository(db),
+        user_repository=UserRepository(db)
+    )
+
+
+def get_permission_service() -> PermissionService:
+    """Create PermissionService with repositories."""
+    db = create_connection()
+    return PermissionService(
+        permission_repository=PermissionRepository(db),
+        folder_repository=FolderRepository(db),
+        safe_repository=SafeRepository(db)
+    )
+
+
+# === Folder CRUD ===
 
 @router.get("")
 def get_folders(request: Request):
     """Get folder tree for current user."""
     user = require_user(request)
-    folders = get_folder_tree(user["id"])
-    return folders
+    
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    return service.get_folder_tree(user["id"])
 
 
 @router.post("")
 def create_new_folder(request: Request, data: FolderCreate):
     """Create a new folder."""
     user = require_user(request)
-
-    # If safe_id specified, create folder inside safe
-    if data.safe_id:
-        safe = get_safe(data.safe_id)
-        if not safe:
-            raise HTTPException(status_code=404, detail="Safe not found")
-        if safe["user_id"] != user["id"]:
-            raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Check if safe is unlocked
-        if not is_safe_unlocked_for_user(data.safe_id, user["id"]):
-            raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
-        
-        # Validate parent_id if provided (must be in same safe)
-        if data.parent_id:
-            parent = get_folder(data.parent_id)
-            if not parent:
-                raise HTTPException(status_code=404, detail="Parent folder not found")
-            if parent["safe_id"] != data.safe_id:
-                raise HTTPException(status_code=403, detail="Parent folder must be in the same safe")
-        
-        folder_id = create_folder_in_safe(data.name, user["id"], data.safe_id, data.parent_id)
-    else:
-        # Regular folder creation (not in safe)
-        # If parent_id specified, verify user owns the parent folder
-        if data.parent_id:
-            parent = get_folder(data.parent_id)
-            if not parent:
-                raise HTTPException(status_code=404, detail="Parent folder not found")
-            if parent["user_id"] != user["id"]:
-                raise HTTPException(status_code=403, detail="Cannot create folder in another user's folder")
-            # Check parent is not in a safe
-            if parent.get("safe_id"):
-                raise HTTPException(status_code=403, detail="Cannot create subfolder outside of safe")
-
-        folder_id = create_folder(data.name, user["id"], data.parent_id)
     
-    folder = get_folder(folder_id)
-
-    return {"status": "ok", "folder": dict(folder)}
+    db = create_connection()
+    try:
+        # Handle safe folder creation
+        if data.safe_id:
+            safe_repo = SafeRepository(db)
+            safe = safe_repo.get_by_id(data.safe_id)
+            if not safe:
+                raise HTTPException(status_code=404, detail=f"Safe not found: {data.safe_id}")
+            if safe["user_id"] != user["id"]:
+                raise HTTPException(status_code=403, detail="Access denied")
+            
+            if not safe_repo.is_unlocked(data.safe_id, user["id"]):
+                raise HTTPException(status_code=403, detail="Safe is locked. Please unlock first.")
+        
+        # Using service layer (Issue #16)
+        service = FolderService(
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
+        )
+        folder = service.create_folder(
+            name=data.name,
+            user_id=user["id"],
+            parent_id=data.parent_id,
+            safe_id=data.safe_id
+        )
+        
+        return {"status": "ok", "folder": dict(folder)}
+    finally:
+        db.close()
 
 
 @router.put("/{folder_id}")
 def update_existing_folder(request: Request, folder_id: str, data: FolderUpdate):
     """Update folder name."""
     user = require_user(request)
+    
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    folder = service.update_folder(folder_id, data.name, user["id"])
+    
+    return {"status": "ok", "folder": dict(folder)}
 
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
 
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="You don't own this folder")
-
-    update_folder(folder_id, data.name)
-    updated = get_folder(folder_id)
-
-    return {"status": "ok", "folder": dict(updated)}
+@router.put("/{folder_id}/move")
+def move_folder_route(request: Request, folder_id: str, data: FolderMove):
+    """Move folder to new parent."""
+    user = require_user(request)
+    
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    service.move_folder(folder_id, data.parent_id, user["id"])
+    
+    return {"status": "ok"}
 
 
 @router.delete("/{folder_id}")
 def delete_folder_route(request: Request, folder_id: str):
     """Delete folder and all its contents."""
     user = require_user(request)
-
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="You don't own this folder")
-
-    # Get filenames to delete
-    filenames = db_delete_folder(folder_id)
-
+    
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    filenames = service.delete_folder(folder_id, user["id"])
+    
     # Delete actual files
     for filename in filenames:
         file_path = UPLOADS_DIR / filename
         photo_id = Path(filename).stem
-        thumb_path = THUMBNAILS_DIR / f"{photo_id}.jpg"
+        thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less
         file_path.unlink(missing_ok=True)
         thumb_path.unlink(missing_ok=True)
-
+    
     return {"status": "ok"}
 
 
@@ -142,11 +174,10 @@ def delete_folder_route(request: Request, folder_id: str):
 def get_folder_contents_route(request: Request, folder_id: str):
     """Get contents of a specific folder."""
     user = require_user(request)
-
-    if not can_access_folder(folder_id, user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    contents = get_folder_contents(folder_id, user["id"])
+    
+    # Using service layer (Issue #16)
+    service = get_folder_service()
+    contents = service.get_folder_contents(folder_id, user["id"])
     return contents
 
 
@@ -154,33 +185,24 @@ def get_folder_contents_route(request: Request, folder_id: str):
 def set_default_folder(request: Request, folder_id: str):
     """Set folder as user's default folder."""
     user = require_user(request)
-
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="You don't own this folder")
-
-    set_user_default_folder(user["id"], folder_id)
+    
+    # Using service layer (Issue #16)
+    service = get_user_settings_service()
+    service.set_default_folder(user["id"], folder_id)
     return {"status": "ok"}
 
 
-# === Folder Permissions ===
+# === Folder Permissions (using PermissionService) ===
 
 @router.get("/{folder_id}/permissions")
 def get_folder_permissions_route(request: Request, folder_id: str):
     """Get all permissions for a folder (owner only)."""
     user = require_user(request)
-
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
-
-    permissions = get_folder_permissions(folder_id)
+    
+    # Using service layer (Issue #16)
+    service = get_permission_service()
+    permissions = service.get_folder_permissions(folder_id, user["id"])
+    
     return {"permissions": permissions}
 
 
@@ -188,90 +210,127 @@ def get_folder_permissions_route(request: Request, folder_id: str):
 def add_folder_permission_route(request: Request, folder_id: str, data: PermissionCreate):
     """Add permission for a user on a folder (owner only)."""
     user = require_user(request)
-
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
-
-    if data.user_id == user["id"]:
-        raise HTTPException(status_code=400, detail="Cannot set permission for yourself")
-
-    if data.permission not in ('viewer', 'editor'):
-        raise HTTPException(status_code=400, detail="Permission must be 'viewer' or 'editor'")
-
-    success = add_folder_permission(folder_id, data.user_id, data.permission, user["id"])
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to add permission")
-
-    permissions = get_folder_permissions(folder_id)
-    return {"status": "ok", "permissions": permissions}
+    
+    db = create_connection()
+    try:
+        # Check if folder is in a safe - sharing safe folders is prohibited
+        folder_repo = FolderRepository(db)
+        folder = folder_repo.get_by_id(folder_id)
+        if folder and folder.get("safe_id"):
+            raise HTTPException(status_code=400, detail="Cannot share folders from a safe")
+        
+        # Using service layer (Issue #16)
+        service = PermissionService(
+            permission_repository=PermissionRepository(db),
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
+        )
+        success = service.grant_permission(
+            folder_id=folder_id,
+            user_id=data.user_id,
+            permission=data.permission,
+            granted_by=user["id"]
+        )
+        
+        if not success:
+            raise HTTPException(status_code=400, detail="Failed to add permission")
+        
+        permissions = service.get_folder_permissions(folder_id, user["id"])
+        return {"status": "ok", "permissions": permissions}
+    finally:
+        db.close()
 
 
 @router.put("/{folder_id}/permissions/{target_user_id}")
-def update_folder_permission_route(request: Request, folder_id: str, target_user_id: int, data: PermissionUpdate):
+def update_folder_permission_route(
+    request: Request,
+    folder_id: str,
+    target_user_id: int,
+    data: PermissionUpdate
+):
     """Update permission for a user on a folder (owner only)."""
     user = require_user(request)
-
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
-
-    if data.permission not in ('viewer', 'editor'):
-        raise HTTPException(status_code=400, detail="Permission must be 'viewer' or 'editor'")
-
-    success = update_folder_permission(folder_id, target_user_id, data.permission)
-    if not success:
-        raise HTTPException(status_code=404, detail="Permission not found")
-
-    permissions = get_folder_permissions(folder_id)
-    return {"status": "ok", "permissions": permissions}
+    
+    db = create_connection()
+    try:
+        # Check if folder is in a safe - sharing safe folders is prohibited
+        folder_repo = FolderRepository(db)
+        folder = folder_repo.get_by_id(folder_id)
+        if folder and folder.get("safe_id"):
+            raise HTTPException(status_code=400, detail="Cannot share folders from a safe")
+        
+        # Using service layer (Issue #16)
+        service = PermissionService(
+            permission_repository=PermissionRepository(db),
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
+        )
+        success = service.update_permission(
+            folder_id=folder_id,
+            user_id=target_user_id,
+            new_permission=data.permission,
+            updated_by=user["id"]
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Permission not found")
+        
+        permissions = service.get_folder_permissions(folder_id, user["id"])
+        return {"status": "ok", "permissions": permissions}
+    finally:
+        db.close()
 
 
 @router.delete("/{folder_id}/permissions/{target_user_id}")
-def remove_folder_permission_route(request: Request, folder_id: str, target_user_id: int):
+def remove_folder_permission_route(
+    request: Request,
+    folder_id: str,
+    target_user_id: int
+):
     """Remove permission for a user on a folder (owner only)."""
     user = require_user(request)
-
-    folder = get_folder(folder_id)
-    if not folder:
-        raise HTTPException(status_code=404, detail="Folder not found")
-
-    if folder["user_id"] != user["id"]:
-        raise HTTPException(status_code=403, detail="Only folder owner can manage permissions")
-
-    success = remove_folder_permission(folder_id, target_user_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Permission not found")
-
-    permissions = get_folder_permissions(folder_id)
-    return {"status": "ok", "permissions": permissions}
+    
+    db = create_connection()
+    try:
+        # Using service layer (Issue #16)
+        service = PermissionService(
+            permission_repository=PermissionRepository(db),
+            folder_repository=FolderRepository(db),
+            safe_repository=SafeRepository(db)
+        )
+        success = service.revoke_permission(
+            folder_id=folder_id,
+            user_id=target_user_id,
+            revoked_by=user["id"]
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Permission not found")
+        
+        permissions = service.get_folder_permissions(folder_id, user["id"])
+        return {"status": "ok", "permissions": permissions}
+    finally:
+        db.close()
 
 
 # === Folder Preferences ===
-
-class SortPreference(BaseModel):
-    sort_by: str  # 'uploaded' | 'taken'
-
 
 @router.put("/{folder_id}/sort")
 def set_sort_preference(request: Request, folder_id: str, data: SortPreference):
     """Set sort preference for a folder (per user)."""
     user = require_user(request)
-
-    # Check user has access to folder
-    if not can_access_folder(folder_id, user["id"]):
+    
+    # Using service layer for access check (Issue #16)
+    service = get_permission_service()
+    if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
-
+    
     if data.sort_by not in ('uploaded', 'taken'):
         raise HTTPException(status_code=400, detail="sort_by must be 'uploaded' or 'taken'")
-
-    set_folder_sort_preference(user["id"], folder_id, data.sort_by)
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    settings_service.set_sort_preference(user["id"], folder_id, data.sort_by)
     return {"status": "ok", "sort_by": data.sort_by}
 
 
@@ -279,12 +338,15 @@ def set_sort_preference(request: Request, folder_id: str, data: SortPreference):
 def get_sort_preference(request: Request, folder_id: str):
     """Get sort preference for a folder (per user)."""
     user = require_user(request)
-
-    # Check user has access to folder
-    if not can_access_folder(folder_id, user["id"]):
+    
+    # Using service layer for access check (Issue #16)
+    service = get_permission_service()
+    if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
-
-    sort_by = get_folder_sort_preference(user["id"], folder_id)
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    sort_by = settings_service.get_sort_preference(user["id"], folder_id)
     return {"sort_by": sort_by}
 
 
@@ -292,17 +354,16 @@ def get_sort_preference(request: Request, folder_id: str):
 def set_default_folder_route(request: Request, folder_id: str):
     """Set folder as user's default folder (opens on login)."""
     user = require_user(request)
-
-    # Check user has access to folder
-    if not can_access_folder(folder_id, user["id"]):
+    
+    # Using service layer for access check (Issue #16)
+    service = get_permission_service()
+    if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
-
-    from ..database import set_user_default_folder
-    success = set_user_default_folder(user["id"], folder_id)
-
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to set default folder")
-
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    settings_service.set_default_folder(user["id"], folder_id)
+    
     return {"status": "ok"}
 
 
@@ -310,10 +371,10 @@ def set_default_folder_route(request: Request, folder_id: str):
 def get_default_folder_route(request: Request):
     """Get user's default folder ID."""
     user = require_user(request)
-
-    from ..database import get_user_default_folder
-    default_folder_id = get_user_default_folder(user["id"])
-
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    default_folder_id = settings_service.get_default_folder(user["id"])
     return {"default_folder_id": default_folder_id}
 
 
@@ -321,10 +382,10 @@ def get_default_folder_route(request: Request):
 def get_collapsed_folders_route(request: Request):
     """Get list of collapsed folder IDs for current user."""
     user = require_user(request)
-
-    from ..database import get_collapsed_folders
-    collapsed = get_collapsed_folders(user["id"])
-
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    collapsed = settings_service.get_collapsed_folders(user["id"])
     return {"collapsed_folders": collapsed}
 
 
@@ -332,10 +393,10 @@ def get_collapsed_folders_route(request: Request):
 def toggle_collapse_route(request: Request, folder_id: str):
     """Toggle folder collapsed state. Returns new state."""
     user = require_user(request)
-
-    from ..database import toggle_folder_collapsed
-    is_collapsed = toggle_folder_collapsed(user["id"], folder_id)
-
+    
+    # Using service layer (Issue #16)
+    settings_service = get_user_settings_service()
+    is_collapsed = settings_service.toggle_collapsed_folder(user["id"], folder_id)
     return {"collapsed": is_collapsed}
 
 
@@ -347,9 +408,14 @@ users_router = APIRouter(prefix="/api/users", tags=["users"])
 def search_users_route(request: Request, q: str = ""):
     """Search users by name (for sharing)."""
     user = require_user(request)
-
+    
     if len(q) < 2:
         return {"users": []}
-
-    users = search_users(q, exclude_user_id=user["id"], limit=10)
-    return {"users": users}
+    
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+        users = user_repo.search(q, exclude_user_id=user["id"], limit=10)
+        return {"users": users}
+    finally:
+        db.close()

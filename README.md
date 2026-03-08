@@ -29,10 +29,10 @@ Personal media vault with end-to-end encryption, hardware key authentication, an
 
 ## Quick Start
 
-### Docker (recommended)
+### Windows (Recommended)
 
 ```bash
-docker-compose up --build
+Start.bat
 ```
 
 ### Local Development
@@ -44,42 +44,30 @@ uvicorn app.main:app --reload --port 8000
 
 Open http://localhost:8000
 
+## First Run
+
+On first startup, if no users exist, a temporary admin account is created:
+- **Username:** admin
+- **Password:** admin
+
+**Important:** Log in with these credentials, then immediately create a new admin user and delete the temporary account.
+
 ## User Management
 
-```bash
-# Create user
-python manage_users.py add <username> <password> <display_name>
+User management is available through the web UI at `/admin/users`:
+- Create, edit, delete users
+- Grant/revoke admin rights
+- View user list
 
-# Change password (re-encrypts all data)
-python manage_users.py passwd <username> <old_password> <new_password>
-
-# Generate recovery key
-python manage_users.py recovery-key <username> <password>
-
-# Recover access with recovery key
-python manage_users.py recover <username> <recovery_key>
-
-# List users
-python manage_users.py list
-```
+Profile settings (change password, recovery key, display name) are available at `/settings`.
 
 ## Backup & Restore
 
-```bash
-# Create full backup
-python manage_users.py backup
-
-# List backups
-python manage_users.py backup-list
-
-# Verify backup integrity
-python manage_users.py verify <filename>
-
-# Restore from backup
-python manage_users.py restore <filename>
-```
-
-Admin UI available at `/admin/backups`
+Admin UI available at `/admin/backups`:
+- Create full backups (database + media files)
+- Schedule automatic backups (daily/weekly)
+- Verify backup integrity
+- Download and restore from backups
 
 ## Hardware Key Setup
 
@@ -116,9 +104,6 @@ Safes are independent encrypted containers with their own encryption keys, separ
 ## Environment Variables
 
 ```bash
-# AI service API key (optional)
-SYNTH_AI_API_KEY=your-secret-key
-
 # WebAuthn display name
 WEBAUTHN_RP_NAME=Synth Gallery
 
@@ -126,18 +111,26 @@ WEBAUTHN_RP_NAME=Synth Gallery
 BACKUP_PATH=/path/to/backups
 BACKUP_SCHEDULE=daily          # daily, weekly, or disabled
 BACKUP_ROTATION_COUNT=5        # number of backups to keep
+
+# Storage backend (optional)
+STORAGE_BACKEND=local          # local or s3
+S3_BUCKET=your-bucket
+S3_REGION=us-east-1
+S3_ENDPOINT=https://s3.amazonaws.com  # for MinIO/custom endpoints
+S3_ACCESS_KEY=your-access-key
+S3_SECRET_KEY=your-secret-key
 ```
 
 ## Security Model
 
-| Layer | Protection |
-|-------|------------|
-| Files at rest | AES-256-GCM per-user encryption |
-| Safes (Vaults) | Additional AES-256-GCM with independent keys |
-| Password | bcrypt + PBKDF2-SHA256 key derivation |
-| Sessions | HTTP-only cookies, 7-day expiry |
-| API | CSRF tokens, API key auth for external services |
-| Login | Password or WebAuthn hardware keys |
+| Layer          | Protection                                      |
+|----------------|-------------------------------------------------|
+| Files at rest  | AES-256-GCM per-user encryption                 |
+| Safes (Vaults) | Additional AES-256-GCM with independent keys    |
+| Password       | bcrypt + PBKDF2-SHA256 key derivation           |
+| Sessions       | HTTP-only cookies, 7-day expiry                 |
+| API            | CSRF tokens                                    |
+| Login          | Password or WebAuthn hardware keys              |
 
 ## Tech Stack
 
