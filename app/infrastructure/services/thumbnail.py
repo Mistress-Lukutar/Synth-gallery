@@ -187,7 +187,7 @@ def cleanup_orphaned_uploads() -> dict:
         except Exception:
             files_failed += 1
 
-    # Delete DB entries for missing originals (cascades to item_media, item_tags, item_keys)
+    # Delete DB entries for missing originals (cascades to item_media, item_tags)
     db_deleted = 0
     db_failed = 0
     thumbs_deleted = 0
