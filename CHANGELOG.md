@@ -7,6 +7,240 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-08
+
+### Added
+- **User Management Page** (`/admin/users`)
+  - Web UI for user CRUD operations
+  - Grant/revoke admin rights
+  - User list with search and filtering
+  - Default admin account creation on first run
+- **Profile Settings** (`/settings`)
+  - Change display name
+  - Change password (with automatic DEK re-encryption)
+  - Recovery key generation and management
+- **Polymorphic Items Architecture** (Issue #24)
+  - Unified `items` table for photos, videos, notes, files
+  - `item_media` table for media-specific data
+  - Migration from legacy `photos` table
+- **Default Admin Account**
+  - Auto-creates `admin/admin` account on first run if no users exist
+  - Warning in console to create proper admin and delete temporary account
+
+### Removed
+- **Docker Support** - Removed Docker-related files and documentation
+  - Use `Start.bat` (Windows) or direct uvicorn launch instead
+- **manage_users.py CLI Script** - Replaced by web UI
+  - User management now at `/admin/users`
+  - Profile settings (password, recovery key) at `/settings`
+  - Backup management at `/admin/backups`
+
+### Fixed
+- Type checker warnings across codebase
+- IDE inspection warnings (JS/CSS)
+- Accessibility: Added labels to form inputs
+- Code cleanup: Removed dead code (UploadService/PhotoService tests)
+
+### Changed (Breaking) - Unified File Access Service (Issue #23)
+- **New unified file endpoints**:
+  - `/files/{photo_id}` - Returns file with encryption headers
+  - `/files/{photo_id}/thumbnail` - Returns thumbnail with encryption headers
+  - Headers indicate encryption type: `X-Encryption: none|server|e2e`
+  - E2E files include `X-Safe-Id` header for client-side decryption
+- **Removed legacy endpoints**:
+  - ❌ `/uploads/{filename}` → Use `/files/{photo_id}`
+  - ❌ `/thumbnails/{filename}` → Use `/files/{photo_id}/thumbnail`
+- **FileAccessService** (`app/static/js/file-access-service.js`):
+  - Unified client-side file access for all encryption types
+  - `getFileUrl(photoId)` - Returns direct URL or Blob URL (for E2E)
+  - `getThumbnailUrl(photoId)` - Same for thumbnails
+  - `revokeUrl(url)` - Cleanup Blob URLs to prevent memory leaks
+  - Automatic metadata caching (5 min TTL)
+- **Simplified frontend templates**:
+  - Single HTML template for all photos (no more separate safe/regular paths)
+  - Unified rendering via `data-photo-id` attributes
+  - Async thumbnail resolution via `resolveGalleryThumbnails()`
+
+### Changed (Breaking) - v1.0 Release Preparation
+- **Major Architecture Refactoring: Repository Pattern Complete**
+  - ✅ Split `app/database.py` (2282 lines) into 7 focused Repository classes
+  - ✅ Reduced `database.py` to ~450 lines (-80% reduction)
+  - ✅ Removed all deprecated proxy functions (was: ~100 functions with warnings)
+  - ✅ Removed `app/database_minimal.py` (redundant with cleaned database.py)
+  - ✅ All routes now use explicit `create_connection()` pattern
+  - ✅ All 128 tests passing (100% pass rate)
+  - ✅ Zero deprecated database functions in production code
+
+### Removed
+- **Server-side Safe decryption code** (dead code removal):
+  - Removed server-side attempts to decrypt E2E (Safe) files
+  - E2E files are now ONLY decrypted on client (true end-to-end encryption)
+  - Simplified `app/routes/gallery/files.py` by ~50% (removed duplicate safe/regular logic)
+- **Async Database Layer (Issue #15 - Reverted)**
+  - ❌ Removed `app/infrastructure/database/` module
+  - ❌ Removed all `Async*Repository` classes (AsyncUserRepository, etc.)
+  - ❌ Removed `aiosqlite` dependency
+  - ❌ Removed async wrapper functions from database.py
+  - ❌ Removed `tests/test_async_repositories.py`
+  - **Reason:** No production usage, added complexity without benefit, Issue #17 (SQLAlchemy) will provide better async abstraction
+- **AI Service** - Removed unused AI tagging feature
+  - Deleted `app/routes/api.py`
+  - Removed AI tags endpoints (`/api/items/{id}/ai-tags`, `/api/items/batch-ai-tags`)
+  - Removed AI tags UI elements (checkbox, button)
+  - Removed `AI_API_KEY` configuration
+- **item_keys Table** - Removed unused encryption key storage
+  - Table was empty (0 rows)
+  - Encryption uses direct DEK approach (no Content Keys)
+- **Debug Logging** - Removed 150+ console.log statements from JS
+
+### Fixed
+- **Album Copy** - Fixed `created_at` → `uploaded_at` column name
+- **Schema Fix** - API endpoints now use `item_tags` instead of legacy `tags.photo_id`
+- **Orphaned Uploads** - Files cleaned up on DB insert failure
+- **SPA Gallery Refresh** - Gallery updates after album editor changes in lightbox
+
+### Changed
+- **Dependencies** - Cleaned up requirements.txt
+  - Removed aiosqlite (unused)
+  - Removed pydantic (included with fastapi)
+  - Removed starlette (included with fastapi)
+  - Removed opencv-python duplicate
+
+### Added (Internal) - Service Layer Complete
+- **Application Services (Issue #16 - Completed)**
+  - ✅ 9 services in `app/application/services/`:
+    - `AuthService` - Authentication and session management
+    - `FolderService` - Folder CRUD and tree operations
+    - `PermissionService` - Access control (can_access, can_edit, etc.)
+    - `ItemService` - Item (photo/video) operations
+    - `AlbumService` - Album CRUD and operations
+    - `SafeService` - Encrypted vault operations
+    - `SafeFileService` - File access in safes
+    - `EnvelopeService` - Envelope encryption key management
+    - `UserSettingsService` - User preferences (default folder, sort, collapsed)
+  - ✅ All routes migrated to services:
+    - `auth.py`, `admin.py`, `middleware.py`
+    - `folders.py`, `gallery.py`
+    - `safes.py`, `safe_files.py`, `webauthn.py`
+    - `envelope.py`
+
+### Added (Internal) - New Repositories
+- **WebAuthnRepository** - Hardware key credential management
+- **SafeRepository enhancements:**
+  - `get_safe_id_for_folder()` - Check if folder is in safe
+  - `is_unlocked()` - Check safe unlock status
+- **ItemRepository enhancements:**
+  - Polymorphic storage for photos, videos, notes, files
+  - `get_unencrypted_by_user()` - For encryption migration
+  - `mark_encrypted()` - Mark items as encrypted
+- **AlbumRepository:**
+  - `move_album_to_folder()` - Move album between folders
+  - `get_available_for_album()` - Photos available to add to album
+
+### Changed (Internal)
+- **Connection Management**
+  - Routes now use `create_connection()` with explicit `try/finally: db.close()`
+  - Prevents "closed database" errors from thread-local connection reuse
+  - `get_db()` kept for legacy code (doesn't close connection)
+
+### Added (Internal)
+- **Service Layer Extraction (Issue #16 - Completed)**
+  - New `app/application/services/` module for business logic
+  - Created 8 application services:
+    - `ItemService` - Item operations, file uploads, thumbnails
+    - `FolderService` - Folder CRUD and hierarchy management  
+    - `PermissionService` - Access control and sharing
+    - `SafeService` - Encrypted vault operations (safe CRUD, unlock/lock, sessions)
+    - `PhotoService` - Photo/album move operations and album management
+    - `SafeFileService` - File operations in encrypted safes
+    - `EnvelopeService` - Envelope encryption operations
+    - `UserSettingsService` - User preferences (default folder, collapsed, sort) (NEW)
+  - Refactored `app/routes/folders.py` to use FolderService
+  - Refactored upload endpoints to use UploadService:
+    - `/upload` - Single file upload with encryption support
+    - `/upload-album` - Multi-file album creation
+    - `/upload-bulk` - Bulk folder structure upload
+    - `/api/photos/batch-delete` - Batch delete photos and albums
+  - Refactored move endpoints to use PhotoService:
+    - `/api/photos/{id}/move` - Move photo to another folder
+    - `/api/albums/{id}/move` - Move album to another folder
+    - `/api/items/move` - Batch move photos and albums
+  - Refactored album management endpoints to use PhotoService:
+    - `/api/albums/{id}/photos` - Add/remove photos from album
+    - `/api/albums/{id}/reorder` - Reorder photos in album
+    - `/api/albums/{id}/cover` - Set album cover photo
+  - Refactored `app/routes/safes.py` to use SafeService (NEW)
+  - Refactored `app/routes/safe_files.py` to use SafeFileService (NEW)
+  - Refactored `app/routes/envelope.py` to use EnvelopeEncryptionService (NEW)
+  - Fixed `PhotoRepository.create()` signature to accept optional `photo_id` parameter
+  - Fixed Python 3.12 datetime adapter deprecation warning
+  - Fixed test isolation issues with UPLOADS_DIR/THUMBNAILS_DIR imports
+  - Fixed safe upload file extension preservation (.png instead of .jpg)
+  - Fixed missing `delete` method in sync PhotoRepository
+  - Added missing methods to SafeRepository for service layer:
+    - `get_by_folder_id` (alias for `get_by_folder`)
+    - `is_safe_folder`
+    - `set_password_enabled`
+    - `set_hardware_key_enabled`
+  - Extended EnvelopeEncryptionService with:
+    - `get_photo_shared_users`
+    - `set_photo_storage_mode`
+    - `get_photo_storage_mode`
+    - `update_folder_key`
+    - `get_migration_status`
+    - `get_photos_needing_migration`
+    - `get_folder_key_full`
+  - Extended FolderService with:
+    - `get_folder_tree()` - Complex folder tree with safe handling
+    - `get_folder_contents()` - Subfolders, albums, photos in folder
+  - Created UserSettingsService for user preferences:
+    - Default folder management
+    - Collapsed folders state
+    - Sort preferences per folder
+    - Encryption key storage
+  - Business logic now testable without FastAPI dependencies
+  - Clean separation: HTTP handling in routes, business logic in services
+
+### Migration for Developers (v1.0)
+
+**Before (v0.8.x - deprecated):**
+```python
+from app.database import create_user, get_folder
+create_user("john", "pass", "John")
+```
+
+**After (v1.0 - current):**
+```python
+# Repository pattern (for simple CRUD):
+from app.infrastructure.repositories import UserRepository
+from app.database import create_connection
+
+db = create_connection()
+try:
+    repo = UserRepository(db)
+    repo.create("john", "pass", "John")
+finally:
+    db.close()
+
+# Service layer (for complex operations):
+from app.application.services import FolderService
+from app.infrastructure.repositories import FolderRepository
+from app.database import create_connection
+
+db = create_connection()
+try:
+    service = FolderService(FolderRepository(db))
+    folder = service.create_folder("My Folder", user_id=1)
+finally:
+    db.close()
+```
+
+**Key Changes:**
+1. ❌ `get_db()` → ✅ `create_connection()` (explicit close required)
+2. ❌ Direct database functions → ✅ Repositories
+3. ❌ Async repositories → ✅ Only sync repositories (wait for Issue #17)
+4. ✅ Use services for business logic (validation, permissions, etc.)
+
 ## [0.8.5] - 2026-02-16
 
 ### Added

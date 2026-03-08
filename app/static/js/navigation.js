@@ -1,0 +1,424 @@
+/**
+ * Navigation module - SPA navigation without page reload
+ * Phase 2: Navigation Module
+ */
+
+(function() {
+    // Current sort preference
+    let currentSort = 'uploaded';
+    
+    // Expose to window for masonry sorting
+    window.currentSortMode = currentSort;
+
+    // Navigate to folder via SPA
+    window.navigateToFolder = async function(folderId, pushState = true, event = null) {
+        
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
+        const gallery = document.getElementById('gallery');
+        if (gallery) {
+            gallery.style.opacity = '0.5';
+        }
+        
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/folders/${folderId}/content`);
+            if (!resp.ok) {
+                throw new Error('Failed to load folder');
+            }
+            
+            const data = await resp.json();
+            
+            if (pushState) {
+                history.pushState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
+            }
+            
+            window.currentFolderId = folderId;
+            
+            // Clear selection when navigating to a different folder
+            if (typeof window.clearSelection === 'function') {
+                window.clearSelection();
+            }
+            
+            if (data.sort) {
+                currentSort = data.sort;
+                window.currentSortMode = currentSort;
+                updateSortUI(currentSort);
+                // Also update dropdown UI if available
+                if (typeof window.updateSortDropdownUI === 'function') {
+                    window.updateSortDropdownUI(currentSort);
+                }
+            }
+            
+            renderFolderContent(data);
+            
+            if (typeof updateSidebarActiveState === 'function') {
+                updateSidebarActiveState(folderId);
+            }
+            
+            if (typeof loadFolderTree === 'function') {
+                loadFolderTree();
+            }
+            
+            // Close sidebar on mobile after navigation
+            if (typeof closeSidebar === 'function') {
+                closeSidebar();
+            }
+            
+            // Reset folder header buttons
+            const folderHeader = document.querySelector('.folder-header');
+            if (folderHeader && data.folder) {
+                const shareBtn = folderHeader.querySelector('button[title="Share"]');
+                const editBtn = folderHeader.querySelector('button[title^="Edit"]');
+                const sortBtn = folderHeader.querySelector('#sort-btn');
+                
+                if (sortBtn) sortBtn.style.display = '';
+                
+                const userId = window.SYNTH_USER_ID;
+                const canShare = data.folder.user_id === userId;
+                const canEdit = data.folder.permission === 'owner' || data.folder.permission === 'editor';
+                
+                if (shareBtn) shareBtn.style.display = canShare ? '' : 'none';
+                if (editBtn) editBtn.style.display = canEdit ? '' : 'none';
+                
+                if (shareBtn) shareBtn.setAttribute('onclick', `openShareModal('${folderId}')`);
+                if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${folderId}')`);
+            }
+            
+            window.currentSafeId = null;
+            
+        } catch (err) {
+            console.error('[SPA] Navigation failed:', err);
+            window.location.href = `${getBaseUrl()}/?folder_id=${folderId}`;
+        }
+        
+        return false;
+    };
+
+    // Navigate to default folder
+    window.navigateToDefaultFolder = async function() {
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/user/default-folder`);
+            if (!resp.ok) throw new Error('Failed to get default folder');
+            const data = await resp.json();
+            if (data.folder_id) {
+                navigateToFolder(data.folder_id);
+            }
+        } catch (err) {
+            console.error('Failed to navigate to default folder:', err);
+        }
+    };
+
+    // Render folder content in gallery
+    window.renderFolderContent = function(data) {
+        
+        // Update sort UI if sort data is available
+        if (data.sort) {
+            window.currentSortMode = data.sort;
+            if (typeof window.updateSortDropdownUI === 'function') {
+                window.updateSortDropdownUI(data.sort);
+            }
+        }
+        
+        const gallery = document.getElementById('gallery');
+        
+        if (!gallery) {
+            console.error('[renderFolderContent] Gallery element not found!');
+            return;
+        }
+        
+        // Update folder header
+        const folderHeader = document.querySelector('.folder-header');
+        if (folderHeader && data.folder) {
+            const folderNameEl = folderHeader.querySelector('h2');
+            if (folderNameEl) {
+                folderNameEl.textContent = data.folder.name;
+            }
+            
+            const uploadBtn = folderHeader.querySelector('#folder-upload-btn');
+            if (uploadBtn) {
+                const canUpload = data.folder.permission === 'owner' || data.folder.permission === 'editor';
+                uploadBtn.style.display = canUpload ? '' : 'none';
+            }
+            
+            const shareBtn = folderHeader.querySelector('button[title="Share"]');
+            const editBtn = folderHeader.querySelector('button[title^="Edit"]');
+            const userId = window.SYNTH_USER_ID;
+            if (shareBtn) shareBtn.style.display = data.folder.user_id === userId ? '' : 'none';
+            if (editBtn) editBtn.style.display = data.folder.user_id === userId ? '' : 'none';
+            
+            if (shareBtn) shareBtn.setAttribute('onclick', `openShareModal('${data.folder.id}')`);
+            if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${data.folder.id}')`);
+        }
+        
+        // Handle subfolders
+        const subfoldersSection = document.getElementById('subfolders-section');
+        if (data.subfolders && data.subfolders.length > 0) {
+            let html = '<div class="subfolders-grid">';
+            data.subfolders.forEach(folder => {
+                html += `
+                    <a href="${getBaseUrl()}/?folder_id=${folder.id}" class="subfolder-tile" data-folder-id="${folder.id}" onclick="event.preventDefault(); event.stopPropagation(); navigateToFolder('${folder.id}'); return false;">
+                        <svg class="subfolder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span class="subfolder-name">${escapeHtml(folder.name)}</span>
+                        <span class="subfolder-count">${folder.photo_count || 0}</span>
+                    </a>
+                `;
+            });
+            html += '</div>';
+            subfoldersSection.innerHTML = html;
+            subfoldersSection.style.display = '';
+        } else if (subfoldersSection) {
+            subfoldersSection.innerHTML = '';
+            subfoldersSection.style.display = 'none';
+        }
+        
+        // Build gallery HTML
+        let html = '';
+        const items = data.items || [];
+        
+        items.forEach(item => {
+            // Phase 5: Polymorphic items only (type: 'item' with item_type)
+            const isMedia = item.type === 'item' && item.item_type === 'media';
+            
+            if (item.type === 'album') {
+                const album = item;
+                const coverId = album.cover_photo_id || album.effective_cover_photo_id;
+                const safeId = album.safe_id;
+                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
+                
+                // Use cover_thumb dimensions if available (v0.8.5 style), otherwise fallback to thumb dimensions
+                const thumbWidth = album.cover_thumb_width || album.thumb_width;
+                const thumbHeight = album.cover_thumb_height || album.thumb_height;
+                const hasDims = thumbWidth && thumbHeight;
+                
+                // Default to square for albums without cover/dimensions
+                const finalWidth = hasDims ? thumbWidth : 280;
+                const finalHeight = hasDims ? thumbHeight : 280;
+                const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
+                const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
+                
+                // Unified image handling - use data attributes for async resolution
+                let imgHtml;
+                if (coverId) {
+                    imgHtml = `
+                        <div class="gallery-placeholder"></div>
+                        <img data-item-id="${coverId}"
+                             ${safeId ? `data-safe-id="${safeId}"` : ''}
+                             alt="${escapeHtml(album.name)}"
+                             loading="lazy"
+                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                             style="opacity: 0;">
+                    `;
+                } else {
+                    imgHtml = `
+                        <div class="album-placeholder">
+                            <span>Empty Album</span>
+                        </div>
+                    `;
+                }
+                
+                // Add date attributes for sorting
+                const uploadedAt = album.uploaded_at || '';
+                const takenAt = album.taken_at || '';
+                
+                html += `
+                    <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
+                         ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
+                         ${dimsAttr}
+                         ${safeIdAttr}
+                         data-uploaded-at="${uploadedAt}"
+                         data-taken-at="${takenAt}">
+                        <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
+                            ${imgHtml}
+                            <div class="album-badge">
+                                <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12">
+                                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                                </svg>
+                                <span>${album.photo_count || 0}</span>
+                            </div>
+                        </div>
+                        <div class="select-indicator" title="Select">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                `;
+            } else if (isMedia) {
+                // Unified media item handling (polymorphic items or legacy photos)
+                const media = item;
+                const safeId = media.safe_id;
+                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
+                const mediaType = media.media_type || 'image';
+                const displayName = media.original_name || 'Untitled';
+                
+                // Use stored dimensions or default to 4:3 aspect ratio
+                const hasDims = media.thumb_width && media.thumb_height;
+                const finalWidth = hasDims ? media.thumb_width : 280;
+                const finalHeight = hasDims ? media.thumb_height : 210;
+                const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
+                const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
+                
+                // Add date attributes for sorting
+                const uploadedAt = media.uploaded_at || '';
+                const takenAt = media.taken_at || '';
+                const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
+                
+                // Unified template for all media - uses data attributes for async resolution
+                html += `
+                    <div class="gallery-item" 
+                         data-item-id="${media.id}"
+                         data-item-type="item"
+                         data-media-type="${mediaType}"
+                         ${dimsAttr}
+                         ${safeIdAttr}
+                         ${dateAttrs}>
+                        <div class="gallery-link" onclick="openItem('${media.id}')" ${aspectStyle}>
+                            <div class="gallery-placeholder"></div>
+                            <img data-item-id="${media.id}"
+                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
+                                 alt="${escapeHtml(displayName)}"
+                                 loading="lazy"
+                                 onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 style="opacity: 0;">
+                            ${mediaType === 'video' ? `
+                                <div class="video-badge">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                </div>
+                            ` : ''}
+                        </div>
+                        <div class="select-indicator" title="Select">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+        
+        // Empty state
+        if (html === '') {
+            html = `
+                <div class="empty-state">
+                    <p>No photos yet</p>
+                    <p>Click "Upload" to add your first photos</p>
+                </div>
+            `;
+        }
+        
+        // Clear and set HTML - masonry will take over from here
+        gallery.innerHTML = html;
+        gallery.style.opacity = '1';
+        
+        // Trigger masonry rebuild - it will read items directly from DOM
+        if (typeof window.rebuildMasonry === 'function') {
+            window.rebuildMasonry(true);
+        } else {
+            // If masonry not loaded yet, wait for it
+            setTimeout(() => {
+                if (typeof window.rebuildMasonry === 'function') {
+                    window.rebuildMasonry(true);
+                }
+            }, 50);
+        }
+        
+        // Load safe thumbnails (will be defined in safes.js Phase 6)
+        if (typeof window.loadSafeThumbnails === 'function') {
+            window.loadSafeThumbnails();
+        }
+    };
+
+    // Update sort UI - update tooltip only, SVG icon stays unchanged
+    function updateSortUI(sort) {
+        const sortBtn = document.getElementById('sort-btn');
+        if (sortBtn) {
+            const sortLabel = sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
+            sortBtn.setAttribute('title', sortLabel);
+        }
+    }
+
+    // Handle browser back/forward
+    window.addEventListener('popstate', (event) => {
+        if (event.state && event.state.folderId) {
+            navigateToFolder(event.state.folderId, false);
+        } else {
+            navigateToDefaultFolder();
+        }
+    });
+
+    // Resolve thumbnails asynchronously using FileAccessService
+    // Phase 5: Uses data-item-id for polymorphic items
+    async function resolveThumbnails() {
+        if (typeof FileAccessService === 'undefined') {
+            console.warn('[navigation] FileAccessService not available');
+            return;
+        }
+
+        // Support both new (data-item-id) and legacy (data-photo-id) during transition
+        const images = document.querySelectorAll('img[data-item-id]:not([src]), img[data-photo-id]:not([src])');
+        
+        for (const img of images) {
+            const itemId = img.dataset.itemId || img.dataset.photoId;
+            const safeId = img.dataset.safeId;
+            
+            try {
+                let url;
+                if (safeId) {
+                    // E2E file - use FileAccessService to decrypt
+                    url = await FileAccessService.getThumbnailUrl(itemId, {
+                        photo: { safe_id: safeId }
+                    });
+                } else {
+                    // Regular file - direct URL
+                    url = `${getBaseUrl()}/files/${itemId}/thumbnail`;
+                }
+                
+                img.src = url;
+            } catch (err) {
+                console.error(`[navigation] Failed to resolve thumbnail for ${itemId}:`, err);
+                img.dispatchEvent(new Event('error'));
+            }
+        }
+    }
+
+    // Expose to window for external calls
+    window.resolveGalleryThumbnails = resolveThumbnails;
+
+    // Auto-resolve on DOM ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', resolveThumbnails);
+    } else {
+        resolveThumbnails();
+    }
+
+    // Re-resolve after gallery renders (called from renderFolderContent)
+    const originalRenderFolderContent = window.renderFolderContent;
+    window.renderFolderContent = function(data) {
+        originalRenderFolderContent(data);
+        // Delay to let DOM update
+        setTimeout(resolveThumbnails, 0);
+    };
+
+    // Phase 5: openItem is an alias for openPhoto (polymorphic items)
+    window.openItem = function(itemId) {
+        // Delegate to existing openPhoto function
+        if (typeof window.openPhoto === 'function') {
+            window.openPhoto(itemId);
+        } else {
+            console.error('[navigation] openPhoto not available');
+        }
+    };
+
+})();

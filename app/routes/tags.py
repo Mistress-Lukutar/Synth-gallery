@@ -1,320 +1,216 @@
-"""Tag management routes."""
-import random
+"""Tag management routes - Hierarchical Tags v2."""
+from typing import List, Optional
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
 
-from ..database import get_db
+from ..database import create_connection
 from ..dependencies import require_user
+from ..infrastructure.repositories import TagsRepository
+from ..application.services import TagService
 
 router = APIRouter(tags=["tags"])
 
 
-class TagInput(BaseModel):
-    tag: str
-    category_id: int
+# =============================================================================
+# Schemas
+# =============================================================================
 
-
-class TagPresetInput(BaseModel):
+class TagCreateInput(BaseModel):
     name: str
+    display_name: Optional[str] = None
     category_id: int
+    parent_id: Optional[int] = None
 
 
-class BatchAIInput(BaseModel):
-    photo_ids: list[str] = []
-    album_ids: list[str] = []
+class TagAddInput(BaseModel):
+    tag_id: int
 
+
+class BatchTagInput(BaseModel):
+    item_ids: List[str]
+    add_tag_ids: List[int] = []
+    remove_tag_ids: List[int] = []
+
+
+# =============================================================================
+# Categories
+# =============================================================================
 
 @router.get("/api/tag-categories")
 def get_tag_categories():
     """Get all tag categories."""
-    db = get_db()
-    categories = db.execute("SELECT * FROM tag_categories ORDER BY id").fetchall()
-    return [{"id": c["id"], "name": c["name"], "color": c["color"]} for c in categories]
-
-
-@router.get("/api/tag-presets")
-def get_tag_presets(search: str = ""):
-    """Get all preset tags grouped by category, optionally filtered by search."""
-    db = get_db()
-
-    if search:
-        presets = db.execute("""
-            SELECT p.id, p.name, p.category_id, c.name as category_name, c.color
-            FROM tag_presets p
-            JOIN tag_categories c ON p.category_id = c.id
-            WHERE p.name LIKE ?
-            ORDER BY c.id, p.name
-        """, (f"%{search.lower()}%",)).fetchall()
-    else:
-        presets = db.execute("""
-            SELECT p.id, p.name, p.category_id, c.name as category_name, c.color
-            FROM tag_presets p
-            JOIN tag_categories c ON p.category_id = c.id
-            ORDER BY c.id, p.name
-        """).fetchall()
-
-    # Group by category
-    result = {}
-    for p in presets:
-        cat_id = p["category_id"]
-        if cat_id not in result:
-            result[cat_id] = {
-                "id": cat_id,
-                "name": p["category_name"],
-                "color": p["color"],
-                "tags": []
-            }
-        result[cat_id]["tags"].append({"id": p["id"], "name": p["name"]})
-
-    return list(result.values())
-
-
-@router.post("/api/tag-presets")
-def add_tag_preset(preset: TagPresetInput):
-    """Add a new preset tag."""
-    db = get_db()
-
-    # Check if category exists
-    category = db.execute(
-        "SELECT id FROM tag_categories WHERE id = ?", (preset.category_id,)
-    ).fetchone()
-    if not category:
-        raise HTTPException(status_code=400, detail="Category not found")
-
-    # Insert preset
+    db = create_connection()
     try:
-        db.execute(
-            "INSERT INTO tag_presets (name, category_id) VALUES (?, ?)",
-            (preset.name.lower().strip(), preset.category_id)
+        service = TagService(TagsRepository(db))
+        return {"categories": service.get_categories()}
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Tag Tree & Search
+# =============================================================================
+
+@router.get("/api/tags/search")
+def search_tags(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=50)
+):
+    """Search tags with usage count."""
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        return {"tags": service.search_tags(q, limit)}
+    finally:
+        db.close()
+
+
+@router.get("/api/tags/tree")
+def get_tag_tree(
+    category: Optional[str] = None,
+    parent_id: Optional[int] = None
+):
+    """Get tag tree for browsing.
+    
+    Args:
+        category: Category slug (optional)
+        parent_id: Parent tag ID (optional)
+    """
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        return service.get_tree(category, parent_id)
+    finally:
+        db.close()
+
+
+@router.get("/api/tags/{tag_id}")
+def get_tag(tag_id: int):
+    """Get tag with full hierarchy."""
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        return service.get_tag_with_hierarchy(tag_id)
+    finally:
+        db.close()
+
+
+@router.post("/api/tags")
+def create_tag(data: TagCreateInput, request: Request):
+    """Create a new tag."""
+    require_user(request)
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        tag = service.create_tag(
+            name=data.name,
+            display_name=data.display_name,
+            category_id=data.category_id,
+            parent_id=data.parent_id
         )
-        db.commit()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Tag already exists in this category")
-
-    return {"status": "ok", "name": preset.name}
+        return {"status": "ok", "tag": tag}
+    finally:
+        db.close()
 
 
-@router.post("/api/photos/{photo_id}/tag")
-def add_tag_to_photo(photo_id: str, tag_input: TagInput, request: Request):
-    """Add a single tag to a photo."""
+# =============================================================================
+# Item Tags
+# =============================================================================
+
+@router.get("/api/items/{item_id}/tags")
+def get_item_tags(item_id: str, request: Request):
+    """Get all tags for an item."""
     require_user(request)
-    db = get_db()
-
-    # Check if photo exists
-    photo = db.execute("SELECT id FROM photos WHERE id = ?", (photo_id,)).fetchone()
-    if not photo:
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    # Check if tag already exists for this photo
-    existing = db.execute(
-        "SELECT id FROM tags WHERE photo_id = ? AND tag = ?",
-        (photo_id, tag_input.tag.lower().strip())
-    ).fetchone()
-    if existing:
-        return {"status": "exists", "message": "Tag already added"}
-
-    # Add tag
-    cursor = db.execute(
-        "INSERT INTO tags (photo_id, tag, category_id) VALUES (?, ?, ?)",
-        (photo_id, tag_input.tag.lower().strip(), tag_input.category_id)
-    )
-    db.commit()
-
-    # Get category info
-    category = db.execute(
-        "SELECT name, color FROM tag_categories WHERE id = ?",
-        (tag_input.category_id,)
-    ).fetchone()
-
-    return {
-        "status": "ok",
-        "tag": {
-            "id": cursor.lastrowid,
-            "tag": tag_input.tag.lower().strip(),
-            "category_id": tag_input.category_id,
-            "category": category["name"] if category else None,
-            "color": category["color"] if category else "#6b7280"
-        }
-    }
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        return service.get_item_tags(item_id)
+    finally:
+        db.close()
 
 
-@router.delete("/api/photos/{photo_id}/tag/{tag_id}")
-def remove_tag_from_photo(photo_id: str, tag_id: int, request: Request):
-    """Remove a tag from a photo."""
+@router.post("/api/items/{item_id}/tags")
+def add_tag_to_item(item_id: str, data: TagAddInput, request: Request):
+    """Add tag to item (with ancestors)."""
     require_user(request)
-    db = get_db()
-
-    db.execute(
-        "DELETE FROM tags WHERE id = ? AND photo_id = ?",
-        (tag_id, photo_id)
-    )
-    db.commit()
-
-    return {"status": "ok"}
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        result = service.add_tag_to_item(item_id, data.tag_id)
+        return {"status": "ok", **result}
+    finally:
+        db.close()
 
 
-@router.post("/api/photos/{photo_id}/ai-tags")
-def generate_ai_tags(photo_id: str, request: Request):
-    """Generate random tags from presets (simulates AI tagging)."""
+@router.delete("/api/items/{item_id}/tags/{tag_id}")
+def remove_tag_from_item(
+    item_id: str, 
+    tag_id: int,
+    request: Request
+):
+    """Remove explicit tag from item (inherited tags recalculate automatically)."""
     require_user(request)
-    db = get_db()
-
-    # Check if photo exists
-    photo = db.execute("SELECT id FROM photos WHERE id = ?", (photo_id,)).fetchone()
-    if not photo:
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    # Get random presets from different categories
-    presets = db.execute("""
-        SELECT p.name, p.category_id, c.color
-        FROM tag_presets p
-        JOIN tag_categories c ON p.category_id = c.id
-    """).fetchall()
-
-    if not presets:
-        return {"status": "error", "message": "No preset tags available"}
-
-    # Select 3-6 random tags
-    selected = random.sample(list(presets), min(random.randint(3, 6), len(presets)))
-
-    # Clear existing tags and add new ones
-    db.execute("DELETE FROM tags WHERE photo_id = ?", (photo_id,))
-
-    added_tags = []
-    for preset in selected:
-        cursor = db.execute(
-            "INSERT INTO tags (photo_id, tag, category_id) VALUES (?, ?, ?)",
-            (photo_id, preset["name"], preset["category_id"])
-        )
-        added_tags.append({
-            "id": cursor.lastrowid,
-            "tag": preset["name"],
-            "category_id": preset["category_id"],
-            "color": preset["color"]
-        })
-
-    db.commit()
-
-    return {"status": "ok", "tags": added_tags}
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        result = service.remove_tag_from_item(item_id, tag_id)
+        return {"status": "ok", **result}
+    finally:
+        db.close()
 
 
-@router.get("/api/tags/all")
-def get_all_tags():
-    """Get all unique tags for autocomplete."""
-    db = get_db()
-    tags = db.execute("""
-        SELECT DISTINCT t.tag, t.category_id, c.color
-        FROM tags t
-        LEFT JOIN tag_categories c ON t.category_id = c.id
-        ORDER BY t.tag
-    """).fetchall()
-    return [{"tag": t["tag"], "category_id": t["category_id"], "color": t["color"] or "#6b7280"} for t in tags]
+# =============================================================================
+# Search
+# =============================================================================
 
-
-@router.get("/api/photos/search")
-def search_photos_by_tags(tags: str = "", request: Request = None):
-    """Search photos and albums by tags (space-separated)."""
-    db = get_db()
-
+@router.get("/api/search")
+def search_by_tags(
+    request: Request,
+    tags: str = "",
+    folder_id: Optional[str] = None
+):
+    """Search items by tags with negative support.
+    
+    Query syntax:
+    - "fox night" - items with fox AND night
+    - "fox -wolf" - items with fox but NOT wolf
+    - "animal -mammal forest" - items with animal AND forest, not mammal
+    """
+    require_user(request)
     if not tags.strip():
-        # Return all standalone photos and albums if no tags specified
-        photos = db.execute(
-            "SELECT id, 'photo' as type FROM photos WHERE album_id IS NULL ORDER BY uploaded_at DESC"
-        ).fetchall()
-        albums = db.execute(
-            "SELECT id, 'album' as type FROM albums ORDER BY created_at DESC"
-        ).fetchall()
-        results = [{"id": p["id"], "type": p["type"]} for p in photos]
-        results.extend([{"id": a["id"], "type": a["type"]} for a in albums])
-        return results
-
-    tag_list = [t.strip().lower() for t in tags.split() if t.strip()]
-    if not tag_list:
-        photos = db.execute(
-            "SELECT id, 'photo' as type FROM photos WHERE album_id IS NULL ORDER BY uploaded_at DESC"
-        ).fetchall()
-        albums = db.execute(
-            "SELECT id, 'album' as type FROM albums ORDER BY created_at DESC"
-        ).fetchall()
-        results = [{"id": p["id"], "type": p["type"]} for p in photos]
-        results.extend([{"id": a["id"], "type": a["type"]} for a in albums])
-        return results
-
-    # Find standalone photos that have ALL specified tags
-    placeholders = ",".join("?" * len(tag_list))
-    photos = db.execute(f"""
-        SELECT p.id, 'photo' as type
-        FROM photos p
-        WHERE p.album_id IS NULL AND (
-            SELECT COUNT(DISTINCT t.tag)
-            FROM tags t
-            WHERE t.photo_id = p.id AND LOWER(t.tag) IN ({placeholders})
-        ) = ?
-        ORDER BY p.uploaded_at DESC
-    """, (*tag_list, len(tag_list))).fetchall()
-
-    # Find albums where at least one photo has ALL specified tags
-    albums = db.execute(f"""
-        SELECT DISTINCT a.id, 'album' as type
-        FROM albums a
-        JOIN photos p ON p.album_id = a.id
-        WHERE (
-            SELECT COUNT(DISTINCT t.tag)
-            FROM tags t
-            WHERE t.photo_id = p.id AND LOWER(t.tag) IN ({placeholders})
-        ) = ?
-        ORDER BY a.created_at DESC
-    """, (*tag_list, len(tag_list))).fetchall()
-
-    results = [{"id": p["id"], "type": p["type"]} for p in photos]
-    results.extend([{"id": a["id"], "type": a["type"]} for a in albums])
-    return results
+        return {"items": [], "include": [], "exclude": [], "total": 0}
+    
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        result = service.search_items(tags, folder_id)
+        return result
+    finally:
+        db.close()
 
 
-@router.post("/api/photos/batch-ai-tags")
-def batch_generate_ai_tags(data: BatchAIInput, request: Request):
-    """Generate AI tags for multiple photos and albums."""
+# =============================================================================
+# Bulk Operations
+# =============================================================================
+
+@router.post("/api/items/batch-tags")
+def batch_tag_items(data: BatchTagInput, request: Request):
+    """Batch add/remove tags from items."""
     require_user(request)
-    db = get_db()
+    if not data.item_ids:
+        raise HTTPException(400, "No items specified")
+    
+    db = create_connection()
+    try:
+        service = TagService(TagsRepository(db))
+        result = service.batch_tag_items(
+            data.item_ids,
+            data.add_tag_ids,
+            data.remove_tag_ids
+        )
+        return {"status": "ok", **result}
+    finally:
+        db.close()
 
-    # Get all presets
-    presets = db.execute("""
-        SELECT p.name, p.category_id, c.color
-        FROM tag_presets p
-        JOIN tag_categories c ON p.category_id = c.id
-    """).fetchall()
 
-    if not presets:
-        return {"status": "error", "message": "No preset tags available"}
-
-    # Collect all photo IDs to process (individual + from albums)
-    all_photo_ids = list(data.photo_ids)
-    for album_id in data.album_ids:
-        album_photos = db.execute(
-            "SELECT id FROM photos WHERE album_id = ?", (album_id,)
-        ).fetchall()
-        all_photo_ids.extend([p["id"] for p in album_photos])
-
-    processed = 0
-    for photo_id in all_photo_ids:
-        photo = db.execute("SELECT id FROM photos WHERE id = ?", (photo_id,)).fetchone()
-        if photo:
-            # Select 3-6 random tags
-            selected = random.sample(list(presets), min(random.randint(3, 6), len(presets)))
-
-            # Clear existing tags and add new ones
-            db.execute("DELETE FROM tags WHERE photo_id = ?", (photo_id,))
-
-            for preset in selected:
-                db.execute(
-                    "INSERT INTO tags (photo_id, tag, category_id) VALUES (?, ?, ?)",
-                    (photo_id, preset["name"], preset["category_id"])
-                )
-
-            # Mark as AI processed
-            db.execute("UPDATE photos SET ai_processed = 1 WHERE id = ?", (photo_id,))
-            processed += 1
-
-    db.commit()
-    return {"status": "ok", "processed": processed}

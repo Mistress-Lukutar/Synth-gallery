@@ -242,6 +242,111 @@
             gap: 0.5rem;
             margin-top: 0.5rem;
         }
+
+        /* Form styles */
+        .form-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .form-row input {
+            flex: 1;
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .form-row input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            max-width: 400px;
+        }
+
+        .form-stack input {
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .form-stack input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        /* Recovery key styles */
+        .recovery-status {
+            padding: 1rem;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .recovery-actions {
+            margin-top: 1rem;
+        }
+
+        .warning-text {
+            color: #eab308;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .success-text {
+            color: #22c55e;
+            font-size: 0.9rem;
+        }
+
+        .recovery-result {
+            margin-top: 1.5rem;
+            padding: 1.5rem;
+            background: rgba(34, 197, 94, 0.05);
+            border: 2px solid #22c55e;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .recovery-key-box {
+            margin-bottom: 1.5rem;
+        }
+
+        .recovery-key-box h4 {
+            margin: 0 0 1rem 0;
+            color: #22c55e;
+        }
+
+        .recovery-key-value {
+            font-family: monospace;
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: 2px;
+            padding: 1rem;
+            background: var(--bg);
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            word-break: break-all;
+            color: var(--text);
+        }
+
+        .recovery-warning {
+            color: #ef4444;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin: 0;
+        }
     </style>
 </head>
 <body>
@@ -264,7 +369,7 @@
                 </svg>
                 Account
             </h2>
-            <p>Logged in as <strong>{{ user.display_name }}</strong> (@{{ user.username }})</p>
+            <p>Logged in as <strong id="current-display-name">{{ user.display_name }}</strong> (@{{ user.username }})</p>
             <a href="{{ base_url }}/logout" class="btn btn-secondary">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
                     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -273,6 +378,82 @@
                 </svg>
                 Logout
             </a>
+        </div>
+
+        <!-- Profile Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Profile
+            </h2>
+            <p>Update your display name.</p>
+            <div class="form-row">
+                <input type="text" id="display-name-input" value="{{ user.display_name }}" placeholder="Display name" maxlength="50" aria-label="Display name">
+                <button id="update-name-btn" class="btn">Update Name</button>
+            </div>
+        </div>
+
+        <!-- Security Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+                Security
+            </h2>
+            <p>Change your password. You'll need to enter your current password.</p>
+            <form id="change-password-form" class="form-stack" onsubmit="event.preventDefault();">
+                <input type="hidden" name="username" value="{{ user.username }}" autocomplete="username">
+                <input type="password" id="old-password" placeholder="Current password" aria-label="Current password" autocomplete="current-password">
+                <input type="password" id="new-password" placeholder="New password (min 4 chars)" aria-label="New password" autocomplete="new-password">
+                <input type="password" id="confirm-password" placeholder="Confirm new password" aria-label="Confirm new password" autocomplete="new-password">
+                <button type="submit" id="change-password-btn" class="btn">Change Password</button>
+            </form>
+        </div>
+
+        <!-- Recovery Key Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                </svg>
+                Recovery Key
+            </h2>
+            <p>A recovery key allows you to recover access to your encrypted files if you forget your password. Save it in a secure location!</p>
+            
+            <div id="recovery-key-status" class="recovery-status">
+                <span class="loading-spinner"></span> Checking status...
+            </div>
+            
+            <div id="recovery-key-actions" class="recovery-actions hidden">
+                <div id="recovery-key-no-key" class="hidden">
+                    <p class="warning-text">You don't have a recovery key set up yet. Generate one to protect your encrypted files.</p>
+                    <form id="recovery-key-form" class="form-row" onsubmit="event.preventDefault();">
+                        <input type="hidden" name="username" value="{{ user.username }}" autocomplete="username">
+                        <input type="password" id="recovery-password" placeholder="Enter your password to generate" aria-label="Password" autocomplete="current-password">
+                        <button type="submit" id="generate-recovery-btn" class="btn">Generate Recovery Key</button>
+                    </form>
+                </div>
+                
+                <div id="recovery-key-has-key" class="hidden">
+                    <p class="success-text">Recovery key is configured.</p>
+                    <button id="regenerate-recovery-btn" class="btn btn-secondary">Generate New Recovery Key</button>
+                    <p class="text-muted" style="font-size: 0.85rem; margin-top: 0.5rem;">This will invalidate your current recovery key. Save the new one immediately!</p>
+                </div>
+            </div>
+            
+            <div id="recovery-key-result" class="recovery-result hidden">
+                <div class="recovery-key-box">
+                    <h4>Your Recovery Key (shown ONCE)</h4>
+                    <div id="recovery-key-value" class="recovery-key-value"></div>
+                    <p class="recovery-warning">Save this key in a secure location! If you lose both your password AND this key, your encrypted files will be UNRECOVERABLE!</p>
+                </div>
+                <button id="recovery-key-done-btn" class="btn btn-secondary">I've Saved It</button>
+            </div>
         </div>
 
         <!-- Hardware Keys Section -->
@@ -292,7 +473,7 @@
 
             <div class="add-key-section">
                 <div class="add-key-form">
-                    <input type="text" id="key-name-input" placeholder="Key name (e.g., YubiKey 5)" maxlength="50">
+                    <input type="text" id="key-name-input" placeholder="Key name (e.g., YubiKey 5)" maxlength="50" aria-label="Key name">
                     <button id="add-key-btn" class="btn">Add Key</button>
                 </div>
             </div>
@@ -303,7 +484,7 @@
     <div id="rename-modal" class="rename-modal hidden">
         <div class="rename-modal-content">
             <h3>Rename Key</h3>
-            <input type="text" id="rename-input" placeholder="New name" maxlength="50">
+            <input type="text" id="rename-input" placeholder="New name" maxlength="50" aria-label="New key name">
             <div class="rename-modal-actions">
                 <button id="rename-cancel-btn" class="btn btn-secondary">Cancel</button>
                 <button id="rename-save-btn" class="btn">Save</button>
@@ -312,267 +493,9 @@
     </div>
 
     <script>
-        // CSRF helper
-        function getCsrfToken() {
-            const meta = document.querySelector('meta[name="csrf-token"]');
-            if (meta) return meta.getAttribute('content');
-            const match = document.cookie.match(/synth_csrf=([^;]+)/);
-            return match ? match[1] : '';
-        }
-
-        async function csrfFetch(url, options = {}) {
-            const csrfToken = getCsrfToken();
-            const headers = options.headers || {};
-            if (['POST', 'PUT', 'DELETE', 'PATCH'].includes((options.method || 'GET').toUpperCase())) {
-                headers['X-CSRF-Token'] = csrfToken;
-            }
-            return fetch(url, { ...options, headers });
-        }
-
-        // State
-        let credentials = [];
-        let renamingCredentialId = null;
-
-        // Elements
-        const credentialsList = document.getElementById('credentials-list');
-        const keyNameInput = document.getElementById('key-name-input');
-        const addKeyBtn = document.getElementById('add-key-btn');
-        const renameModal = document.getElementById('rename-modal');
-        const renameInput = document.getElementById('rename-input');
-        const renameCancelBtn = document.getElementById('rename-cancel-btn');
-        const renameSaveBtn = document.getElementById('rename-save-btn');
-
-        // Load credentials
-        async function loadCredentials() {
-            try {
-                const resp = await fetch('{{ base_url }}/api/webauthn/credentials');
-                credentials = await resp.json();
-                renderCredentials();
-            } catch (err) {
-                console.error('Failed to load credentials:', err);
-                credentialsList.innerHTML = '<p class="no-credentials">Failed to load keys</p>';
-            }
-        }
-
-        // Render credentials list
-        function renderCredentials() {
-            if (credentials.length === 0) {
-                credentialsList.innerHTML = '<p class="no-credentials">No hardware keys registered</p>';
-                return;
-            }
-
-            credentialsList.innerHTML = credentials.map(cred => `
-                <div class="credential-item" data-id="${cred.id}">
-                    <div class="credential-info">
-                        <span class="credential-name">${escapeHtml(cred.name)}</span>
-                        <span class="credential-date">Added ${formatDate(cred.created_at)}</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        ${cred.has_dek
-                            ? '<span class="status-badge has-dek">Encryption linked</span>'
-                            : '<span class="status-badge no-dek">No encryption</span>'
-                        }
-                        <div class="credential-actions">
-                            <button onclick="openRenameModal(${cred.id}, '${escapeHtml(cred.name)}')" title="Rename">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                </svg>
-                            </button>
-                            <button class="btn-delete" onclick="deleteCredential(${cred.id})" title="Delete">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polyline points="3 6 5 6 21 6"/>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function formatDate(dateStr) {
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        }
-
-        // Add new key
-        addKeyBtn.addEventListener('click', async () => {
-            const keyName = keyNameInput.value.trim() || 'Security Key';
-
-            addKeyBtn.disabled = true;
-            addKeyBtn.innerHTML = '<span class="loading-spinner"></span>';
-
-            try {
-                // Step 1: Get registration options
-                const optionsResp = await fetch('{{ base_url }}/api/webauthn/register/begin');
-                if (!optionsResp.ok) {
-                    throw new Error('Failed to get registration options');
-                }
-                const { options, challenge } = await optionsResp.json();
-
-                // Parse options JSON string
-                const publicKeyOptions = JSON.parse(options);
-
-                // Convert base64url strings to ArrayBuffers
-                publicKeyOptions.challenge = base64urlToBuffer(publicKeyOptions.challenge);
-                publicKeyOptions.user.id = base64urlToBuffer(publicKeyOptions.user.id);
-                if (publicKeyOptions.excludeCredentials) {
-                    publicKeyOptions.excludeCredentials = publicKeyOptions.excludeCredentials.map(cred => ({
-                        ...cred,
-                        id: base64urlToBuffer(cred.id)
-                    }));
-                }
-
-                // Step 2: Create credential with browser API
-                const credential = await navigator.credentials.create({
-                    publicKey: publicKeyOptions
-                });
-
-                // Step 3: Send credential to server
-                const credentialData = {
-                    id: bufferToBase64url(credential.rawId),
-                    rawId: bufferToBase64url(credential.rawId),
-                    type: credential.type,
-                    response: {
-                        clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
-                        attestationObject: bufferToBase64url(credential.response.attestationObject)
-                    }
-                };
-
-                const verifyResp = await csrfFetch('{{ base_url }}/api/webauthn/register/complete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        credential: credentialData,
-                        challenge: challenge,
-                        name: keyName
-                    })
-                });
-
-                if (!verifyResp.ok) {
-                    const err = await verifyResp.json();
-                    throw new Error(err.detail || 'Registration failed');
-                }
-
-                keyNameInput.value = '';
-                await loadCredentials();
-
-            } catch (err) {
-                console.error('Registration error:', err);
-                if (err.name === 'NotAllowedError') {
-                    alert('Registration was cancelled or timed out');
-                } else {
-                    alert('Failed to register key: ' + err.message);
-                }
-            } finally {
-                addKeyBtn.disabled = false;
-                addKeyBtn.textContent = 'Add Key';
-            }
-        });
-
-        // Delete credential
-        async function deleteCredential(id) {
-            if (!confirm('Delete this hardware key? You will not be able to use it for login anymore.')) {
-                return;
-            }
-
-            try {
-                const resp = await csrfFetch(`{{ base_url }}/api/webauthn/credentials/${id}`, {
-                    method: 'DELETE'
-                });
-
-                if (!resp.ok) {
-                    throw new Error('Failed to delete');
-                }
-
-                await loadCredentials();
-            } catch (err) {
-                console.error('Delete error:', err);
-                alert('Failed to delete key');
-            }
-        }
-
-        // Rename modal
-        function openRenameModal(id, currentName) {
-            renamingCredentialId = id;
-            renameInput.value = currentName;
-            renameModal.classList.remove('hidden');
-            renameInput.focus();
-        }
-
-        renameCancelBtn.addEventListener('click', () => {
-            renameModal.classList.add('hidden');
-            renamingCredentialId = null;
-        });
-
-        renameModal.addEventListener('click', (e) => {
-            if (e.target === renameModal) {
-                renameModal.classList.add('hidden');
-                renamingCredentialId = null;
-            }
-        });
-
-        renameSaveBtn.addEventListener('click', async () => {
-            const newName = renameInput.value.trim();
-            if (!newName) {
-                alert('Name cannot be empty');
-                return;
-            }
-
-            try {
-                const resp = await csrfFetch(`/api/webauthn/credentials/${renamingCredentialId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: newName })
-                });
-
-                if (!resp.ok) {
-                    throw new Error('Failed to rename');
-                }
-
-                renameModal.classList.add('hidden');
-                renamingCredentialId = null;
-                await loadCredentials();
-            } catch (err) {
-                console.error('Rename error:', err);
-                alert('Failed to rename key');
-            }
-        });
-
-        // Helper functions for WebAuthn
-        function base64urlToBuffer(base64url) {
-            // Add padding if needed
-            let base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
-            const padding = 4 - base64.length % 4;
-            if (padding !== 4) {
-                base64 += '='.repeat(padding);
-            }
-            const binary = atob(base64);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i++) {
-                bytes[i] = binary.charCodeAt(i);
-            }
-            return bytes.buffer;
-        }
-
-        function bufferToBase64url(buffer) {
-            const bytes = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        }
-
-        // Initialize
-        loadCredentials();
+        window.SYNTH_BASE_URL = '{{ base_url }}';
     </script>
+    <script src="{{ base_url }}/static/js/core.js"></script>
+    <script src="{{ base_url }}/static/js/settings.js"></script>
 </body>
 </html>

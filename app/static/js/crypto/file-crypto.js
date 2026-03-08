@@ -9,7 +9,7 @@
  * All encryption happens in the browser using WebCrypto API.
  */
 
-const FileCrypto = (function() {
+var FileCrypto = (function() {
     'use strict';
     
     const CHUNK_SIZE = 1024 * 1024; // 1MB chunks for large files
@@ -374,4 +374,3 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { FileCrypto };
 }
 
-console.log('file-crypto.js loaded, FileCrypto:', typeof FileCrypto);
