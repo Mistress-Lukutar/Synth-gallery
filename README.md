@@ -104,9 +104,6 @@ Safes are independent encrypted containers with their own encryption keys, separ
 ## Environment Variables
 
 ```bash
-# AI service API key (optional)
-SYNTH_AI_API_KEY=your-secret-key
-
 # WebAuthn display name
 WEBAUTHN_RP_NAME=Synth Gallery
 
@@ -132,7 +129,7 @@ S3_SECRET_KEY=your-secret-key
 | Safes (Vaults) | Additional AES-256-GCM with independent keys    |
 | Password       | bcrypt + PBKDF2-SHA256 key derivation           |
 | Sessions       | HTTP-only cookies, 7-day expiry                 |
-| API            | CSRF tokens, API key auth for external services |
+| API            | CSRF tokens                                    |
 | Login          | Password or WebAuthn hardware keys              |
 
 ## Tech Stack

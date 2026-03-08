@@ -96,8 +96,8 @@ DEK Cache TTL: Matches session (7 days)
 │       ▼                            │                        │
 │  DEK (Data Encryption Key) ◄───────┘                        │
 │       │                                                     │
-│       ├──► File 1: CK encrypted with DEK                    │
-│       ├──► File 2: CK encrypted with DEK                    │
+│       ├──► File 1: encrypted with DEK                       │
+│       ├──► File 2: encrypted with DEK                       │
 │       └──► Safe DEK: encrypted with password/hardware key   │
 │                                                             │
 │  Safes (E2E): Content encrypted with Safe DEK               │
@@ -212,5 +212,5 @@ We thank the following security researchers for responsible disclosure:
 
 ---
 
-**Last Updated**: 2026-02-16  
+**Last Updated**: 2026-03-08  
 **Policy Version**: 1.0
