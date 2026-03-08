@@ -450,10 +450,10 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                 continue
 
             new_album_id = str(uuid.uuid4())
-            db.execute(
-                "INSERT INTO albums (id, name, folder_id, user_id, safe_id) VALUES (?, ?, ?, ?, ?)",
-                (new_album_id, album["name"], data.folder_id, user["id"], album.get("safe_id"))
-            )
+            
+            # Track copied items for this album to handle cleanup on failure
+            copied_items_in_album = []
+            new_cover_item_id = None
 
             for idx, item in enumerate(album_items):
                 new_item_id = str(uuid.uuid4())
@@ -467,31 +467,44 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                 source_owner_id = item["user_id"]
                 is_encrypted = item.get("is_encrypted", False)
 
+                # First copy files, then create DB records
+                # If DB fails, clean up files
+                files_copied = False
                 try:
+                    # Copy main file
                     if not _copy_and_reencrypt_file(
                         old_upload, new_upload, is_encrypted, source_owner_id, user["id"]
                     ):
                         continue
 
+                    # Copy thumbnail if exists
+                    thumb_copied = False
                     if old_thumb.exists():
-                        _copy_and_reencrypt_file(
+                        thumb_copied = _copy_and_reencrypt_file(
                             old_thumb, new_thumb, is_encrypted, source_owner_id, user["id"]
                         )
 
-                    # Create new item in album via album_items
+                    files_copied = True
+
+                    # Now create DB records - use transaction per item
+                    # Create new item (items table uses 'uploaded_at', not 'created_at')
                     db.execute(
-                        """INSERT INTO items (id, type, folder_id, user_id, safe_id, is_encrypted, created_at)
+                        """INSERT INTO items (id, type, folder_id, user_id, safe_id, is_encrypted, uploaded_at)
                          VALUES (?, 'media', ?, ?, ?, ?, datetime('now'))""",
                         (new_item_id, data.folder_id, user["id"], 
                          item.get("safe_id"), is_encrypted)
                     )
                     
                     # Create media record
+                    # Extension-less storage: filename = item_id
                     db.execute(
-                        """INSERT INTO item_media (item_id, media_type,
+                        """INSERT INTO item_media (item_id, media_type, filename,
+                             original_name, content_type, width, height,
                              thumb_width, thumb_height, taken_at)
-                         VALUES (?, ?, ?, ?, ?)""",
-                        (new_item_id, item.get("media_type", "image"),
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (new_item_id, item.get("media_type", "image"), new_item_id,
+                         item.get("original_name"), item.get("content_type"),
+                         item.get("width"), item.get("height"),
                          item.get("thumb_width", 0),
                          item.get("thumb_height", 0), item.get("taken_at"))
                     )
@@ -525,16 +538,43 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                             (new_item_id, keys["encrypted_ck"], keys["thumbnail_encrypted_ck"], keys["shared_ck_map"])
                         )
 
+                    # Track cover item mapping
                     if item["id"] == album.get("cover_item_id"):
-                        db.execute(
-                            "UPDATE albums SET cover_item_id = ? WHERE id = ?",
-                            (new_item_id, new_album_id)
-                        )
+                        new_cover_item_id = new_item_id
+
+                    copied_items_in_album.append({
+                        'item_id': new_item_id,
+                        'upload_path': new_upload,
+                        'thumb_path': new_thumb if thumb_copied else None
+                    })
+
                 except Exception:
+                    # Clean up files if DB operations failed
+                    if files_copied:
+                        if new_upload.exists():
+                            try:
+                                new_upload.unlink()
+                            except Exception:
+                                pass
+                        if new_thumb.exists():
+                            try:
+                                new_thumb.unlink()
+                            except Exception:
+                                pass
                     continue
 
-            db.commit()
-            copied_albums += 1
+            # Only create album if at least one item was copied
+            if copied_items_in_album:
+                db.execute(
+                    "INSERT INTO albums (id, name, folder_id, user_id, safe_id, cover_item_id) VALUES (?, ?, ?, ?, ?, ?)",
+                    (new_album_id, album["name"], data.folder_id, user["id"], 
+                     album.get("safe_id"), new_cover_item_id)
+                )
+                db.commit()
+                copied_albums += 1
+            else:
+                # No items copied - skip this album (don't create empty album)
+                skipped_albums += 1
 
         return {
             "status": "ok",

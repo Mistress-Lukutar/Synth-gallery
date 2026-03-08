@@ -135,56 +135,87 @@ def cleanup_orphaned_thumbnails() -> dict:
 
 
 def cleanup_orphaned_uploads() -> dict:
-    """Remove upload files that are not registered in the database.
+    """Remove orphaned uploads and DB entries without files.
 
-    These are files in uploads/ directory that don't have corresponding
-    entries in the item_media table.
+    Handles two cases:
+    1. Files in uploads/ without DB entries (orphaned files)
+    2. DB entries without files (missing originals)
 
     Returns dict with cleanup statistics.
     """
     # Import config here to respect test patches (Issue #16)
-    from ...config import UPLOADS_DIR
+    from ...config import UPLOADS_DIR, THUMBNAILS_DIR
     
     db = get_db()
 
-    # Get all filenames from database
-    photos = db.execute(
-        """SELECT im.filename 
-            FROM item_media im
-            JOIN items i ON im.item_id = i.id
+    # Get all items with their filenames from database
+    items = db.execute(
+        """SELECT i.id, im.filename 
+            FROM items i
+            JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""
     ).fetchall()
-    valid_filenames = {p["filename"] for p in photos}
+    
+    # Build sets for validation
+    valid_filenames = {item["filename"] for item in items}
+    item_id_to_filename = {item["id"]: item["filename"] for item in items}
 
-    # Scan uploads directory
-    orphaned = []
-    kept = 0
-
+    # Case 1: Files on disk without DB entries (orphaned files)
+    orphaned_files = []
     for upload_file in UPLOADS_DIR.iterdir():
         if upload_file.is_file():
             if upload_file.name not in valid_filenames:
-                orphaned.append(upload_file)
-            else:
-                kept += 1
+                orphaned_files.append(upload_file)
 
-    # Delete orphaned uploads
-    deleted = 0
-    failed = 0
+    # Case 2: DB entries without files (missing originals)
+    missing_originals = []
+    for item_id, filename in item_id_to_filename.items():
+        upload_path = UPLOADS_DIR / filename
+        if not upload_path.exists():
+            missing_originals.append((item_id, filename))
+
+    # Delete orphaned files
+    files_deleted = 0
+    files_failed = 0
     freed_bytes = 0
 
-    for upload_file in orphaned:
+    for upload_file in orphaned_files:
         try:
             freed_bytes += upload_file.stat().st_size
             upload_file.unlink()
-            deleted += 1
+            files_deleted += 1
         except Exception:
-            failed += 1
+            files_failed += 1
+
+    # Delete DB entries for missing originals (cascades to item_media, item_tags, item_keys)
+    db_deleted = 0
+    db_failed = 0
+    thumbs_deleted = 0
+
+    for item_id, filename in missing_originals:
+        try:
+            # Delete thumbnail if exists
+            thumb_path = THUMBNAILS_DIR / item_id
+            if thumb_path.exists():
+                thumb_path.unlink()
+                thumbs_deleted += 1
+            
+            # Delete item (cascades to related tables)
+            db.execute("DELETE FROM items WHERE id = ?", (item_id,))
+            db_deleted += 1
+        except Exception:
+            db_failed += 1
+
+    db.commit()
 
     return {
-        "deleted": deleted,
-        "failed": failed,
-        "kept": kept,
-        "freed_bytes": freed_bytes
+        "files_deleted": files_deleted,
+        "files_failed": files_failed,
+        "db_deleted": db_deleted,
+        "db_failed": db_failed,
+        "thumbs_deleted": thumbs_deleted,
+        "freed_bytes": freed_bytes,
+        "total_deleted": files_deleted + db_deleted
     }
 
 
