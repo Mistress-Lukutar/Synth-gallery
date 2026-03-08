@@ -34,9 +34,6 @@ PUBLIC_PATHS = {
     "/reset-password"
 }
 
-# API key for AI service (should be set via environment variable)
-AI_API_KEY = os.environ.get("SYNTH_AI_API_KEY", None)
-
 # CSRF configuration
 CSRF_TOKEN_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
