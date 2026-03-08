@@ -16,7 +16,7 @@
     // Element references (populated on init)
     let modal, closeBtn, dropZone, fileInput, folderInput;
     let filesDropText, folderDropText, previewContainer, preview, previewCount;
-    let clearFilesBtn, uploadOptions, albumCheckbox, autoAiTagsCheckbox, tagsInput;
+    let clearFilesBtn, uploadOptions, albumCheckbox, tagsInput;
     let progressDiv, progressFill, progressText, cancelBtn, submitBtn;
 
     // Initialize when DOM is ready
@@ -36,7 +36,6 @@
         clearFilesBtn = document.getElementById('clear-files-btn');
         uploadOptions = document.getElementById('upload-options');
         albumCheckbox = document.getElementById('upload-as-album');
-        autoAiTagsCheckbox = document.getElementById('auto-ai-tags');
         tagsInput = document.getElementById('upload-tags-input');
         progressDiv = document.getElementById('upload-progress');
         progressFill = document.getElementById('progress-fill');
@@ -105,7 +104,6 @@
         if (uploadOptions) uploadOptions.classList.add('hidden');
         if (progressDiv) progressDiv.classList.add('hidden');
         if (albumCheckbox) albumCheckbox.checked = false;
-        if (autoAiTagsCheckbox) autoAiTagsCheckbox.checked = false;
         if (tagsInput) tagsInput.value = '';
         if (submitBtn) submitBtn.disabled = true;
         if (progressFill) progressFill.style.width = '0%';
@@ -545,7 +543,6 @@
         if (cancelBtn) cancelBtn.disabled = false; // Enable cancel button
         progressDiv.classList.remove('hidden');
 
-        const useAiTags = autoAiTagsCheckbox.checked;
         const manualTags = tagsInput.value.trim()
             .split(',')
             .map(t => t.trim().toLowerCase())
@@ -731,16 +728,6 @@
                         uploadedIds.push(data.id);
                         uploadedFileIds.push(data.id); // Track for potential deletion
                     }
-                }
-
-                // Apply AI tags
-                if (useAiTags && uploadedIds.length > 0) {
-                    progressText.textContent = 'Generating AI tags...';
-                    await csrfFetch(`${getBaseUrl()}/api/items/batch-ai-tags`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ photo_ids: uploadedIds })
-                    });
                 }
 
                 // Apply manual tags
