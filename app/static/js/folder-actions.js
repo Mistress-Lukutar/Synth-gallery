@@ -140,7 +140,6 @@
     // === Folder Modal Functions ===
 
     window.openCreateFolder = function(parentId = null, safeId = null) {
-        console.log('[folder-actions] openCreateFolder called:', { parentId, safeId });
         editingFolderId = null;
         creatingFolderSafeId = safeId;  // Store safe_id for creating folder inside safe
         if (folderModalTitle) folderModalTitle.textContent = safeId ? 'Create Folder in Safe' : 'Create Folder';
@@ -166,10 +165,8 @@
 
     window.openEditFolder = function(folderId) {
         const folderTree = window.folderTree || [];
-        console.log('[folder-actions] openEditFolder:', folderId, 'folderTree:', folderTree.length, 'items');
         const folder = folderTree.find(f => f.id === folderId);
         if (!folder) {
-            console.log('[folder-actions] Folder not found:', folderId);
             return;
         }
 
@@ -244,7 +241,6 @@
                 if (creatingFolderSafeId) {
                     payload.safe_id = creatingFolderSafeId;
                 }
-                console.log('[folder-actions] Creating folder with payload:', payload);
                 const resp = await csrfFetch(`${getBaseUrl()}/api/folders`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -562,5 +558,4 @@
         loadDefaultFolder();
     });
 
-    console.log('[folder-actions.js] Loaded');
 })();

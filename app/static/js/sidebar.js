@@ -44,9 +44,7 @@
     // Load folder tree
     window.loadFolderTree = async function() {
         const folderTreeContainer = document.getElementById('folder-tree');
-        console.log('[sidebar.js] loadFolderTree called, container:', folderTreeContainer);
         if (!folderTreeContainer) {
-            console.log('[sidebar.js] No folder-tree container found');
             return;
         }
 
@@ -56,7 +54,6 @@
             const data = await resp.json();
             collapsedFolders = new Set(data.collapsed_folders || []);
         } catch (err) {
-            console.log('[sidebar.js] Could not load collapsed state');
         }
 
         // Use cache for immediate display
@@ -125,7 +122,6 @@
     function renderFolderTree() {
         const folderTreeContainer = document.getElementById('folder-tree');
         if (!folderTreeContainer) {
-            console.log('[sidebar.js] No folder-tree container found');
             return;
         }
 
@@ -370,7 +366,6 @@
 
     // Debug: force render tree (for console testing)
     window.debugRenderTree = function() {
-        console.log('[sidebar.js] Manual tree render triggered');
         folderTree = []; // Reset to force fresh load
         loadFolderTree();
     };
@@ -394,5 +389,4 @@
     window.loadFolderTree = loadFolderTree;
     window.toggleFolderCollapse = toggleFolderCollapse;
 
-    console.log('[sidebar.js] Loaded');
 })();

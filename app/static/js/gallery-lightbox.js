@@ -48,11 +48,9 @@
     function init() {
         lightbox = document.getElementById('lightbox');
         if (!lightbox) {
-            console.log('[gallery-lightbox] No lightbox element');
             return;
         }
         setupEventListeners();
-        console.log('[gallery-lightbox] Initialized');
     }
     
     // Lazy load album when navigating to it
@@ -208,7 +206,6 @@
             photos: photos,
             index: startIndex
         };
-        console.log('[gallery-lightbox] Album context set:', photos.length, 'photos');
     };
 
     // Clear album context
@@ -219,7 +216,6 @@
     // Expose rebuild function for external use (e.g., when opening album)
     window.rebuildLightboxNavOrder = function() {
         flatNavOrder = buildFlatNavOrder();
-        console.log('[lightbox] Nav order rebuilt:', flatNavOrder.length, 'items');
     };
     
     // Set navigation order directly from album items (when opening album from gallery)
@@ -231,7 +227,6 @@
             albumId: p.albumId || null
         }));
         currentNavIndex = startIndex;
-        console.log('[lightbox] Nav order set from album:', flatNavOrder.length, 'photos, index:', startIndex);
     };
     
     // Expand album in gallery navigation order (allows navigating beyond the album)
@@ -263,7 +258,6 @@
             currentNavIndex = startIndex;
         }
         
-        console.log('[lightbox] Album expanded in nav:', albumId, 'total items:', flatNavOrder.length, 'current index:', currentNavIndex);
     };
 
     // Build flat navigation list from gallery order
@@ -381,12 +375,10 @@
             const safeId = galleryItem.dataset.safeId;
             
             if (access === 'denied') {
-                console.log('[openPhoto] Access denied for photo:', photoId);
                 return;
             }
             
             if (access === 'locked' && safeId) {
-                console.log('[openPhoto] Safe locked, showing unlock modal for:', safeId);
                 
                 let safeName = 'Safe';
                 let unlockType = 'password';
@@ -724,11 +716,9 @@
             if (!resp.ok) throw new Error('Failed to load photo');
             
             const photo = await resp.json();
-            console.log('[lightbox] Raw photo data received:', JSON.stringify(photo).slice(0, 500));
             
             // Check if cancelled
             if (signal.aborted) {
-                console.log('[lightbox] Photo fetch was cancelled, aborting render');
                 return;
             }
             
@@ -830,8 +820,6 @@
             }
 
             // Debug album data
-            console.log('[lightbox] Photo data:', photo);
-            console.log('[lightbox] photo.album:', photo.album);
 
             // Album indicator - show if in album context
             if (albumContext) {
@@ -845,7 +833,6 @@
                     editAlbumBtn.classList.remove('hidden');
                     // Get album ID from first photo in album context
                     const albumId = albumContext.photos[0]?.albumId;
-                    console.log('[lightbox] Album context mode, albumId:', albumId);
                     if (albumId) {
                         editAlbumBtn.onclick = function() {
                             if (typeof window.openAlbumEditor === 'function') {
@@ -865,13 +852,11 @@
                 if (editAlbumBtn) {
                     editAlbumBtn.classList.remove('hidden');
                     const albumId = photo.album.id;
-                    console.log('[lightbox] Setting up edit album button for album:', albumId, 'photo.album:', photo.album);
                     if (!albumId) {
                         console.error('[lightbox] Album ID is undefined! photo.album:', photo.album);
                         editAlbumBtn.classList.add('hidden');
                     } else {
                         editAlbumBtn.onclick = function() {
-                            console.log('[lightbox] Edit album button clicked, calling openAlbumEditor with:', albumId);
                             if (typeof window.openAlbumEditor === 'function') {
                                 window.openAlbumEditor(albumId);
                             } else {
@@ -892,7 +877,6 @@
 
         } catch (err) {
             if (err.name === 'AbortError') {
-                console.log('[lightbox] Photo load aborted (cancelled)');
                 return;
             }
             console.error('Failed to load photo:', err);
@@ -925,5 +909,4 @@
         init();
     });
 
-    console.log('[gallery-lightbox.js] Loaded');
 })();

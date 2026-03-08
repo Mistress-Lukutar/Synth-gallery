@@ -331,4 +331,3 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { DEKManager };
 }
 
-console.log('dek-manager.js loaded, DEKManager:', typeof DEKManager);

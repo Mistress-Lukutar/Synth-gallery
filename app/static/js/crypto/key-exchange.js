@@ -409,4 +409,3 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { KeyExchange };
 }
 
-console.log('key-exchange.js loaded, KeyExchange:', typeof KeyExchange);

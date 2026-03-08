@@ -17,10 +17,8 @@
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
-            console.log('[gallery-masonry] No gallery element found');
             return;
         }
-        console.log('[gallery-masonry] Initialized');
     }
 
     window.getColumnCount = function() {
@@ -42,16 +40,13 @@
         
         // Skip if rebuild was called too recently (unless forced)
         if (!forceRebuild && (now - lastRebuildTime < MIN_REBUILD_INTERVAL)) {
-            console.log('[gallery-masonry] rebuildMasonry SKIPPED (too soon)');
             return;
         }
         
         if (!gallery) {
-            console.log('[gallery-masonry] No gallery, calling init');
             init();
         }
         if (!gallery) {
-            console.log('[gallery-masonry] Still no gallery, cannot rebuild');
             return;
         }
         
@@ -63,7 +58,6 @@
         allItems = Array.from(gallery.querySelectorAll('.gallery-item'));
         window.allItems = allItems;
         
-        console.log('[gallery-masonry] rebuildMasonry START, items:', allItems.length, 'force:', forceRebuild);
 
         // Always rebuild if gallery has content but showing empty-state
         const hasItems = allItems.length > 0;
@@ -75,7 +69,6 @@
 
         // Skip rebuild if column count hasn't changed (unless forced or first build)
         if (masonryBuilt && !forceRebuild && columnCount === lastColumnCount) {
-            console.log('[gallery-masonry] rebuildMasonry SKIPPED (same column count)');
             return;
         }
 
@@ -256,5 +249,4 @@
         }, 150);
     });
 
-    console.log('[gallery-masonry.js] Loaded');
 })();

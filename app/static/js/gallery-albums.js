@@ -20,7 +20,6 @@
     function init() {
         albumEditorPanel = document.getElementById('album-editor-panel');
         addPhotosModal = document.getElementById('add-photos-modal');
-        console.log('[gallery-albums] Initialized, albumEditorPanel:', albumEditorPanel);
     }
 
     // Handle album click with access check
@@ -35,13 +34,11 @@
             
             if (access === 'denied') {
                 // Shared content without access - do nothing
-                console.log('[handleAlbumClick] Access denied for album:', albumId);
                 return;
             }
             
             if (access === 'locked' && safeId) {
                 // Safe is locked - show unlock modal
-                console.log('[handleAlbumClick] Safe locked, showing unlock modal for:', safeId);
                 
                 let safeName = 'Safe';
                 let unlockType = 'password';
@@ -68,7 +65,6 @@
 
     // Open album in lightbox (view mode)
     window.openAlbum = async function(albumId, startFromEnd = false) {
-        console.log('[gallery-albums] Opening album:', albumId);
         
         try {
             const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
@@ -77,10 +73,8 @@
             const album = await resp.json();
             // Support both new items array and legacy photos array
             const albumItems = album.items || album.photos || [];
-            console.log('[gallery-albums] Album loaded:', album.name, 'items:', albumItems.length);
             
             if (albumItems.length === 0) {
-                console.log('[gallery-albums] Album is empty');
                 return;
             }
             
@@ -162,7 +156,6 @@
 
     // Alias for lightbox compatibility
     window.openAlbumEditor = async function(albumId) {
-        console.log('[gallery-albums] openAlbumEditor called for album:', albumId);
         
         // Always try to get fresh reference to panel
         const panel = document.getElementById('album-editor-panel');
@@ -573,5 +566,4 @@
         init();
     });
 
-    console.log('[gallery-albums.js] Loaded');
 })();

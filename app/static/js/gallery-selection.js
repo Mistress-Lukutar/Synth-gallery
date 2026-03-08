@@ -65,11 +65,9 @@
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
-            console.log('[gallery-selection] No gallery element');
             return;
         }
         setupEventListeners();
-        console.log('[gallery-selection] Initialized');
     }
 
     function setupEventListeners() {
@@ -179,7 +177,6 @@
                         album_ids: Array.from(selectedAlbums),
                         folder_id: destination.folder_id
                     };
-                    console.log('[Move] Sending:', payload);
                     
                     const resp = await csrfFetch(`${getBaseUrl()}/api/items/move`, {
                         method: 'PUT',
@@ -229,7 +226,6 @@
                         album_ids: Array.from(selectedAlbums),
                         folder_id: destination.folder_id
                     };
-                    console.log('[Copy] Sending:', payload);
                     
                     const resp = await csrfFetch(`${getBaseUrl()}/api/items/copy`, {
                         method: 'POST',
@@ -282,7 +278,6 @@
                     if (!resp.ok) throw new Error('Delete failed');
                     
                     const result = await resp.json();
-                    console.log('Delete result:', result);
 
                     selectedPhotos.clear();
                     selectedAlbums.clear();
@@ -410,7 +405,6 @@
             const safesData = await safesResp.json();
             const safes = safesData.safes || [];
             
-            console.log('[folder picker] Folders:', folders?.length, 'Safes:', safes?.length);
 
             // Store for later use
             window._pickerFolders = folders;
@@ -523,5 +517,4 @@
         init();
     });
 
-    console.log('[gallery-selection.js] Loaded');
 })();

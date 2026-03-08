@@ -259,18 +259,15 @@ base64Decode(encryptedDEKBase64)
             
             // Use PRF output as encryption key
             const encryptionKey = new Uint8Array(prfResults);
-            console.log('[SafeCrypto] PRF key length:', encryptionKey.length);
             
             // Export and encrypt DEK
             const rawDEK = await exportKeyRaw(safeDEK);
-            console.log('[SafeCrypto] Raw DEK length:', rawDEK.length);
             
             // Encrypt DEK using PRF output (XOR for simplicity, in production use AES)
             const encryptedDEK = new Uint8Array(rawDEK.length);
             for (let i = 0; i < rawDEK.length; i++) {
                 encryptedDEK[i] = rawDEK[i] ^ encryptionKey[i % encryptionKey.length];
             }
-            console.log('[SafeCrypto] Encrypted DEK length:', encryptedDEK.length);
             
             // Create session encryption for server-side session
             const sessionData = await this.encryptDEKForSession(safeDEK);
@@ -294,9 +291,6 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Object>} - Unlock result with session data
          */
         async unlockWithPassword(safeId, password, encryptedDEKBase64, saltBase64) {
-            console.log(`[SafeCrypto.unlockWithPassword] Unlocking safe: ${safeId}`);
-            console.log(`[SafeCrypto.unlockWithPassword] Encrypted DEK length:`, encryptedDEKBase64?.length);
-            console.log(`[SafeCrypto.unlockWithPassword] Salt length:`, saltBase64?.length);
             
             // Validate inputs
             if (!encryptedDEKBase64) {
@@ -309,37 +303,27 @@ base64Decode(encryptedDEKBase64)
             // Decode data
             const encryptedDEK = base64Decode(encryptedDEKBase64);
             const salt = base64Decode(saltBase64);
-            console.log(`[SafeCrypto.unlockWithPassword] Decoded encrypted DEK bytes:`, encryptedDEK.length);
-            console.log(`[SafeCrypto.unlockWithPassword] Decoded salt bytes:`, salt.length);
             
             // Derive key from password
-            console.log(`[SafeCrypto.unlockWithPassword] Deriving key from password...`);
             const keyFromPassword = await deriveKeyFromPassword(password, salt);
-            console.log(`[SafeCrypto.unlockWithPassword] Key derived successfully`);
             
             // Decrypt Safe DEK
             let safeDEK;
             try {
-                console.log(`[SafeCrypto.unlockWithPassword] Decrypting Safe DEK...`);
                 safeDEK = await decryptDEK(encryptedDEK, keyFromPassword);
-                console.log(`[SafeCrypto.unlockWithPassword] Safe DEK decrypted, type:`, typeof safeDEK);
             } catch (e) {
                 console.error(`[SafeCrypto.unlockWithPassword] Failed to decrypt DEK:`, e);
                 throw new Error('Incorrect password');
             }
             
             // Store in memory
-            console.log(`[SafeCrypto.unlockWithPassword] Storing DEK in memory for safe: ${safeId}`);
             safeDEKs.set(safeId, {
                 dek: safeDEK,
                 unlocked_at: Date.now()
             });
-            console.log(`[SafeCrypto.unlockWithPassword] Current unlocked safes:`, Array.from(safeDEKs.keys()));
             
             // Create session encryption
-            console.log(`[SafeCrypto.unlockWithPassword] Creating session encryption...`);
             const sessionData = await this.encryptDEKForSession(safeDEK);
-            console.log(`[SafeCrypto.unlockWithPassword] Session encryption created`);
             
             return {
                 success: true,
@@ -379,7 +363,6 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Object>} - Unlock result
          */
         async unlockWithWebAuthn(safeId, credentialId, encryptedDEKBase64) {
-            console.log(`[SafeCrypto.unlockWithWebAuthn] Unlocking safe: ${safeId}`);
             
             // Get PRF output to decrypt DEK
             const prfInput = new Uint8Array(32);
@@ -469,13 +452,8 @@ base64Decode(encryptedDEKBase64)
          * @returns {CryptoKey|null} - Safe DEK or null if locked
          */
         getSafeDEK(safeId) {
-            console.log(`[SafeCrypto.getSafeDEK] Looking for safe: ${safeId}`);
-            console.log(`[SafeCrypto.getSafeDEK] Available safes:`, Array.from(safeDEKs.keys()));
             const entry = safeDEKs.get(safeId);
-            console.log(`[SafeCrypto.getSafeDEK] Entry found:`, entry ? 'yes' : 'no');
             if (entry) {
-                console.log(`[SafeCrypto.getSafeDEK] DEK type:`, typeof entry.dek);
-                console.log(`[SafeCrypto.getSafeDEK] Unlocked at:`, new Date(entry.unlocked_at).toISOString());
             }
             return entry ? entry.dek : null;
         },
@@ -547,19 +525,17 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Blob>} - JPEG thumbnail blob
          */
         async _generateThumbnail(file, maxSize = 400) {
-            console.log(`[_generateThumbnail] Starting for file: ${file.name}, type: ${file.type}`);
             return new Promise((resolve, reject) => {
                 const isVideo = file.type.startsWith('video/');
                 const isImage = file.type.startsWith('image/');
-                console.log(`[_generateThumbnail] isVideo=${isVideo}, isImage=${isImage}`);
                 
                 if (isVideo) {
                     this._generateVideoThumbnail(file, maxSize)
-                        .then(blob => { console.log(`[_generateThumbnail] Video thumbnail generated: ${blob.size} bytes`); resolve(blob); })
+                        .then(blob => { resolve(blob); })
                         .catch(err => { console.error(`[_generateThumbnail] Video thumbnail failed:`, err); reject(err); });
                 } else if (isImage) {
                     this._generateImageThumbnail(file, maxSize)
-                        .then(blob => { console.log(`[_generateThumbnail] Image thumbnail generated: ${blob.size} bytes`); resolve(blob); })
+                        .then(blob => { resolve(blob); })
                         .catch(err => { console.error(`[_generateThumbnail] Image thumbnail failed:`, err); reject(err); });
                 } else {
                     console.error(`[_generateThumbnail] Unsupported file type: ${file.type}`);
@@ -573,14 +549,11 @@ base64Decode(encryptedDEKBase64)
          * @private
          */
         async _generateImageThumbnail(file, maxSize) {
-            console.log(`[_generateImageThumbnail] Starting for file: ${file.name}`);
             return new Promise((resolve, reject) => {
                 const img = new Image();
                 const url = URL.createObjectURL(file);
-                console.log(`[_generateImageThumbnail] Created object URL: ${url}`);
                 
                 img.onload = () => {
-                    console.log(`[_generateImageThumbnail] Image loaded: ${img.naturalWidth}x${img.naturalHeight}`);
                     URL.revokeObjectURL(url);
                     
                     const canvas = document.createElement('canvas');
@@ -602,7 +575,6 @@ base64Decode(encryptedDEKBase64)
                     
                     canvas.width = Math.round(width);
                     canvas.height = Math.round(height);
-                    console.log(`[_generateImageThumbnail] Canvas size: ${canvas.width}x${canvas.height}`);
                     
                     // Use better quality settings
                     ctx.imageSmoothingEnabled = true;
@@ -611,7 +583,6 @@ base64Decode(encryptedDEKBase64)
                     
                     canvas.toBlob(
                         (blob) => {
-                            console.log(`[_generateImageThumbnail] toBlob result:`, blob ? `${blob.size} bytes` : 'null');
                             if (blob) resolve(blob);
                             else reject(new Error('Failed to create thumbnail blob'));
                         },
@@ -696,10 +667,7 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Object>} - Encrypted file data
          */
         async encryptFileForSafe(file, safeId) {
-            console.log(`[SafeCrypto.encryptFileForSafe] Starting encryption for safe: ${safeId}`);
-            console.log(`[SafeCrypto.encryptFileForSafe] File: name=${file.name}, type=${file.type}, size=${file.size}`);
             const safeDEK = this.getSafeDEK(safeId);
-            console.log(`[SafeCrypto.encryptFileForSafe] Got DEK:`, !!safeDEK);
             if (!safeDEK) {
                 throw new Error('Safe is locked. Please unlock first.');
             }
@@ -709,14 +677,11 @@ base64Decode(encryptedDEKBase64)
             let thumbnailDimensions = { width: 0, height: 0 };
             
             try {
-                console.log(`[SafeCrypto.encryptFileForSafe] Generating thumbnail for type: ${file.type}...`);
                 thumbnailBlob = await this._generateThumbnail(file, 400);
-                console.log(`[SafeCrypto.encryptFileForSafe] Thumbnail blob:`, thumbnailBlob ? `${thumbnailBlob.size} bytes` : 'null');
                 if (thumbnailBlob) {
                     // Get dimensions from the blob
                     const img = await this._loadImageFromBlob(thumbnailBlob);
                     thumbnailDimensions = { width: img.width, height: img.height };
-                    console.log(`[SafeCrypto.encryptFileForSafe] Thumbnail generated: ${thumbnailDimensions.width}x${thumbnailDimensions.height}`);
                 }
             } catch (e) {
                 console.warn(`[SafeCrypto.encryptFileForSafe] Thumbnail generation failed:`, e);
@@ -724,32 +689,25 @@ base64Decode(encryptedDEKBase64)
             }
             
             // Read file
-            console.log(`[SafeCrypto.encryptFileForSafe] Reading file...`);
             const fileData = new Uint8Array(await file.arrayBuffer());
-            console.log(`[SafeCrypto.encryptFileForSafe] File size:`, fileData.length);
             
             // Encrypt file directly with Safe DEK (simpler approach)
-            console.log(`[SafeCrypto.encryptFileForSafe] Generating IV...`);
             const iv = crypto.getRandomValues(new Uint8Array(12));
-            console.log(`[SafeCrypto.encryptFileForSafe] Encrypting with AES-GCM...`);
             const encryptedData = await crypto.subtle.encrypt(
                 { name: 'AES-GCM', iv: iv },
                 safeDEK,
                 fileData
             );
-            console.log(`[SafeCrypto.encryptFileForSafe] Encrypted size:`, encryptedData.byteLength);
             
             // Combine IV + encrypted data
             const encryptedFile = new Uint8Array(iv.length + encryptedData.byteLength);
             encryptedFile.set(iv);
             encryptedFile.set(new Uint8Array(encryptedData), iv.length);
-            console.log(`[SafeCrypto.encryptFileForSafe] Combined size (IV + ciphertext):`, encryptedFile.length);
             
             // Encrypt thumbnail if generated
             let encryptedThumbnail = null;
             if (thumbnailBlob) {
                 try {
-                    console.log(`[SafeCrypto.encryptFileForSafe] Encrypting thumbnail...`);
                     const thumbData = new Uint8Array(await thumbnailBlob.arrayBuffer());
                     const thumbIv = crypto.getRandomValues(new Uint8Array(12));
                     const encryptedThumbData = await crypto.subtle.encrypt(
@@ -762,7 +720,6 @@ base64Decode(encryptedDEKBase64)
                     encryptedThumbnail = new Uint8Array(thumbIv.length + encryptedThumbData.byteLength);
                     encryptedThumbnail.set(thumbIv);
                     encryptedThumbnail.set(new Uint8Array(encryptedThumbData), thumbIv.length);
-                    console.log(`[SafeCrypto.encryptFileForSafe] Thumbnail encrypted, size:`, encryptedThumbnail.length);
                 } catch (e) {
                     console.warn(`[SafeCrypto.encryptFileForSafe] Thumbnail encryption failed:`, e);
                 }
@@ -777,7 +734,6 @@ base64Decode(encryptedDEKBase64)
                 thumbWidth: thumbnailDimensions.width,
                 thumbHeight: thumbnailDimensions.height
             };
-            console.log(`[SafeCrypto.encryptFileForSafe] Returning result: encryptedFile=${result.encryptedFile.size}, encryptedThumbnail=${result.encryptedThumbnail ? result.encryptedThumbnail.size : 'null'}, thumbDimensions=${result.thumbWidth}x${result.thumbHeight}`);
             return result;
         },
         
@@ -812,25 +768,18 @@ base64Decode(encryptedDEKBase64)
          * @returns {Promise<Blob>} - Decrypted file
          */
         async decryptFileFromSafe(encryptedBlob, safeId, mimeType = 'image/jpeg') {
-            console.log(`[SafeCrypto.decryptFileFromSafe] Starting decryption for safe: ${safeId}`);
-            console.log(`[SafeCrypto.decryptFileFromSafe] Encrypted blob size:`, encryptedBlob.size);
-            console.log(`[SafeCrypto.decryptFileFromSafe] MIME type:`, mimeType);
             
             const safeDEK = this.getSafeDEK(safeId);
             if (!safeDEK) {
                 console.error(`[SafeCrypto.decryptFileFromSafe] Safe ${safeId} is locked`);
                 throw new Error('Safe is locked. Please unlock first.');
             }
-            console.log(`[SafeCrypto.decryptFileFromSafe] Got DEK, type:`, typeof safeDEK);
             
             // Decrypt file directly with safe DEK
             const encryptedData = new Uint8Array(await encryptedBlob.arrayBuffer());
-            console.log(`[SafeCrypto.decryptFileFromSafe] Encrypted data length:`, encryptedData.length);
             
             const iv = encryptedData.slice(0, 12);
             const ciphertext = encryptedData.slice(12);
-            console.log(`[SafeCrypto.decryptFileFromSafe] IV length:`, iv.length);
-            console.log(`[SafeCrypto.decryptFileFromSafe] Ciphertext length:`, ciphertext.length);
             
             try {
                 const decrypted = await crypto.subtle.decrypt(
@@ -838,7 +787,6 @@ base64Decode(encryptedDEKBase64)
                     safeDEK,
                     ciphertext
                 );
-                console.log(`[SafeCrypto.decryptFileFromSafe] Decryption successful, size:`, decrypted.byteLength);
                 return new Blob([decrypted], { type: mimeType });
             } catch (e) {
                 console.error(`[SafeCrypto.decryptFileFromSafe] Decryption failed:`, e);
@@ -895,7 +843,6 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { SafeCrypto };
 }
 
-console.log('safe-crypto.js loaded, SafeCrypto available:', SafeCrypto.isAvailable);
 if (!SafeCrypto.isAvailable) {
     console.warn('SafeCrypto is not available. This is likely because the page is not served over HTTPS or localhost.');
 }

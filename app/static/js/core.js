@@ -6,14 +6,11 @@
 // CSRF protection helper
 function getCsrfToken() {
     const meta = document.querySelector('meta[name="csrf-token"]');
-    console.log('[CSRF] Meta tag:', meta);
     if (meta) {
         const content = meta.getAttribute('content');
-        console.log('[CSRF] Meta content:', content);
         return content;
     }
     const match = document.cookie.match(/synth_csrf=([^;]+)/);
-    console.log('[CSRF] Cookie match:', match);
     return match ? match[1] : '';
 }
 
@@ -161,4 +158,3 @@ document.addEventListener('keydown', (e) => {
 // Export to window
 window.bindEnterKey = bindEnterKey;
 
-console.log('[core.js] Loaded');

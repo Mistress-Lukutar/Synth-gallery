@@ -286,4 +286,3 @@ recoveryUsernameInput.addEventListener('keypress', (e) => {
     }
 });
 
-console.log('[login.js] Loaded');
