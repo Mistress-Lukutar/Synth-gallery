@@ -13,6 +13,9 @@
     // Album viewing state
     let currentAlbumPhotos = [];
     let currentAlbumIndex = 0;
+    
+    // Track if album was modified (for SPA refresh)
+    let albumWasModified = false;
 
     function init() {
         albumEditorPanel = document.getElementById('album-editor-panel');
@@ -173,6 +176,7 @@
         
         editingAlbumId = albumId;
         selectedPhotosForAlbum.clear();
+        albumWasModified = false;  // Reset modification flag on open
         
         try {
             const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
@@ -203,7 +207,7 @@
     };
 
     window.closeAlbumEditor = function(skipRefresh = false) {
-        // Check if lightbox is open - if so, never refresh folder (stay in lightbox context)
+        // Check if lightbox is open
         const lightbox = document.getElementById('lightbox');
         const isLightboxOpen = lightbox && !lightbox.classList.contains('hidden');
         
@@ -221,13 +225,26 @@
         editingAlbumId = null;
         selectedPhotosForAlbum.clear();
         
-        // Refresh current folder only if:
+        // Refresh current folder if:
         // 1. Not explicitly skipped
-        // 2. Lightbox is NOT open (we're in gallery view)
-        // 3. We have a current folder
-        if (!skipRefresh && !isLightboxOpen && window.currentFolderId && typeof navigateToFolder === 'function') {
-            navigateToFolder(window.currentFolderId, false);
+        // 2. We have a current folder
+        // 3. Either: lightbox is NOT open (gallery view), OR album was modified (need to refresh even in lightbox)
+        const shouldRefresh = !skipRefresh && window.currentFolderId && typeof navigateToFolder === 'function';
+        const needsRefreshForChanges = albumWasModified && isLightboxOpen;
+        
+        if (shouldRefresh) {
+            if (needsRefreshForChanges) {
+                // Album was modified in lightbox context - refresh gallery in background
+                // This updates the gallery so when user closes lightbox, they see updated album
+                navigateToFolder(window.currentFolderId, false);
+            } else if (!isLightboxOpen) {
+                // Normal gallery view refresh
+                navigateToFolder(window.currentFolderId, false);
+            }
         }
+        
+        // Reset modification flag
+        albumWasModified = false;
     };
 
     window.closeAlbumModal = function() {
@@ -288,7 +305,10 @@
         
         // Set as cover
         if (editingAlbumId) {
-            await setAlbumCover(editingAlbumId, itemId);
+            const result = await setAlbumCover(editingAlbumId, itemId);
+            if (result) {
+                albumWasModified = true;
+            }
         }
     };
 
@@ -345,6 +365,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ item_ids: itemIds })
             });
+            albumWasModified = true;
         } catch (err) {
             console.error('Failed to save album order:', err);
         }
@@ -360,6 +381,7 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ item_ids: [itemId] })
             });
+            albumWasModified = true;
             // Refresh - need to get current cover from album
             const resp = await fetch(`${getBaseUrl()}/api/albums/${editingAlbumId}`);
             const album = resp.ok ? await resp.json() : { cover_item_id: null };
@@ -450,6 +472,7 @@
                 body: JSON.stringify({ item_ids: Array.from(selectedPhotosForAlbum) })
             });
             
+            albumWasModified = true;
             closeAddPhotosModal();
             loadAlbumPhotos(editingAlbumId);
         } catch (err) {
@@ -538,8 +561,10 @@
             
             // Refresh items grid to show new cover
             loadAlbumPhotos(albumId, itemId);
+            return true;
         } catch (err) {
             console.error('Failed to set album cover:', err);
+            return false;
         }
     };
 
