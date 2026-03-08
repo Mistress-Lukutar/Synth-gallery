@@ -39,7 +39,6 @@
         setupEventListeners();
         loadCategories();
         loadRecentTags();
-        console.log('[gallery-tags-v2] Initialized');
     }
 
     function setupEventListeners() {

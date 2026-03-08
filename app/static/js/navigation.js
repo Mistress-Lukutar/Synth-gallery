@@ -12,7 +12,6 @@
 
     // Navigate to folder via SPA
     window.navigateToFolder = async function(folderId, pushState = true, event = null) {
-        console.log('[SPA] Navigating to folder:', folderId);
         
         if (event) {
             event.preventDefault();
@@ -31,7 +30,6 @@
             }
             
             const data = await resp.json();
-            console.log('[SPA] Loaded folder content:', data);
             
             if (pushState) {
                 history.pushState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
@@ -115,7 +113,6 @@
 
     // Render folder content in gallery
     window.renderFolderContent = function(data) {
-        console.log('[renderFolderContent] Rendering folder:', data.folder?.name, 'items:', data.items?.length);
         
         // Update sort UI if sort data is available
         if (data.sort) {
@@ -326,7 +323,6 @@
         gallery.style.opacity = '1';
         
         // Trigger masonry rebuild - it will read items directly from DOM
-        console.log('[navigation] Triggering masonry rebuild, items inserted:', gallery.querySelectorAll('.gallery-item').length);
         if (typeof window.rebuildMasonry === 'function') {
             window.rebuildMasonry(true);
         } else {
@@ -425,5 +421,4 @@
         }
     };
 
-    console.log('[navigation.js] Loaded (Phase 5 - Polymorphic Items)');
 })();

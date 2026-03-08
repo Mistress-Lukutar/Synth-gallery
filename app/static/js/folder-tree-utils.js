@@ -201,4 +201,3 @@ window.FolderTreeUtils = {
     }
 };
 
-console.log('[folder-tree-utils.js] Loaded');

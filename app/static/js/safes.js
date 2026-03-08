@@ -11,7 +11,6 @@
     window.loadSafeThumbnails = async function() {
         // Thumbnails are now automatically resolved by FileAccessService.resolveThumbnails()
         // which is called after gallery renders. This function is a no-op for compatibility.
-        console.log('[safes.js] loadSafeThumbnails is deprecated - thumbnails loaded automatically');
     };
 
     // Navigate to safe - go to safe root folder (folder with safe_id and no parent)

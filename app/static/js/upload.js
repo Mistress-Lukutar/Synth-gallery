@@ -45,7 +45,6 @@
         submitBtn = document.getElementById('submit-upload-btn');
 
         setupEventListeners();
-        console.log('[upload.js] Initialized');
     }
 
     // Open modal
@@ -782,7 +781,6 @@
         } catch (err) {
             if (err.name === 'AbortError') {
                 progressText.textContent = 'Upload cancelled';
-                console.log('Upload was cancelled by user');
             } else {
                 console.error('Upload error:', err);
                 progressText.textContent = 'Upload failed: ' + err.message;
@@ -800,5 +798,4 @@
         init();
     }
 
-    console.log('[upload.js] Loaded');
 })();

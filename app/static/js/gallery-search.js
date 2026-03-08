@@ -17,7 +17,6 @@
         suggestions = document.getElementById('tag-suggestions');
 
         if (!searchInput) {
-            console.log('[gallery-search] No search input');
             return;
         }
 
@@ -28,7 +27,6 @@
             window.updateSortDropdownUI(window.currentSortMode);
         }
         
-        console.log('[gallery-search] Initialized');
     }
 
     function setupEventListeners() {
@@ -68,7 +66,6 @@
                             body: JSON.stringify({ sort_by: sort })
                         }).then(resp => {
                             if (resp.ok) {
-                                console.log('[Sort] Preference saved:', sort);
                             }
                         }).catch(err => {
                             console.error('[Sort] Error saving preference:', err);
@@ -216,7 +213,6 @@
             return;
         }
 
-        console.log('[search] Performing search for:', query, 'in folder:', window.currentFolderId);
         isSearchActive = true;
 
         try {
@@ -224,7 +220,6 @@
             if (!resp.ok) throw new Error('Search failed');
 
             const data = await resp.json();
-            console.log('[search] Results:', data.items?.length, 'items');
 
             // Render search results using same format as folder content
             renderSearchResults(data);
@@ -393,5 +388,4 @@
         }
     });
 
-    console.log('[gallery-search.js] Loaded');
 })();

@@ -48,7 +48,6 @@
         };
         stack.push(item);
         
-        console.log('[BackButtonManager] Registered:', id, 'Stack:', stack.map(i => i.id));
 
         // Push history state for back button support
         // This allows mobile users to use the back button to close modals
@@ -60,7 +59,6 @@
             }
         }
 
-        console.log('[BackButtonManager] Registered:', id, 'Stack size:', stack.length);
     }
 
     /**
@@ -74,7 +72,6 @@
 
         // Remove from stack
         stack.splice(index, 1);
-        console.log('[BackButtonManager] Unregistered:', id, 'Stack:', stack.map(i => i.id));
 
         // If this was the top item and we're not handling a popstate, 
         // we need to pop the history entry we created
@@ -99,7 +96,6 @@
         if (stack.length === 0) return false;
 
         const item = stack[stack.length - 1];
-        console.log('[BackButtonManager] Closing topmost:', item.id);
 
         // Mark that we're handling this close to prevent unregister from calling history.back()
         isHandlingPopstate = true;
@@ -129,7 +125,6 @@
      * Useful for page unload or emergency cleanup
      */
     function forceCloseAll() {
-        console.log('[BackButtonManager] Force closing all, count:', stack.length);
         
         // Close in reverse order (top to bottom)
         while (stack.length > 0) {
@@ -156,7 +151,6 @@
      * Debug: log current stack to console
      */
     function debugStack() {
-        console.log('[BackButtonManager] Stack:', stack.length, 'items:', stack.map(i => i.id));
     }
 
     /**
@@ -202,7 +196,6 @@
      */
     function handlePopstate(e) {
         const state = e.state;
-        console.log('[BackButtonManager] Popstate, state:', state, 'stack:', stack.length);
         
         // If we have registered modals, close the topmost one instead of navigating
         if (stack.length > 0) {
@@ -222,7 +215,6 @@
             // No modals open - this is a "guard" state pop
             // Re-push the guard state to prevent exiting the app
             if (state && state._backButtonTrap) {
-                console.log('[BackButtonManager] Guard state popped, re-trapping');
                 try {
                     history.pushState({ _backButtonTrap: true, guard: true }, '', location.href);
                 } catch (err) {
@@ -258,7 +250,6 @@
             try {
                 history.replaceState({ _backButtonTrap: true, initial: true }, '', location.href);
                 history.pushState({ _backButtonTrap: true, guard: true }, '', location.href);
-                console.log('[BackButtonManager] Mobile back trap installed');
             } catch (e) {
                 console.warn('[BackButtonManager] Failed to setup back trap:', e);
             }
@@ -287,5 +278,4 @@
         get escapePressed() { return escapePressed; }
     };
 
-    console.log('[back-button.js] Loaded and initialized');
 })();

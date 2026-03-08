@@ -10,12 +10,10 @@
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
-            console.log('[gallery-dragdrop] No gallery');
             return;
         }
 
         setupEventListeners();
-        console.log('[gallery-dragdrop] Initialized');
     }
 
     function setupEventListeners() {
@@ -124,5 +122,4 @@
         init();
     });
 
-    console.log('[gallery-dragdrop.js] Loaded');
 })();

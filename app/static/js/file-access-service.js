@@ -309,4 +309,3 @@ var FileAccessService = (function() {
 // Make global
 window.FileAccessService = FileAccessService;
 
-console.log('[FileAccessService] Loaded');

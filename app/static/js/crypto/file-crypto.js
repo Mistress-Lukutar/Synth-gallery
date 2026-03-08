@@ -374,4 +374,3 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = { FileCrypto };
 }
 
-console.log('file-crypto.js loaded, FileCrypto:', typeof FileCrypto);
