@@ -396,17 +396,6 @@ def init_db():
     """)
 
     db.execute("""
-        CREATE TABLE IF NOT EXISTS item_keys (
-            item_id TEXT PRIMARY KEY,
-            encrypted_ck BLOB NOT NULL,
-            thumbnail_encrypted_ck BLOB,
-            shared_ck_map TEXT DEFAULT '{}',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
-        )
-    """)
-
-    db.execute("""
         CREATE TABLE IF NOT EXISTS folder_keys (
             folder_id TEXT PRIMARY KEY,
             encrypted_folder_dek TEXT NOT NULL,

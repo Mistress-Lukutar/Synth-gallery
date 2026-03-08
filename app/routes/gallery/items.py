@@ -411,18 +411,6 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                         (new_item_id, item_tag["tag_id"])
                     )
 
-                # Copy encryption keys
-                keys = db.execute(
-                    "SELECT encrypted_ck, thumbnail_encrypted_ck, shared_ck_map FROM item_keys WHERE item_id = ?",
-                    (item_id,)
-                ).fetchone()
-                if keys:
-                    db.execute(
-                        """INSERT INTO item_keys (item_id, encrypted_ck, thumbnail_encrypted_ck, shared_ck_map)
-                           VALUES (?, ?, ?, ?)""",
-                        (new_item_id, keys["encrypted_ck"], keys["thumbnail_encrypted_ck"], keys["shared_ck_map"])
-                    )
-
                 db.commit()
                 copied_items += 1
             except Exception:
@@ -524,18 +512,6 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                         db.execute(
                             "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
                             (new_item_id, item_tag["tag_id"])
-                        )
-
-                    # Copy encryption keys
-                    keys = db.execute(
-                        "SELECT encrypted_ck, thumbnail_encrypted_ck, shared_ck_map FROM item_keys WHERE item_id = ?",
-                        (item["id"],)
-                    ).fetchone()
-                    if keys:
-                        db.execute(
-                            """INSERT INTO item_keys (item_id, encrypted_ck, thumbnail_encrypted_ck, shared_ck_map)
-                               VALUES (?, ?, ?, ?)""",
-                            (new_item_id, keys["encrypted_ck"], keys["thumbnail_encrypted_ck"], keys["shared_ck_map"])
                         )
 
                     # Track cover item mapping
