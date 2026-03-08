@@ -778,53 +778,6 @@ def remove_tag_from_item(item_id: str, tag_id: int, request: Request):
         db.close()
 
 
-@router.post("/api/items/{item_id}/ai-tags")
-def generate_ai_tags_for_item(item_id: str, request: Request):
-    """Generate AI tags for an item."""
-    user = require_user(request)
-    db = create_connection()
-    try:
-        # Check if item exists
-        item_service = get_item_service(db)
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(404, "Item not found")
-        
-        if item["user_id"] != user["id"]:
-            raise HTTPException(403, "Not owner")
-        
-        # Get random presets
-        presets = db.execute("""
-            SELECT p.name, p.category_id 
-            FROM tag_presets p
-            ORDER BY RANDOM()
-            LIMIT 5
-        """).fetchall()
-        
-        if not presets:
-            return {"status": "error", "message": "No presets available"}
-        
-        # Add random tags
-        added_tags = []
-        for preset in presets:
-            # Check if tag already exists
-            existing = db.execute(
-                "SELECT id FROM tags WHERE photo_id = ? AND tag = ?",
-                (item_id, preset["name"].lower().strip())
-            ).fetchone()
-            if not existing:
-                cursor = db.execute(
-                    "INSERT INTO tags (photo_id, tag, category_id) VALUES (?, ?, ?)",
-                    (item_id, preset["name"].lower().strip(), preset["category_id"])
-                )
-                added_tags.append({"id": cursor.lastrowid, "tag": preset["name"]})
-        
-        db.commit()
-        return {"status": "ok", "tags": added_tags}
-    finally:
-        db.close()
-
-
 # =============================================================================
 # Album Endpoints
 # =============================================================================

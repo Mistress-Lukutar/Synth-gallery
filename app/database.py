@@ -290,7 +290,6 @@ def init_db():
             thumb_height INTEGER,
             taken_at TIMESTAMP,
             storage_mode TEXT DEFAULT 'standard',
-            ai_processed INTEGER DEFAULT 0,
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
         )
     """)
