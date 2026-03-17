@@ -127,7 +127,8 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         httponly=True,  # Session cookie not accessible via JavaScript
         samesite="lax",
         secure=COOKIE_SECURE,  # True in production (HTTPS only)
-        max_age=SESSION_MAX_AGE
+        max_age=SESSION_MAX_AGE,
+        path="/"  # Ensure cookie is valid for entire site
     )
     return response
 
@@ -145,7 +146,7 @@ def logout(request: Request):
         service.delete_session(session_id)
 
     response = RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(SESSION_COOKIE, path="/")
     return response
 
 

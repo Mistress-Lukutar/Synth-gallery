@@ -38,6 +38,28 @@ def strip_root_path(path: str) -> str:
     return path
 
 
+class BasePathMiddleware(BaseHTTPMiddleware):
+    """Middleware to redirect requests from root to base path.
+    
+    When SYNTH_BASE_URL is set (e.g., 'synth'), redirects requests
+    from '/' to '/synth/' to ensure consistent URLs.
+    """
+    
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        
+        # If base path is set and request is to root, redirect
+        if ROOT_PATH and path == "/":
+            # Preserve query string
+            query = str(request.url.query) if request.url.query else ""
+            redirect_url = f"{ROOT_PATH}/"
+            if query:
+                redirect_url += f"?{query}"
+            return RedirectResponse(url=redirect_url, status_code=307)  # 307 preserves method
+        
+        return await call_next(request)
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware to check authentication on all routes."""
 
