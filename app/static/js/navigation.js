@@ -11,6 +11,7 @@
     window.currentSortMode = currentSort;
 
     // Navigate to folder via SPA
+    // pushState: true = add history entry, false = no history change, 'replace' = replace current entry
     window.navigateToFolder = async function(folderId, pushState = true, event = null) {
         
         if (event) {
@@ -31,8 +32,10 @@
             
             const data = await resp.json();
             
-            if (pushState) {
+            if (pushState === true) {
                 history.pushState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
+            } else if (pushState === 'replace') {
+                history.replaceState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
             }
             
             window.currentFolderId = folderId;
