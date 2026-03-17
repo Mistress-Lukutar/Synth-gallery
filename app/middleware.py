@@ -1,6 +1,7 @@
 """Application middleware."""
 import hashlib
 import secrets
+from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -98,9 +99,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             finally:
                 conn.close()
 
-        # No valid session - redirect to login
+        # No valid session - redirect to login with next parameter
         if request.method == "GET":
-            return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
+            next_url = request.url.path
+            if request.url.query:
+                next_url += f"?{request.url.query}"
+            # URL-encode next parameter to preserve query string
+            login_url = f"{ROOT_PATH}/login?next={quote(next_url, safe='')}" 
+            return RedirectResponse(url=login_url, status_code=302)
 
         # For API calls, return 401
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
