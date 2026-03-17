@@ -37,7 +37,7 @@ def get_auth_service() -> AuthService:
 
 
 @router.get("/login")
-def login_page(request: Request, error: str = None):
+def login_page(request: Request, error: str = None, next: str = None):
     """Show login page."""
     # If already logged in, check if we can auto-redirect
     session_id = request.cookies.get(SESSION_COOKIE)
@@ -59,12 +59,14 @@ def login_page(request: Request, error: str = None):
                         "error": "Session restored. Please enter password to decrypt your files.",
                         "username": session["username"],
                         "csrf_token": get_csrf_token(request),
-                        "base_url": ROOT_PATH
+                        "base_url": ROOT_PATH,
+                        "next": next or ""
                     }
                 )
 
-            # DEK is in cache or user has no encryption, safe to redirect
-            return RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
+            # DEK is in cache or user has no encryption, safe to redirect to next or home
+            redirect_url = next if next and next.startswith("/") else f"{ROOT_PATH}/"
+            return RedirectResponse(url=redirect_url, status_code=302)
 
     return templates.TemplateResponse(
         request,
@@ -73,13 +75,14 @@ def login_page(request: Request, error: str = None):
             "error": error,
             "username": "",
             "csrf_token": get_csrf_token(request),
-            "base_url": ROOT_PATH
+            "base_url": ROOT_PATH,
+            "next": next or ""
         }
     )
 
 
 @router.post("/login")
-def login(request: Request, username: str = Form(...), password: str = Form(...)):
+def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("")):
     """Process login form."""
     service = get_auth_service()
     user = service.authenticate(username, password)
@@ -92,7 +95,8 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
                 "error": "Invalid username or password",
                 "username": username,
                 "csrf_token": get_csrf_token(request),
-                "base_url": ROOT_PATH
+                "base_url": ROOT_PATH,
+                "next": next
             },
             status_code=401
         )
@@ -114,15 +118,17 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         # Store DEK in session for persistence (Issue #18)
         service.store_dek_in_session(session_id, dek)
 
-    # Redirect to gallery with session cookie
-    response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
+    # Redirect to next URL or gallery with session cookie
+    redirect_url = next if next and next.startswith("/") else f"{ROOT_PATH}/"
+    response = RedirectResponse(url=redirect_url, status_code=302)
     response.set_cookie(
         key=SESSION_COOKIE,
         value=session_id,
         httponly=True,  # Session cookie not accessible via JavaScript
         samesite="lax",
         secure=COOKIE_SECURE,  # True in production (HTTPS only)
-        max_age=SESSION_MAX_AGE
+        max_age=SESSION_MAX_AGE,
+        path="/"  # Ensure cookie is valid for entire site
     )
     return response
 
@@ -140,7 +146,7 @@ def logout(request: Request):
         service.delete_session(session_id)
 
     response = RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
-    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie(SESSION_COOKIE, path="/")
     return response
 
 

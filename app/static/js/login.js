@@ -6,6 +6,14 @@
 
 const BASE_URL = window.SYNTH_BASE_URL || '';
 
+// Get 'next' parameter from URL for post-login redirect
+function getNextParam() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('next') || '';
+}
+
+const NEXT_URL = getNextParam();
+
 // Elements
 const usernameInput = document.getElementById('username');
 const hardwareKeySection = document.getElementById('hardware-key-section');
@@ -119,8 +127,9 @@ async function authenticateWithHardwareKey() {
             throw new Error(err.detail || 'Authentication failed');
         }
 
-        // Success - redirect to gallery
-        window.location.href = `${BASE_URL}/`;
+        // Success - redirect to next URL or gallery
+        const redirectUrl = NEXT_URL && NEXT_URL.startsWith('/') ? NEXT_URL : `${BASE_URL}/`;
+        window.location.href = redirectUrl;
 
     } catch (err) {
         console.error('Hardware key auth error:', err);
