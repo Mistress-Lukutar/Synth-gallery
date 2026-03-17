@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-17
+
+### Added
+- **Post-login Redirect** - Return to original URL after authentication
+  - Opening a direct link to photo/folder now redirects back after login
+  - URL-encoded `next` parameter preserves query strings (folder_id, photo_id)
+  - Works with both password and WebAuthn (hardware key) login
+
+### Fixed
+- **Session Cookie Path** - Added `path="/"` to session cookie
+  - Fixes login issues when using base path (e.g., `/synth/`)
+  - Ensures cookie is valid for entire site
+- **Default Folder URL** - URL now updates when opening default folder
+  - Uses `history.replaceState` to show `?folder_id=` in address bar
+  - Photo links now include proper folder context
+
 ## [1.0.0] - 2026-03-08
 
 ### Added
