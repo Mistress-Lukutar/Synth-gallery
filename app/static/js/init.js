@@ -12,12 +12,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load initial folder if provided by server
     // Wait for gallery element to be present (from gallery.html)
+    // Use 'replace' to update URL without adding history entry
     if (window.INITIAL_FOLDER_ID && typeof navigateToFolder === 'function') {
         const gallery = document.getElementById('gallery');
         if (gallery) {
             // If photo_id is in URL, open it after folder loads
             if (photoId) {
-                navigateToFolder(window.INITIAL_FOLDER_ID, false).then(() => {
+                navigateToFolder(window.INITIAL_FOLDER_ID, 'replace').then(() => {
                     // Wait a bit for gallery to render, then open photo
                     setTimeout(() => {
                         if (typeof window.openPhoto === 'function') {
@@ -26,18 +27,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     }, 300);
                 });
             } else {
-                navigateToFolder(window.INITIAL_FOLDER_ID, false);
+                navigateToFolder(window.INITIAL_FOLDER_ID, 'replace');
             }
         } else {
             // Retry after short delay
             setTimeout(() => {
                 if (document.getElementById('gallery')) {
                     if (photoId) {
-                        navigateToFolder(window.INITIAL_FOLDER_ID, false).then(() => {
+                        navigateToFolder(window.INITIAL_FOLDER_ID, 'replace').then(() => {
                             setTimeout(() => window.openPhoto?.(photoId), 300);
                         });
                     } else {
-                        navigateToFolder(window.INITIAL_FOLDER_ID, false);
+                        navigateToFolder(window.INITIAL_FOLDER_ID, 'replace');
                     }
                 }
             }, 100);

@@ -297,7 +297,8 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
             httponly=True,  # Session cookie not accessible via JavaScript
             samesite="lax",
             secure=COOKIE_SECURE,  # True in production (HTTPS only)
-            max_age=SESSION_MAX_AGE
+            max_age=SESSION_MAX_AGE,
+            path="/"
         )
         return response
     finally:

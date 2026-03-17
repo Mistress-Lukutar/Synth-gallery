@@ -1,6 +1,7 @@
 """Application middleware."""
 import hashlib
 import secrets
+from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -35,6 +36,28 @@ def strip_root_path(path: str) -> str:
     if ROOT_PATH and path.startswith(ROOT_PATH):
         return path[len(ROOT_PATH):] or "/"
     return path
+
+
+class BasePathMiddleware(BaseHTTPMiddleware):
+    """Middleware to redirect requests from root to base path.
+    
+    When SYNTH_BASE_URL is set (e.g., 'synth'), redirects requests
+    from '/' to '/synth/' to ensure consistent URLs.
+    """
+    
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        
+        # If base path is set and request is to root, redirect
+        if ROOT_PATH and path == "/":
+            # Preserve query string
+            query = str(request.url.query) if request.url.query else ""
+            redirect_url = f"{ROOT_PATH}/"
+            if query:
+                redirect_url += f"?{query}"
+            return RedirectResponse(url=redirect_url, status_code=307)  # 307 preserves method
+        
+        return await call_next(request)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -98,9 +121,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             finally:
                 conn.close()
 
-        # No valid session - redirect to login
+        # No valid session - redirect to login with next parameter
         if request.method == "GET":
-            return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
+            next_url = request.url.path
+            if request.url.query:
+                next_url += f"?{request.url.query}"
+            # URL-encode next parameter to preserve query string
+            login_url = f"{ROOT_PATH}/login?next={quote(next_url, safe='')}" 
+            return RedirectResponse(url=login_url, status_code=302)
 
         # For API calls, return 401
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
