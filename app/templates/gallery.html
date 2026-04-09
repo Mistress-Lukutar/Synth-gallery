@@ -4,7 +4,30 @@
 <!-- Photo Lightbox Modal -->
 <div id="lightbox" class="lightbox hidden">
     <div class="lightbox-overlay"></div>
-    <button class="lightbox-close" title="Close (Esc)">&times;</button>
+    
+    <!-- Top bar with close button only -->
+    <div class="lightbox-top-bar">
+        <button class="lightbox-close" title="Close (Esc)">&times;</button>
+    </div>
+    
+    <!-- Bottom bar with action buttons (right-aligned) -->
+    <div class="lightbox-bottom-bar">
+        <div class="lightbox-bottom-spacer"></div>
+        <button id="lightbox-edit-album" class="lightbox-bottom-btn hidden" onclick="openAlbumEditor()" title="Edit Album">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <circle cx="8.5" cy="8.5" r="1.5"/>
+                <path d="M21 15l-5-5L5 21"/>
+            </svg>
+        </button>
+        <button id="lightbox-edit-details" class="lightbox-bottom-btn" onclick="openItemDetails()" title="Edit Details">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+        </button>
+    </div>
+    
     <button class="lightbox-nav lightbox-prev" title="Previous (←)">‹</button>
     <button class="lightbox-nav lightbox-next" title="Next (→)">›</button>
 
@@ -16,59 +39,91 @@
         <div class="lightbox-content">
             <div class="lightbox-media" id="lightbox-media"></div>
         </div>
-        <div class="lightbox-info">
-            <div class="lightbox-meta">
-                <div class="lightbox-dates" id="lightbox-dates"></div>
-            </div>
-            <div class="lightbox-edit-buttons">
-                <button id="lightbox-edit-tags" class="lightbox-edit-btn" onclick="openTagEditor()" title="Edit Tags">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
-                        <line x1="7" y1="7" x2="7.01" y2="7" stroke-width="3" stroke-linecap="round"/>
-                    </svg>
-                </button>
-                <button id="lightbox-edit-album" class="lightbox-edit-btn hidden" onclick="openAlbumEditor()" title="Edit Album">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                        <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
-                        <path d="m15 5 4 4"/>
-                    </svg>
-                </button>
-            </div>
-        </div>
     </div>
     
-    <!-- Tag Editor Panel v2 - Hierarchical Tags -->
-    <div id="tag-editor-panel" class="tag-editor-panel">
-        <div class="tag-editor-header">
-            <h3>Edit Tags</h3>
-            <button class="btn-close tag-editor-close" onclick="closeTagEditor()">&times;</button>
+    <!-- Unified Item Details Panel -->
+    <div id="item-details-panel" class="item-details-panel">
+        <div class="item-details-header">
+            <h3>Details</h3>
+            <button class="btn-close item-details-close" onclick="closeItemDetails()">&times;</button>
         </div>
-        <div class="tag-editor-body">
-            <!-- Current tags grouped by category -->
-            <div class="current-tags-section">
-                <label>Selected Tags:</label>
-                <div id="current-tags-container" class="selected-tags-container">
-                    <span class="no-tags-hint">No tags selected</span>
+        
+        <div class="item-details-body">
+            <!-- METADATA SECTION -->
+            <div class="metadata-section">
+                <div class="metadata-editable">
+                    <div class="field-group">
+                        <label for="item-title">Title</label>
+                        <input type="text" id="item-title" data-field="title" placeholder="Add a title...">
+                    </div>
+                    
+                    <div class="field-group">
+                        <label for="item-description">Description</label>
+                        <textarea id="item-description" data-field="description" placeholder="Add a description..." rows="3"></textarea>
+                    </div>
+                </div>
+                
+                <!-- Collapsible Details Section -->
+                <div class="metadata-details collapsible">
+                    <button class="collapsible-toggle" onclick="toggleDetailsSection()">
+                        <span class="toggle-icon">▼</span>
+                        <span>Details</span>
+                    </button>
+                    <div class="collapsible-content" id="details-content">
+                        <div class="detail-row">
+                            <span class="detail-label">Filename</span>
+                            <span class="detail-value" id="detail-filename">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Type</span>
+                            <span class="detail-value" id="detail-type">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Size</span>
+                            <span class="detail-value" id="detail-size">-</span>
+                        </div>
+                        <div class="detail-row" id="detail-dimensions-row">
+                            <span class="detail-label">Dimensions</span>
+                            <span class="detail-value" id="detail-dimensions">-</span>
+                        </div>
+                        <div class="detail-row hidden" id="detail-duration-row">
+                            <span class="detail-label">Duration</span>
+                            <span class="detail-value" id="detail-duration">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Uploaded</span>
+                            <span class="detail-value" id="detail-uploaded">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Modified</span>
+                            <span class="detail-value" id="detail-modified">-</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Date Taken</span>
+                            <span class="detail-value" id="detail-taken-at">-</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             
-            <!-- Search with autocomplete -->
-            <div class="tag-search-container">
-                <input type="text" 
-                       id="tag-search" 
-                       placeholder="Search tags (e.g., fox, night)..." 
-                       autocomplete="off" 
-                       aria-label="Search tags">
+            <div class="details-divider"></div>
+            
+            <!-- TAGS SECTION (keep existing tag structure) -->
+            <div class="tags-section-panel">
+                <div class="current-tags-section">
+                    <label>Tags:</label>
+                    <div id="current-tags-container" class="selected-tags-container">
+                        <span class="no-tags-hint">No tags selected</span>
+                    </div>
+                </div>
+                
+                <div class="tag-search-container">
+                    <input type="text" id="tag-search" placeholder="Search tags..." autocomplete="off">
+                </div>
+                
+                <div id="category-tabs" class="category-tabs"></div>
+                <div id="tag-tree-container" class="tag-tree-container"></div>
             </div>
-            
-            <!-- Category tabs -->
-            <div id="category-tabs" class="category-tabs"></div>
-            
-            <!-- Tag tree / search results -->
-            <div id="tag-tree-container" class="tag-tree-container"></div>
-        </div>
-        <div class="tag-editor-footer">
-            <button class="btn btn-secondary" onclick="closeTagEditor()">Close</button>
         </div>
     </div>
     

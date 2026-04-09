@@ -117,6 +117,23 @@ class ItemMediaRepository(Repository):
         self._commit()
         return cursor.rowcount > 0
     
+    def update_taken_at(self, item_id: str, taken_at: datetime) -> bool:
+        """Update the taken_at field for a media item.
+        
+        Args:
+            item_id: Item ID
+            taken_at: New capture date/timestamp
+            
+        Returns:
+            True if updated
+        """
+        cursor = self._execute(
+            "UPDATE item_media SET taken_at = ? WHERE item_id = ?",
+            (taken_at, item_id)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
     def get_full_item(self, item_id: str) -> Optional[Dict]:
         """Get combined item + media data.
         

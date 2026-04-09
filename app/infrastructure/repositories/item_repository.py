@@ -169,7 +169,7 @@ class ItemRepository(Repository):
             item_id: Item ID
             **kwargs: Fields to update (title, metadata, folder_id, etc.)
         """
-        allowed_fields = {'title', 'metadata', 'folder_id', 'safe_id'}
+        allowed_fields = {'title', 'metadata', 'folder_id', 'safe_id', 'description'}
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
         if not updates:
@@ -252,6 +252,42 @@ class ItemRepository(Repository):
         cursor = self._execute(
             "UPDATE items SET is_encrypted = 1 WHERE id = ?",
             (item_id,)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def update_metadata(self, item_id: str, title: str = None, description: str = None) -> bool:
+        """Update item metadata and set updated_at timestamp.
+        
+        Args:
+            item_id: Item ID
+            title: New title (optional)
+            description: New description (optional)
+            
+        Returns:
+            True if updated
+        """
+        updates = []
+        values = []
+        
+        if title is not None:
+            updates.append("title = ?")
+            values.append(title)
+        if description is not None:
+            updates.append("description = ?")
+            values.append(description)
+        
+        if not updates:
+            return False
+        
+        # Always update the updated_at timestamp
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(item_id)
+        
+        set_clause = ", ".join(updates)
+        cursor = self._execute(
+            f"UPDATE items SET {set_clause} WHERE id = ?",
+            tuple(values)
         )
         self._commit()
         return cursor.rowcount > 0

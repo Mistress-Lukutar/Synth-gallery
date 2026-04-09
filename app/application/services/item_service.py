@@ -640,3 +640,84 @@ class ItemService:
                 return 'video'
         
         return 'unknown'
+    
+    # ========================================================================
+    # Metadata Operations
+    # ========================================================================
+    
+    def get_item_metadata(self, item_id: str) -> Optional[Dict]:
+        """Get combined metadata from items and item_media tables.
+        
+        Args:
+            item_id: Item ID
+            
+        Returns:
+            Combined metadata dict or None if not found
+        """
+        cursor = self.item_repo._execute(
+            """SELECT 
+                i.id, i.type, i.title, i.description, i.user_id,
+                i.uploaded_at, i.updated_at,
+                im.media_type, im.original_name, im.content_type,
+                im.width, im.height, im.duration, im.taken_at
+               FROM items i
+               LEFT JOIN item_media im ON i.id = im.item_id
+               WHERE i.id = ?""",
+            (item_id,)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        result = dict(row)
+        
+        # Add file_size as null (not stored in DB yet)
+        result['file_size'] = None
+        
+        return result
+    
+    def update_metadata(
+        self,
+        item_id: str,
+        user_id: int,
+        title: str = None,
+        description: str = None,
+        taken_at: datetime = None
+    ) -> Dict:
+        """Update item metadata.
+        
+        Args:
+            item_id: Item ID
+            user_id: User performing the update (for ownership check)
+            title: New title (optional)
+            description: New description (optional)
+            taken_at: New capture date (optional)
+            
+        Returns:
+            Dict with update status
+            
+        Raises:
+            HTTPException: 404 if item not found, 403 if not owner
+        """
+        # Check item exists and get ownership info
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
+            raise HTTPException(404, "Item not found")
+        
+        # Validate ownership
+        if item.get('user_id') != user_id:
+            raise HTTPException(403, "Not owner")
+        
+        updated = False
+        
+        # Update items table fields
+        if title is not None or description is not None:
+            if self.item_repo.update_metadata(item_id, title, description):
+                updated = True
+        
+        # Update item_media table fields
+        if taken_at is not None:
+            if self.media_repo.update_taken_at(item_id, taken_at):
+                updated = True
+        
+        return {"status": "ok" if updated else "no_changes", "updated": updated}

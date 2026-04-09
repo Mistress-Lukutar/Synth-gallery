@@ -103,6 +103,93 @@ def get_item(item_id: str, request: Request):
         db.close()
 
 
+@router.get("/api/items/{item_id}/metadata")
+def get_item_metadata(item_id: str, request: Request):
+    """Get item metadata for details panel.
+    
+    Returns combined data from items and item_media tables.
+    """
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        
+        # Get metadata
+        metadata = item_service.get_item_metadata(item_id)
+        if not metadata:
+            raise HTTPException(404, "Item not found")
+        
+        # Check access via folder
+        perm_service = get_permission_service(db)
+        folder_id = metadata.get("folder_id")
+        if folder_id and not perm_service.can_access(folder_id, user["id"]):
+            raise HTTPException(403, "Access denied")
+        
+        # Format response
+        return {
+            "id": metadata["id"],
+            "title": metadata.get("title"),
+            "description": metadata.get("description"),
+            "type": metadata.get("type"),
+            "media_type": metadata.get("media_type"),
+            "original_name": metadata.get("original_name"),
+            "content_type": metadata.get("content_type"),
+            "uploaded_at": metadata.get("uploaded_at"),
+            "updated_at": metadata.get("updated_at"),
+            "file_size": metadata.get("file_size"),
+            "width": metadata.get("width"),
+            "height": metadata.get("height"),
+            "duration": metadata.get("duration"),
+            "taken_at": metadata.get("taken_at")
+        }
+    finally:
+        db.close()
+
+
+class MetadataUpdateInput(BaseModel):
+    """Input for metadata update."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    taken_at: Optional[str] = None  # ISO format datetime string
+
+
+@router.put("/api/items/{item_id}/metadata")
+def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Request):
+    """Update item metadata.
+    
+    All fields are optional. Only provided fields will be updated.
+    Validates that user owns the item.
+    """
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        
+        # Parse taken_at if provided
+        taken_at = None
+        if data.taken_at:
+            from datetime import datetime
+            try:
+                taken_at = datetime.fromisoformat(data.taken_at.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(400, "Invalid taken_at format. Use ISO 8601 format.")
+        
+        # Update metadata (will raise 404 or 403 if applicable)
+        result = item_service.update_metadata(
+            item_id=item_id,
+            user_id=user["id"],
+            title=data.title,
+            description=data.description,
+            taken_at=taken_at
+        )
+        
+        return result
+    finally:
+        db.close()
+
+
 class ItemMoveInput(BaseModel):
     folder_id: str
 

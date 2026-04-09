@@ -1,16 +1,17 @@
 /**
- * Gallery Tags v2 - Hierarchical Tag System
+ * Gallery Tags v2 - Hierarchical Tag System with Metadata Editing
  * 
  * Features:
  * - Tree view for browsing tags
  * - Autocomplete with usage count
  * - Negative search support
  * - Automatic ancestor inclusion
+ * - Item metadata editing (title, description, taken_at)
  */
 
 (function() {
     // DOM Elements
-    let tagEditorPanel = null;
+    let itemDetailsPanel = null;
     let tagSearch = null;
     let tagTreeContainer = null;
     let currentTagsContainer = null;
@@ -25,10 +26,14 @@
     let currentTags = [];
     let searchResults = [];
     let recentTags = [];
+    
+    // Metadata state
+    let currentItemMetadata = null;
+    let hasMetadataChanges = false;
 
     function init() {
-        tagEditorPanel = document.getElementById('tag-editor-panel');
-        if (!tagEditorPanel) return;
+        itemDetailsPanel = document.getElementById('item-details-panel');
+        if (!itemDetailsPanel) return;
 
         lightbox = document.getElementById('lightbox');
         tagSearch = document.getElementById('tag-search');
@@ -69,15 +74,103 @@
         }
 
         // Close on backdrop click
-        tagEditorPanel?.addEventListener('click', (e) => {
-            if (e.target === tagEditorPanel) {
-                closeTagEditor();
+        itemDetailsPanel?.addEventListener('click', (e) => {
+            if (e.target === itemDetailsPanel) {
+                closeItemDetails();
             }
         });
     }
 
     // ========================================================================
-    // API Calls
+    // Metadata API Functions
+    // ========================================================================
+
+    async function loadMetadata(itemId) {
+        const resp = await fetch(`${getBaseUrl()}/api/items/${itemId}/metadata`);
+        if (!resp.ok) throw new Error('Failed to load metadata');
+        return await resp.json();
+    }
+
+    async function saveMetadata(itemId, metadata) {
+        return await csrfFetch(`${getBaseUrl()}/api/items/${itemId}/metadata`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(metadata)
+        });
+    }
+
+    function renderMetadata(metadata) {
+        currentItemMetadata = metadata;
+        
+        // Editable fields
+        document.getElementById('item-title').value = metadata.title || '';
+        document.getElementById('item-description').value = metadata.description || '';
+        
+        // Read-only details (includes Date Taken)
+        document.getElementById('detail-filename').textContent = metadata.original_name || '-';
+        document.getElementById('detail-type').textContent = metadata.content_type || '-';
+        document.getElementById('detail-size').textContent = formatFileSize(metadata.file_size);
+        document.getElementById('detail-dimensions').textContent = 
+            metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : '-';
+        document.getElementById('detail-duration').textContent = 
+            metadata.duration ? formatDuration(metadata.duration) : '-';
+        document.getElementById('detail-uploaded').textContent = formatDate(metadata.uploaded_at);
+        document.getElementById('detail-modified').textContent = formatDate(metadata.updated_at);
+        document.getElementById('detail-taken-at').textContent = formatDate(metadata.taken_at) || '-';
+        
+        // Show/hide media-specific rows
+        document.getElementById('detail-dimensions-row').classList.toggle('hidden', !metadata.width);
+        document.getElementById('detail-duration-row').classList.toggle('hidden', !metadata.duration);
+    }
+    
+    function formatDateTime(dateStr) {
+        if (!dateStr) return null;
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        return date.toLocaleString();
+    }
+
+    // Helper functions
+    function formatFileSize(bytes) {
+        if (!bytes) return '-';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
+    }
+
+    function formatDuration(seconds) {
+        if (!seconds) return '-';
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        return new Date(dateStr).toLocaleDateString();
+    }
+
+    function formatForDateTimeLocal(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+    }
+
+    // Collapsible toggle
+    window.toggleDetailsSection = function() {
+        const content = document.getElementById('details-content');
+        const icon = document.querySelector('.collapsible-toggle .toggle-icon');
+        content.classList.toggle('collapsed');
+        icon.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+    };
+
+    // ========================================================================
+    // Tag API Calls
     // ========================================================================
 
     async function loadCategories() {
@@ -184,14 +277,6 @@
             }
         } catch (e) {
             console.error('Failed to remove tag:', e);
-        }
-    }
-
-    async function saveChanges() {
-        closeTagEditor();
-        // Refresh gallery to show tag changes
-        if (window.refreshGallery) {
-            window.refreshGallery();
         }
     }
 
@@ -387,19 +472,31 @@
     // Public API
     // ========================================================================
 
-    window.openTagEditor = async function(itemId) {
+    window.openItemDetails = async function(itemId) {
         editingItemId = itemId || window.currentLightboxPhotoId;
         if (!editingItemId) {
             console.error('[gallery-tags] No item ID');
             return;
         }
         
-        // Load current tags
+        // Load metadata
+        try {
+            const metadata = await loadMetadata(editingItemId);
+            renderMetadata(metadata);
+            // Store original values for dirty check (normalize null to empty string)
+            originalValues = {
+                title: metadata.title ?? '',
+                description: metadata.description ?? ''
+            };
+        } catch (e) {
+            console.error('Failed to load metadata:', e);
+        }
+        
+        // Load tags (existing code)
         try {
             const resp = await fetch(`${getBaseUrl()}/api/items/${editingItemId}/tags`);
             if (resp.ok) {
                 const data = await resp.json();
-                // Combine explicit + inherited for display
                 currentTags = data.all_tags || [];
                 renderCurrentTags();
             }
@@ -407,39 +504,144 @@
             console.error('Failed to load tags:', e);
         }
         
-        // Show panel
-        tagEditorPanel?.classList.add('open');
+        // Show panel (update to use new panel ID)
+        itemDetailsPanel?.classList.add('open');
         lightbox?.classList.add('panel-open');
         
         // Reset state
         currentCategory = null;
         currentTreeParent = null;
         if (tagSearch) tagSearch.value = '';
-        
-        // Load initial tree
         showTreeView();
         
-        // Register back button handler
+        // Setup auto-save listeners
+        setupAutoSaveListeners();
+        
+        // Register back button
         if (window.BackButtonManager) {
-            window.BackButtonManager.register('tag-editor', window.closeTagEditor);
+            window.BackButtonManager.register('item-details', window.closeItemDetails);
         }
     };
 
-    window.closeTagEditor = function() {
-        if (window.BackButtonManager) {
-            window.BackButtonManager.unregister('tag-editor', true);
+    // Auto-save with debounce and dirty check
+    let saveTimeout = null;
+    let originalValues = {};
+    const SAVE_DELAY = 800; // ms
+    
+    function hasChanges() {
+        // Get current values (treat null/undefined as empty string for comparison)
+        const currentTitle = document.getElementById('item-title')?.value ?? '';
+        const currentDesc = document.getElementById('item-description')?.value ?? '';
+        
+        // Get original values (stored as empty string if originally null/undefined)
+        const origTitle = originalValues.title ?? '';
+        const origDesc = originalValues.description ?? '';
+        
+        return currentTitle !== origTitle || currentDesc !== origDesc;
+    }
+    
+    function queueAutoSave() {
+        if (!editingItemId) return;
+        if (!hasChanges()) return; // Don't save if nothing changed
+        
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+            autoSave();
+        }, SAVE_DELAY);
+    }
+    
+    async function autoSave() {
+        if (!editingItemId) return;
+        if (!hasChanges()) return; // Skip if nothing changed
+        
+        // Get values
+        const titleValue = document.getElementById('item-title')?.value ?? '';
+        const descValue = document.getElementById('item-description')?.value ?? '';
+        
+        // Send empty string as empty string (not null), so backend can clear the field
+        const metadata = {
+            title: titleValue.trim() || null,  // Title can be null if empty
+            description: descValue  // Description can be empty string to clear it
+        };
+        
+        try {
+            const resp = await saveMetadata(editingItemId, metadata);
+            if (resp.ok) {
+                // Update cached metadata
+                const data = await resp.json();
+                if (data.item) {
+                    currentItemMetadata = { ...currentItemMetadata, ...data.item };
+                }
+                // Refresh lightbox
+                if (window.reloadCurrentPhoto) {
+                    window.reloadCurrentPhoto();
+                }
+                // Update original values after successful save (store as empty string if null)
+                originalValues = {
+                    title: metadata.title ?? '',
+                    description: metadata.description ?? ''
+                };
+            }
+        } catch (e) {
+            console.error('Auto-save failed:', e);
+        }
+    }
+    
+    // Setup auto-save listeners
+    function setupAutoSaveListeners() {
+        const titleInput = document.getElementById('item-title');
+        const descInput = document.getElementById('item-description');
+        
+        if (titleInput) {
+            titleInput.addEventListener('input', queueAutoSave);
+            titleInput.addEventListener('blur', () => {
+                clearTimeout(saveTimeout);
+                autoSave();
+            });
         }
         
-        tagEditorPanel?.classList.remove('open');
+        if (descInput) {
+            descInput.addEventListener('input', queueAutoSave);
+            descInput.addEventListener('blur', () => {
+                clearTimeout(saveTimeout);
+                autoSave();
+            });
+        }
+    }
+    
+    window.closeItemDetails = async function() {
+        // Save any pending changes before closing (only if changed)
+        clearTimeout(saveTimeout);
+        if (hasChanges()) {
+            await autoSave();
+        }
+        
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('item-details', true);
+        }
+        
+        itemDetailsPanel?.classList.remove('open');
         lightbox?.classList.remove('panel-open');
         editingItemId = null;
         currentTags = [];
+        currentItemMetadata = null;
         searchResults = [];
+        originalValues = {}; // Reset dirty check
     };
+    
+    // Backward compatibility
+    window.saveItemDetails = async function() {
+        clearTimeout(saveTimeout);
+        await autoSave();
+    };
+
+    // Keep old function names as aliases for compatibility
+    window.openTagEditor = window.openItemDetails;
+    window.closeTagEditor = window.closeItemDetails;
 
     window.addTag = addTag;
     window.removeTag = removeTag;
-    window.saveTagChanges = saveChanges;
+    window.saveTagChanges = window.closeItemDetails;
     
     window.tagTreeDrillDown = function(tagId) {
         currentTreeParent = tagId;
