@@ -157,6 +157,12 @@
     // Alias for lightbox compatibility
     window.openAlbumEditor = async function(albumId) {
         
+        // Close details panel if open
+        const detailsPanel = document.getElementById('item-details-panel');
+        if (detailsPanel?.classList.contains('open')) {
+            window.closeItemDetails?.();
+        }
+        
         // Always try to get fresh reference to panel
         const panel = document.getElementById('album-editor-panel');
         if (!panel) {
@@ -170,6 +176,11 @@
         editingAlbumId = albumId;
         selectedPhotosForAlbum.clear();
         albumWasModified = false;  // Reset modification flag on open
+        
+        // Track this album as currently being edited
+        if (window.setCurrentAlbumEditor) {
+            window.setCurrentAlbumEditor(albumId);
+        }
         
         try {
             const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
@@ -200,6 +211,11 @@
     };
 
     window.closeAlbumEditor = function(skipRefresh = false) {
+        // Clear current album editor tracking
+        if (window.clearCurrentAlbumEditor) {
+            window.clearCurrentAlbumEditor();
+        }
+        
         // Check if lightbox is open
         const lightbox = document.getElementById('lightbox');
         const isLightboxOpen = lightbox && !lightbox.classList.contains('hidden');
@@ -558,6 +574,22 @@
         } catch (err) {
             console.error('Failed to set album cover:', err);
             return false;
+        }
+    };
+
+    // Update album editor when navigating within the same album
+    window.updateAlbumEditor = function(currentPhotoId) {
+        if (!editingAlbumId) return;
+        
+        // Highlight current photo in the grid
+        const container = document.getElementById('album-photos-list');
+        if (container) {
+            container.querySelectorAll('.photo-grid-item').forEach(item => {
+                item.classList.remove('current-item');
+                if (item.dataset.itemId === currentPhotoId) {
+                    item.classList.add('current-item');
+                }
+            });
         }
     };
 

@@ -99,11 +99,28 @@
         }
     }
 
-    function isPanelOpen() {
-        // Check if any side panel is open (details or album editor)
-        return lightbox?.classList.contains('panel-open') || 
-               document.getElementById('item-details-panel')?.classList.contains('open') ||
-               document.getElementById('album-editor-panel')?.classList.contains('open');
+    function isEditingText() {
+        // Check if user is typing in an input field
+        const activeEl = document.activeElement;
+        if (!activeEl) return false;
+        
+        // Check for input/textarea
+        if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') {
+            return true;
+        }
+        
+        // Check for CodeMirror (EasyMDE editor)
+        if (activeEl.classList.contains('CodeMirror') || 
+            activeEl.closest('.CodeMirror')) {
+            return true;
+        }
+        
+        // Check for contenteditable
+        if (activeEl.isContentEditable) {
+            return true;
+        }
+        
+        return false;
     }
 
     function setupEventListeners() {
@@ -111,8 +128,8 @@
         document.addEventListener('keydown', (e) => {
             if (lightbox.classList.contains('hidden')) return;
             
-            // Block navigation when panel is open
-            if (isPanelOpen()) return;
+            // Don't navigate if user is typing
+            if (isEditingText()) return;
             
             if (e.key === 'ArrowLeft') {
                 window.navigateLightbox(-1);
@@ -124,24 +141,14 @@
         // Close on overlay click
         const overlay = lightbox.querySelector('.lightbox-overlay');
         if (overlay) {
-            overlay.addEventListener('click', (e) => {
-                // Don't close if panel is open (click outside panel should close panel first)
-                if (isPanelOpen()) return;
-                window.closeLightbox();
-            });
+            overlay.addEventListener('click', window.closeLightbox);
         }
 
         // Prev/Next buttons
         const prevBtn = lightbox.querySelector('.lightbox-prev');
         const nextBtn = lightbox.querySelector('.lightbox-next');
-        if (prevBtn) prevBtn.addEventListener('click', () => {
-            if (isPanelOpen()) return;
-            window.navigateLightbox(-1);
-        });
-        if (nextBtn) nextBtn.addEventListener('click', () => {
-            if (isPanelOpen()) return;
-            window.navigateLightbox(1);
-        });
+        if (prevBtn) prevBtn.addEventListener('click', () => window.navigateLightbox(-1));
+        if (nextBtn) nextBtn.addEventListener('click', () => window.navigateLightbox(1));
 
         // Close button
         const closeBtn = lightbox.querySelector('.lightbox-close');
@@ -167,11 +174,6 @@
     
     function handleTouchStart(e) {
         if (lightbox.classList.contains('hidden')) return;
-        // Block navigation when panel is open
-        if (isPanelOpen()) {
-            isSwiping = false;
-            return;
-        }
         // Ignore multi-touch gestures (pinch-to-zoom)
         if (e.touches.length > 1) {
             isSwiping = false;
@@ -184,21 +186,12 @@
     
     function handleTouchMove(e) {
         if (!isSwiping || lightbox.classList.contains('hidden')) return;
-        // Block navigation when panel is open
-        if (isPanelOpen()) {
-            isSwiping = false;
-            return;
-        }
         // Could add visual feedback here in the future
     }
     
     function handleTouchEnd(e) {
         if (!isSwiping || lightbox.classList.contains('hidden')) return;
-        // Block navigation when panel is open
-        if (isPanelOpen()) {
-            isSwiping = false;
-            return;
-        }
+        
         // Ignore if gesture ended with multiple touches (pinch-to-zoom)
         if (e.changedTouches.length > 1) {
             isSwiping = false;
@@ -235,6 +228,9 @@
         }
     }
 
+    // Track currently open album editor
+    let currentAlbumEditorId = null;
+    
     // Set album context for navigation
     window.setAlbumContext = function(photos, startIndex = 0) {
         albumContext = {
@@ -247,6 +243,46 @@
     window.clearAlbumContext = function() {
         albumContext = null;
     };
+    
+    // Set current album editor ID
+    window.setCurrentAlbumEditor = function(albumId) {
+        currentAlbumEditorId = albumId;
+    };
+    
+    // Clear current album editor
+    window.clearCurrentAlbumEditor = function() {
+        currentAlbumEditorId = null;
+    };
+    
+    // Update panels when navigating between items
+    function updatePanelsOnNavigation(newPhotoId, photoData) {
+        // Update Details panel if open
+        const detailsPanel = document.getElementById('item-details-panel');
+        if (detailsPanel?.classList.contains('open')) {
+            // Reload metadata for new item
+            if (window.loadItemDetails) {
+                window.loadItemDetails(newPhotoId);
+            }
+        }
+        
+        // Check Album Editor
+        const albumEditorPanel = document.getElementById('album-editor-panel');
+        if (albumEditorPanel?.classList.contains('open') && currentAlbumEditorId) {
+            // Check if new item is in the current album
+            const isInAlbum = albumContext && albumContext.photos.some(p => p.id === newPhotoId);
+            
+            if (!isInAlbum) {
+                // Navigated outside the album - close editor
+                window.closeAlbumEditor?.();
+                currentAlbumEditorId = null;
+            } else {
+                // Still in album - update editor if needed
+                if (window.updateAlbumEditor) {
+                    window.updateAlbumEditor(newPhotoId);
+                }
+            }
+        }
+    }
 
     // Expose rebuild function for external use (e.g., when opening album)
     window.rebuildLightboxNavOrder = function() {
@@ -873,6 +909,9 @@
             if (editDetailsBtn) {
                 editDetailsBtn.onclick = () => window.openItemDetails?.(photoId);
             }
+            
+            // Update panels if open
+            updatePanelsOnNavigation(photoId, photo);
 
         } catch (err) {
             if (err.name === 'AbortError') {
