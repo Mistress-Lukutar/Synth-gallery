@@ -109,7 +109,7 @@
         initDescriptionEditor(metadata.description || '');
         currentDescriptionMode = 'preview';
         
-        // Apply preview mode UI without toggling
+        // Apply preview mode by default (Edit button to enter edit mode)
         const wrapper = document.querySelector('.description-editor-wrapper');
         const toggleText = document.getElementById('desc-toggle-text');
         const previewEl = document.getElementById('item-description-preview');
@@ -177,9 +177,9 @@
             forceSync: true
         });
         
-        // Hook into change event for auto-save
-        descriptionEditor.codemirror.on('change', () => {
-            queueAutoSave();
+        // Hook into blur event for save (not change)
+        descriptionEditor.codemirror.on('blur', () => {
+            if (hasChanges()) autoSave();
         });
         
         // Initial render of preview
@@ -256,8 +256,14 @@
     }
     
     // Toggle between edit and preview mode
-    window.toggleDescriptionMode = function() {
+    window.toggleDescriptionMode = async function() {
         const newMode = currentDescriptionMode === 'edit' ? 'preview' : 'edit';
+        
+        // Save when switching from edit to preview
+        if (currentDescriptionMode === 'edit' && newMode === 'preview') {
+            if (hasChanges()) await autoSave();
+        }
+        
         currentDescriptionMode = newMode;
         
         const wrapper = document.querySelector('.description-editor-wrapper');
@@ -268,7 +274,7 @@
         if (newMode === 'edit') {
             wrapper?.classList.remove('preview-mode');
             wrapper?.classList.add('edit-mode');
-            toggleText.textContent = 'Preview';
+            toggleText.textContent = 'Save';
             previewEl?.classList.add('hidden');
             descriptionEditor?.codemirror.refresh();
         } else {
@@ -637,11 +643,54 @@
     // Public API
     // ========================================================================
 
+    // Load and display item details (used when panel is already open)
+    window.loadItemDetails = async function(itemId) {
+        if (!itemId) return;
+        editingItemId = itemId;
+        
+        // Save any pending changes for previous item
+        clearTimeout(saveTimeout);
+        if (hasChanges()) {
+            await autoSave();
+        }
+        
+        // Load new metadata
+        try {
+            const metadata = await loadMetadata(itemId);
+            renderMetadata(metadata);
+            // Store original values for dirty check
+            originalValues = {
+                title: metadata.title ?? '',
+                description: metadata.description ?? ''
+            };
+        } catch (e) {
+            console.error('Failed to load metadata:', e);
+        }
+        
+        // Load tags for new item
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/items/${itemId}/tags`);
+            if (resp.ok) {
+                const data = await resp.json();
+                currentTags = data.all_tags || [];
+                renderCurrentTags();
+            }
+        } catch (e) {
+            console.error('Failed to load tags:', e);
+        }
+    };
+    
     window.openItemDetails = async function(itemId) {
         editingItemId = itemId || window.currentLightboxPhotoId;
         if (!editingItemId) {
             console.error('[gallery-tags] No item ID');
             return;
+        }
+        
+        // Close album editor if open
+        const albumEditorPanel = document.getElementById('album-editor-panel');
+        if (albumEditorPanel?.classList.contains('open')) {
+            window.closeAlbumEditor?.();
         }
         
         // Load metadata
@@ -756,19 +805,15 @@
         }
     }
     
-    // Setup auto-save listeners
+    // Setup save on blur (no auto-save on input)
     function setupAutoSaveListeners() {
         const titleInput = document.getElementById('item-title');
         
         if (titleInput) {
-            titleInput.addEventListener('input', queueAutoSave);
             titleInput.addEventListener('blur', () => {
-                clearTimeout(saveTimeout);
-                autoSave();
+                if (hasChanges()) autoSave();
             });
         }
-        
-        // Description editor handles its own change events in initDescriptionEditor
     }
     
     window.closeItemDetails = async function() {

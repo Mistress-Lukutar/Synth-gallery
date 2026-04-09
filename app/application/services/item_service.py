@@ -701,9 +701,15 @@ class ItemService:
         if not item:
             raise HTTPException(404, "Item not found")
         
-        # Validate ownership
-        if item.get('user_id') != user_id:
-            raise HTTPException(403, "Not owner")
+        # Validate ownership or editor permission
+        from ...infrastructure.repositories import PermissionRepository
+        perm_repo = PermissionRepository(self.item_repo._conn)
+        
+        is_owner = item.get('user_id') == user_id
+        can_edit = perm_repo.can_edit(item.get('folder_id'), user_id)
+        
+        if not is_owner and not can_edit:
+            raise HTTPException(403, "Not owner or editor")
         
         updated = False
         

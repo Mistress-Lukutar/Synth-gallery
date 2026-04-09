@@ -5200,3 +5200,8 @@ main {
 }
 
 /* Syntax highlighting in markdown preview - uses highlight.js theme */
+
+/* Highlight current item in album editor */
+.photo-grid-item.current-item {
+    box-shadow: 0 0 0 3px var(--accent, #3b82f6);
+}
