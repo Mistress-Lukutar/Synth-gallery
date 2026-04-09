@@ -104,7 +104,21 @@
         
         // Editable fields
         document.getElementById('item-title').value = metadata.title || '';
-        document.getElementById('item-description').value = metadata.description || '';
+        
+        // Initialize Markdown editor (but keep it hidden initially)
+        initDescriptionEditor(metadata.description || '');
+        currentDescriptionMode = 'preview';
+        
+        // Apply preview mode UI without toggling
+        const wrapper = document.querySelector('.description-editor-wrapper');
+        const toggleText = document.getElementById('desc-toggle-text');
+        const previewEl = document.getElementById('item-description-preview');
+        
+        wrapper?.classList.add('preview-mode');
+        wrapper?.classList.remove('edit-mode');
+        if (toggleText) toggleText.textContent = 'Edit';
+        updateDescriptionPreview();
+        previewEl?.classList.remove('hidden');
         
         // Read-only details (includes Date Taken)
         document.getElementById('detail-filename').textContent = metadata.original_name || '-';
@@ -122,6 +136,157 @@
         document.getElementById('detail-dimensions-row').classList.toggle('hidden', !metadata.width);
         document.getElementById('detail-duration-row').classList.toggle('hidden', !metadata.duration);
     }
+    
+    // Initialize EasyMDE editor
+    function initDescriptionEditor(initialValue) {
+        const textarea = document.getElementById('item-description');
+        if (!textarea) return;
+        
+        // Destroy existing instance if any
+        if (descriptionEditor) {
+            descriptionEditor.toTextArea();
+            descriptionEditor = null;
+        }
+        
+        // Set initial value
+        textarea.value = initialValue || '';
+        
+        // Create EasyMDE instance with auto-expanding
+        descriptionEditor = new EasyMDE({
+            element: textarea,
+            autofocus: false,
+            spellChecker: false,
+            autoDownloadFontAwesome: false,
+            toolbar: [
+                'bold', 'italic', 'heading', '|',
+                'code', 'quote', 'unordered-list', 'ordered-list', '|',
+                'link', 'image', '|',
+                'preview', 'side-by-side', 'fullscreen', '|',
+                'guide'
+            ],
+            status: ['lines', 'words'],
+            minHeight: '80px',
+            maxHeight: '400px',
+            placeholder: 'Add a description... (Markdown supported)',
+            initialValue: initialValue || '',
+            shortcuts: {
+                'togglePreview': null,
+                'toggleSideBySide': null,
+                'toggleFullscreen': null
+            },
+            forceSync: true
+        });
+        
+        // Hook into change event for auto-save
+        descriptionEditor.codemirror.on('change', () => {
+            queueAutoSave();
+        });
+        
+        // Initial render of preview
+        updateDescriptionPreview();
+    }
+    
+    // Update preview content
+    function updateDescriptionPreview() {
+        const previewEl = document.getElementById('item-description-preview');
+        const value = descriptionEditor ? descriptionEditor.value() : (document.getElementById('item-description')?.value || '');
+        
+        if (previewEl && typeof marked !== 'undefined') {
+            // Parse markdown
+            previewEl.innerHTML = marked.parse(value, { breaks: true });
+            
+            // Apply syntax highlighting to code blocks
+            if (typeof hljs !== 'undefined') {
+                previewEl.querySelectorAll('pre code').forEach((block) => {
+                    hljs.highlightElement(block);
+                });
+            }
+            
+            // Render LaTeX math
+            if (typeof renderMathInElement !== 'undefined') {
+                renderMathInElement(previewEl, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            }
+            
+            addCopyButtonsToCodeBlocks(previewEl);
+        }
+    }
+    
+    // Add copy buttons to code blocks
+    function addCopyButtonsToCodeBlocks(container) {
+        const codeBlocks = container.querySelectorAll('pre code');
+        codeBlocks.forEach((codeBlock, index) => {
+            const pre = codeBlock.parentElement;
+            if (pre.querySelector('.code-copy-btn')) return; // Already has button
+            
+            const wrapper = document.createElement('div');
+            wrapper.className = 'code-block-wrapper';
+            wrapper.style.position = 'relative';
+            
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'code-copy-btn';
+            copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            copyBtn.title = 'Copy code';
+            copyBtn.onclick = () => copyCodeToClipboard(codeBlock, copyBtn);
+            
+            pre.style.position = 'relative';
+            pre.appendChild(copyBtn);
+        });
+    }
+    
+    // Copy code to clipboard
+    async function copyCodeToClipboard(codeBlock, button) {
+        const code = codeBlock.textContent;
+        try {
+            await navigator.clipboard.writeText(code);
+            button.classList.add('copied');
+            button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => {
+                button.classList.remove('copied');
+                button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    }
+    
+    // Toggle between edit and preview mode
+    window.toggleDescriptionMode = function() {
+        const newMode = currentDescriptionMode === 'edit' ? 'preview' : 'edit';
+        currentDescriptionMode = newMode;
+        
+        const wrapper = document.querySelector('.description-editor-wrapper');
+        const toggleBtn = document.getElementById('desc-toggle-btn');
+        const toggleText = document.getElementById('desc-toggle-text');
+        const previewEl = document.getElementById('item-description-preview');
+        
+        if (newMode === 'edit') {
+            wrapper?.classList.remove('preview-mode');
+            wrapper?.classList.add('edit-mode');
+            toggleText.textContent = 'Preview';
+            previewEl?.classList.add('hidden');
+            descriptionEditor?.codemirror.refresh();
+        } else {
+            wrapper?.classList.add('preview-mode');
+            wrapper?.classList.remove('edit-mode');
+            toggleText.textContent = 'Edit';
+            updateDescriptionPreview();
+            previewEl?.classList.remove('hidden');
+        }
+    };
+    
+    // Legacy function for compatibility
+    window.setDescriptionMode = function(mode) {
+        if ((mode === 'preview' && currentDescriptionMode === 'edit') ||
+            (mode === 'edit' && currentDescriptionMode === 'preview')) {
+            toggleDescriptionMode();
+        }
+    };
     
     function formatDateTime(dateStr) {
         if (!dateStr) return null;
@@ -523,6 +688,10 @@
         }
     };
 
+    // EasyMDE instance for description
+    let descriptionEditor = null;
+    let currentDescriptionMode = 'edit';
+    
     // Auto-save with debounce and dirty check
     let saveTimeout = null;
     let originalValues = {};
@@ -531,7 +700,7 @@
     function hasChanges() {
         // Get current values (treat null/undefined as empty string for comparison)
         const currentTitle = document.getElementById('item-title')?.value ?? '';
-        const currentDesc = document.getElementById('item-description')?.value ?? '';
+        const currentDesc = descriptionEditor ? descriptionEditor.value() : (document.getElementById('item-description')?.value ?? '');
         
         // Get original values (stored as empty string if originally null/undefined)
         const origTitle = originalValues.title ?? '';
@@ -556,7 +725,7 @@
         
         // Get values
         const titleValue = document.getElementById('item-title')?.value ?? '';
-        const descValue = document.getElementById('item-description')?.value ?? '';
+        const descValue = descriptionEditor ? descriptionEditor.value() : (document.getElementById('item-description')?.value ?? '');
         
         // Send empty string as empty string (not null), so backend can clear the field
         const metadata = {
@@ -590,7 +759,6 @@
     // Setup auto-save listeners
     function setupAutoSaveListeners() {
         const titleInput = document.getElementById('item-title');
-        const descInput = document.getElementById('item-description');
         
         if (titleInput) {
             titleInput.addEventListener('input', queueAutoSave);
@@ -600,13 +768,7 @@
             });
         }
         
-        if (descInput) {
-            descInput.addEventListener('input', queueAutoSave);
-            descInput.addEventListener('blur', () => {
-                clearTimeout(saveTimeout);
-                autoSave();
-            });
-        }
+        // Description editor handles its own change events in initDescriptionEditor
     }
     
     window.closeItemDetails = async function() {
@@ -627,6 +789,12 @@
         currentItemMetadata = null;
         searchResults = [];
         originalValues = {}; // Reset dirty check
+        
+        // Destroy editor instance
+        if (descriptionEditor) {
+            descriptionEditor.toTextArea();
+            descriptionEditor = null;
+        }
     };
     
     // Backward compatibility

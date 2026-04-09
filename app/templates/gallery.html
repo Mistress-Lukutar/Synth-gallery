@@ -1,5 +1,22 @@
 {% extends "base.html" %}
 
+{% block extra_head %}
+<!-- EasyMDE Markdown Editor -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.css">
+<!-- Font Awesome for EasyMDE icons -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css">
+<!-- Highlight.js for code syntax highlighting -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<!-- KaTeX for LaTeX math rendering -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/easymde@2.18.0/dist/easymde.min.js"></script>
+<!-- Marked.js for rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <!-- Photo Lightbox Modal -->
 <div id="lightbox" class="lightbox hidden">
@@ -58,8 +75,16 @@
                     </div>
                     
                     <div class="field-group">
-                        <label for="item-description">Description</label>
-                        <textarea id="item-description" data-field="description" placeholder="Add a description..." rows="3"></textarea>
+                        <label>Description</label>
+                        <div class="description-editor-wrapper">
+                            <textarea id="item-description" data-field="description" placeholder="Add a description..." style="display: none;"></textarea>
+                            <div id="item-description-preview" class="markdown-preview hidden"></div>
+                        </div>
+                        <div class="description-toolbar">
+                            <button type="button" id="desc-toggle-btn" class="desc-tool-btn" onclick="toggleDescriptionMode()">
+                                <span id="desc-toggle-text">Preview</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 
