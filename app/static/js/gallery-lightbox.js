@@ -99,10 +99,20 @@
         }
     }
 
+    function isPanelOpen() {
+        // Check if any side panel is open (details or album editor)
+        return lightbox?.classList.contains('panel-open') || 
+               document.getElementById('item-details-panel')?.classList.contains('open') ||
+               document.getElementById('album-editor-panel')?.classList.contains('open');
+    }
+
     function setupEventListeners() {
         // Keyboard navigation (Escape is handled by BackButtonManager)
         document.addEventListener('keydown', (e) => {
             if (lightbox.classList.contains('hidden')) return;
+            
+            // Block navigation when panel is open
+            if (isPanelOpen()) return;
             
             if (e.key === 'ArrowLeft') {
                 window.navigateLightbox(-1);
@@ -114,14 +124,24 @@
         // Close on overlay click
         const overlay = lightbox.querySelector('.lightbox-overlay');
         if (overlay) {
-            overlay.addEventListener('click', window.closeLightbox);
+            overlay.addEventListener('click', (e) => {
+                // Don't close if panel is open (click outside panel should close panel first)
+                if (isPanelOpen()) return;
+                window.closeLightbox();
+            });
         }
 
         // Prev/Next buttons
         const prevBtn = lightbox.querySelector('.lightbox-prev');
         const nextBtn = lightbox.querySelector('.lightbox-next');
-        if (prevBtn) prevBtn.addEventListener('click', () => window.navigateLightbox(-1));
-        if (nextBtn) nextBtn.addEventListener('click', () => window.navigateLightbox(1));
+        if (prevBtn) prevBtn.addEventListener('click', () => {
+            if (isPanelOpen()) return;
+            window.navigateLightbox(-1);
+        });
+        if (nextBtn) nextBtn.addEventListener('click', () => {
+            if (isPanelOpen()) return;
+            window.navigateLightbox(1);
+        });
 
         // Close button
         const closeBtn = lightbox.querySelector('.lightbox-close');
@@ -147,6 +167,11 @@
     
     function handleTouchStart(e) {
         if (lightbox.classList.contains('hidden')) return;
+        // Block navigation when panel is open
+        if (isPanelOpen()) {
+            isSwiping = false;
+            return;
+        }
         // Ignore multi-touch gestures (pinch-to-zoom)
         if (e.touches.length > 1) {
             isSwiping = false;
@@ -159,11 +184,21 @@
     
     function handleTouchMove(e) {
         if (!isSwiping || lightbox.classList.contains('hidden')) return;
+        // Block navigation when panel is open
+        if (isPanelOpen()) {
+            isSwiping = false;
+            return;
+        }
         // Could add visual feedback here in the future
     }
     
     function handleTouchEnd(e) {
         if (!isSwiping || lightbox.classList.contains('hidden')) return;
+        // Block navigation when panel is open
+        if (isPanelOpen()) {
+            isSwiping = false;
+            return;
+        }
         // Ignore if gesture ended with multiple touches (pinch-to-zoom)
         if (e.changedTouches.length > 1) {
             isSwiping = false;
@@ -695,12 +730,9 @@
         if (!lightbox) return;
         
         const mediaContainer = lightbox.querySelector('.lightbox-media');
-        const datesEl = document.getElementById('lightbox-dates');
-        const tagsEl = document.getElementById('lightbox-tags');
         const albumIndicator = document.getElementById('lightbox-album-indicator');
         const albumBars = document.getElementById('lightbox-album-bars');
         const editAlbumBtn = document.getElementById('lightbox-edit-album');
-        const editTagsBtn = document.getElementById('lightbox-edit-tags');
 
         if (!mediaContainer) return;
 
@@ -783,41 +815,7 @@
                 }
             }
 
-            // Update info
-            if (datesEl) {
-                // Parse date string - handles both old and new formats
-                // New format: 2026-03-02T11:02:41.820010 (Python datetime.isoformat())
-                // Old format: 2026-03-02 11:02:41 or other variations
-                const parseDate = (dateStr) => {
-                    if (!dateStr) return null;
-                    // Replace space with T for consistency
-                    let normalized = dateStr.replace(' ', 'T');
-                    // If has microseconds (more than 3 digits after dot), trim to milliseconds
-                    const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
-                    if (match) {
-                        const [, base, frac] = match;
-                        if (frac && frac.length > 4) {
-                            // Trim to 3 decimal places (milliseconds)
-                            normalized = base + frac.substring(0, 4);
-                        }
-                    }
-                    // Add Z if missing timezone info
-                    if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
-                        normalized += 'Z';
-                    }
-                    const date = new Date(normalized);
-                    return isNaN(date.getTime()) ? null : date;
-                };
-                
-                const date = parseDate(photo.taken_at) || parseDate(photo.uploaded_at);
-                datesEl.textContent = date ? date.toLocaleDateString() : '';
-            }
-
-            if (tagsEl) {
-                tagsEl.innerHTML = (photo.tags || []).map(tag => 
-                    `<span class="tag" style="--tag-color: ${tag.color || '#6b7280'}">${escapeHtml(tag.tag || tag.name || tag)}</span>`
-                ).join('');
-            }
+            // Note: Tags and date are now shown in the details panel only
 
             // Debug album data
 
@@ -870,9 +868,10 @@
                 if (editAlbumBtn) editAlbumBtn.classList.add('hidden');
             }
 
-            // Edit tags button
-            if (editTagsBtn) {
-                editTagsBtn.onclick = () => window.openTagEditor?.(photoId);
+            // Edit details button (now in bottom bar)
+            const editDetailsBtn = document.getElementById('lightbox-edit-details');
+            if (editDetailsBtn) {
+                editDetailsBtn.onclick = () => window.openItemDetails?.(photoId);
             }
 
         } catch (err) {
