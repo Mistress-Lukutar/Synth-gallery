@@ -121,7 +121,7 @@ Synth-Gallery/
 ├── thumbnails/                   # Generated thumbnails (encrypted)
 ├── backups/                      # Backup storage
 ├── gallery.db                    # SQLite database
-├── requirements.txt              # Python dependencies
+├── pyproject.toml                # Project configuration and dependencies (PEP 621)
 ├── Start.bat                     # Windows startup script
 └── AGENTS.md                     # This file
 ```
@@ -244,8 +244,8 @@ content = await storage.download(file_id, folder="uploads")
 ### Local Development
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install with dev dependencies
+pip install -e ".[dev]"
 
 # Run development server
 uvicorn app.main:app --reload --port 8000
