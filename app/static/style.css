@@ -4392,7 +4392,7 @@ main {
 }
 
 .tree-leaf-icon {
-    font-size: 10px;
+    font-size: 8px;
     opacity: 0.5;
     padding: 2px 6px;
 }
@@ -4905,3 +4905,298 @@ main {
 }
 
 
+
+/* Markdown Editor Styles */
+.description-editor-wrapper {
+    position: relative;
+}
+
+/* EasyMDE Customization - Auto-expanding */
+.EasyMDEContainer {
+    border-radius: 8px;
+    overflow: visible;
+}
+
+.EasyMDEContainer .editor-toolbar {
+    background: var(--bg-tertiary, #252525);
+    border-color: var(--border-color, #333);
+    border-radius: 8px 8px 0 0;
+    padding: 8px;
+}
+
+.EasyMDEContainer .editor-toolbar button {
+    color: var(--text-secondary, #a0a0a0);
+    border-radius: 4px;
+    margin: 0 2px;
+}
+
+.EasyMDEContainer .editor-toolbar button:hover {
+    background: var(--bg-secondary, #1a1a1a);
+    color: var(--text, #e0e0e0);
+}
+
+.EasyMDEContainer .editor-toolbar button.active {
+    background: var(--bg-secondary, #1a1a1a);
+    color: var(--accent, #3b82f6);
+}
+
+.EasyMDEContainer .CodeMirror {
+    background: var(--input-bg, #2a2a2a);
+    border-color: var(--border-color, #333);
+    color: var(--text, #e0e0e0);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 8px;
+    line-height: 1.5;
+    min-height: 80px;
+    height: auto;
+}
+
+/* Auto-expand editor to content */
+.EasyMDEContainer .CodeMirror-scroll {
+    min-height: 80px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Editor headings - override EasyMDE defaults */
+.EasyMDEContainer .CodeMirror .cm-header-1 { font-size: 1.5em !important; line-height: 1.4; }
+.EasyMDEContainer .CodeMirror .cm-header-2 { font-size: 1.3em !important; line-height: 1.4; }
+.EasyMDEContainer .CodeMirror .cm-header-3 { font-size: 1.2em !important; line-height: 1.4; }
+.EasyMDEContainer .CodeMirror .cm-header-4,
+.EasyMDEContainer .CodeMirror .cm-header-5,
+.EasyMDEContainer .CodeMirror .cm-header-6 { font-size: 1.1em !important; line-height: 1.4; }
+
+.EasyMDEContainer .CodeMirror-cursor {
+    border-color: var(--text, #e0e0e0);
+}
+
+.EasyMDEContainer .CodeMirror-selected {
+    background: rgba(59, 130, 246, 0.3);
+}
+
+.EasyMDEContainer .CodeMirror-focused .CodeMirror-selected {
+    background: rgba(59, 130, 246, 0.4);
+}
+
+/* Editor status bar */
+.EasyMDEContainer .editor-statusbar {
+    background: var(--bg-tertiary, #252525);
+    border-color: var(--border-color, #333);
+    border-radius: 0 0 8px 8px;
+    color: var(--text-muted, #808080);
+    font-size: 12px;
+    padding: 4px 12px;
+}
+
+/* Preview mode */
+.markdown-preview {
+    background: var(--input-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 8px;
+    padding: 16px;
+    min-height: 80px;
+    color: var(--text, #e0e0e0);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.markdown-preview.hidden {
+    display: none;
+}
+
+/* Markdown content styles */
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+    margin-top: 0.75em;
+    margin-bottom: 0.5em;
+    color: var(--text, #e0e0e0);
+    font-weight: 600;
+    line-height: 1;
+}
+
+/* Remove top margin for first heading in preview */
+.markdown-preview > h1:first-child,
+.markdown-preview > h2:first-child,
+.markdown-preview > h3:first-child,
+.markdown-preview > h4:first-child,
+.markdown-preview > h5:first-child,
+.markdown-preview > h6:first-child {
+    margin-top: 0;
+}
+
+.markdown-preview h1 { font-size: 1.5em; }
+.markdown-preview h2 { font-size: 1.3em; }
+.markdown-preview h3 { font-size: 1.15em; }
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 { font-size: 1em; }
+
+.markdown-preview p {
+    margin-bottom: 0.75em;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+    margin-left: 1.5em;
+    margin-bottom: 0.75em;
+}
+
+.markdown-preview li {
+    margin-bottom: 0.25em;
+}
+
+.markdown-preview code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.9em;
+}
+
+.markdown-preview pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 12px;
+    border-radius: 6px;
+    overflow-x: hidden;
+    margin-bottom: 0.75em;
+}
+
+.markdown-preview pre code {
+    background: transparent;
+    padding: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.markdown-preview blockquote {
+    border-left: 3px solid var(--accent, #3b82f6);
+    padding-left: 12px;
+    margin-left: 0;
+    color: var(--text-secondary, #a0a0a0);
+}
+
+.markdown-preview a {
+    color: var(--accent, #3b82f6);
+    text-decoration: none;
+}
+
+.markdown-preview a:hover {
+    text-decoration: underline;
+}
+
+.markdown-preview img {
+    max-width: 100%;
+    border-radius: 4px;
+}
+
+.markdown-preview hr {
+    border: none;
+    border-top: 1px solid var(--border-color, #333);
+    margin: 1em 0;
+}
+
+.markdown-preview table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.75em;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+    border: 1px solid var(--border-color, #333);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.markdown-preview th {
+    background: var(--bg-tertiary, #252525);
+    font-weight: 600;
+}
+
+/* Toolbar for edit/preview toggle */
+.description-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.desc-tool-btn {
+    padding: 6px 16px;
+    background: transparent;
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    color: var(--text-muted, #808080);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.desc-tool-btn:hover {
+    background: var(--bg-secondary, #1a1a1a);
+    color: var(--text, #e0e0e0);
+    border-color: var(--text-secondary, #a0a0a0);
+}
+
+/* Hide EasyMDE when in preview mode */
+.description-editor-wrapper.preview-mode .EasyMDEContainer {
+    display: none;
+}
+
+.description-editor-wrapper.edit-mode .markdown-preview {
+    display: none;
+}
+
+/* Copy button for code blocks */
+.code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: var(--text-secondary, #a0a0a0);
+    cursor: pointer;
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.markdown-preview pre:hover .code-copy-btn {
+    opacity: 1;
+}
+
+.code-copy-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: var(--text, #e0e0e0);
+}
+
+.code-copy-btn.copied {
+    background: #22c55e;
+    border-color: #22c55e;
+    color: white;
+    opacity: 1;
+}
+
+.code-copy-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* Hide raw textarea - EasyMDE creates its own editor */
+#item-description {
+    display: none !important;
+    visibility: hidden !important;
+    position: absolute !important;
+    opacity: 0 !important;
+}
+
+/* Syntax highlighting in markdown preview - uses highlight.js theme */

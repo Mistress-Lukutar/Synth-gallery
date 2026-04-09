@@ -200,11 +200,12 @@ class ItemService:
         self.media_repo.create(
             item_id=item_id,
             media_type='video' if media_type == 'video' else 'image',
-            original_name=filename,
+            original_name=file.filename,
             content_type=content_type,
             thumb_width=thumb_w,
             thumb_height=thumb_h,
-            taken_at=taken_at
+            taken_at=taken_at,
+            file_size=len(file_content)
         )
         
         return {
@@ -362,11 +363,12 @@ class ItemService:
         self.media_repo.create(
             item_id=item_id,
             media_type=media_data.get('media_type', 'image'),
-            # original_name removed - using title only
+            original_name=file_data.get('filename', ''),
             content_type=file_data.get('content_type', 'application/octet-stream'),
             thumb_width=media_data.get('thumb_width', 0),
             thumb_height=media_data.get('thumb_height', 0),
-            taken_at=taken_at
+            taken_at=taken_at,
+            file_size=file_data.get('size')
         )
         
         return {
@@ -659,7 +661,7 @@ class ItemService:
                 i.id, i.type, i.title, i.description, i.user_id,
                 i.uploaded_at, i.updated_at,
                 im.media_type, im.original_name, im.content_type,
-                im.width, im.height, im.duration, im.taken_at
+                im.width, im.height, im.duration, im.taken_at, im.file_size
                FROM items i
                LEFT JOIN item_media im ON i.id = im.item_id
                WHERE i.id = ?""",
@@ -669,12 +671,7 @@ class ItemService:
         if not row:
             return None
         
-        result = dict(row)
-        
-        # Add file_size as null (not stored in DB yet)
-        result['file_size'] = None
-        
-        return result
+        return dict(row)
     
     def update_metadata(
         self,

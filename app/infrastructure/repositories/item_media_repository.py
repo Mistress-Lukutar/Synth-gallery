@@ -28,7 +28,8 @@ class ItemMediaRepository(Repository):
         duration: int = None,  # For video
         thumb_width: int = None,
         thumb_height: int = None,
-        taken_at: datetime = None
+        taken_at: datetime = None,
+        file_size: int = None
     ) -> bool:
         """Create media details for an item.
         
@@ -43,6 +44,7 @@ class ItemMediaRepository(Repository):
             thumb_width: Thumbnail width
             thumb_height: Thumbnail height
             taken_at: EXIF capture date
+            file_size: File size in bytes
         """
         try:
             # Extension-less storage: filename = item_id
@@ -50,11 +52,11 @@ class ItemMediaRepository(Repository):
             self._execute(
                 """INSERT INTO item_media 
                    (item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    width, height, duration, thumb_width, thumb_height, taken_at, file_size)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at
+                    width, height, duration, thumb_width, thumb_height, taken_at, file_size
                 )
             )
             self._commit()
