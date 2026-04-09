@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[project]
+name = "synth-gallery"
+version = "1.0.0"
+description = "Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [
+    { name = "Synth Gallery Contributors" }
+]
+keywords = ["gallery", "photos", "videos", "encryption", "vault", "webauthn", "fido2", "media"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+]
+dependencies = [
+    "fastapi>=0.129.0",
+    "uvicorn[standard]==0.41.0",
+    "python-multipart==0.0.22",
+    "Pillow==12.1.1",
+    "Jinja2==3.1.6",
+    "opencv-python-headless==4.13.0.92",
+    "passlib[bcrypt]==1.7.4",
+    "bcrypt==5.0.0",
+    "cryptography>=42.0.0",
+    "webauthn>=2.0.0",
+    "aiofiles>=24.1.0",
+]
+
+[project.optional-dependencies]
+s3 = [
+    "boto3>=1.34.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "pytest-cov>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/synth-gallery"
+Repository = "https://github.com/yourusername/synth-gallery"
+Issues = "https://github.com/yourusername/synth-gallery/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/tests/*", "*/test_*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]

@@ -19,13 +19,15 @@ echo.
 :: ═════════════════════════════════════════════════════════════════
 
 set BASE_PATH=synth
-set SYNTH_ENV=production
+:: set SYNTH_ENV=production
 
 :: ═════════════════════════════════════════════════════════════════
 :: ADVANCED CONFIGURATION
 :: ═════════════════════════════════════════════════════════════════
 set PORT=8008
 set HOST=0.0.0.0
+
+set BACKUP_ROTATION_COUNT=3
 
 :: Set the environment variable for the application
 set SYNTH_BASE_URL=%BASE_PATH%
@@ -59,7 +61,7 @@ call .venv\Scripts\activate.bat
 
 :: Install/update dependencies
 echo Installing dependencies...
-pip install -r requirements.txt >nul 2>&1
+pip install -e . >nul 2>&1
 
 echo.
 echo ════════════════════════════════════════════════════════════════
