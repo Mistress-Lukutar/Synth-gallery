@@ -5,6 +5,7 @@ Uses Strategy Pattern for type-specific operations.
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, List, Any
 
 from fastapi import UploadFile, HTTPException
@@ -13,7 +14,8 @@ from ...config import ALLOWED_MEDIA_TYPES
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.services.media import (
-    create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type
+    create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type,
+    get_image_dimensions, get_video_info
 )
 from ...infrastructure.services.metadata import extract_taken_date
 from ...infrastructure.storage import get_storage
@@ -156,7 +158,7 @@ class ItemService:
         media_type = get_media_type(file.content_type)
         item_id = str(uuid.uuid4())
         filename = item_id  # Extension-less storage
-        ext = __import__('pathlib').Path(file.filename).suffix.lower()
+        ext = Path(file.filename).suffix.lower()
         if not ext:
             ext = ".mp4" if media_type == "video" else ".jpg"
         
@@ -320,6 +322,146 @@ class ItemService:
         return False
     
     # ========================================================================
+    # Async Upload Processing (consolidated business logic)
+    # ========================================================================
+    
+    async def process_media_upload(
+        self,
+        file: UploadFile,
+        folder_id: str,
+        user_id: int,
+        safe_id: str = None,
+        is_encrypted: bool = False,
+        client_encryption_metadata: str = None,
+        thumbnail: UploadFile = None,
+        thumb_width: int = 0,
+        thumb_height: int = 0
+    ) -> Dict:
+        """Process complete media upload: validation, thumbnail, storage, DB.
+        
+        This method consolidates all upload logic in one place:
+        - File validation
+        - EXIF date extraction
+        - Thumbnail generation (or use client-provided for E2E)
+        - Storage upload
+        - Database record creation
+        
+        Args:
+            file: Uploaded file
+            folder_id: Target folder
+            user_id: Owner user ID
+            safe_id: Safe ID if in encrypted vault
+            is_encrypted: Whether file is E2E encrypted
+            client_encryption_metadata: Client encryption metadata
+            thumbnail: Client-provided thumbnail (for E2E)
+            thumb_width: Thumbnail width (client-provided)
+            thumb_height: Thumbnail height (client-provided)
+            
+        Returns:
+            Created item dict
+        """
+        import tempfile
+        from pathlib import Path
+        
+        # Validate file
+        if not file.filename:
+            raise HTTPException(400, "No filename")
+        
+        if not is_encrypted and file.content_type not in ALLOWED_MEDIA_TYPES:
+            raise HTTPException(400, f"Invalid file type: {file.content_type}")
+        
+        # Generate item ID
+        item_id = str(uuid.uuid4())
+        
+        # Read content
+        content = await file.read()
+        size = len(content)
+        
+        if size == 0:
+            raise HTTPException(400, "Empty file")
+        
+        # Determine media type
+        media_type = get_media_type(file.content_type)
+        
+        # Extract dimensions and metadata
+        orig_width, orig_height = None, None
+        duration = None
+        taken_at = None
+        
+        if not is_encrypted:
+            if media_type == 'image':
+                # Get original dimensions
+                dims = get_image_dimensions(content)
+                if dims:
+                    orig_width, orig_height = dims
+                # Get EXIF date
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                        tmp.write(content)
+                        tmp.flush()
+                        taken_at = extract_taken_date(Path(tmp.name))
+                except Exception:
+                    pass
+            elif media_type == 'video':
+                # Get video dimensions and duration
+                info = get_video_info(content)
+                if info:
+                    orig_width, orig_height, duration_sec = info
+                    duration = int(round(duration_sec))
+        
+        # Handle thumbnail
+        thumb_w, thumb_h = thumb_width, thumb_height
+        thumb_bytes = None
+        if is_encrypted and thumbnail:
+            # E2E: Use encrypted thumbnail from client
+            thumb_bytes = await thumbnail.read()
+        elif not is_encrypted:
+            # Server-side: Generate thumbnail
+            if media_type == 'image':
+                try:
+                    thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(content)
+                except Exception:
+                    pass
+            elif media_type == 'video':
+                try:
+                    thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(content)
+                except Exception:
+                    pass
+        
+        # Upload to storage
+        await self.storage.upload(item_id, content, folder="uploads")
+        if thumb_bytes:
+            await self.storage.upload(item_id, thumb_bytes, folder="thumbnails")
+        
+        # Create database records
+        return self.create_media_item_sync(
+            item_id=item_id,
+            file_data={
+                "filename": file.filename,
+                "content_type": file.content_type or "application/octet-stream",
+                "size": size,
+                "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "user_id": user_id,
+                "is_encrypted": is_encrypted,
+                "taken_at": taken_at,
+            },
+            media_data={
+                "media_type": media_type,
+                "storage_path": f"uploads/{item_id}",
+                "is_encrypted": is_encrypted,
+                "client_encryption_metadata": client_encryption_metadata,
+                "thumb_width": thumb_w,
+                "thumb_height": thumb_h,
+                "width": orig_width,
+                "height": orig_height,
+                "duration": duration,
+            },
+            folder_id=folder_id,
+            safe_id=safe_id,
+            user_id=user_id
+        )
+    
+    # ========================================================================
     # Sync Item Creation (for non-async contexts)
     # ========================================================================
     
@@ -365,6 +507,9 @@ class ItemService:
             media_type=media_data.get('media_type', 'image'),
             original_name=file_data.get('filename', ''),
             content_type=file_data.get('content_type', 'application/octet-stream'),
+            width=media_data.get('width'),
+            height=media_data.get('height'),
+            duration=media_data.get('duration'),
             thumb_width=media_data.get('thumb_width', 0),
             thumb_height=media_data.get('thumb_height', 0),
             taken_at=taken_at,
@@ -383,6 +528,9 @@ class ItemService:
             'media_type': media_data.get('media_type', 'image'),
             # original_name removed - using title only
             'content_type': file_data.get('content_type', 'application/octet-stream'),
+            'width': media_data.get('width'),
+            'height': media_data.get('height'),
+            'duration': media_data.get('duration'),
             'thumb_width': media_data.get('thumb_width', 0),
             'thumb_height': media_data.get('thumb_height', 0),
             'taken_at': taken_at,
@@ -460,14 +608,9 @@ class ItemService:
     
     def _get_album_item_ids(self, folder_id: str) -> set:
         """Get IDs of all items that are in albums for a given folder."""
-        cursor = self.item_repo._conn.execute(
-            """SELECT DISTINCT ai.item_id 
-               FROM album_items ai
-               JOIN items i ON ai.item_id = i.id
-               WHERE i.folder_id = ?""",
-            (folder_id,)
-        )
-        return {row['item_id'] for row in cursor.fetchall()}
+        from ...infrastructure.repositories import AlbumRepository
+        album_repo = AlbumRepository(self.item_repo._conn)
+        return album_repo.get_item_ids_by_folder(folder_id)
     
     def move_item(self, item_id: str, folder_id: str, user_id: int) -> bool:
         """Move item to different folder."""
@@ -593,17 +736,17 @@ class ItemService:
     
     def _delete_item_files(self, item_id: str) -> None:
         """Delete item files from storage."""
-        from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-
-        # Delete from uploads (extension-less storage: filename == item_id)
-        upload_path = UPLOADS_DIR / item_id
-        if upload_path.exists():
-            upload_path.unlink()
-        
-        # Delete thumbnail
-        thumb_path = THUMBNAILS_DIR / item_id
-        if thumb_path.exists():
-            thumb_path.unlink()
+        import asyncio
+        # Run async delete operations synchronously
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in an async context, create tasks
+            asyncio.create_task(self.storage.delete(item_id, folder="uploads"))
+            asyncio.create_task(self.storage.delete(item_id, folder="thumbnails"))
+        except RuntimeError:
+            # No running loop, run synchronously
+            asyncio.run(self.storage.delete(item_id, folder="uploads"))
+            asyncio.run(self.storage.delete(item_id, folder="thumbnails"))
     
     # ========================================================================
     # Rendering Helpers
@@ -623,29 +766,10 @@ class ItemService:
         """Count items in folder."""
         return self.item_repo.count_by_folder(folder_id)
     
-    def detect_media_type(self, filename: str, content: bytes) -> str:
-        """Detect media type from filename and content."""
-        ext = filename.lower().split('.')[-1] if '.' in filename else ''
-        
-        video_exts = {'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v'}
-        image_exts = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff'}
-        
-        if ext in video_exts:
-            return 'video'
-        if ext in image_exts:
-            return 'image'
-        
-        # Check content
-        if len(content) >= 12:
-            header = content[:12]
-            if header[4:8] in (b'ftyp', b'moov'):
-                return 'video'
-        
-        return 'unknown'
-    
     # ========================================================================
     # Metadata Operations
     # ========================================================================
+
     
     def get_item_metadata(self, item_id: str) -> Optional[Dict]:
         """Get combined metadata from items and item_media tables.
@@ -679,7 +803,10 @@ class ItemService:
         user_id: int,
         title: str = None,
         description: str = None,
-        taken_at: datetime = None
+        taken_at: datetime = None,
+        width: int = None,
+        height: int = None,
+        duration: int = None
     ) -> Dict:
         """Update item metadata.
         
@@ -689,6 +816,9 @@ class ItemService:
             title: New title (optional)
             description: New description (optional)
             taken_at: New capture date (optional)
+            width: New width in pixels (optional)
+            height: New height in pixels (optional)
+            duration: Duration in seconds for video (optional)
             
         Returns:
             Dict with update status
@@ -719,8 +849,18 @@ class ItemService:
                 updated = True
         
         # Update item_media table fields
+        media_updates = {}
         if taken_at is not None:
-            if self.media_repo.update_taken_at(item_id, taken_at):
+            media_updates['taken_at'] = taken_at
+        if width is not None:
+            media_updates['width'] = width
+        if height is not None:
+            media_updates['height'] = height
+        if duration is not None:
+            media_updates['duration'] = duration
+            
+        if media_updates:
+            if self.media_repo.update(item_id, **media_updates):
                 updated = True
         
         return {"status": "ok" if updated else "no_changes", "updated": updated}

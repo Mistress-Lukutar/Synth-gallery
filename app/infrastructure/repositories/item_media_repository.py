@@ -6,7 +6,10 @@ media-specific data for photos and videos.
 from datetime import datetime
 from typing import Optional, Dict
 
+from ...logging_config import get_logger
 from .base import Repository
+
+logger = get_logger(__name__)
 
 
 class ItemMediaRepository(Repository):
@@ -61,8 +64,8 @@ class ItemMediaRepository(Repository):
             )
             self._commit()
             return True
-        except Exception as e:
-            print(f"[ItemMediaRepository.create] Error: {e}")
+        except Exception:
+            logger.exception("Failed to create media record for item %s", item_id)
             return False
     
     def get_by_item_id(self, item_id: str) -> Optional[Dict]:

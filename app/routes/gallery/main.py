@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from .deps import get_folder_service, get_permission_service
 from ...application.services import UserSettingsService, ItemService
+from ...infrastructure.repositories import UserRepository
 from ...config import ROOT_PATH, BASE_DIR
 from ...database import create_connection
 from ...dependencies import get_current_user
@@ -21,47 +22,6 @@ templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
 
 
-class UserSettingsRepository:
-    """Repository for user settings operations."""
-    
-    def __init__(self, db):
-        self._conn = db
-    
-    def get_default_folder(self, user_id: int) -> str | None:
-        """Get user's default folder ID."""
-        cursor = self._conn.execute(
-            "SELECT default_folder_id FROM user_settings WHERE user_id = ?",
-            (user_id,)
-        )
-        row = cursor.fetchone()
-        return row["default_folder_id"] if row else None
-    
-    def get_sort_preference(self, user_id: int, folder_id: str) -> str:
-        """Get user's sort preference for a folder."""
-        cursor = self._conn.execute(
-            "SELECT sort_by FROM user_folder_preferences WHERE user_id = ? AND folder_id = ?",
-            (user_id, folder_id)
-        )
-        row = cursor.fetchone()
-        return row["sort_by"] if row else "uploaded"
-    
-    def get_encryption_keys(self, user_id: int) -> dict | None:
-        """Get encryption metadata for user."""
-        cursor = self._conn.execute("""
-            SELECT encrypted_dek, dek_salt, encryption_version
-            FROM user_settings WHERE user_id = ?
-        """, (user_id,))
-        row = cursor.fetchone()
-        
-        if row and row["encrypted_dek"]:
-            return {
-                "encrypted_dek": row["encrypted_dek"],
-                "dek_salt": row["dek_salt"],
-                "encryption_version": row["encryption_version"]
-            }
-        return None
-
-
 @router.get("/")
 def gallery(request: Request, folder_id: str = None):
     """Main page - SPA shell. Data loaded via API."""
@@ -75,10 +35,15 @@ def gallery(request: Request, folder_id: str = None):
         folder_repo = FolderRepository(db)
         folder_service = get_folder_service(db)
         perm_service = get_permission_service(db)
-        user_settings_repo = UserSettingsRepository(db)
         safe_repo = SafeRepository(db)
-
-        enc_keys = user_settings_repo.get_encryption_keys(user["id"])
+        user_repo = UserRepository(db)
+        user_settings_service = UserSettingsService(
+            folder_repository=folder_repo,
+            permission_repository=perm_service.perm_repo if hasattr(perm_service, 'perm_repo') else None,
+            user_repository=user_repo
+        )
+        
+        enc_keys = user_settings_service.get_encryption_keys(user["id"])
         if enc_keys and not dek_cache.get(user["id"]):
             return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
 
@@ -92,7 +57,7 @@ def gallery(request: Request, folder_id: str = None):
             raise HTTPException(status_code=403, detail="Access denied")
         
         if not initial_folder_id:
-            default_folder_id = user_settings_repo.get_default_folder(user["id"])
+            default_folder_id = user_settings_service.get_default_folder(user["id"])
             if default_folder_id:
                 folder = folder_repo.get_by_id(default_folder_id)
                 if folder and perm_service.can_access(default_folder_id, user["id"]):
@@ -143,14 +108,19 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         folder_repo = FolderRepository(db)
         folder_service = get_folder_service(db)
         perm_service = get_permission_service(db)
-        user_settings_repo = UserSettingsRepository(db)
+        user_repo = UserRepository(db)
+        user_settings_service = UserSettingsService(
+            folder_repository=folder_repo,
+            permission_repository=perm_service.perm_repo if hasattr(perm_service, 'perm_repo') else None,
+            user_repository=user_repo
+        )
         album_repo = AlbumRepository(db)
 
         if not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
 
         if sort is None or sort not in ("uploaded", "taken"):
-            sort = user_settings_repo.get_sort_preference(user["id"], folder_id)
+            sort = user_settings_service.get_sort_preference(user["id"], folder_id)
         
         # Get items using ItemService (new polymorphic approach)
         item_service = ItemService(
@@ -243,8 +213,10 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         db.close()
 
 
+from typing import Literal
+
 class SortPreferenceInput(BaseModel):
-    sort_by: str
+    sort_by: Literal['uploaded', 'taken']
 
 
 @router.put("/api/folders/{folder_id}/sort")
@@ -253,11 +225,6 @@ async def set_folder_sort_preference(folder_id: str, data: SortPreferenceInput, 
     from ...dependencies import require_user
     
     user = require_user(request)
-    
-
-    
-    if data.sort_by not in ('uploaded', 'taken'):
-        raise HTTPException(status_code=400, detail="Invalid sort option")
     
     db = create_connection()
     try:
@@ -290,9 +257,13 @@ def get_default_folder_api(request: Request):
     try:
         folder_repo = FolderRepository(db)
         perm_service = get_permission_service(db)
-        user_settings_repo = UserSettingsRepository(db)
-
-        folder_id = user_settings_repo.get_default_folder(user["id"])
+        user_settings_service = UserSettingsService(
+            folder_repository=folder_repo,
+            permission_repository=perm_service.perm_repo if hasattr(perm_service, 'perm_repo') else None,
+            user_repository=UserRepository(db)
+        )
+        
+        folder_id = user_settings_service.get_default_folder(user["id"])
 
         if folder_id:
             folder = folder_repo.get_by_id(folder_id)

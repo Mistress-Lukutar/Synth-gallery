@@ -6,8 +6,9 @@ import uuid
 from pathlib import Path
 from typing import Optional, List
 
+from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .deps import get_permission_service, get_album_service
 from ...application.services import ItemService, AlbumService
@@ -151,7 +152,38 @@ class MetadataUpdateInput(BaseModel):
     """Input for metadata update."""
     title: Optional[str] = None
     description: Optional[str] = None
-    taken_at: Optional[str] = None  # ISO format datetime string
+    taken_at: Optional[datetime] = None  # ISO format datetime, validated by Pydantic
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[int] = None
+    
+    @field_validator('taken_at', mode='before')
+    @classmethod
+    def parse_iso_datetime(cls, value):
+        """Parse ISO 8601 datetime string to datetime object."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            # Handle 'Z' suffix (UTC) by replacing with '+00:00'
+            if value.endswith('Z'):
+                value = value[:-1] + '+00:00'
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError("Invalid datetime format. Use ISO 8601 format (e.g., 2024-01-01T12:00:00Z)")
+        raise ValueError("taken_at must be a datetime string or None")
+    
+    @field_validator('width', 'height', 'duration')
+    @classmethod
+    def validate_positive_int(cls, v):
+        """Validate that dimensions and duration are positive integers."""
+        if v is None:
+            return None
+        if v < 0:
+            raise ValueError('Value must be a positive integer')
+        return v
 
 
 @router.put("/api/items/{item_id}/metadata")
@@ -167,22 +199,17 @@ def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Reque
     try:
         item_service = get_item_service(db)
         
-        # Parse taken_at if provided
-        taken_at = None
-        if data.taken_at:
-            from datetime import datetime
-            try:
-                taken_at = datetime.fromisoformat(data.taken_at.replace('Z', '+00:00'))
-            except ValueError:
-                raise HTTPException(400, "Invalid taken_at format. Use ISO 8601 format.")
-        
         # Update metadata (will raise 404 or 403 if applicable)
+        # All fields are validated by Pydantic
         result = item_service.update_metadata(
             item_id=item_id,
             user_id=user["id"],
             title=data.title,
             description=data.description,
-            taken_at=taken_at
+            taken_at=data.taken_at,
+            width=data.width,
+            height=data.height,
+            duration=data.duration
         )
         
         return result
@@ -465,26 +492,31 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                         old_thumb, new_thumb, is_encrypted, source_owner_id, user["id"]
                     )
 
-                # Create new item
+                # Create new item with all metadata
                 item_repo.create(
                     item_type='media',
                     folder_id=data.folder_id,
                     user_id=user["id"],
                     item_id=new_item_id,
                     title=item.get("title", "Untitled"),
+                    description=item.get("description"),
                     safe_id=item.get("safe_id"),
                     is_encrypted=is_encrypted
                 )
                 
-                # Create media record (no filename - uses item_id)
+                # Create media record with all fields
                 media_repo.create(
                     item_id=new_item_id,
                     media_type=media["media_type"],
-                    # original_name removed - using title only
+                    original_name=media.get("original_name"),
                     content_type=media["content_type"],
+                    width=media.get("width"),
+                    height=media.get("height"),
+                    duration=media.get("duration"),
                     thumb_width=media["thumb_width"],
                     thumb_height=media["thumb_height"],
-                    taken_at=media["taken_at"]
+                    taken_at=media["taken_at"],
+                    file_size=media.get("file_size")
                 )
 
                 # Copy tags (v2.0 schema: item_tags junction table)
@@ -562,26 +594,29 @@ def batch_copy_items(data: BatchMoveInput, request: Request):
                     files_copied = True
 
                     # Now create DB records - use transaction per item
-                    # Create new item (items table uses 'uploaded_at', not 'created_at')
+                    # Create new item with all metadata
                     db.execute(
-                        """INSERT INTO items (id, type, folder_id, user_id, safe_id, is_encrypted, uploaded_at)
-                         VALUES (?, 'media', ?, ?, ?, ?, datetime('now'))""",
+                        """INSERT INTO items (id, type, folder_id, user_id, title, description, safe_id, is_encrypted, uploaded_at)
+                         VALUES (?, 'media', ?, ?, ?, ?, ?, ?, datetime('now'))""",
                         (new_item_id, data.folder_id, user["id"], 
+                         item.get("title", "Untitled"),
+                         item.get("description"),
                          item.get("safe_id"), is_encrypted)
                     )
                     
-                    # Create media record
-                    # Extension-less storage: filename = item_id
+                    # Create media record with all fields
                     db.execute(
                         """INSERT INTO item_media (item_id, media_type, filename,
                              original_name, content_type, width, height,
-                             thumb_width, thumb_height, taken_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                             thumb_width, thumb_height, taken_at, file_size)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (new_item_id, item.get("media_type", "image"), new_item_id,
                          item.get("original_name"), item.get("content_type"),
                          item.get("width"), item.get("height"),
                          item.get("thumb_width", 0),
-                         item.get("thumb_height", 0), item.get("taken_at"))
+                         item.get("thumb_height", 0), 
+                         item.get("taken_at"),
+                         item.get("file_size"))
                     )
 
                     # Add to album
@@ -769,74 +804,6 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename=synth-download-{date_folder}.zip"}
         )
-    finally:
-        db.close()
-
-
-# =============================================================================
-# Item Tag Endpoints
-# =============================================================================
-
-class TagInput(BaseModel):
-    tag: str
-    category_id: int | None = None
-
-
-@router.post("/api/items/{item_id}/tag")
-def add_tag_to_item(item_id: str, tag_input: TagInput, request: Request):
-    """Add a tag to an item."""
-    user = require_user(request)
-    db = create_connection()
-    try:
-        # Check if item exists and user has access
-        item_service = get_item_service(db)
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(404, "Item not found")
-        
-        # Check ownership for tagging
-        if item["user_id"] != user["id"]:
-            raise HTTPException(403, "Not owner")
-        
-        # Check if tag already exists
-        existing = db.execute(
-            "SELECT id FROM tags WHERE photo_id = ? AND tag = ?",
-            (item_id, tag_input.tag.lower().strip())
-        ).fetchone()
-        if existing:
-            return {"status": "exists", "message": "Tag already added"}
-        
-        # Add tag
-        cursor = db.execute(
-            "INSERT INTO tags (photo_id, tag, category_id) VALUES (?, ?, ?)",
-            (item_id, tag_input.tag.lower().strip(), tag_input.category_id)
-        )
-        db.commit()
-        
-        return {"status": "ok", "tag_id": cursor.lastrowid}
-    finally:
-        db.close()
-
-
-@router.delete("/api/items/{item_id}/tag/{tag_id}")
-def remove_tag_from_item(item_id: str, tag_id: int, request: Request):
-    """Remove a tag from an item."""
-    user = require_user(request)
-    db = create_connection()
-    try:
-        # Check ownership
-        item_service = get_item_service(db)
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(404, "Item not found")
-        
-        if item["user_id"] != user["id"]:
-            raise HTTPException(403, "Not owner")
-        
-        db.execute("DELETE FROM tags WHERE id = ? AND photo_id = ?", (tag_id, item_id))
-        db.commit()
-        
-        return {"status": "ok"}
     finally:
         db.close()
 

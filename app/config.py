@@ -2,6 +2,11 @@
 import os
 from pathlib import Path
 
+from .logging_config import setup_logging
+
+# Initialize logging configuration
+setup_logging()
+
 # Directory paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOADS_DIR = BASE_DIR / "uploads"

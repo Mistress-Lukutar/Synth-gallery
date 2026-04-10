@@ -4,6 +4,8 @@ echo ╔════════════════════════
 echo ║                Synth Gallery - Startup Script                ║
 echo ╚══════════════════════════════════════════════════════════════╝
 echo.
+echo   Time:    %date% %time%
+echo.
 
 :: ═════════════════════════════════════════════════════════════════
 :: CONFIGURATION - Edit this line to change the base URL path
@@ -19,7 +21,7 @@ echo.
 :: ═════════════════════════════════════════════════════════════════
 
 set BASE_PATH=synth
-:: set SYNTH_ENV=production
+set SYNTH_ENV=development
 
 :: ═════════════════════════════════════════════════════════════════
 :: ADVANCED CONFIGURATION
@@ -50,18 +52,46 @@ echo.
 
 :: Check/create virtual environment
 if not exist ".venv" (
-    echo Creating virtual environment...
+    echo [1/3] Creating virtual environment in .venv\
     python -m venv .venv
+    if errorlevel 1 (
+        echo ERROR: Failed to create virtual environment
+        pause
+        exit /b 1
+    )
+    echo      OK: Virtual environment created
     echo.
+) else (
+    echo [1/3] Virtual environment found: .venv\
 )
 
 :: Activate virtual environment
-echo Activating virtual environment...
+echo [2/3] Activating virtual environment...
 call .venv\Scripts\activate.bat
+if errorlevel 1 (
+    echo ERROR: Failed to activate virtual environment
+    pause
+    exit /b 1
+)
+echo      OK: Virtual environment activated
+
+:: Check Python version
+echo      Python version:
+for /f "tokens=*" %%a in ('python --version 2^>^&1') do echo        %%a
 
 :: Install/update dependencies
-echo Installing dependencies...
-pip install -e . >nul 2>&1
+echo [3/3] Installing dependencies...
+echo      Pip version:
+for /f "tokens=*" %%a in ('pip --version 2^>^&1') do echo        %%a
+echo.
+echo      Installing packages (this may take a minute)...
+pip install -e .
+if errorlevel 1 (
+    echo ERROR: Failed to install dependencies
+    pause
+    exit /b 1
+)
+echo      OK: Dependencies installed
 
 echo.
 echo ════════════════════════════════════════════════════════════════

@@ -53,9 +53,9 @@ def login_page(request: Request, error: str = None, next: str = None):
             if enc_keys and not service.is_dek_cached(user_id):
                 # Show login page with info message
                 return templates.TemplateResponse(
-                    request,
                     "login.html",
                     {
+                        "request": request,
                         "error": "Session restored. Please enter password to decrypt your files.",
                         "username": session["username"],
                         "csrf_token": get_csrf_token(request),
@@ -69,9 +69,9 @@ def login_page(request: Request, error: str = None, next: str = None):
             return RedirectResponse(url=redirect_url, status_code=302)
 
     return templates.TemplateResponse(
-        request,
         "login.html",
         {
+            "request": request,
             "error": error,
             "username": "",
             "csrf_token": get_csrf_token(request),
@@ -89,9 +89,9 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 
     if not user:
         return templates.TemplateResponse(
-            request,
             "login.html",
             {
+                "request": request,
                 "error": "Invalid username or password",
                 "username": username,
                 "csrf_token": get_csrf_token(request),
@@ -201,9 +201,9 @@ def reset_password_page(
     
     if not user_id:
         return templates.TemplateResponse(
-            request,
             "reset_password.html",
             {
+                "request": request,
                 "error": "Invalid or expired reset link. Please use recovery key again.",
                 "valid_token": False,
                 "reset_token": None,
@@ -213,9 +213,9 @@ def reset_password_page(
         )
     
     return templates.TemplateResponse(
-        request,
         "reset_password.html",
         {
+            "request": request,
             "error": error,
             "valid_token": True,
             "reset_token": token,
