@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
 ]
 dependencies = [
-    "fastapi>=0.129.0",
+    "fastapi==0.129.0",
     "uvicorn[standard]==0.41.0",
     "python-multipart==0.0.22",
     "Pillow==12.1.1",
@@ -37,9 +37,9 @@ dependencies = [
     "opencv-python-headless==4.13.0.92",
     "passlib[bcrypt]==1.7.4",
     "bcrypt==5.0.0",
-    "cryptography>=42.0.0",
-    "webauthn>=2.0.0",
-    "aiofiles>=24.1.0",
+    "cryptography==42.0.0",
+    "webauthn==2.0.0",
+    "aiofiles==24.1.0",
 ]
 
 [project.optional-dependencies]

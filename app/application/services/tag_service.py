@@ -138,7 +138,7 @@ class TagService:
             raise HTTPException(404, "Tag not found")
         
         # Add explicit tag only
-        self.repo.add_tag_explicit(item_id, tag_id)
+        self.repo.add_tag_to_item(item_id, tag_id)
         
         return {
             "added": [tag_id],
@@ -248,61 +248,7 @@ class TagService:
             include_groups: List of sets, each set contains tag IDs for one search word
             exclude_ids: Set of tag IDs to exclude
         """
-        exclude_list = list(exclude_ids) if exclude_ids else []
-        
-        if not include_groups and not exclude_list:
-            return []
-        
-        placeholders_exc = ','.join('?' * len(exclude_list)) if exclude_list else '0'
-        
-        # Build AND conditions for each include group (OR within group)
-        include_conditions = []
-        params = []
-        
-        for i, tag_group in enumerate(include_groups):
-            if not tag_group:
-                continue
-            placeholders = ','.join('?' * len(tag_group))
-            include_conditions.append(f"""
-                EXISTS (
-                    SELECT 1 FROM item_tags it{i}
-                    WHERE it{i}.item_id = i.id
-                      AND it{i}.tag_id IN ({placeholders})
-                )
-            """)
-            params.extend(tag_group)
-        
-        include_sql = ' AND '.join(include_conditions) if include_conditions else '1=1'
-        
-        # Build exclude condition
-        exclude_sql = f"""
-            NOT EXISTS (
-                SELECT 1 FROM item_tags it_exc
-                WHERE it_exc.item_id = i.id
-                  AND it_exc.tag_id IN ({placeholders_exc})
-            )
-        """ if exclude_list else '1=1'
-        
-        # Build final params
-        final_params = []
-        if folder_id:
-            final_params.append(folder_id)
-        final_params.extend(params)
-        final_params.extend(exclude_list)
-        
-        sql = f"""
-            SELECT DISTINCT i.*, im.media_type, im.thumb_width, im.thumb_height
-            FROM items i
-            LEFT JOIN item_media im ON i.id = im.item_id
-            WHERE i.type = 'media'
-              {'AND i.folder_id = ?' if folder_id else ''}
-              AND ({include_sql})
-              AND ({exclude_sql})
-            ORDER BY i.uploaded_at DESC
-        """
-        
-        cursor = self.repo._conn.execute(sql, final_params)
-        items = [dict(row) for row in cursor.fetchall()]
+        items = self.repo.search_items_by_tags(include_groups, exclude_ids, folder_id)
         
         for item in items:
             item['type'] = 'photo'

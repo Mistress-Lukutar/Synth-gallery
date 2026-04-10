@@ -10,7 +10,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
 from ..database import create_connection
 from ..infrastructure.repositories import UserRepository
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from ..dependencies import require_user, get_csrf_token
 from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,
@@ -57,9 +57,9 @@ def backups_page(request: Request):
     scheduler_status = backup_scheduler.status
 
     return templates.TemplateResponse(
-        request,
         "admin_backups.html",
         {
+            "request": request,
             "user": user,
             "backups": db_backups,
             "full_backups": full_backups,
@@ -254,9 +254,9 @@ def users_page(request: Request):
         db.close()
 
     return templates.TemplateResponse(
-        request,
         "admin_users.html",
         {
+            "request": request,
             "user": user,
             "users": users,
             "csrf_token": get_csrf_token(request),
@@ -370,9 +370,9 @@ def maintenance_page(request: Request):
     stats = get_thumbnail_stats()
 
     return templates.TemplateResponse(
-        request,
         "admin_maintenance.html",
         {
+            "request": request,
             "user": user,
             "stats": stats,
             "csrf_token": get_csrf_token(request),

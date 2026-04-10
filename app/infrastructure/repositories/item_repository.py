@@ -27,6 +27,7 @@ class ItemRepository(Repository):
         user_id: int,
         item_id: str = None,
         title: str = None,
+        description: str = None,
         metadata: dict = None,
         safe_id: str = None,
         is_encrypted: bool = False,
@@ -40,6 +41,7 @@ class ItemRepository(Repository):
             user_id: Owner user ID
             item_id: Optional UUID (generated if not provided)
             title: Item title/name
+            description: Item description
             metadata: Type-specific metadata dict (stored as JSON)
             safe_id: Safe ID if in encrypted vault
             is_encrypted: Whether item is encrypted
@@ -54,12 +56,13 @@ class ItemRepository(Repository):
         self._execute(
             """INSERT INTO items 
                (id, type, folder_id, safe_id, user_id, uploaded_at, 
-                title, metadata, is_encrypted)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                title, description, metadata, is_encrypted)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_id, item_type, folder_id, safe_id, user_id,
                 uploaded_at or datetime.now(),
                 title,
+                description,
                 json.dumps(metadata) if metadata else None,
                 1 if is_encrypted else 0
             )

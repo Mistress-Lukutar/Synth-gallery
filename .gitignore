@@ -16,3 +16,6 @@ backups/
 .vscode/
 *.swp
 nul
+
+# Agents temp
+.agents

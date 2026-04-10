@@ -16,11 +16,12 @@ from ...config import UPLOADS_DIR, ALLOWED_MEDIA_TYPES
 from ...database import create_connection
 from ...dependencies import require_user
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
-from ...infrastructure.services.media import create_thumbnail_bytes, create_video_thumbnail_bytes
+from ...infrastructure.services.media import get_media_type
 from ...infrastructure.services.metadata import extract_taken_date
-from ...infrastructure.storage import get_storage
+from ...logging_config import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def get_item_service(db) -> ItemService:
@@ -44,100 +45,22 @@ async def _process_upload(
 ) -> dict:
     """Process single file upload.
     
-    Creates Item + ItemMedia instead of direct Photo record.
-    For E2E encrypted uploads (safes), client provides encrypted thumbnail.
+    Delegates to ItemService.process_media_upload for all business logic.
     """
     db = create_connection()
     try:
         item_service = get_item_service(db)
-        storage = get_storage()
-        
-        # Validate file
-        if not file.filename:
-            raise HTTPException(400, "No filename")
-        
-        # Validate content type (skip for E2E encrypted - client handles validation)
-        if not is_encrypted and file.content_type not in ALLOWED_MEDIA_TYPES:
-            raise HTTPException(400, f"Invalid file type: {file.content_type}")
-        
-        # Generate IDs
-        item_id = str(uuid.uuid4())
-        filename = f"{item_id}_{file.filename}"
-        
-        # Read content
-        content = await file.read()
-        size = len(content)
-        
-        if size == 0:
-            raise HTTPException(400, "Empty file")
-        
-        # Determine media type
-        media_type = item_service.detect_media_type(file.filename, content)
-        
-        # Extract taken_at from EXIF for images
-        taken_at = None
-        if media_type == 'image':
-            try:
-                with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                    tmp.write(content)
-                    tmp.flush()
-                    taken_at = extract_taken_date(Path(tmp.name))
-            except Exception:
-                pass
-        
-        # Handle thumbnail - use client-provided for E2E, generate otherwise
-        thumb_w, thumb_h = thumb_width, thumb_height
-        thumb_bytes = None
-        if is_encrypted and thumbnail:
-            # E2E: Use encrypted thumbnail from client
-            thumb_bytes = await thumbnail.read()
-        elif not is_encrypted:
-            # Server-side: Generate thumbnail
-            if media_type == 'image':
-                try:
-                    thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(content)
-                except Exception:
-                    pass
-            elif media_type == 'video':
-                try:
-                    thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(content)
-                except Exception:
-                    pass
-        
-        # Upload to storage
-        upload_path = f"uploads/{filename}"
-        await storage.upload(item_id, content, folder="uploads")
-        
-        # Upload thumbnail if available
-        if thumb_bytes:
-            await storage.upload(item_id, thumb_bytes, folder="thumbnails")
-        
-        # Create Item + ItemMedia (Phase 5: polymorphic items only, no legacy dual-write)
-        item = item_service.create_media_item_sync(
-            item_id=item_id,
-            file_data={
-                "filename": file.filename,
-                "content_type": file.content_type or "application/octet-stream",
-                "size": size,
-                "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
-                "user_id": user["id"],
-                "is_encrypted": is_encrypted,
-                "taken_at": taken_at,
-            },
-            media_data={
-                "media_type": media_type,
-                "storage_path": upload_path,
-                "is_encrypted": is_encrypted,
-                "client_encryption_metadata": client_encryption_metadata,
-                "thumb_width": thumb_w,
-                "thumb_height": thumb_h,
-            },
+        return await item_service.process_media_upload(
+            file=file,
             folder_id=folder_id,
+            user_id=user["id"],
             safe_id=safe_id,
-            user_id=user["id"]
+            is_encrypted=is_encrypted,
+            client_encryption_metadata=client_encryption_metadata,
+            thumbnail=thumbnail,
+            thumb_width=thumb_width,
+            thumb_height=thumb_height
         )
-        
-        return item
     finally:
         db.close()
 
@@ -323,7 +246,7 @@ async def upload_chunk(
     if received >= total_chunks:
         # Assemble file
         item_id = str(uuid.uuid4())
-        final_path = os.path.join(UPLOADS_DIR, f"{item_id}_{filename}")
+        final_path = os.path.join(UPLOADS_DIR, item_id)  # Extension-less storage
         
         with open(final_path, "wb") as outfile:
             for i in range(total_chunks):
@@ -351,7 +274,7 @@ async def upload_chunk(
             await storage.upload(item_id, assembled_content, folder="uploads")
             
             # Determine media type
-            media_type = item_service.detect_media_type(filename, assembled_content)
+            media_type = get_media_type(chunk.content_type)
             
             # Extract taken_at from EXIF for images
             taken_at = None
@@ -594,8 +517,8 @@ async def upload_album(
                 user=user
             )
             item_ids.append(item["id"])
-        except Exception as e:
-            print(f"[upload-album] Failed to upload {file.filename}: {e}")
+        except Exception:
+            logger.exception("Failed to upload %s", file.filename)
     
     # Create album with uploaded items
     db = create_connection()

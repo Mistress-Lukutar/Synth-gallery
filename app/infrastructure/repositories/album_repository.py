@@ -159,7 +159,7 @@ class AlbumRepository(Repository):
                 ai.added_at as added_to_album_at,
                 im.media_type, im.original_name, im.content_type,
                 im.width, im.height, im.duration,
-                im.thumb_width, im.thumb_height, im.taken_at
+                im.thumb_width, im.thumb_height, im.taken_at, im.file_size
                FROM album_items ai
                JOIN items i ON ai.item_id = i.id
                LEFT JOIN item_media im ON i.id = im.item_id AND i.type = 'media'
@@ -229,3 +229,21 @@ class AlbumRepository(Repository):
         )
         row = cursor.fetchone()
         return row["count"] if row else 0
+    
+    def get_item_ids_by_folder(self, folder_id: str) -> set:
+        """Get IDs of all items that are in albums for a given folder.
+        
+        Args:
+            folder_id: Folder ID to check
+            
+        Returns:
+            Set of item IDs that belong to albums in this folder
+        """
+        cursor = self._execute(
+            """SELECT DISTINCT ai.item_id 
+               FROM album_items ai
+               JOIN items i ON ai.item_id = i.id
+               WHERE i.folder_id = ?""",
+            (folder_id,)
+        )
+        return {row['item_id'] for row in cursor.fetchall()}
