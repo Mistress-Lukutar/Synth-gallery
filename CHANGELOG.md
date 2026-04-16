@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-16
+
+### Added
+- **Album Creation** - Create empty albums directly from the gallery header
+  - New "Create album" button in folder-actions
+  - Modal dialog for naming the new album
+  - Empty albums open in lightbox with a placeholder so users can edit and add media
+- **Copy Link Sharing** - Share direct links to photos from the lightbox
+  - New "Copy link" button in the lightbox bottom bar
+  - Supports `SYNTH_EXTERNAL_HOST` environment variable for stable public URLs
+  - Falls back to current origin when external host is not configured
+- **Album Copy** - Copy albums with all their items to another folder
+  - New `/api/albums/{id}/copy` endpoint
+  - Preserves item order and album cover in the copied album
+  - Bulk selection copy now works for both photos and albums
+
+### Changed
+- **Item Copy Refactor** - Moved item copy logic into `ItemService` for consistency
+- **Storage Layer** - `get_stream` methods are now async across all storage backends
+
+### Fixed
+- **Batch API Cleanup** - Removed remaining usages of deleted batch endpoints
+  - Drag-and-drop move now uses single-item API
+  - Upload cancel/delete now uses single-item API
+
 ## [1.0.1] - 2026-03-17
 
 ### Added
