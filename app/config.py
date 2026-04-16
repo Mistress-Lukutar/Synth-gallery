@@ -50,6 +50,9 @@ BACKUP_PATH.mkdir(exist_ok=True)
 BACKUP_ROTATION_COUNT = int(os.environ.get("BACKUP_ROTATION_COUNT", "5"))
 BACKUP_SCHEDULE = os.environ.get("BACKUP_SCHEDULE", "daily")  # daily, weekly, or disabled
 
+# External host configuration (for generating shareable links)
+EXTERNAL_HOST = os.environ.get("SYNTH_EXTERNAL_HOST", "").strip("/")
+
 # WebAuthn configuration
 WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
 

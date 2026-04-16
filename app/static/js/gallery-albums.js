@@ -6,6 +6,7 @@
 (function() {
     let albumEditorPanel = null;
     let addPhotosModal = null;
+    let albumModal = null;
     let editingAlbumId = null;
     let availablePhotos = [];
     let selectedPhotosForAlbum = new Set();
@@ -20,6 +21,22 @@
     function init() {
         albumEditorPanel = document.getElementById('album-editor-panel');
         addPhotosModal = document.getElementById('add-photos-modal');
+        albumModal = document.getElementById('album-modal');
+        
+        // Click outside to close album modal
+        if (albumModal) {
+            albumModal.addEventListener('click', (e) => {
+                if (e.target === albumModal) closeAlbumModal();
+            });
+        }
+        
+        // Enter key in album name input
+        const albumNameInput = document.getElementById('album-name-input');
+        if (albumNameInput) {
+            albumNameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') saveAlbum();
+            });
+        }
     }
 
     // Handle album click with access check
@@ -75,6 +92,46 @@
             const albumItems = album.items || album.photos || [];
             
             if (albumItems.length === 0) {
+                // Empty album: open lightbox with placeholder
+                if (typeof window.prepareEmptyAlbumLightbox === 'function') {
+                    window.prepareEmptyAlbumLightbox(albumId);
+                }
+                
+                const mediaContainer = document.querySelector('.lightbox-media');
+                if (mediaContainer) {
+                    mediaContainer.innerHTML = `
+                        <div class="empty-album-placeholder" style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);flex-direction:column;gap:1rem;">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                                <rect x="14" y="14" width="7" height="7" rx="1"/>
+                            </svg>
+                            <span>Empty Album</span>
+                        </div>
+                    `;
+                }
+                
+                // Reset album context
+                currentAlbumPhotos = [];
+                currentAlbumIndex = 0;
+                window.setAlbumContext?.([], 0);
+                
+                // Configure lightbox UI
+                const albumIndicator = document.getElementById('lightbox-album-indicator');
+                const albumBars = document.getElementById('lightbox-album-bars');
+                const editAlbumBtn = document.getElementById('lightbox-edit-album');
+                
+                if (albumIndicator) albumIndicator.classList.add('hidden');
+                if (albumBars) albumBars.innerHTML = '';
+                if (editAlbumBtn) {
+                    editAlbumBtn.classList.remove('hidden');
+                    editAlbumBtn.onclick = function() {
+                        window.openAlbumEditor(albumId);
+                    };
+                }
+                
+                window.showLightbox?.();
                 return;
             }
             
@@ -132,9 +189,14 @@
         editingAlbumId = null;
         const title = document.getElementById('album-modal-title');
         const nameInput = document.getElementById('album-name-input');
+        const submitBtn = albumModal?.querySelector('.modal-actions .btn:not(.btn-secondary)');
         
         if (title) title.textContent = 'Create Album';
-        if (nameInput) nameInput.value = '';
+        if (nameInput) {
+            nameInput.value = '';
+            nameInput.focus();
+        }
+        if (submitBtn) submitBtn.textContent = 'Create';
         if (albumModal) albumModal.classList.remove('hidden');
     };
 
@@ -142,13 +204,18 @@
         editingAlbumId = albumId;
         const title = document.getElementById('album-modal-title');
         const nameInput = document.getElementById('album-name-input');
+        const submitBtn = albumModal?.querySelector('.modal-actions .btn:not(.btn-secondary)');
 
         if (title) title.textContent = 'Edit Album';
+        if (submitBtn) submitBtn.textContent = 'Save';
         // Load album data
         fetch(`${getBaseUrl()}/api/albums/${albumId}`)
             .then(r => r.json())
             .then(data => {
-                if (nameInput) nameInput.value = data.name || '';
+                if (nameInput) {
+                    nameInput.value = data.name || '';
+                    nameInput.focus();
+                }
             });
 
         if (albumModal) albumModal.classList.remove('hidden');

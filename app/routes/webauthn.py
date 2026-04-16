@@ -15,10 +15,11 @@ def _generate_fingerprint(request: Request) -> str:
     fingerprint_data = f"{user_agent}:{accept_lang}"
     return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
 
-from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR, COOKIE_SECURE
+from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR, COOKIE_SECURE, EXTERNAL_HOST
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["external_host"] = EXTERNAL_HOST
 from ..database import create_connection
 from ..infrastructure.repositories import (
     UserRepository, SessionRepository, WebAuthnRepository

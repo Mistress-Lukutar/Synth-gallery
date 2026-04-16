@@ -6,7 +6,7 @@ used across all gallery sub-modules.
 from ...application.services import FolderService, PermissionService, AlbumService
 from ...infrastructure.repositories import (
     FolderRepository, PermissionRepository,
-    SafeRepository, ItemRepository, AlbumRepository
+    SafeRepository, ItemRepository, AlbumRepository, ItemMediaRepository
 )
 
 
@@ -36,5 +36,6 @@ def get_album_service(db) -> AlbumService:
         album_repository=AlbumRepository(db),
         item_repository=ItemRepository(db),
         folder_repository=FolderRepository(db),
-        permission_repository=PermissionRepository(db)
+        permission_repository=PermissionRepository(db),
+        item_media_repository=ItemMediaRepository(db)
     )
