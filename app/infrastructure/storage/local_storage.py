@@ -97,13 +97,13 @@ class LocalStorage(StorageInterface):
         except (IOError, OSError) as e:
             raise DownloadError(f"Failed to download {file_id}: {e}")
     
-    def get_stream(self, file_id: str, folder: str = "uploads") -> BinaryIO:
+    async def get_stream(self, file_id: str, folder: str = "uploads") -> BinaryIO:
         """Get file as stream for reading."""
         file_path = self._get_path(file_id, folder)
-        
+
         if not file_path.exists():
             raise StorageFileNotFoundError(f"File not found: {file_id}")
-        
+
         try:
             return open(file_path, 'rb')
         except (IOError, OSError) as e:

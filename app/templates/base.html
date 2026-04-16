@@ -11,6 +11,7 @@
     <!-- Global config -->
     <script>
         window.SYNTH_BASE_URL = '{{ base_url }}';
+        window.SYNTH_EXTERNAL_HOST = '{{ external_host }}';
         {% if user %}
         window.SYNTH_USER_ID = {{ user.id }};
         {% endif %}
@@ -46,6 +47,8 @@
     <script src="{{ base_url }}/static/js/safes.js"></script>
     <!-- Initialization (last) -->
     <script src="{{ base_url }}/static/js/init.js"></script>
+    
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
     <div class="app-layout">
@@ -124,11 +127,7 @@
                     </label>
                 </div>
 
-                <div id="manual-tags-section" class="manual-tags-section">
-                    <label for="upload-tags-input">Add tags:</label>
-                    <input type="text" id="upload-tags-input" placeholder="tag1, tag2, tag3..." autocomplete="off">
-                    <p class="input-hint">Comma-separated tags to apply to all photos</p>
-                </div>
+
             </div>
 
             <div id="upload-progress" class="upload-progress hidden">
@@ -139,6 +138,24 @@
             <div id="upload-actions" class="upload-actions">
                 <button type="button" id="cancel-upload-btn" class="btn btn-secondary">Cancel</button>
                 <button type="button" id="submit-upload-btn" class="btn" disabled>Upload</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Album modal -->
+    <div id="album-modal" class="modal hidden">
+        <div class="modal-content folder-modal-content">
+            <span class="close" onclick="closeAlbumModal()">&times;</span>
+            <h2 id="album-modal-title">Create Album</h2>
+
+            <div class="form-group">
+                <label for="album-name-input">Album name:</label>
+                <input type="text" id="album-name-input" placeholder="My Album" autocomplete="off">
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeAlbumModal()">Cancel</button>
+                <button type="button" class="btn" onclick="saveAlbum()">Create</button>
             </div>
         </div>
     </div>

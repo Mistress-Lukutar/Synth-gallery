@@ -38,7 +38,7 @@ Start.bat
 ### Local Development
 
 ```bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 uvicorn app.main:app --reload --port 8000
 ```
 

@@ -81,24 +81,15 @@ class EncryptedStorage(StorageInterface):
         except Exception as e:
             raise StorageError(f"Decryption failed: {e}")
     
-    def get_stream(self, file_id: str, folder: str = "uploads") -> BinaryIO:
+    async def get_stream(self, file_id: str, folder: str = "uploads") -> BinaryIO:
         """Get decrypted stream.
-        
+
         Note: This loads entire file into memory for decryption.
         For large files, use download() with chunked processing.
         """
         # For encrypted storage, we need to decrypt first
         # This is a limitation - streaming decryption would require special handling
-        import asyncio
-        
-        # Run async download in sync context
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        data = loop.run_until_complete(self.download(file_id, folder))
+        data = await self.download(file_id, folder)
         return io.BytesIO(data)
     
     async def delete(self, file_id: str, folder: str = "uploads") -> bool:

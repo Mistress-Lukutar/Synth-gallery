@@ -16,7 +16,7 @@
     // Element references (populated on init)
     let modal, closeBtn, dropZone, fileInput, folderInput;
     let filesDropText, folderDropText, previewContainer, preview, previewCount;
-    let clearFilesBtn, uploadOptions, albumCheckbox, tagsInput;
+    let clearFilesBtn, uploadOptions, albumCheckbox;
     let progressDiv, progressFill, progressText, cancelBtn, submitBtn;
 
     // Initialize when DOM is ready
@@ -36,7 +36,6 @@
         clearFilesBtn = document.getElementById('clear-files-btn');
         uploadOptions = document.getElementById('upload-options');
         albumCheckbox = document.getElementById('upload-as-album');
-        tagsInput = document.getElementById('upload-tags-input');
         progressDiv = document.getElementById('upload-progress');
         progressFill = document.getElementById('progress-fill');
         progressText = document.getElementById('progress-text');
@@ -69,10 +68,8 @@
             
             for (const photoId of uploadedFileIds) {
                 try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-delete`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ photo_ids: [photoId], album_ids: [] })
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/${photoId}`, {
+                        method: 'DELETE'
                     });
                     if (!resp.ok) {
                         console.error(`Failed to delete photo ${photoId}:`, resp.status);
@@ -104,7 +101,6 @@
         if (uploadOptions) uploadOptions.classList.add('hidden');
         if (progressDiv) progressDiv.classList.add('hidden');
         if (albumCheckbox) albumCheckbox.checked = false;
-        if (tagsInput) tagsInput.value = '';
         if (submitBtn) submitBtn.disabled = true;
         if (progressFill) progressFill.style.width = '0%';
         if (cancelBtn) cancelBtn.disabled = false;
@@ -543,11 +539,6 @@
         if (cancelBtn) cancelBtn.disabled = false; // Enable cancel button
         progressDiv.classList.remove('hidden');
 
-        const manualTags = tagsInput.value.trim()
-            .split(',')
-            .map(t => t.trim().toLowerCase())
-            .filter(t => t.length > 0);
-
         let uploadedIds = [];
 
         try {
@@ -727,20 +718,6 @@
                         const data = await resp.json();
                         uploadedIds.push(data.id);
                         uploadedFileIds.push(data.id); // Track for potential deletion
-                    }
-                }
-
-                // Apply manual tags
-                if (manualTags.length > 0 && uploadedIds.length > 0) {
-                    progressText.textContent = 'Applying tags...';
-                    for (const photoId of uploadedIds) {
-                        for (const tag of manualTags) {
-                            await csrfFetch(`${getBaseUrl()}/api/items/${photoId}/tag`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ tag: tag, category_id: 6 })
-                            });
-                        }
                     }
                 }
 

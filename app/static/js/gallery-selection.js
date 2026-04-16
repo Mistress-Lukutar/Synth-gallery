@@ -172,21 +172,35 @@
                 if (!destination) return;
 
                 try {
-                    const payload = {
-                        photo_ids: Array.from(selectedPhotos),
-                        album_ids: Array.from(selectedAlbums),
-                        folder_id: destination.folder_id
-                    };
+                    // Move items in parallel using single item endpoints
+                    const movePromises = [];
                     
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/move`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!resp.ok) {
-                        const errText = await resp.text();
-                        throw new Error('Move failed: ' + resp.status + ' - ' + errText);
+                    for (const photoId of selectedPhotos) {
+                        movePromises.push(
+                            csrfFetch(`${getBaseUrl()}/api/items/${photoId}/move`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ folder_id: destination.folder_id })
+                            })
+                        );
+                    }
+                    
+                    // For albums, use album move endpoint (albums are moved as units)
+                    for (const albumId of selectedAlbums) {
+                        movePromises.push(
+                            csrfFetch(`${getBaseUrl()}/api/albums/${albumId}/move`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ folder_id: destination.folder_id })
+                            })
+                        );
+                    }
+                    
+                    const results = await Promise.allSettled(movePromises);
+                    const failed = results.filter(r => r.status === 'rejected' || !r.value.ok);
+                    
+                    if (failed.length > 0) {
+                        console.warn(`Move completed with ${failed.length} failures`);
                     }
                     
                     selectedPhotos.clear();
@@ -221,19 +235,36 @@
                 if (!destination) return;
 
                 try {
-                    const payload = {
-                        photo_ids: Array.from(selectedPhotos),
-                        album_ids: Array.from(selectedAlbums),
-                        folder_id: destination.folder_id
-                    };
+                    // Copy items in parallel using single item endpoints
+                    const copyPromises = [];
                     
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/copy`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-
-                    if (!resp.ok) throw new Error('Copy failed: ' + await resp.text());
+                    for (const photoId of selectedPhotos) {
+                        copyPromises.push(
+                            csrfFetch(`${getBaseUrl()}/api/items/${photoId}/copy`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ folder_id: destination.folder_id })
+                            })
+                        );
+                    }
+                    
+                    // Copy albums using album copy endpoint
+                    for (const albumId of selectedAlbums) {
+                        copyPromises.push(
+                            csrfFetch(`${getBaseUrl()}/api/albums/${albumId}/copy`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ folder_id: destination.folder_id })
+                            })
+                        );
+                    }
+                    
+                    const results = await Promise.allSettled(copyPromises);
+                    const failed = results.filter(r => r.status === 'rejected' || !r.value.ok);
+                    
+                    if (failed.length > 0) {
+                        console.warn(`Copy completed with ${failed.length} failures`);
+                    }
                     
                     selectedPhotos.clear();
                     selectedAlbums.clear();
@@ -266,18 +297,31 @@
                 if (!confirm(`Delete ${total} items?`)) return;
 
                 try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-delete`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            photo_ids: Array.from(selectedPhotos),
-                            album_ids: Array.from(selectedAlbums)
-                        })
-                    });
-
-                    if (!resp.ok) throw new Error('Delete failed');
+                    // Delete items in parallel using single item endpoints
+                    const deletePromises = [];
                     
-                    const result = await resp.json();
+                    for (const photoId of selectedPhotos) {
+                        deletePromises.push(
+                            csrfFetch(`${getBaseUrl()}/api/items/${photoId}`, {
+                                method: 'DELETE'
+                            })
+                        );
+                    }
+                    
+                    for (const albumId of selectedAlbums) {
+                        deletePromises.push(
+                            csrfFetch(`${getBaseUrl()}/api/albums/${albumId}`, {
+                                method: 'DELETE'
+                            })
+                        );
+                    }
+                    
+                    const results = await Promise.allSettled(deletePromises);
+                    const failed = results.filter(r => r.status === 'rejected' || !r.value.ok);
+                    
+                    if (failed.length > 0) {
+                        console.warn(`Delete completed with ${failed.length} failures`);
+                    }
 
                     selectedPhotos.clear();
                     selectedAlbums.clear();

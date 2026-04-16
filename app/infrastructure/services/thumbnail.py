@@ -219,17 +219,16 @@ def cleanup_orphaned_uploads() -> dict:
     }
 
 
-def _update_photo_dimensions(photo_id: str, thumb_path: Path, db):
-    """Update thumb_width, thumb_height, aspect_ratio in database from thumbnail file."""
+def _update_item_thumbnail_dimensions(item_id: str, thumb_path: Path, db):
+    """Update thumb_width, thumb_height in item_media table from thumbnail file."""
     try:
         from PIL import Image
         with Image.open(thumb_path) as img:
             width, height = img.size
-            aspect_ratio = width / height if height > 0 else None
             
             db.execute(
-                "UPDATE photos SET thumb_width = ?, thumb_height = ?, aspect_ratio = ? WHERE id = ?",
-                (width, height, aspect_ratio, photo_id)
+                "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
+                (width, height, item_id)
             )
             db.commit()
             return True
@@ -316,7 +315,7 @@ def regenerate_missing_thumbnails() -> dict:
                         skipped_encrypted += 1
                 else:
                     # Unencrypted file - measure existing thumbnail
-                    if _update_photo_dimensions(photo["id"], thumb_path, db):
+                    if _update_item_thumbnail_dimensions(photo["id"], thumb_path, db):
                         dimensions_updated += 1
                     else:
                         # Failed to measure, try to regenerate
@@ -327,7 +326,7 @@ def regenerate_missing_thumbnails() -> dict:
                                 create_thumbnail(original_path, thumb_path)
                             
                             # Update dimensions after regeneration
-                            if _update_photo_dimensions(photo["id"], thumb_path, db):
+                            if _update_item_thumbnail_dimensions(photo["id"], thumb_path, db):
                                 regenerated += 1
                             else:
                                 failed += 1
@@ -362,10 +361,9 @@ def regenerate_missing_thumbnails() -> dict:
                     f.write(encrypted_thumb)
                 
                 # Update dimensions in DB
-                aspect_ratio = width / height if height > 0 else None
                 db.execute(
-                    "UPDATE photos SET thumb_width = ?, thumb_height = ?, aspect_ratio = ? WHERE id = ?",
-                    (width, height, aspect_ratio, photo["id"])
+                    "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
+                    (width, height, photo["id"])
                 )
                 db.commit()
                 regenerated += 1
@@ -380,7 +378,7 @@ def regenerate_missing_thumbnails() -> dict:
                     create_thumbnail(original_path, thumb_path)
                 
                 # Update dimensions after creation
-                if _update_photo_dimensions(photo["id"], thumb_path, db):
+                if _update_item_thumbnail_dimensions(photo["id"], thumb_path, db):
                     regenerated += 1
                 else:
                     failed += 1

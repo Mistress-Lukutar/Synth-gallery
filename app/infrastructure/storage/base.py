@@ -110,20 +110,20 @@ class StorageInterface(ABC):
         pass
     
     @abstractmethod
-    def get_stream(
+    async def get_stream(
         self,
         file_id: str,
         folder: str = "uploads"
     ) -> BinaryIO:
         """Get a file as a stream for reading.
-        
+
         Args:
             file_id: Unique file identifier
             folder: Subfolder
-            
+
         Returns:
             File-like object for reading
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
         """

@@ -6,8 +6,9 @@ import uuid
 from pathlib import Path
 from typing import Optional, List
 
+from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from .deps import get_permission_service, get_album_service
 from ...application.services import ItemService, AlbumService
@@ -103,6 +104,119 @@ def get_item(item_id: str, request: Request):
         db.close()
 
 
+@router.get("/api/items/{item_id}/metadata")
+def get_item_metadata(item_id: str, request: Request):
+    """Get item metadata for details panel.
+    
+    Returns combined data from items and item_media tables.
+    """
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        
+        # Get metadata
+        metadata = item_service.get_item_metadata(item_id)
+        if not metadata:
+            raise HTTPException(404, "Item not found")
+        
+        # Check access via folder
+        perm_service = get_permission_service(db)
+        folder_id = metadata.get("folder_id")
+        if folder_id and not perm_service.can_access(folder_id, user["id"]):
+            raise HTTPException(403, "Access denied")
+        
+        # Format response
+        return {
+            "id": metadata["id"],
+            "title": metadata.get("title"),
+            "description": metadata.get("description"),
+            "type": metadata.get("type"),
+            "media_type": metadata.get("media_type"),
+            "original_name": metadata.get("original_name"),
+            "content_type": metadata.get("content_type"),
+            "uploaded_at": metadata.get("uploaded_at"),
+            "updated_at": metadata.get("updated_at"),
+            "file_size": metadata.get("file_size"),
+            "width": metadata.get("width"),
+            "height": metadata.get("height"),
+            "duration": metadata.get("duration"),
+            "taken_at": metadata.get("taken_at")
+        }
+    finally:
+        db.close()
+
+
+class MetadataUpdateInput(BaseModel):
+    """Input for metadata update."""
+    title: Optional[str] = None
+    description: Optional[str] = None
+    taken_at: Optional[datetime] = None  # ISO format datetime, validated by Pydantic
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration: Optional[int] = None
+    
+    @field_validator('taken_at', mode='before')
+    @classmethod
+    def parse_iso_datetime(cls, value):
+        """Parse ISO 8601 datetime string to datetime object."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            # Handle 'Z' suffix (UTC) by replacing with '+00:00'
+            if value.endswith('Z'):
+                value = value[:-1] + '+00:00'
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError("Invalid datetime format. Use ISO 8601 format (e.g., 2024-01-01T12:00:00Z)")
+        raise ValueError("taken_at must be a datetime string or None")
+    
+    @field_validator('width', 'height', 'duration')
+    @classmethod
+    def validate_positive_int(cls, v):
+        """Validate that dimensions and duration are positive integers."""
+        if v is None:
+            return None
+        if v < 0:
+            raise ValueError('Value must be a positive integer')
+        return v
+
+
+@router.put("/api/items/{item_id}/metadata")
+def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Request):
+    """Update item metadata.
+    
+    All fields are optional. Only provided fields will be updated.
+    Validates that user owns the item.
+    """
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        
+        # Update metadata (will raise 404 or 403 if applicable)
+        # All fields are validated by Pydantic
+        result = item_service.update_metadata(
+            item_id=item_id,
+            user_id=user["id"],
+            title=data.title,
+            description=data.description,
+            taken_at=data.taken_at,
+            width=data.width,
+            height=data.height,
+            duration=data.duration
+        )
+        
+        return result
+    finally:
+        db.close()
+
+
 class ItemMoveInput(BaseModel):
     folder_id: str
 
@@ -137,428 +251,123 @@ def move_item(item_id: str, data: ItemMoveInput, request: Request):
         db.close()
 
 
-class BatchMoveInput(BaseModel):
-    """Input for batch move operation."""
-    photo_ids: List[str] = []  # Legacy: item IDs
-    album_ids: List[str] = []
-    folder_id: str
-
-
-@router.put("/api/items/move")
-def batch_move_items(data: BatchMoveInput, request: Request):
-    """Move multiple items and albums to another folder."""
-    user = require_user(request)
-    
-    db = create_connection()
-    try:
-        item_service = get_item_service(db)
-        return item_service.batch_move(
-            item_ids=data.photo_ids,
-            album_ids=data.album_ids,
-            dest_folder_id=data.folder_id,
-            user_id=user["id"]
-        )
-    finally:
-        db.close()
-
-
 @router.delete("/api/items/{item_id}")
-def delete_item(item_id: str, request: Request):
+async def delete_item(item_id: str, request: Request):
     """Delete item."""
     user = require_user(request)
-    
+
     db = create_connection()
     try:
         item_service = get_item_service(db)
-        
+
         # Check ownership
         item = item_service.get_item(item_id)
         if not item:
             raise HTTPException(404, "Item not found")
-        
+
         if item["user_id"] != user["id"]:
             raise HTTPException(403, "Not owner")
-        
-        success = item_service.delete_item(item_id, user["id"])
+
+        success = await item_service.delete_item(item_id, user["id"])
         if not success:
             raise HTTPException(400, "Delete failed")
-        
+
         return {"status": "ok"}
     finally:
         db.close()
 
 
-class BatchDeleteInput(BaseModel):
-    """Input for batch delete operation."""
-    photo_ids: List[str] = []  # Legacy: item IDs
-    album_ids: List[str] = []
-
-
-@router.post("/api/items/batch-delete")
-def batch_delete_items(data: BatchDeleteInput, request: Request):
-    """Delete multiple items (photos and albums)."""
-    user = require_user(request)
-    
-    db = create_connection()
-    try:
-        perm_service = get_permission_service(db)
-        item_service = get_item_service(db)
-        album_service = get_album_service(db)
-        
-        deleted_photos = 0
-        deleted_albums = 0
-        skipped_photos = 0
-        skipped_albums = 0
-
-        # Delete items (photos)
-        for item_id in data.photo_ids:
-            # Check access
-            item = item_service.get_item(item_id)
-            if not item:
-                skipped_photos += 1
-                continue
-                
-            if item.get("user_id") != user["id"]:
-                skipped_photos += 1
-                continue
-            
-            if item_service.delete_item(item_id, user["id"]):
-                deleted_photos += 1
-            else:
-                skipped_photos += 1
-
-        # Delete albums
-        for album_id in data.album_ids:
-            # Check ownership via album service
-            album = album_service.get_album(album_id, user["id"])
-            if not album:
-                skipped_albums += 1
-                continue
-                
-            if album.get("user_id") != user["id"]:
-                skipped_albums += 1
-                continue
-            
-            album_service.delete_album(album_id, user["id"])
-            deleted_albums += 1
-
-        return {
-            "status": "ok",
-            "deleted_photos": deleted_photos,
-            "deleted_albums": deleted_albums,
-            "skipped_photos": skipped_photos,
-            "skipped_albums": skipped_albums
-        }
-    finally:
-        db.close()
-
-
 # =============================================================================
-# Batch Copy
+# Single Item Operations
 # =============================================================================
 
-def _copy_and_reencrypt_file(
-    old_path: Path,
-    new_path: Path,
-    is_encrypted: bool,
-    source_owner_id: int,
-    dest_owner_id: int
-) -> bool:
-    """Copy file, re-encrypting if needed when owner changes."""
-    import shutil
-    import os
-    
-    # Convert Path objects to strings for Windows compatibility
-    old_path_str = str(old_path)
-    new_path_str = str(new_path)
-    
-    if not old_path.exists():
-        return False
-
-    # Ensure parent directory exists
-    try:
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        return False
-
-    try:
-        # If not encrypted or same owner - just copy
-        if not is_encrypted or source_owner_id == dest_owner_id:
-            data = old_path.read_bytes()
-            new_path.write_bytes(data)
-            return new_path.exists()
-
-        # Need to re-encrypt: decrypt with source DEK, encrypt with dest DEK
-        source_dek = dek_cache.get(source_owner_id)
-        dest_dek = dek_cache.get(dest_owner_id)
-
-        if not source_dek or not dest_dek:
-            return False
-
-        # Read and decrypt
-        encrypted_data = old_path.read_bytes()
-        try:
-            plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
-        except Exception:
-            return False
-
-        # Re-encrypt with destination owner's key
-        new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
-        new_path.write_bytes(new_encrypted)
-        return new_path.exists()
-    except Exception:
-        return False
+class ItemCopyInput(BaseModel):
+    """Input for copying a single item."""
+    folder_id: str
 
 
-@router.post("/api/items/copy")
-def batch_copy_items(data: BatchMoveInput, request: Request):
-    """Copy multiple items and albums to another folder."""
-    from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-    
+@router.post("/api/items/{item_id}/copy")
+async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
+    """Copy a single item to another folder."""
     user = require_user(request)
     user_dek = dek_cache.get(user["id"])
     
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        item_repo = ItemRepository(db)
-        album_repo = AlbumRepository(db)
-        media_repo = ItemMediaRepository(db)
+        item_service = ItemService(
+            item_repository=ItemRepository(db),
+            item_media_repository=ItemMediaRepository(db)
+        )
         
         if not perm_service.can_edit(data.folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Cannot copy to this folder")
-
-        copied_items = 0
-        copied_albums = 0
-        skipped_items = 0
-        skipped_albums = 0
-
-        # Copy individual items
-        for item_id in data.photo_ids:
-            item = item_repo.get_by_id(item_id)
-            if not item:
-                skipped_items += 1
-                continue
-
-            if not perm_service.can_access_photo(item_id, user["id"]):
-                skipped_items += 1
-                continue
-
-            source_owner_id = item["user_id"]
-            is_encrypted = item["is_encrypted"]
-
-            if is_encrypted and source_owner_id != user["id"]:
-                if not dek_cache.get(source_owner_id) or not user_dek:
-                    skipped_items += 1
-                    continue
-
-            # Get media details
-            media = media_repo.get_by_item_id(item_id)
-            if not media:
-                skipped_items += 1
-                continue
-                
-            new_item_id = str(uuid.uuid4())
-
-            # Extension-less storage: filename = item_id
-            old_upload = UPLOADS_DIR / item_id
-            new_upload = UPLOADS_DIR / new_item_id
-            old_thumb = THUMBNAILS_DIR / item_id
-            new_thumb = THUMBNAILS_DIR / new_item_id
-
-            try:
-                if not _copy_and_reencrypt_file(
-                    old_upload, new_upload, is_encrypted, source_owner_id, user["id"]
-                ):
-                    skipped_items += 1
-                    continue
-
-                if old_thumb.exists():
-                    _copy_and_reencrypt_file(
-                        old_thumb, new_thumb, is_encrypted, source_owner_id, user["id"]
-                    )
-
-                # Create new item
-                item_repo.create(
-                    item_type='media',
-                    folder_id=data.folder_id,
-                    user_id=user["id"],
-                    item_id=new_item_id,
-                    title=item.get("title", "Untitled"),
-                    safe_id=item.get("safe_id"),
-                    is_encrypted=is_encrypted
-                )
-                
-                # Create media record (no filename - uses item_id)
-                media_repo.create(
-                    item_id=new_item_id,
-                    media_type=media["media_type"],
-                    # original_name removed - using title only
-                    content_type=media["content_type"],
-                    thumb_width=media["thumb_width"],
-                    thumb_height=media["thumb_height"],
-                    taken_at=media["taken_at"]
-                )
-
-                # Copy tags (v2.0 schema: item_tags junction table)
-                item_tags = db.execute(
-                    "SELECT tag_id FROM item_tags WHERE item_id = ?",
-                    (item_id,)
-                ).fetchall()
-                for item_tag in item_tags:
-                    db.execute(
-                        "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
-                        (new_item_id, item_tag["tag_id"])
-                    )
-
-                db.commit()
-                copied_items += 1
-            except Exception:
-                if new_upload.exists():
-                    new_upload.unlink()
-                if new_thumb.exists():
-                    new_thumb.unlink()
-                skipped_items += 1
-
-        # Copy albums
-        for album_id in data.album_ids:
-            album = album_repo.get_by_id(album_id)
-            if not album:
-                skipped_albums += 1
-                continue
-
-            if not perm_service.can_access_album(album_id, user["id"]):
-                skipped_albums += 1
-                continue
-            
-            # Get album items
-            album_items = album_repo.get_items(album_id)
-            if not album_items:
-                skipped_albums += 1
-                continue
-
-            new_album_id = str(uuid.uuid4())
-            
-            # Track copied items for this album to handle cleanup on failure
-            copied_items_in_album = []
-            new_cover_item_id = None
-
-            for idx, item in enumerate(album_items):
-                new_item_id = str(uuid.uuid4())
-
-                # Extension-less storage: filename = item_id
-                old_upload = UPLOADS_DIR / item["id"]
-                new_upload = UPLOADS_DIR / new_item_id
-                old_thumb = THUMBNAILS_DIR / item["id"]
-                new_thumb = THUMBNAILS_DIR / new_item_id
-
-                source_owner_id = item["user_id"]
-                is_encrypted = item.get("is_encrypted", False)
-
-                # First copy files, then create DB records
-                # If DB fails, clean up files
-                files_copied = False
-                try:
-                    # Copy main file
-                    if not _copy_and_reencrypt_file(
-                        old_upload, new_upload, is_encrypted, source_owner_id, user["id"]
-                    ):
-                        continue
-
-                    # Copy thumbnail if exists
-                    thumb_copied = False
-                    if old_thumb.exists():
-                        thumb_copied = _copy_and_reencrypt_file(
-                            old_thumb, new_thumb, is_encrypted, source_owner_id, user["id"]
-                        )
-
-                    files_copied = True
-
-                    # Now create DB records - use transaction per item
-                    # Create new item (items table uses 'uploaded_at', not 'created_at')
-                    db.execute(
-                        """INSERT INTO items (id, type, folder_id, user_id, safe_id, is_encrypted, uploaded_at)
-                         VALUES (?, 'media', ?, ?, ?, ?, datetime('now'))""",
-                        (new_item_id, data.folder_id, user["id"], 
-                         item.get("safe_id"), is_encrypted)
-                    )
-                    
-                    # Create media record
-                    # Extension-less storage: filename = item_id
-                    db.execute(
-                        """INSERT INTO item_media (item_id, media_type, filename,
-                             original_name, content_type, width, height,
-                             thumb_width, thumb_height, taken_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (new_item_id, item.get("media_type", "image"), new_item_id,
-                         item.get("original_name"), item.get("content_type"),
-                         item.get("width"), item.get("height"),
-                         item.get("thumb_width", 0),
-                         item.get("thumb_height", 0), item.get("taken_at"))
-                    )
-
-                    # Add to album
-                    db.execute(
-                        "INSERT INTO album_items (album_id, item_id, position) VALUES (?, ?, ?)",
-                        (new_album_id, new_item_id, idx)
-                    )
-
-                    # Copy tags (v2.0 schema: item_tags junction table)
-                    item_tags = db.execute(
-                        "SELECT tag_id FROM item_tags WHERE item_id = ?",
-                        (item["id"],)
-                    ).fetchall()
-                    for item_tag in item_tags:
-                        db.execute(
-                            "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?)",
-                            (new_item_id, item_tag["tag_id"])
-                        )
-
-                    # Track cover item mapping
-                    if item["id"] == album.get("cover_item_id"):
-                        new_cover_item_id = new_item_id
-
-                    copied_items_in_album.append({
-                        'item_id': new_item_id,
-                        'upload_path': new_upload,
-                        'thumb_path': new_thumb if thumb_copied else None
-                    })
-
-                except Exception:
-                    # Clean up files if DB operations failed
-                    if files_copied:
-                        if new_upload.exists():
-                            try:
-                                new_upload.unlink()
-                            except Exception:
-                                pass
-                        if new_thumb.exists():
-                            try:
-                                new_thumb.unlink()
-                            except Exception:
-                                pass
-                    continue
-
-            # Only create album if at least one item was copied
-            if copied_items_in_album:
-                db.execute(
-                    "INSERT INTO albums (id, name, folder_id, user_id, safe_id, cover_item_id) VALUES (?, ?, ?, ?, ?, ?)",
-                    (new_album_id, album["name"], data.folder_id, user["id"], 
-                     album.get("safe_id"), new_cover_item_id)
-                )
-                db.commit()
-                copied_albums += 1
-            else:
-                # No items copied - skip this album (don't create empty album)
-                skipped_albums += 1
-
+        
+        if not perm_service.can_access_photo(item_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Cannot access item")
+        
+        item = item_service.item_repo.get_by_id(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        source_owner_id = item["user_id"]
+        is_encrypted = item["is_encrypted"]
+        
+        if is_encrypted and source_owner_id != user["id"]:
+            if not dek_cache.get(source_owner_id) or not user_dek:
+                raise HTTPException(status_code=403, detail="Cannot re-encrypt without DEK")
+        
+        new_item_id = item_service.copy_item(
+            item_id=item_id,
+            dest_folder_id=data.folder_id,
+            user_id=user["id"],
+            source_owner_id=source_owner_id,
+            is_encrypted=is_encrypted
+        )
+        
+        db.commit()
+        
         return {
             "status": "ok",
-            "copied_photos": copied_items,
-            "copied_albums": copied_albums,
-            "skipped_photos": skipped_items,
-            "skipped_albums": skipped_albums
+            "id": new_item_id,
+            "original_id": item_id
         }
+    finally:
+        db.close()
+
+
+class ItemMoveInput(BaseModel):
+    """Input for moving a single item."""
+    folder_id: str
+
+
+@router.put("/api/items/{item_id}/move")
+def move_item(item_id: str, data: ItemMoveInput, request: Request):
+    """Move a single item to another folder."""
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        perm_service = get_permission_service(db)
+        
+        # Check access to source item
+        item = item_service.get_item(item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        if item.get("user_id") != user["id"]:
+            raise HTTPException(status_code=403, detail="Not owner")
+        
+        # Check can edit destination folder
+        if not perm_service.can_edit(data.folder_id, user["id"]):
+            raise HTTPException(status_code=403, detail="Cannot move to this folder")
+        
+        # Perform move
+        if item_service.move_item(item_id, data.folder_id, user["id"]):
+            return {"status": "ok", "id": item_id}
+        else:
+            raise HTTPException(status_code=400, detail="Move failed")
     finally:
         db.close()
 
@@ -687,74 +496,6 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
 
 # =============================================================================
-# Item Tag Endpoints
-# =============================================================================
-
-class TagInput(BaseModel):
-    tag: str
-    category_id: int | None = None
-
-
-@router.post("/api/items/{item_id}/tag")
-def add_tag_to_item(item_id: str, tag_input: TagInput, request: Request):
-    """Add a tag to an item."""
-    user = require_user(request)
-    db = create_connection()
-    try:
-        # Check if item exists and user has access
-        item_service = get_item_service(db)
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(404, "Item not found")
-        
-        # Check ownership for tagging
-        if item["user_id"] != user["id"]:
-            raise HTTPException(403, "Not owner")
-        
-        # Check if tag already exists
-        existing = db.execute(
-            "SELECT id FROM tags WHERE photo_id = ? AND tag = ?",
-            (item_id, tag_input.tag.lower().strip())
-        ).fetchone()
-        if existing:
-            return {"status": "exists", "message": "Tag already added"}
-        
-        # Add tag
-        cursor = db.execute(
-            "INSERT INTO tags (photo_id, tag, category_id) VALUES (?, ?, ?)",
-            (item_id, tag_input.tag.lower().strip(), tag_input.category_id)
-        )
-        db.commit()
-        
-        return {"status": "ok", "tag_id": cursor.lastrowid}
-    finally:
-        db.close()
-
-
-@router.delete("/api/items/{item_id}/tag/{tag_id}")
-def remove_tag_from_item(item_id: str, tag_id: int, request: Request):
-    """Remove a tag from an item."""
-    user = require_user(request)
-    db = create_connection()
-    try:
-        # Check ownership
-        item_service = get_item_service(db)
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(404, "Item not found")
-        
-        if item["user_id"] != user["id"]:
-            raise HTTPException(403, "Not owner")
-        
-        db.execute("DELETE FROM tags WHERE id = ? AND photo_id = ?", (tag_id, item_id))
-        db.commit()
-        
-        return {"status": "ok"}
-    finally:
-        db.close()
-
-
-# =============================================================================
 # Album Endpoints
 # =============================================================================
 
@@ -868,6 +609,30 @@ def move_album(album_id: str, data: AlbumMoveInput, request: Request):
             raise HTTPException(400, "Move failed")
         
         return {"status": "ok"}
+    finally:
+        db.close()
+
+
+class AlbumCopyInput(BaseModel):
+    folder_id: str
+
+
+@router.post("/api/albums/{album_id}/copy")
+def copy_album(album_id: str, data: AlbumCopyInput, request: Request):
+    """Copy album and all its items to a different folder."""
+    user = require_user(request)
+    
+    db = create_connection()
+    try:
+        album_service = get_album_service(db)
+        
+        new_album_id = album_service.copy_album(
+            album_id, data.folder_id, user["id"]
+        )
+        
+        db.commit()
+        
+        return {"status": "ok", "album_id": new_album_id}
     finally:
         db.close()
 

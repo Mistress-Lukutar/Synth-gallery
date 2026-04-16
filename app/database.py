@@ -406,6 +406,23 @@ def init_db():
         )
     """)
 
+    # Migration: Add description and updated_at columns if not exist
+    cursor = db.execute("PRAGMA table_info(items)")
+    columns = [row['name'] for row in cursor.fetchall()]
+    if 'description' not in columns:
+        db.execute("ALTER TABLE items ADD COLUMN description TEXT")
+    if 'updated_at' not in columns:
+        # SQLite doesn't support DEFAULT with non-constant values in ALTER TABLE
+        db.execute("ALTER TABLE items ADD COLUMN updated_at TIMESTAMP")
+        # Set default for existing rows
+        db.execute("UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+    
+    # Migration: Add file_size to item_media table
+    cursor = db.execute("PRAGMA table_info(item_media)")
+    media_columns = [row['name'] for row in cursor.fetchall()]
+    if 'file_size' not in media_columns:
+        db.execute("ALTER TABLE item_media ADD COLUMN file_size INTEGER")
+
     # Insert default tag categories (v2)
     _init_tag_categories_v2(db)
     
