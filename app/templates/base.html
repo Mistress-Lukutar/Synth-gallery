@@ -11,6 +11,7 @@
     <!-- Global config -->
     <script>
         window.SYNTH_BASE_URL = '{{ base_url }}';
+        window.SYNTH_EXTERNAL_HOST = '{{ external_host }}';
         {% if user %}
         window.SYNTH_USER_ID = {{ user.id }};
         {% endif %}
@@ -137,6 +138,24 @@
             <div id="upload-actions" class="upload-actions">
                 <button type="button" id="cancel-upload-btn" class="btn btn-secondary">Cancel</button>
                 <button type="button" id="submit-upload-btn" class="btn" disabled>Upload</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Album modal -->
+    <div id="album-modal" class="modal hidden">
+        <div class="modal-content folder-modal-content">
+            <span class="close" onclick="closeAlbumModal()">&times;</span>
+            <h2 id="album-modal-title">Create Album</h2>
+
+            <div class="form-group">
+                <label for="album-name-input">Album name:</label>
+                <input type="text" id="album-name-input" placeholder="My Album" autocomplete="off">
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeAlbumModal()">Cancel</button>
+                <button type="button" class="btn" onclick="saveAlbum()">Create</button>
             </div>
         </div>
     </div>

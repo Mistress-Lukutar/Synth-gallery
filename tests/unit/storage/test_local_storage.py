@@ -232,23 +232,23 @@ class TestLocalStorageGetUrl:
 
 class TestLocalStorageStream:
     """Test get_stream functionality."""
-    
-    def test_get_stream_reads_content(self, temp_storage, run_async):
+
+    async def test_get_stream_reads_content(self, temp_storage):
         """Get stream should return readable file object."""
         content = b"streamable content"
         file_id = "stream.txt"
-        run_async(temp_storage.upload(file_id, content, "uploads"))
-        
-        stream = temp_storage.get_stream(file_id, "uploads")
-        
+        await temp_storage.upload(file_id, content, "uploads")
+
+        stream = await temp_storage.get_stream(file_id, "uploads")
+
         assert stream.read() == content
-    
-    def test_get_stream_raises_for_missing(self, temp_storage):
+
+    async def test_get_stream_raises_for_missing(self, temp_storage):
         """Get stream should raise for missing file."""
         from app.infrastructure.storage.base import FileNotFoundError as StorageFileNotFound
-        
+
         with pytest.raises(StorageFileNotFound):
-            temp_storage.get_stream("missing.txt", "uploads")
+            await temp_storage.get_stream("missing.txt", "uploads")
 
 
 class TestLocalStorageCopyMove:

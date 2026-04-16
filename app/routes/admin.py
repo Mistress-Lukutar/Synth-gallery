@@ -4,10 +4,11 @@ from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR
+from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["external_host"] = EXTERNAL_HOST
 from ..database import create_connection
 from ..infrastructure.repositories import UserRepository
 from pydantic import BaseModel, field_validator

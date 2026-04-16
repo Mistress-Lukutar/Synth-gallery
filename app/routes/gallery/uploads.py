@@ -287,7 +287,7 @@ async def upload_chunk(
                 except Exception:
                     pass
             
-            item = item_service.create_media_item_sync(
+            item = item_service.create_db_records(
                 item_id=item_id,
                 file_data={
                     "filename": filename,

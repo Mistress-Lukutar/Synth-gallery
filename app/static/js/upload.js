@@ -68,10 +68,8 @@
             
             for (const photoId of uploadedFileIds) {
                 try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-delete`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ photo_ids: [photoId], album_ids: [] })
+                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/${photoId}`, {
+                        method: 'DELETE'
                     });
                     if (!resp.ok) {
                         console.error(`Failed to delete photo ${photoId}:`, resp.status);

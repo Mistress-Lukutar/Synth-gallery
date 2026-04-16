@@ -249,6 +249,28 @@
         currentAlbumEditorId = albumId;
     };
     
+    // Prepare lightbox state for viewing an empty album
+    window.prepareEmptyAlbumLightbox = function(albumId) {
+        if (!lightbox) init();
+        if (!lightbox) return;
+        
+        flatNavOrder = buildFlatNavOrder();
+        const albumIndex = flatNavOrder.findIndex(p => 
+            p.type === 'album_placeholder' && p.albumId === albumId
+        );
+        
+        if (albumIndex >= 0) {
+            currentNavIndex = albumIndex;
+        } else {
+            // Fallback: album not in gallery, create minimal nav order
+            flatNavOrder = [{ type: 'album_placeholder', id: albumId, albumId: albumId }];
+            currentNavIndex = 0;
+        }
+        
+        albumContext = null;
+        window.currentLightboxPhotoId = null;
+    };
+    
     // Clear current album editor
     window.clearCurrentAlbumEditor = function() {
         currentAlbumEditorId = null;
@@ -939,6 +961,49 @@
     window.reloadCurrentPhoto = function() {
         if (currentPhotoId) {
             window.loadPhoto(currentPhotoId);
+        }
+    };
+
+    // Copy link to current photo
+    window.copyPhotoLink = async function() {
+        const photoId = currentPhotoId || window.currentLightboxPhotoId;
+        if (!photoId) {
+            console.warn('[lightbox] No photo ID available to copy');
+            return;
+        }
+        
+        const externalHost = window.SYNTH_EXTERNAL_HOST;
+        const baseUrl = window.SYNTH_BASE_URL || '';
+        
+        let link;
+        if (externalHost) {
+            link = `https://${externalHost}${baseUrl}/?photo_id=${photoId}`;
+        } else {
+            link = `${window.location.origin}${baseUrl}/?photo_id=${photoId}`;
+        }
+        
+        try {
+            await navigator.clipboard.writeText(link);
+            // Visual feedback
+            const btn = document.getElementById('lightbox-copy-link');
+            if (btn) {
+                const originalTitle = btn.getAttribute('title');
+                btn.setAttribute('title', 'Copied!');
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.setAttribute('title', originalTitle || 'Copy link');
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
+        } catch (err) {
+            console.error('[lightbox] Failed to copy link:', err);
+            // Fallback
+            const textArea = document.createElement('textarea');
+            textArea.value = link;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
         }
     };
 

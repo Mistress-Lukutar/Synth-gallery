@@ -154,10 +154,10 @@ class S3Storage(StorageInterface):
                 raise StorageFileNotFoundError(f"File not found: {file_id}")
             raise DownloadError(f"Failed to download {file_id}: {e}")
     
-    def get_stream(self, file_id: str, folder: str = "uploads") -> BinaryIO:
+    async def get_stream(self, file_id: str, folder: str = "uploads") -> BinaryIO:
         """Get file as stream from S3."""
         key = self._get_key(file_id, folder)
-        
+
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
             # Return the StreamingBody as file-like object

@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from .deps import get_folder_service, get_permission_service
 from ...application.services import UserSettingsService, ItemService
 from ...infrastructure.repositories import UserRepository
-from ...config import ROOT_PATH, BASE_DIR
+from ...config import ROOT_PATH, BASE_DIR, EXTERNAL_HOST
 from ...database import create_connection
 from ...dependencies import get_current_user
 from ...infrastructure.repositories import (
@@ -20,6 +20,7 @@ router = APIRouter()
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["external_host"] = EXTERNAL_HOST
 
 
 @router.get("/")
