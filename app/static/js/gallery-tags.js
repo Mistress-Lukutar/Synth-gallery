@@ -1,16 +1,17 @@
 /**
- * Gallery Tags v2 - Hierarchical Tag System
+ * Gallery Tags v2 - Hierarchical Tag System with Metadata Editing
  * 
  * Features:
  * - Tree view for browsing tags
  * - Autocomplete with usage count
  * - Negative search support
  * - Automatic ancestor inclusion
+ * - Item metadata editing (title, description, taken_at)
  */
 
 (function() {
     // DOM Elements
-    let tagEditorPanel = null;
+    let itemDetailsPanel = null;
     let tagSearch = null;
     let tagTreeContainer = null;
     let currentTagsContainer = null;
@@ -25,10 +26,14 @@
     let currentTags = [];
     let searchResults = [];
     let recentTags = [];
+    
+    // Metadata state
+    let currentItemMetadata = null;
+    let hasMetadataChanges = false;
 
     function init() {
-        tagEditorPanel = document.getElementById('tag-editor-panel');
-        if (!tagEditorPanel) return;
+        itemDetailsPanel = document.getElementById('item-details-panel');
+        if (!itemDetailsPanel) return;
 
         lightbox = document.getElementById('lightbox');
         tagSearch = document.getElementById('tag-search');
@@ -69,15 +74,274 @@
         }
 
         // Close on backdrop click
-        tagEditorPanel?.addEventListener('click', (e) => {
-            if (e.target === tagEditorPanel) {
-                closeTagEditor();
+        itemDetailsPanel?.addEventListener('click', (e) => {
+            if (e.target === itemDetailsPanel) {
+                closeItemDetails();
             }
         });
     }
 
     // ========================================================================
-    // API Calls
+    // Metadata API Functions
+    // ========================================================================
+
+    async function loadMetadata(itemId) {
+        const resp = await fetch(`${getBaseUrl()}/api/items/${itemId}/metadata`);
+        if (!resp.ok) throw new Error('Failed to load metadata');
+        return await resp.json();
+    }
+
+    async function saveMetadata(itemId, metadata) {
+        return await csrfFetch(`${getBaseUrl()}/api/items/${itemId}/metadata`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(metadata)
+        });
+    }
+
+    function renderMetadata(metadata) {
+        currentItemMetadata = metadata;
+        
+        // Editable fields
+        document.getElementById('item-title').value = metadata.title || '';
+        
+        // Initialize Markdown editor (but keep it hidden initially)
+        initDescriptionEditor(metadata.description || '');
+        currentDescriptionMode = 'preview';
+        
+        // Apply preview mode by default (Edit button to enter edit mode)
+        const wrapper = document.querySelector('.description-editor-wrapper');
+        const toggleText = document.getElementById('desc-toggle-text');
+        const previewEl = document.getElementById('item-description-preview');
+        
+        wrapper?.classList.add('preview-mode');
+        wrapper?.classList.remove('edit-mode');
+        if (toggleText) toggleText.textContent = 'Edit';
+        updateDescriptionPreview();
+        previewEl?.classList.remove('hidden');
+        
+        // Read-only details (includes Date Taken)
+        document.getElementById('detail-filename').textContent = metadata.original_name || '-';
+        document.getElementById('detail-type').textContent = metadata.content_type || '-';
+        document.getElementById('detail-size').textContent = formatFileSize(metadata.file_size);
+        document.getElementById('detail-dimensions').textContent = 
+            metadata.width && metadata.height ? `${metadata.width} × ${metadata.height}` : '-';
+        document.getElementById('detail-duration').textContent = 
+            metadata.duration ? formatDuration(metadata.duration) : '-';
+        document.getElementById('detail-uploaded').textContent = formatDate(metadata.uploaded_at);
+        document.getElementById('detail-modified').textContent = formatDate(metadata.updated_at);
+        document.getElementById('detail-taken-at').textContent = formatDate(metadata.taken_at) || '-';
+        
+        // Show/hide media-specific rows
+        document.getElementById('detail-dimensions-row').classList.toggle('hidden', !metadata.width);
+        document.getElementById('detail-duration-row').classList.toggle('hidden', !metadata.duration);
+    }
+    
+    // Initialize EasyMDE editor
+    function initDescriptionEditor(initialValue) {
+        const textarea = document.getElementById('item-description');
+        if (!textarea) return;
+        
+        // Destroy existing instance if any
+        if (descriptionEditor) {
+            descriptionEditor.toTextArea();
+            descriptionEditor = null;
+        }
+        
+        // Set initial value
+        textarea.value = initialValue || '';
+        
+        // Create EasyMDE instance with auto-expanding
+        descriptionEditor = new EasyMDE({
+            element: textarea,
+            autofocus: false,
+            spellChecker: false,
+            autoDownloadFontAwesome: false,
+            toolbar: [
+                'bold', 'italic', 'heading', '|',
+                'code', 'quote', 'unordered-list', 'ordered-list', '|',
+                'link', 'image', '|',
+                'preview', 'side-by-side', 'fullscreen', '|',
+                'guide'
+            ],
+            status: ['lines', 'words'],
+            minHeight: '80px',
+            maxHeight: '400px',
+            placeholder: 'Add a description... (Markdown supported)',
+            initialValue: initialValue || '',
+            shortcuts: {
+                'togglePreview': null,
+                'toggleSideBySide': null,
+                'toggleFullscreen': null
+            },
+            forceSync: true
+        });
+        
+        // Hook into blur event for save (not change)
+        descriptionEditor.codemirror.on('blur', () => {
+            if (hasChanges()) autoSave();
+        });
+        
+        // Initial render of preview
+        updateDescriptionPreview();
+    }
+    
+    // Update preview content
+    function updateDescriptionPreview() {
+        const previewEl = document.getElementById('item-description-preview');
+        const value = descriptionEditor ? descriptionEditor.value() : (document.getElementById('item-description')?.value || '');
+        
+        if (previewEl && typeof marked !== 'undefined') {
+            // Parse markdown
+            previewEl.innerHTML = marked.parse(value, { breaks: true });
+            
+            // Apply syntax highlighting to code blocks
+            if (typeof hljs !== 'undefined') {
+                previewEl.querySelectorAll('pre code').forEach((block) => {
+                    hljs.highlightElement(block);
+                });
+            }
+            
+            // Render LaTeX math
+            if (typeof renderMathInElement !== 'undefined') {
+                renderMathInElement(previewEl, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false}
+                    ],
+                    throwOnError: false
+                });
+            }
+            
+            addCopyButtonsToCodeBlocks(previewEl);
+        }
+    }
+    
+    // Add copy buttons to code blocks
+    function addCopyButtonsToCodeBlocks(container) {
+        const codeBlocks = container.querySelectorAll('pre code');
+        codeBlocks.forEach((codeBlock, index) => {
+            const pre = codeBlock.parentElement;
+            if (pre.querySelector('.code-copy-btn')) return; // Already has button
+            
+            const wrapper = document.createElement('div');
+            wrapper.className = 'code-block-wrapper';
+            wrapper.style.position = 'relative';
+            
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'code-copy-btn';
+            copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            copyBtn.title = 'Copy code';
+            copyBtn.onclick = () => copyCodeToClipboard(codeBlock, copyBtn);
+            
+            pre.style.position = 'relative';
+            pre.appendChild(copyBtn);
+        });
+    }
+    
+    // Copy code to clipboard
+    async function copyCodeToClipboard(codeBlock, button) {
+        const code = codeBlock.textContent;
+        try {
+            await navigator.clipboard.writeText(code);
+            button.classList.add('copied');
+            button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => {
+                button.classList.remove('copied');
+                button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            }, 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    }
+    
+    // Toggle between edit and preview mode
+    window.toggleDescriptionMode = async function() {
+        const newMode = currentDescriptionMode === 'edit' ? 'preview' : 'edit';
+        
+        // Save when switching from edit to preview
+        if (currentDescriptionMode === 'edit' && newMode === 'preview') {
+            if (hasChanges()) await autoSave();
+        }
+        
+        currentDescriptionMode = newMode;
+        
+        const wrapper = document.querySelector('.description-editor-wrapper');
+        const toggleBtn = document.getElementById('desc-toggle-btn');
+        const toggleText = document.getElementById('desc-toggle-text');
+        const previewEl = document.getElementById('item-description-preview');
+        
+        if (newMode === 'edit') {
+            wrapper?.classList.remove('preview-mode');
+            wrapper?.classList.add('edit-mode');
+            toggleText.textContent = 'Save';
+            previewEl?.classList.add('hidden');
+            descriptionEditor?.codemirror.refresh();
+        } else {
+            wrapper?.classList.add('preview-mode');
+            wrapper?.classList.remove('edit-mode');
+            toggleText.textContent = 'Edit';
+            updateDescriptionPreview();
+            previewEl?.classList.remove('hidden');
+        }
+    };
+    
+    // Legacy function for compatibility
+    window.setDescriptionMode = function(mode) {
+        if ((mode === 'preview' && currentDescriptionMode === 'edit') ||
+            (mode === 'edit' && currentDescriptionMode === 'preview')) {
+            toggleDescriptionMode();
+        }
+    };
+    
+    function formatDateTime(dateStr) {
+        if (!dateStr) return null;
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        return date.toLocaleString();
+    }
+
+    // Helper functions
+    function formatFileSize(bytes) {
+        if (!bytes) return '-';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
+    }
+
+    function formatDuration(seconds) {
+        if (!seconds) return '-';
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        return new Date(dateStr).toLocaleDateString();
+    }
+
+    function formatForDateTimeLocal(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+    }
+
+    // Collapsible toggle
+    window.toggleDetailsSection = function() {
+        const content = document.getElementById('details-content');
+        const icon = document.querySelector('.collapsible-toggle .toggle-icon');
+        content.classList.toggle('collapsed');
+        icon.textContent = content.classList.contains('collapsed') ? '▶' : '▼';
+    };
+
+    // ========================================================================
+    // Tag API Calls
     // ========================================================================
 
     async function loadCategories() {
@@ -184,14 +448,6 @@
             }
         } catch (e) {
             console.error('Failed to remove tag:', e);
-        }
-    }
-
-    async function saveChanges() {
-        closeTagEditor();
-        // Refresh gallery to show tag changes
-        if (window.refreshGallery) {
-            window.refreshGallery();
         }
     }
 
@@ -387,19 +643,74 @@
     // Public API
     // ========================================================================
 
-    window.openTagEditor = async function(itemId) {
+    // Load and display item details (used when panel is already open)
+    window.loadItemDetails = async function(itemId) {
+        if (!itemId) return;
+        editingItemId = itemId;
+        
+        // Save any pending changes for previous item
+        clearTimeout(saveTimeout);
+        if (hasChanges()) {
+            await autoSave();
+        }
+        
+        // Load new metadata
+        try {
+            const metadata = await loadMetadata(itemId);
+            renderMetadata(metadata);
+            // Store original values for dirty check
+            originalValues = {
+                title: metadata.title ?? '',
+                description: metadata.description ?? ''
+            };
+        } catch (e) {
+            console.error('Failed to load metadata:', e);
+        }
+        
+        // Load tags for new item
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/items/${itemId}/tags`);
+            if (resp.ok) {
+                const data = await resp.json();
+                currentTags = data.all_tags || [];
+                renderCurrentTags();
+            }
+        } catch (e) {
+            console.error('Failed to load tags:', e);
+        }
+    };
+    
+    window.openItemDetails = async function(itemId) {
         editingItemId = itemId || window.currentLightboxPhotoId;
         if (!editingItemId) {
             console.error('[gallery-tags] No item ID');
             return;
         }
         
-        // Load current tags
+        // Close album editor if open
+        const albumEditorPanel = document.getElementById('album-editor-panel');
+        if (albumEditorPanel?.classList.contains('open')) {
+            window.closeAlbumEditor?.();
+        }
+        
+        // Load metadata
+        try {
+            const metadata = await loadMetadata(editingItemId);
+            renderMetadata(metadata);
+            // Store original values for dirty check (normalize null to empty string)
+            originalValues = {
+                title: metadata.title ?? '',
+                description: metadata.description ?? ''
+            };
+        } catch (e) {
+            console.error('Failed to load metadata:', e);
+        }
+        
+        // Load tags (existing code)
         try {
             const resp = await fetch(`${getBaseUrl()}/api/items/${editingItemId}/tags`);
             if (resp.ok) {
                 const data = await resp.json();
-                // Combine explicit + inherited for display
                 currentTags = data.all_tags || [];
                 renderCurrentTags();
             }
@@ -407,39 +718,143 @@
             console.error('Failed to load tags:', e);
         }
         
-        // Show panel
-        tagEditorPanel?.classList.add('open');
+        // Show panel (update to use new panel ID)
+        itemDetailsPanel?.classList.add('open');
         lightbox?.classList.add('panel-open');
         
         // Reset state
         currentCategory = null;
         currentTreeParent = null;
         if (tagSearch) tagSearch.value = '';
-        
-        // Load initial tree
         showTreeView();
         
-        // Register back button handler
+        // Setup auto-save listeners
+        setupAutoSaveListeners();
+        
+        // Register back button
         if (window.BackButtonManager) {
-            window.BackButtonManager.register('tag-editor', window.closeTagEditor);
+            window.BackButtonManager.register('item-details', window.closeItemDetails);
         }
     };
 
-    window.closeTagEditor = function() {
-        if (window.BackButtonManager) {
-            window.BackButtonManager.unregister('tag-editor', true);
+    // EasyMDE instance for description
+    let descriptionEditor = null;
+    let currentDescriptionMode = 'edit';
+    
+    // Auto-save with debounce and dirty check
+    let saveTimeout = null;
+    let originalValues = {};
+    const SAVE_DELAY = 800; // ms
+    
+    function hasChanges() {
+        // Get current values (treat null/undefined as empty string for comparison)
+        const currentTitle = document.getElementById('item-title')?.value ?? '';
+        const currentDesc = descriptionEditor ? descriptionEditor.value() : (document.getElementById('item-description')?.value ?? '');
+        
+        // Get original values (stored as empty string if originally null/undefined)
+        const origTitle = originalValues.title ?? '';
+        const origDesc = originalValues.description ?? '';
+        
+        return currentTitle !== origTitle || currentDesc !== origDesc;
+    }
+    
+    function queueAutoSave() {
+        if (!editingItemId) return;
+        if (!hasChanges()) return; // Don't save if nothing changed
+        
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+            autoSave();
+        }, SAVE_DELAY);
+    }
+    
+    async function autoSave() {
+        if (!editingItemId) return;
+        if (!hasChanges()) return; // Skip if nothing changed
+        
+        // Get values
+        const titleValue = document.getElementById('item-title')?.value ?? '';
+        const descValue = descriptionEditor ? descriptionEditor.value() : (document.getElementById('item-description')?.value ?? '');
+        
+        // Send empty string as empty string (not null), so backend can clear the field
+        const metadata = {
+            title: titleValue.trim() || null,  // Title can be null if empty
+            description: descValue  // Description can be empty string to clear it
+        };
+        
+        try {
+            const resp = await saveMetadata(editingItemId, metadata);
+            if (resp.ok) {
+                // Update cached metadata
+                const data = await resp.json();
+                if (data.item) {
+                    currentItemMetadata = { ...currentItemMetadata, ...data.item };
+                }
+                // Refresh lightbox
+                if (window.reloadCurrentPhoto) {
+                    window.reloadCurrentPhoto();
+                }
+                // Update original values after successful save (store as empty string if null)
+                originalValues = {
+                    title: metadata.title ?? '',
+                    description: metadata.description ?? ''
+                };
+            }
+        } catch (e) {
+            console.error('Auto-save failed:', e);
+        }
+    }
+    
+    // Setup save on blur (no auto-save on input)
+    function setupAutoSaveListeners() {
+        const titleInput = document.getElementById('item-title');
+        
+        if (titleInput) {
+            titleInput.addEventListener('blur', () => {
+                if (hasChanges()) autoSave();
+            });
+        }
+    }
+    
+    window.closeItemDetails = async function() {
+        // Save any pending changes before closing (only if changed)
+        clearTimeout(saveTimeout);
+        if (hasChanges()) {
+            await autoSave();
         }
         
-        tagEditorPanel?.classList.remove('open');
+        if (window.BackButtonManager) {
+            window.BackButtonManager.unregister('item-details', true);
+        }
+        
+        itemDetailsPanel?.classList.remove('open');
         lightbox?.classList.remove('panel-open');
         editingItemId = null;
         currentTags = [];
+        currentItemMetadata = null;
         searchResults = [];
+        originalValues = {}; // Reset dirty check
+        
+        // Destroy editor instance
+        if (descriptionEditor) {
+            descriptionEditor.toTextArea();
+            descriptionEditor = null;
+        }
     };
+    
+    // Backward compatibility
+    window.saveItemDetails = async function() {
+        clearTimeout(saveTimeout);
+        await autoSave();
+    };
+
+    // Keep old function names as aliases for compatibility
+    window.openTagEditor = window.openItemDetails;
+    window.closeTagEditor = window.closeItemDetails;
 
     window.addTag = addTag;
     window.removeTag = removeTag;
-    window.saveTagChanges = saveChanges;
+    window.saveTagChanges = window.closeItemDetails;
     
     window.tagTreeDrillDown = function(tagId) {
         currentTreeParent = tagId;

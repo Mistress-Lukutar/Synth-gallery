@@ -96,16 +96,21 @@
 
     window.movePhotosToFolder = async function(photoIds, targetFolderId) {
         try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/items/move`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    photo_ids: photoIds,
-                    target_folder_id: targetFolderId
+            // Move items in parallel using single item endpoints
+            const movePromises = photoIds.map(photoId =>
+                csrfFetch(`${getBaseUrl()}/api/items/${photoId}/move`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder_id: targetFolderId })
                 })
-            });
-
-            if (!resp.ok) throw new Error('Failed to move photos');
+            );
+            
+            const results = await Promise.allSettled(movePromises);
+            const failed = results.filter(r => r.status === 'rejected' || !r.value.ok);
+            
+            if (failed.length > 0) {
+                console.warn(`Move completed with ${failed.length} failures`);
+            }
 
             // Refresh gallery
             if (window.currentFolderId && typeof navigateToFolder === 'function') {

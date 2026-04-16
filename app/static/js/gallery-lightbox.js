@@ -99,10 +99,37 @@
         }
     }
 
+    function isEditingText() {
+        // Check if user is typing in an input field
+        const activeEl = document.activeElement;
+        if (!activeEl) return false;
+        
+        // Check for input/textarea
+        if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') {
+            return true;
+        }
+        
+        // Check for CodeMirror (EasyMDE editor)
+        if (activeEl.classList.contains('CodeMirror') || 
+            activeEl.closest('.CodeMirror')) {
+            return true;
+        }
+        
+        // Check for contenteditable
+        if (activeEl.isContentEditable) {
+            return true;
+        }
+        
+        return false;
+    }
+
     function setupEventListeners() {
         // Keyboard navigation (Escape is handled by BackButtonManager)
         document.addEventListener('keydown', (e) => {
             if (lightbox.classList.contains('hidden')) return;
+            
+            // Don't navigate if user is typing
+            if (isEditingText()) return;
             
             if (e.key === 'ArrowLeft') {
                 window.navigateLightbox(-1);
@@ -164,6 +191,7 @@
     
     function handleTouchEnd(e) {
         if (!isSwiping || lightbox.classList.contains('hidden')) return;
+        
         // Ignore if gesture ended with multiple touches (pinch-to-zoom)
         if (e.changedTouches.length > 1) {
             isSwiping = false;
@@ -200,6 +228,9 @@
         }
     }
 
+    // Track currently open album editor
+    let currentAlbumEditorId = null;
+    
     // Set album context for navigation
     window.setAlbumContext = function(photos, startIndex = 0) {
         albumContext = {
@@ -212,6 +243,68 @@
     window.clearAlbumContext = function() {
         albumContext = null;
     };
+    
+    // Set current album editor ID
+    window.setCurrentAlbumEditor = function(albumId) {
+        currentAlbumEditorId = albumId;
+    };
+    
+    // Prepare lightbox state for viewing an empty album
+    window.prepareEmptyAlbumLightbox = function(albumId) {
+        if (!lightbox) init();
+        if (!lightbox) return;
+        
+        flatNavOrder = buildFlatNavOrder();
+        const albumIndex = flatNavOrder.findIndex(p => 
+            p.type === 'album_placeholder' && p.albumId === albumId
+        );
+        
+        if (albumIndex >= 0) {
+            currentNavIndex = albumIndex;
+        } else {
+            // Fallback: album not in gallery, create minimal nav order
+            flatNavOrder = [{ type: 'album_placeholder', id: albumId, albumId: albumId }];
+            currentNavIndex = 0;
+        }
+        
+        albumContext = null;
+        window.currentLightboxPhotoId = null;
+    };
+    
+    // Clear current album editor
+    window.clearCurrentAlbumEditor = function() {
+        currentAlbumEditorId = null;
+    };
+    
+    // Update panels when navigating between items
+    function updatePanelsOnNavigation(newPhotoId, photoData) {
+        // Update Details panel if open
+        const detailsPanel = document.getElementById('item-details-panel');
+        if (detailsPanel?.classList.contains('open')) {
+            // Reload metadata for new item
+            if (window.loadItemDetails) {
+                window.loadItemDetails(newPhotoId);
+            }
+        }
+        
+        // Check Album Editor
+        const albumEditorPanel = document.getElementById('album-editor-panel');
+        if (albumEditorPanel?.classList.contains('open') && currentAlbumEditorId) {
+            // Check if new item is in the current album
+            const isInAlbum = albumContext && albumContext.photos.some(p => p.id === newPhotoId);
+            
+            if (!isInAlbum) {
+                // Navigated outside the album - close editor
+                window.closeAlbumEditor?.();
+                currentAlbumEditorId = null;
+            } else {
+                // Still in album - update editor if needed
+                if (window.updateAlbumEditor) {
+                    window.updateAlbumEditor(newPhotoId);
+                }
+            }
+        }
+    }
 
     // Expose rebuild function for external use (e.g., when opening album)
     window.rebuildLightboxNavOrder = function() {
@@ -695,12 +788,9 @@
         if (!lightbox) return;
         
         const mediaContainer = lightbox.querySelector('.lightbox-media');
-        const datesEl = document.getElementById('lightbox-dates');
-        const tagsEl = document.getElementById('lightbox-tags');
         const albumIndicator = document.getElementById('lightbox-album-indicator');
         const albumBars = document.getElementById('lightbox-album-bars');
         const editAlbumBtn = document.getElementById('lightbox-edit-album');
-        const editTagsBtn = document.getElementById('lightbox-edit-tags');
 
         if (!mediaContainer) return;
 
@@ -783,41 +873,7 @@
                 }
             }
 
-            // Update info
-            if (datesEl) {
-                // Parse date string - handles both old and new formats
-                // New format: 2026-03-02T11:02:41.820010 (Python datetime.isoformat())
-                // Old format: 2026-03-02 11:02:41 or other variations
-                const parseDate = (dateStr) => {
-                    if (!dateStr) return null;
-                    // Replace space with T for consistency
-                    let normalized = dateStr.replace(' ', 'T');
-                    // If has microseconds (more than 3 digits after dot), trim to milliseconds
-                    const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
-                    if (match) {
-                        const [, base, frac] = match;
-                        if (frac && frac.length > 4) {
-                            // Trim to 3 decimal places (milliseconds)
-                            normalized = base + frac.substring(0, 4);
-                        }
-                    }
-                    // Add Z if missing timezone info
-                    if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
-                        normalized += 'Z';
-                    }
-                    const date = new Date(normalized);
-                    return isNaN(date.getTime()) ? null : date;
-                };
-                
-                const date = parseDate(photo.taken_at) || parseDate(photo.uploaded_at);
-                datesEl.textContent = date ? date.toLocaleDateString() : '';
-            }
-
-            if (tagsEl) {
-                tagsEl.innerHTML = (photo.tags || []).map(tag => 
-                    `<span class="tag" style="--tag-color: ${tag.color || '#6b7280'}">${escapeHtml(tag.tag || tag.name || tag)}</span>`
-                ).join('');
-            }
+            // Note: Tags and date are now shown in the details panel only
 
             // Debug album data
 
@@ -870,10 +926,14 @@
                 if (editAlbumBtn) editAlbumBtn.classList.add('hidden');
             }
 
-            // Edit tags button
-            if (editTagsBtn) {
-                editTagsBtn.onclick = () => window.openTagEditor?.(photoId);
+            // Edit details button (now in bottom bar)
+            const editDetailsBtn = document.getElementById('lightbox-edit-details');
+            if (editDetailsBtn) {
+                editDetailsBtn.onclick = () => window.openItemDetails?.(photoId);
             }
+            
+            // Update panels if open
+            updatePanelsOnNavigation(photoId, photo);
 
         } catch (err) {
             if (err.name === 'AbortError') {
@@ -901,6 +961,49 @@
     window.reloadCurrentPhoto = function() {
         if (currentPhotoId) {
             window.loadPhoto(currentPhotoId);
+        }
+    };
+
+    // Copy link to current photo
+    window.copyPhotoLink = async function() {
+        const photoId = currentPhotoId || window.currentLightboxPhotoId;
+        if (!photoId) {
+            console.warn('[lightbox] No photo ID available to copy');
+            return;
+        }
+        
+        const externalHost = window.SYNTH_EXTERNAL_HOST;
+        const baseUrl = window.SYNTH_BASE_URL || '';
+        
+        let link;
+        if (externalHost) {
+            link = `https://${externalHost}${baseUrl}/?photo_id=${photoId}`;
+        } else {
+            link = `${window.location.origin}${baseUrl}/?photo_id=${photoId}`;
+        }
+        
+        try {
+            await navigator.clipboard.writeText(link);
+            // Visual feedback
+            const btn = document.getElementById('lightbox-copy-link');
+            if (btn) {
+                const originalTitle = btn.getAttribute('title');
+                btn.setAttribute('title', 'Copied!');
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.setAttribute('title', originalTitle || 'Copy link');
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
+        } catch (err) {
+            console.error('[lightbox] Failed to copy link:', err);
+            // Fallback
+            const textArea = document.createElement('textarea');
+            textArea.value = link;
+            document.body.appendChild(textArea);
+            textArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textArea);
         }
     };
 

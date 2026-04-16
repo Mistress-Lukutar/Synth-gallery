@@ -19,6 +19,9 @@ from webauthn.helpers.structs import (
 )
 
 from ...config import WEBAUTHN_RP_NAME
+from ...logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def get_rp_id_from_origin(origin: str) -> str:
@@ -144,8 +147,8 @@ class WebAuthnService:
                 verification.credential_id,
                 verification.credential_public_key
             )
-        except Exception as e:
-            print(f"WebAuthn registration verification failed: {e}")
+        except Exception:
+            logger.exception("WebAuthn registration verification failed")
             return None
 
     @classmethod
@@ -248,8 +251,8 @@ class WebAuthnService:
             del cls._challenges[challenge]
 
             return verification.new_sign_count
-        except Exception as e:
-            print(f"WebAuthn authentication verification failed: {e}")
+        except Exception:
+            logger.exception("WebAuthn authentication verification failed")
             return None
 
     @classmethod

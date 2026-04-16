@@ -1,12 +1,13 @@
 """Folder management routes."""
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 
 from ..database import create_connection
-from ..config import UPLOADS_DIR, THUMBNAILS_DIR
 from ..dependencies import require_user
+from ..infrastructure.storage import get_storage
 
 # Service layer imports (Issue #16)
 from ..infrastructure.repositories import (
@@ -45,7 +46,7 @@ class PermissionUpdate(BaseModel):
 
 
 class SortPreference(BaseModel):
-    sort_by: str  # 'uploaded' | 'taken'
+    sort_by: Literal['uploaded', 'taken']
 
 
 # Service factory functions
@@ -159,13 +160,19 @@ def delete_folder_route(request: Request, folder_id: str):
     service = get_folder_service()
     filenames = service.delete_folder(folder_id, user["id"])
     
-    # Delete actual files
+    # Delete actual files from storage
+    import asyncio
+    storage = get_storage()
     for filename in filenames:
-        file_path = UPLOADS_DIR / filename
         photo_id = Path(filename).stem
-        thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less
-        file_path.unlink(missing_ok=True)
-        thumb_path.unlink(missing_ok=True)
+        # Delete upload and thumbnail asynchronously
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(storage.delete(photo_id, folder="uploads"))
+            asyncio.create_task(storage.delete(photo_id, folder="thumbnails"))
+        except RuntimeError:
+            asyncio.run(storage.delete(photo_id, folder="uploads"))
+            asyncio.run(storage.delete(photo_id, folder="thumbnails"))
     
     return {"status": "ok"}
 
@@ -324,9 +331,6 @@ def set_sort_preference(request: Request, folder_id: str, data: SortPreference):
     service = get_permission_service()
     if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    if data.sort_by not in ('uploaded', 'taken'):
-        raise HTTPException(status_code=400, detail="sort_by must be 'uploaded' or 'taken'")
     
     # Using service layer (Issue #16)
     settings_service = get_user_settings_service()

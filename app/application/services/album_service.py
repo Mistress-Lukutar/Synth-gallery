@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from .item_service import ItemService
 from ...infrastructure.repositories import AlbumRepository, ItemRepository, FolderRepository, ItemMediaRepository, PermissionRepository
+from .item_service import ItemService
 
 
 class AlbumService:
@@ -27,12 +28,14 @@ class AlbumService:
         album_repository: AlbumRepository,
         item_repository: ItemRepository,
         folder_repository: FolderRepository,
-        permission_repository: PermissionRepository = None
+        permission_repository: PermissionRepository = None,
+        item_media_repository: ItemMediaRepository = None
     ):
         self.album_repo = album_repository
         self.item_repo = item_repository
         self.folder_repo = folder_repository
         self.perm_repo = permission_repository
+        self.media_repo = item_media_repository
     
     # ========================================================================
     # Album CRUD
@@ -195,6 +198,80 @@ class AlbumService:
         
         # Move album
         return self.album_repo.move_to_folder(album_id, dest_folder_id)
+    
+    def copy_album(self, album_id: str, dest_folder_id: str, user_id: int) -> str:
+        """Copy album and all its items to a different folder.
+        
+        Returns:
+            New album ID
+        """
+        album = self.album_repo.get_by_id(album_id)
+        if not album:
+            raise HTTPException(404, "Album not found")
+        
+        # Check source permission
+        if not self._can_edit(album_id, user_id):
+            raise HTTPException(403, "No permission to copy")
+        
+        # Check destination permission
+        dest_folder = self.folder_repo.get_by_id(dest_folder_id)
+        if not dest_folder:
+            raise HTTPException(404, "Destination folder not found")
+        
+        if dest_folder["user_id"] != user_id:
+            raise HTTPException(403, "Cannot copy to this folder")
+        
+        # Check safe consistency
+        if album.get('safe_id') != dest_folder.get('safe_id'):
+            raise HTTPException(400, "Cannot copy between different safes")
+        
+        if not self.media_repo:
+            raise HTTPException(500, "ItemMediaRepository not available for album copy")
+        
+        # Get all items in album with positions
+        album_items = self.album_repo.get_items(album_id)
+        
+        # Copy items using ItemService
+        item_service = ItemService(
+            item_repository=self.item_repo,
+            item_media_repository=self.media_repo
+        )
+        
+        item_id_map = {}
+        for item in album_items:
+            try:
+                new_item_id = item_service.copy_item(
+                    item_id=item['id'],
+                    dest_folder_id=dest_folder_id,
+                    user_id=user_id
+                )
+                item_id_map[item['id']] = {
+                    'new_id': new_item_id,
+                    'position': item.get('position', 0)
+                }
+            except Exception:
+                # Skip items that fail to copy
+                pass
+        
+        # Create new album
+        new_album_id = self.album_repo.create(
+            folder_id=dest_folder_id,
+            user_id=user_id,
+            name=album['name'],
+            safe_id=album.get('safe_id')
+        )
+        
+        # Add copied items preserving order
+        sorted_items = sorted(item_id_map.values(), key=lambda x: x['position'])
+        for position, entry in enumerate(sorted_items):
+            self.album_repo.add_item(new_album_id, entry['new_id'], position)
+        
+        # Copy cover if the cover item was successfully copied
+        old_cover_id = album.get('cover_item_id')
+        if old_cover_id and old_cover_id in item_id_map:
+            self.album_repo.set_cover_item(new_album_id, item_id_map[old_cover_id]['new_id'])
+        
+        return new_album_id
     
     # ========================================================================
     # Item Management

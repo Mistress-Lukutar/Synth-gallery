@@ -3,6 +3,7 @@ import os
 import tempfile
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, Tuple
 
 import cv2
 from PIL import Image, ImageOps
@@ -85,5 +86,50 @@ def create_video_thumbnail_bytes(video_data: bytes, size: tuple[int, int] = (400
             return output.getvalue(), thumb_width, thumb_height
         finally:
             cap.release()
+    finally:
+        os.unlink(tmp_path)
+
+
+def get_image_dimensions(image_data: bytes) -> Optional[Tuple[int, int]]:
+    """Get original dimensions from image bytes.
+    
+    Returns:
+        Tuple of (width, height) or None if failed.
+    """
+    try:
+        with Image.open(BytesIO(image_data)) as img:
+            return img.size
+    except Exception:
+        return None
+
+
+def get_video_info(video_data: bytes) -> Optional[Tuple[int, int, float]]:
+    """Get video dimensions and duration from video bytes.
+    
+    Returns:
+        Tuple of (width, height, duration_seconds) or None if failed.
+    """
+    # Write to temp file (OpenCV needs file path)
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+        tmp.write(video_data)
+        tmp_path = tmp.name
+
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        try:
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            if width == 0 or height == 0:
+                return None
+                
+            duration = frame_count / fps if fps > 0 else 0
+            return width, height, duration
+        finally:
+            cap.release()
+    except Exception:
+        return None
     finally:
         os.unlink(tmp_path)

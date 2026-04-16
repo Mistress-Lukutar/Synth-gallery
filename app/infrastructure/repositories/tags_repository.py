@@ -326,13 +326,81 @@ class TagsRepository(Repository):
         
         return [dict(row) for row in cursor.fetchall()]
     
+    def search_items_by_tags(
+        self,
+        include_groups: list[set],
+        exclude_ids: set,
+        folder_id: Optional[str] = None
+    ) -> List[Dict]:
+        """Search items by tags with include/exclude logic.
+        
+        Args:
+            include_groups: List of sets, each set contains tag IDs for one search word (OR within group)
+            exclude_ids: Set of tag IDs to exclude
+            folder_id: Optional folder to filter by
+            
+        Returns:
+            List of items with media metadata
+        """
+        exclude_list = list(exclude_ids) if exclude_ids else []
+        
+        if not include_groups and not exclude_list:
+            return []
+        
+        placeholders_exc = ','.join('?' * len(exclude_list)) if exclude_list else '0'
+        
+        # Build AND conditions for each include group (OR within group)
+        include_conditions = []
+        params = []
+        
+        for i, tag_group in enumerate(include_groups):
+            if not tag_group:
+                continue
+            placeholders = ','.join('?' * len(tag_group))
+            include_conditions.append(f"""
+                EXISTS (
+                    SELECT 1 FROM item_tags it{i}
+                    WHERE it{i}.item_id = i.id
+                      AND it{i}.tag_id IN ({placeholders})
+                )
+            """)
+            params.extend(tag_group)
+        
+        include_sql = ' AND '.join(include_conditions) if include_conditions else '1=1'
+        
+        # Build exclude condition
+        exclude_sql = f"""
+            NOT EXISTS (
+                SELECT 1 FROM item_tags it_exc
+                WHERE it_exc.item_id = i.id
+                  AND it_exc.tag_id IN ({placeholders_exc})
+            )
+        """ if exclude_list else '1=1'
+        
+        # Build final params
+        final_params = []
+        if folder_id:
+            final_params.append(folder_id)
+        final_params.extend(params)
+        final_params.extend(exclude_list)
+        
+        sql = f"""
+            SELECT DISTINCT i.*, im.media_type, im.thumb_width, im.thumb_height
+            FROM items i
+            LEFT JOIN item_media im ON i.id = im.item_id
+            WHERE i.type = 'media'
+              {'AND i.folder_id = ?' if folder_id else ''}
+              AND ({include_sql})
+              AND ({exclude_sql})
+            ORDER BY i.uploaded_at DESC
+        """
+        
+        cursor = self._execute(sql, final_params)
+        return [dict(row) for row in cursor.fetchall()]
+    
     # =========================================================================
     # Bulk Operations
     # =========================================================================
-    
-    def add_tag_explicit(self, item_id: str, tag_id: int) -> bool:
-        """Add explicit tag to item (ancestors are calculated on-the-fly)."""
-        return self.add_tag_to_item(item_id, tag_id)
     
     def set_item_tags(self, item_id: str, tag_ids: List[int]) -> None:
         """Replace all explicit tags for item."""

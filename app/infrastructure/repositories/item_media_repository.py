@@ -6,7 +6,10 @@ media-specific data for photos and videos.
 from datetime import datetime
 from typing import Optional, Dict
 
+from ...logging_config import get_logger
 from .base import Repository
+
+logger = get_logger(__name__)
 
 
 class ItemMediaRepository(Repository):
@@ -28,7 +31,8 @@ class ItemMediaRepository(Repository):
         duration: int = None,  # For video
         thumb_width: int = None,
         thumb_height: int = None,
-        taken_at: datetime = None
+        taken_at: datetime = None,
+        file_size: int = None
     ) -> bool:
         """Create media details for an item.
         
@@ -43,6 +47,7 @@ class ItemMediaRepository(Repository):
             thumb_width: Thumbnail width
             thumb_height: Thumbnail height
             taken_at: EXIF capture date
+            file_size: File size in bytes
         """
         try:
             # Extension-less storage: filename = item_id
@@ -50,17 +55,17 @@ class ItemMediaRepository(Repository):
             self._execute(
                 """INSERT INTO item_media 
                    (item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    width, height, duration, thumb_width, thumb_height, taken_at, file_size)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at
+                    width, height, duration, thumb_width, thumb_height, taken_at, file_size
                 )
             )
             self._commit()
             return True
-        except Exception as e:
-            print(f"[ItemMediaRepository.create] Error: {e}")
+        except Exception:
+            logger.exception("Failed to create media record for item %s", item_id)
             return False
     
     def get_by_item_id(self, item_id: str) -> Optional[Dict]:
@@ -113,6 +118,23 @@ class ItemMediaRepository(Repository):
         cursor = self._execute(
             "DELETE FROM item_media WHERE item_id = ?",
             (item_id,)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def update_taken_at(self, item_id: str, taken_at: datetime) -> bool:
+        """Update the taken_at field for a media item.
+        
+        Args:
+            item_id: Item ID
+            taken_at: New capture date/timestamp
+            
+        Returns:
+            True if updated
+        """
+        cursor = self._execute(
+            "UPDATE item_media SET taken_at = ? WHERE item_id = ?",
+            (taken_at, item_id)
         )
         self._commit()
         return cursor.rowcount > 0

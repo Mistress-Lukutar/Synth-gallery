@@ -27,12 +27,6 @@ class TagAddInput(BaseModel):
     tag_id: int
 
 
-class BatchTagInput(BaseModel):
-    item_ids: List[str]
-    add_tag_ids: List[int] = []
-    remove_tag_ids: List[int] = []
-
-
 # =============================================================================
 # Categories
 # =============================================================================
@@ -189,28 +183,5 @@ def search_by_tags(
     finally:
         db.close()
 
-
-# =============================================================================
-# Bulk Operations
-# =============================================================================
-
-@router.post("/api/items/batch-tags")
-def batch_tag_items(data: BatchTagInput, request: Request):
-    """Batch add/remove tags from items."""
-    require_user(request)
-    if not data.item_ids:
-        raise HTTPException(400, "No items specified")
-    
-    db = create_connection()
-    try:
-        service = TagService(TagsRepository(db))
-        result = service.batch_tag_items(
-            data.item_ids,
-            data.add_tag_ids,
-            data.remove_tag_ids
-        )
-        return {"status": "ok", **result}
-    finally:
-        db.close()
 
 

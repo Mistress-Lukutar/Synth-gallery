@@ -27,6 +27,7 @@ class ItemRepository(Repository):
         user_id: int,
         item_id: str = None,
         title: str = None,
+        description: str = None,
         metadata: dict = None,
         safe_id: str = None,
         is_encrypted: bool = False,
@@ -40,6 +41,7 @@ class ItemRepository(Repository):
             user_id: Owner user ID
             item_id: Optional UUID (generated if not provided)
             title: Item title/name
+            description: Item description
             metadata: Type-specific metadata dict (stored as JSON)
             safe_id: Safe ID if in encrypted vault
             is_encrypted: Whether item is encrypted
@@ -54,12 +56,13 @@ class ItemRepository(Repository):
         self._execute(
             """INSERT INTO items 
                (id, type, folder_id, safe_id, user_id, uploaded_at, 
-                title, metadata, is_encrypted)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                title, description, metadata, is_encrypted)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 item_id, item_type, folder_id, safe_id, user_id,
                 uploaded_at or datetime.now(),
                 title,
+                description,
                 json.dumps(metadata) if metadata else None,
                 1 if is_encrypted else 0
             )
@@ -169,7 +172,7 @@ class ItemRepository(Repository):
             item_id: Item ID
             **kwargs: Fields to update (title, metadata, folder_id, etc.)
         """
-        allowed_fields = {'title', 'metadata', 'folder_id', 'safe_id'}
+        allowed_fields = {'title', 'metadata', 'folder_id', 'safe_id', 'description'}
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
         if not updates:
@@ -252,6 +255,42 @@ class ItemRepository(Repository):
         cursor = self._execute(
             "UPDATE items SET is_encrypted = 1 WHERE id = ?",
             (item_id,)
+        )
+        self._commit()
+        return cursor.rowcount > 0
+    
+    def update_metadata(self, item_id: str, title: str = None, description: str = None) -> bool:
+        """Update item metadata and set updated_at timestamp.
+        
+        Args:
+            item_id: Item ID
+            title: New title (optional)
+            description: New description (optional)
+            
+        Returns:
+            True if updated
+        """
+        updates = []
+        values = []
+        
+        if title is not None:
+            updates.append("title = ?")
+            values.append(title)
+        if description is not None:
+            updates.append("description = ?")
+            values.append(description)
+        
+        if not updates:
+            return False
+        
+        # Always update the updated_at timestamp
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(item_id)
+        
+        set_clause = ", ".join(updates)
+        cursor = self._execute(
+            f"UPDATE items SET {set_clause} WHERE id = ?",
+            tuple(values)
         )
         self._commit()
         return cursor.rowcount > 0
