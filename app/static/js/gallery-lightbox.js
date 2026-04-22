@@ -4,6 +4,41 @@
  */
 
 (function() {
+    // Inline fallback for copyToClipboard in case core.js is cached/old
+    const _copyToClipboard = window.copyToClipboard || async function(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(text);
+                console.log('[clipboard] Copied using navigator.clipboard API');
+                return true;
+            } catch (err) {
+                console.warn('[clipboard] navigator.clipboard failed:', err);
+            }
+        }
+        try {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            textArea.style.top = '0';
+            textArea.setAttribute('readonly', '');
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (successful) {
+                console.log('[clipboard] Copied using execCommand fallback');
+                return true;
+            }
+            console.warn('[clipboard] execCommand returned false');
+        } catch (err) {
+            console.warn('[clipboard] execCommand fallback failed:', err);
+        }
+        console.warn('[clipboard] All automated clipboard methods failed');
+        return false;
+    };
+
     let lightbox = null;
     let currentPhotoId = null;
     let currentPhotos = [];
@@ -982,10 +1017,10 @@
             link = `${window.location.origin}${baseUrl}/?photo_id=${photoId}`;
         }
         
-        try {
-            await navigator.clipboard.writeText(link);
-            // Visual feedback
-            const btn = document.getElementById('lightbox-copy-link');
+        const copied = await _copyToClipboard(link);
+        const btn = document.getElementById('lightbox-copy-link');
+        
+        if (copied) {
             if (btn) {
                 const originalTitle = btn.getAttribute('title');
                 btn.setAttribute('title', 'Copied!');
@@ -995,15 +1030,16 @@
                     btn.classList.remove('copied');
                 }, 1500);
             }
-        } catch (err) {
-            console.error('[lightbox] Failed to copy link:', err);
-            // Fallback
-            const textArea = document.createElement('textarea');
-            textArea.value = link;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
+        } else {
+            // Manual fallback modal for mobile/unsupported browsers
+            console.warn('[lightbox] Automated copy failed, showing manual fallback');
+            window.prompt('Copy this link manually:', link);
+            if (btn) {
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.classList.remove('copied');
+                }, 1500);
+            }
         }
     };
 

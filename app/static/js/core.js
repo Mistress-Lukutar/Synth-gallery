@@ -155,6 +155,55 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+/**
+ * Copy text to clipboard with fallbacks for mobile and legacy browsers.
+ * Returns true if copied successfully, false otherwise.
+ */
+async function copyToClipboard(text) {
+    // 1. Try modern Clipboard API (requires secure context)
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            console.log('[clipboard] Copied using navigator.clipboard API');
+            return true;
+        } catch (err) {
+            console.warn('[clipboard] navigator.clipboard failed:', err);
+        }
+    } else {
+        console.log('[clipboard] navigator.clipboard not available (non-secure context or unsupported)');
+    }
+
+    // 2. Fallback: execCommand('copy')
+    try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        // Position off-screen but keep focusable
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '0';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+
+        if (successful) {
+            console.log('[clipboard] Copied using execCommand fallback');
+            return true;
+        }
+        console.warn('[clipboard] execCommand returned false');
+    } catch (err) {
+        console.warn('[clipboard] execCommand fallback failed:', err);
+    }
+
+    // 3. All automated methods failed
+    console.warn('[clipboard] All automated clipboard methods failed');
+    return false;
+}
+
 // Export to window
 window.bindEnterKey = bindEnterKey;
+window.copyToClipboard = copyToClipboard;
 

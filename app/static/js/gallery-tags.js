@@ -10,6 +10,41 @@
  */
 
 (function() {
+    // Inline fallback for copyToClipboard in case core.js is cached/old
+    const _copyToClipboard = window.copyToClipboard || async function(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(text);
+                console.log('[clipboard] Copied using navigator.clipboard API');
+                return true;
+            } catch (err) {
+                console.warn('[clipboard] navigator.clipboard failed:', err);
+            }
+        }
+        try {
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.left = '-9999px';
+            textArea.style.top = '0';
+            textArea.setAttribute('readonly', '');
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (successful) {
+                console.log('[clipboard] Copied using execCommand fallback');
+                return true;
+            }
+            console.warn('[clipboard] execCommand returned false');
+        } catch (err) {
+            console.warn('[clipboard] execCommand fallback failed:', err);
+        }
+        console.warn('[clipboard] All automated clipboard methods failed');
+        return false;
+    };
+
     // DOM Elements
     let itemDetailsPanel = null;
     let tagSearch = null;
@@ -242,16 +277,16 @@
     // Copy code to clipboard
     async function copyCodeToClipboard(codeBlock, button) {
         const code = codeBlock.textContent;
-        try {
-            await navigator.clipboard.writeText(code);
+        const copied = await _copyToClipboard(code);
+        if (copied) {
             button.classList.add('copied');
             button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>';
             setTimeout(() => {
                 button.classList.remove('copied');
                 button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
             }, 2000);
-        } catch (err) {
-            console.error('Failed to copy:', err);
+        } else {
+            window.prompt('Copy code manually:', code);
         }
     }
     
