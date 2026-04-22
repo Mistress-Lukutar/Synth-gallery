@@ -4885,6 +4885,13 @@ main {
     display: none;
 }
 
+.lightbox-bottom-btn.copied {
+    opacity: 1;
+    background: #22c55e;
+    color: white;
+    transform: scale(1.1);
+}
+
 /* Panel open state adjustments */
 .lightbox.panel-open .lightbox-top-bar {
     right: 420px;
