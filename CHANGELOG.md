@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-04-27
+
+### Fixed
+- **Mobile Copy Link** - Fixed clipboard copying in lightbox on mobile devices and legacy browsers
+  - Added `execCommand('copy')` fallback for browsers without Clipboard API
+  - Added manual text selection prompt as last resort fallback
+  - Fixed `copyPhotoLink()` to use unified `copyToClipboard()` helper
+
 ## [1.1.0] - 2026-04-16
 
 ### Added
