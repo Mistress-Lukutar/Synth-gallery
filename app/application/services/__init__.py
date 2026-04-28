@@ -9,10 +9,12 @@ from .auth_service import AuthService
 from .item_service import ItemService
 from .album_service import AlbumService
 from .tag_service import TagService
+from .tag_implication_service import TagImplicationService
+from .tag_suggestion_service import TagSuggestionService
 
 __all__ = [
     "FolderService",
-    "PermissionService", 
+    "PermissionService",
     "SafeService",
     "SafeFileService",
     "UserSettingsService",
@@ -20,4 +22,6 @@ __all__ = [
     "ItemService",
     "AlbumService",
     "TagService",
+    "TagImplicationService",
+    "TagSuggestionService",
 ]

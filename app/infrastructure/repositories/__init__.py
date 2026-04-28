@@ -22,6 +22,8 @@ from .item_repository import ItemRepository
 from .item_media_repository import ItemMediaRepository
 from .album_repository import AlbumRepository
 from .tags_repository import TagsRepository
+from .tag_implication_repository import TagImplicationRepository
+from .tag_cooccurrence_repository import TagCooccurrenceRepository
 
 __all__ = [
     "Repository",
@@ -36,4 +38,6 @@ __all__ = [
     "ItemMediaRepository",
     "AlbumRepository",
     "TagsRepository",
+    "TagImplicationRepository",
+    "TagCooccurrenceRepository",
 ]
