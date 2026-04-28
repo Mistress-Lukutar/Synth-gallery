@@ -249,8 +249,11 @@
                 const safeId = album.safe_id;
                 const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 
-                const thumbWidth = album.cover_thumb_width || 280;
-                const thumbHeight = album.cover_thumb_height || 280;
+                const rawWidth = album.cover_thumb_width || 280;
+                const rawHeight = album.cover_thumb_height || 280;
+                const clamped = window.clampGalleryAspect ? window.clampGalleryAspect(rawWidth, rawHeight) : { width: rawWidth, height: rawHeight };
+                const thumbWidth = Math.round(clamped.width);
+                const thumbHeight = Math.round(clamped.height);
                 const dimsAttr = `data-thumb-width="${thumbWidth}" data-thumb-height="${thumbHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${thumbWidth} / ${thumbHeight};"`;
                 
@@ -306,8 +309,11 @@
                 const mediaType = photo.media_type || 'image';
                 
                 const hasDims = photo.thumb_width && photo.thumb_height;
-                const finalWidth = hasDims ? photo.thumb_width : 280;
-                const finalHeight = hasDims ? photo.thumb_height : 210;
+                const rawWidth = hasDims ? photo.thumb_width : 280;
+                const rawHeight = hasDims ? photo.thumb_height : 210;
+                const clamped = window.clampGalleryAspect ? window.clampGalleryAspect(rawWidth, rawHeight) : { width: rawWidth, height: rawHeight };
+                const finalWidth = Math.round(clamped.width);
+                const finalHeight = Math.round(clamped.height);
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 

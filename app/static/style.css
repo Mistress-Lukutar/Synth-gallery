@@ -384,6 +384,7 @@ main {
     display: block;
     position: relative;
     width: 100%;
+    overflow: hidden;
 }
 
 /* Fallback aspect-ratio for items without stored dimensions */
@@ -442,9 +443,12 @@ main {
 
 .gallery-item img {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    object-fit: cover;
     z-index: 1;
     transition: transform 0.3s, opacity 0.3s;
 }

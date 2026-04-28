@@ -171,8 +171,10 @@
 
             let itemHeight;
             if (thumbW > 0 && thumbH > 0) {
-                // Use stored dimensions
-                itemHeight = (thumbH / thumbW) * columnWidth;
+                // Use stored dimensions, clamped to prevent extreme aspect ratios
+                let aspectRatio = thumbW / thumbH;
+                aspectRatio = Math.max(0.5, Math.min(2.0, aspectRatio));
+                itemHeight = columnWidth / aspectRatio;
             } else {
                 // Fallback for legacy photos - use square placeholder or loaded image
                 const img = item.querySelector('img');

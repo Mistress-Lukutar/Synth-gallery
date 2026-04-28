@@ -199,8 +199,11 @@
                 const hasDims = thumbWidth && thumbHeight;
                 
                 // Default to square for albums without cover/dimensions
-                const finalWidth = hasDims ? thumbWidth : 280;
-                const finalHeight = hasDims ? thumbHeight : 280;
+                const rawWidth = hasDims ? thumbWidth : 280;
+                const rawHeight = hasDims ? thumbHeight : 280;
+                const clamped = window.clampGalleryAspect ? window.clampGalleryAspect(rawWidth, rawHeight) : { width: rawWidth, height: rawHeight };
+                const finalWidth = Math.round(clamped.width);
+                const finalHeight = Math.round(clamped.height);
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
@@ -265,8 +268,11 @@
                 
                 // Use stored dimensions or default to 4:3 aspect ratio
                 const hasDims = media.thumb_width && media.thumb_height;
-                const finalWidth = hasDims ? media.thumb_width : 280;
-                const finalHeight = hasDims ? media.thumb_height : 210;
+                const rawWidth = hasDims ? media.thumb_width : 280;
+                const rawHeight = hasDims ? media.thumb_height : 210;
+                const clamped = window.clampGalleryAspect ? window.clampGalleryAspect(rawWidth, rawHeight) : { width: rawWidth, height: rawHeight };
+                const finalWidth = Math.round(clamped.width);
+                const finalHeight = Math.round(clamped.height);
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 

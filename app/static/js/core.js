@@ -47,11 +47,21 @@ function getBaseUrl() {
     return window.SYNTH_BASE_URL || '';
 }
 
+// Clamp gallery item aspect ratio to prevent extreme tall/wide images
+// Limits: min 1:2 (ratio 0.5), max 2:1 (ratio 2.0)
+function clampGalleryAspect(width, height) {
+    if (!width || !height || height <= 0) return { width: 1, height: 1 };
+    const ratio = width / height;
+    const clampedRatio = Math.max(0.5, Math.min(2.0, ratio));
+    return { width: width, height: width / clampedRatio };
+}
+
 // Export to window
 window.getCsrfToken = getCsrfToken;
 window.csrfFetch = csrfFetch;
 window.escapeHtml = escapeHtml;
 window.getBaseUrl = getBaseUrl;
+window.clampGalleryAspect = clampGalleryAspect;
 
 // Handle image load errors (403, etc.) - show placeholder with lock icon
 window.handleImageError = function(img, errorType = 'access', context = {}) {
