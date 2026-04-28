@@ -525,8 +525,7 @@ def _init_tag_hierarchy_v2(db):
                 VALUES (?, ?)
             """, (from_id, to_id))
 
-    # Subject category
-    subject = create_flat_tag('subject', 'Subject', 1)
+    # Subject category tags (do NOT create 'subject' as a tag - it's a category name)
     animal = create_flat_tag('animal', 'Animal', 1)
     mammal = create_flat_tag('mammal', 'Mammal', 1)
     fox = create_flat_tag('fox', 'Fox', 1)
@@ -600,9 +599,10 @@ def _init_tag_hierarchy_v2(db):
     photo = create_flat_tag('photo', 'Photo', 5)
     illustration = create_flat_tag('illustration', 'Illustration', 5)
     render = create_flat_tag('render', '3D Render', 5)
+    video = create_flat_tag('video', 'Video', 5)
 
     # Build implications (more specific -> more general)
-    add_implication(animal, subject)
+    # NOTE: implications go between tags, NOT to category names (e.g. no 'subject' tag)
     add_implication(mammal, animal)
     add_implication(fox, mammal)
     add_implication(silver_fox, fox)
@@ -621,11 +621,9 @@ def _init_tag_hierarchy_v2(db):
     add_implication(reptile, animal)
     add_implication(snake, reptile)
     add_implication(lizard, reptile)
-    add_implication(person, subject)
     add_implication(woman, person)
     add_implication(man, person)
     add_implication(child, person)
-    add_implication(obj, subject)
     add_implication(weapon, obj)
     add_implication(sword, weapon)
     add_implication(gun, weapon)
@@ -642,4 +640,3 @@ def _init_tag_hierarchy_v2(db):
     add_implication(ocean, water)
     add_implication(beach, water)
     add_implication(underwater, water)
-    video = create_flat_tag('video', 'Video', 5)
