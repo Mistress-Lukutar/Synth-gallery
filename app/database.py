@@ -241,15 +241,39 @@ def init_db():
     """)
     
     # Item-tags relationship (many-to-many)
+    # v3: stores both explicit (user-added) and implied (auto-resolved) tags
     db.execute("""
         CREATE TABLE IF NOT EXISTS item_tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             item_id TEXT NOT NULL,
             tag_id INTEGER NOT NULL,
+            is_explicit INTEGER NOT NULL DEFAULT 1,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(item_id, tag_id),
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
             FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Tag implications: directed edges for semantic inheritance (e.g. sea -> water)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS tag_implications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            implies_tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            UNIQUE(tag_id, implies_tag_id)
+        )
+    """)
+
+    # Tag co-occurrence: statistical relatedness for UX suggestions
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS tag_cooccurrence (
+            tag_a_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            tag_b_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            count INTEGER NOT NULL DEFAULT 1,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (tag_a_id, tag_b_id),
+            CHECK (tag_a_id < tag_b_id)
         )
     """)
 
@@ -318,6 +342,9 @@ def init_db():
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_item ON item_tags(item_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_explicit ON item_tags(item_id, is_explicit)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_cooccurrence_a ON tag_cooccurrence(tag_a_id, count DESC)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_cooccurrence_b ON tag_cooccurrence(tag_b_id, count DESC)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)")
