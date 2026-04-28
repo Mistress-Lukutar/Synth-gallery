@@ -221,7 +221,7 @@ def init_db():
         )
     """)
     
-    # Hierarchical tags (materialized path)
+    # Tags (flat with optional legacy path/parent for migration compatibility)
     db.execute("""
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -229,12 +229,11 @@ def init_db():
             display_name TEXT,
             category_id INTEGER,
             parent_id INTEGER,
-            path TEXT NOT NULL,
+            path TEXT DEFAULT '',
             level INTEGER DEFAULT 0,
             is_leaf INTEGER DEFAULT 1,
             usage_count INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(path),
             FOREIGN KEY (category_id) REFERENCES tag_categories(id),
             FOREIGN KEY (parent_id) REFERENCES tags(id)
         )
@@ -504,117 +503,143 @@ def _init_tag_categories_v2(db):
 
 
 def _init_tag_hierarchy_v2(db):
-    """Initialize default tag hierarchy for v2 system."""
-    
-    def create_tag(name, display_name, category_id, parent_id=None, path=None):
-        """Helper to create a tag and return its ID."""
-        level = 0 if parent_id is None else db.execute(
-            "SELECT level FROM tags WHERE id = ?", (parent_id,)
-        ).fetchone()[0] + 1
-        
-        if path is None:
-            path = name
-        
+    """Initialize default flat tags and implications for v3 system."""
+
+    def create_flat_tag(name, display_name, category_id):
+        """Helper to create a flat tag and return its ID."""
         try:
             cursor = db.execute("""
-                INSERT INTO tags (name, display_name, category_id, parent_id, path, level, is_leaf)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (name, display_name, category_id, parent_id, path, level, 1))
-            
-            if parent_id:
-                db.execute("UPDATE tags SET is_leaf = 0 WHERE id = ?", (parent_id,))
-            
+                INSERT INTO tags (name, display_name, category_id, usage_count)
+                VALUES (?, ?, ?, 0)
+            """, (name, display_name, category_id))
             return cursor.lastrowid
         except sqlite3.IntegrityError:
-            row = db.execute("SELECT id FROM tags WHERE path = ?", (path,)).fetchone()
+            row = db.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
             return row[0] if row else None
-    
+
+    def add_implication(from_id, to_id):
+        """Helper to add implication edge."""
+        if from_id and to_id and from_id != to_id:
+            db.execute("""
+                INSERT OR IGNORE INTO tag_implications (tag_id, implies_tag_id)
+                VALUES (?, ?)
+            """, (from_id, to_id))
+
     # Subject category
-    subject = create_tag('subject', 'Subject', 1, None, 'subject')
-    
-    # Animal branch
-    animal = create_tag('animal', 'Animal', 1, subject, 'subject.animal')
-    mammal = create_tag('mammal', 'Mammal', 1, animal, 'subject.animal.mammal')
-    fox = create_tag('fox', 'Fox', 1, mammal, 'subject.animal.mammal.fox')
-    create_tag('silver_fox', 'Silver Fox', 1, fox, 'subject.animal.mammal.fox.silver_fox')
-    create_tag('red_fox', 'Red Fox', 1, fox, 'subject.animal.mammal.fox.red_fox')
-    create_tag('arctic_fox', 'Arctic Fox', 1, fox, 'subject.animal.mammal.fox.arctic_fox')
-    
-    wolf = create_tag('wolf', 'Wolf', 1, mammal, 'subject.animal.mammal.wolf')
-    create_tag('gray_wolf', 'Gray Wolf', 1, wolf, 'subject.animal.mammal.wolf.gray_wolf')
-    create_tag('white_wolf', 'White Wolf', 1, wolf, 'subject.animal.mammal.wolf.white_wolf')
-    
-    create_tag('bear', 'Bear', 1, mammal, 'subject.animal.mammal.bear')
-    create_tag('cat', 'Cat', 1, mammal, 'subject.animal.mammal.cat')
-    create_tag('dog', 'Dog', 1, mammal, 'subject.animal.mammal.dog')
-    
-    bird = create_tag('bird', 'Bird', 1, animal, 'subject.animal.bird')
-    create_tag('eagle', 'Eagle', 1, bird, 'subject.animal.bird.eagle')
-    create_tag('owl', 'Owl', 1, bird, 'subject.animal.bird.owl')
-    create_tag('raven', 'Raven', 1, bird, 'subject.animal.bird.raven')
-    
-    reptile = create_tag('reptile', 'Reptile', 1, animal, 'subject.animal.reptile')
-    create_tag('snake', 'Snake', 1, reptile, 'subject.animal.reptile.snake')
-    create_tag('lizard', 'Lizard', 1, reptile, 'subject.animal.reptile.lizard')
-    
-    # Person branch
-    person = create_tag('person', 'Person', 1, subject, 'subject.person')
-    create_tag('woman', 'Woman', 1, person, 'subject.person.woman')
-    create_tag('man', 'Man', 1, person, 'subject.person.man')
-    create_tag('child', 'Child', 1, person, 'subject.person.child')
-    
-    # Object branch
-    obj = create_tag('object', 'Object', 1, subject, 'subject.object')
-    weapon = create_tag('weapon', 'Weapon', 1, obj, 'subject.object.weapon')
-    create_tag('sword', 'Sword', 1, weapon, 'subject.object.weapon.sword')
-    create_tag('gun', 'Gun', 1, weapon, 'subject.object.weapon.gun')
-    create_tag('bow', 'Bow', 1, weapon, 'subject.object.weapon.bow')
-    
-    furniture = create_tag('furniture', 'Furniture', 1, obj, 'subject.object.furniture')
-    create_tag('chair', 'Chair', 1, furniture, 'subject.object.furniture.chair')
-    create_tag('table', 'Table', 1, furniture, 'subject.object.furniture.table')
-    create_tag('bed', 'Bed', 1, furniture, 'subject.object.furniture.bed')
-    
-    vehicle = create_tag('vehicle', 'Vehicle', 1, obj, 'subject.object.vehicle')
-    create_tag('car', 'Car', 1, vehicle, 'subject.object.vehicle.car')
-    create_tag('airplane', 'Airplane', 1, vehicle, 'subject.object.vehicle.airplane')
-    create_tag('ship', 'Ship', 1, vehicle, 'subject.object.vehicle.ship')
-    
+    subject = create_flat_tag('subject', 'Subject', 1)
+    animal = create_flat_tag('animal', 'Animal', 1)
+    mammal = create_flat_tag('mammal', 'Mammal', 1)
+    fox = create_flat_tag('fox', 'Fox', 1)
+    silver_fox = create_flat_tag('silver_fox', 'Silver Fox', 1)
+    red_fox = create_flat_tag('red_fox', 'Red Fox', 1)
+    arctic_fox = create_flat_tag('arctic_fox', 'Arctic Fox', 1)
+    wolf = create_flat_tag('wolf', 'Wolf', 1)
+    gray_wolf = create_flat_tag('gray_wolf', 'Gray Wolf', 1)
+    white_wolf = create_flat_tag('white_wolf', 'White Wolf', 1)
+    bear = create_flat_tag('bear', 'Bear', 1)
+    cat = create_flat_tag('cat', 'Cat', 1)
+    dog = create_flat_tag('dog', 'Dog', 1)
+    bird = create_flat_tag('bird', 'Bird', 1)
+    eagle = create_flat_tag('eagle', 'Eagle', 1)
+    owl = create_flat_tag('owl', 'Owl', 1)
+    raven = create_flat_tag('raven', 'Raven', 1)
+    reptile = create_flat_tag('reptile', 'Reptile', 1)
+    snake = create_flat_tag('snake', 'Snake', 1)
+    lizard = create_flat_tag('lizard', 'Lizard', 1)
+    person = create_flat_tag('person', 'Person', 1)
+    woman = create_flat_tag('woman', 'Woman', 1)
+    man = create_flat_tag('man', 'Man', 1)
+    child = create_flat_tag('child', 'Child', 1)
+    obj = create_flat_tag('object', 'Object', 1)
+    weapon = create_flat_tag('weapon', 'Weapon', 1)
+    sword = create_flat_tag('sword', 'Sword', 1)
+    gun = create_flat_tag('gun', 'Gun', 1)
+    bow = create_flat_tag('bow', 'Bow', 1)
+    furniture = create_flat_tag('furniture', 'Furniture', 1)
+    chair = create_flat_tag('chair', 'Chair', 1)
+    table = create_flat_tag('table', 'Table', 1)
+    bed = create_flat_tag('bed', 'Bed', 1)
+    vehicle = create_flat_tag('vehicle', 'Vehicle', 1)
+    car = create_flat_tag('car', 'Car', 1)
+    airplane = create_flat_tag('airplane', 'Airplane', 1)
+    ship = create_flat_tag('ship', 'Ship', 1)
+
     # Style category
-    style = create_tag('style', 'Style', 2, None, 'style')
-    create_tag('photorealistic', 'Photorealistic', 2, style, 'style.photorealistic')
-    create_tag('anime', 'Anime', 2, style, 'style.anime')
-    create_tag('cartoon', 'Cartoon', 2, style, 'style.cartoon')
-    create_tag('pixel_art', 'Pixel Art', 2, style, 'style.pixel_art')
-    create_tag('oil_painting', 'Oil Painting', 2, style, 'style.oil_painting')
-    create_tag('sketch', 'Sketch', 2, style, 'style.sketch')
-    create_tag('minimalist', 'Minimalist', 2, style, 'style.minimalist')
-    create_tag('vintage', 'Vintage', 2, style, 'style.vintage')
-    create_tag('abstract', 'Abstract', 2, style, 'style.abstract')
-    
+    photorealistic = create_flat_tag('photorealistic', 'Photorealistic', 2)
+    anime = create_flat_tag('anime', 'Anime', 2)
+    cartoon = create_flat_tag('cartoon', 'Cartoon', 2)
+    pixel_art = create_flat_tag('pixel_art', 'Pixel Art', 2)
+    oil_painting = create_flat_tag('oil_painting', 'Oil Painting', 2)
+    sketch = create_flat_tag('sketch', 'Sketch', 2)
+    minimalist = create_flat_tag('minimalist', 'Minimalist', 2)
+    vintage = create_flat_tag('vintage', 'Vintage', 2)
+    abstract_tag = create_flat_tag('abstract', 'Abstract', 2)
+
     # Environment category
-    env = create_tag('environment', 'Environment', 3, None, 'environment')
-    create_tag('indoor', 'Indoor', 3, env, 'environment.indoor')
-    create_tag('outdoor', 'Outdoor', 3, env, 'environment.outdoor')
-    create_tag('forest', 'Forest', 3, env, 'environment.forest')
-    create_tag('city', 'City', 3, env, 'environment.city')
-    create_tag('space', 'Space', 3, env, 'environment.space')
-    create_tag('underwater', 'Underwater', 3, env, 'environment.underwater')
-    create_tag('beach', 'Beach', 3, env, 'environment.beach')
-    create_tag('mountain', 'Mountain', 3, env, 'environment.mountain')
-    create_tag('night', 'Night', 3, env, 'environment.night')
-    create_tag('day', 'Day', 3, env, 'environment.day')
-    
+    indoor = create_flat_tag('indoor', 'Indoor', 3)
+    outdoor = create_flat_tag('outdoor', 'Outdoor', 3)
+    forest = create_flat_tag('forest', 'Forest', 3)
+    city = create_flat_tag('city', 'City', 3)
+    space = create_flat_tag('space', 'Space', 3)
+    underwater = create_flat_tag('underwater', 'Underwater', 3)
+    beach = create_flat_tag('beach', 'Beach', 3)
+    mountain = create_flat_tag('mountain', 'Mountain', 3)
+    night = create_flat_tag('night', 'Night', 3)
+    day_tag = create_flat_tag('day', 'Day', 3)
+    sea = create_flat_tag('sea', 'Sea', 3)
+    ocean = create_flat_tag('ocean', 'Ocean', 3)
+    water = create_flat_tag('water', 'Water', 3)
+
     # Quality category
-    quality = create_tag('quality', 'Quality', 4, None, 'quality')
-    create_tag('masterpiece', 'Masterpiece', 4, quality, 'quality.masterpiece')
-    create_tag('high_quality', 'High Quality', 4, quality, 'quality.high_quality')
-    create_tag('medium_quality', 'Medium Quality', 4, quality, 'quality.medium_quality')
-    create_tag('low_quality', 'Low Quality', 4, quality, 'quality.low_quality')
-    
+    masterpiece = create_flat_tag('masterpiece', 'Masterpiece', 4)
+    high_quality = create_flat_tag('high_quality', 'High Quality', 4)
+    medium_quality = create_flat_tag('medium_quality', 'Medium Quality', 4)
+    low_quality = create_flat_tag('low_quality', 'Low Quality', 4)
+
     # Media Type category
-    media = create_tag('media_type', 'Media Type', 5, None, 'media_type')
-    create_tag('photo', 'Photo', 5, media, 'media_type.photo')
-    create_tag('illustration', 'Illustration', 5, media, 'media_type.illustration')
-    create_tag('render', '3D Render', 5, media, 'media_type.render')
+    photo = create_flat_tag('photo', 'Photo', 5)
+    illustration = create_flat_tag('illustration', 'Illustration', 5)
+    render = create_flat_tag('render', '3D Render', 5)
+
+    # Build implications (more specific -> more general)
+    add_implication(animal, subject)
+    add_implication(mammal, animal)
+    add_implication(fox, mammal)
+    add_implication(silver_fox, fox)
+    add_implication(red_fox, fox)
+    add_implication(arctic_fox, fox)
+    add_implication(wolf, mammal)
+    add_implication(gray_wolf, wolf)
+    add_implication(white_wolf, wolf)
+    add_implication(bear, mammal)
+    add_implication(cat, mammal)
+    add_implication(dog, mammal)
+    add_implication(bird, animal)
+    add_implication(eagle, bird)
+    add_implication(owl, bird)
+    add_implication(raven, bird)
+    add_implication(reptile, animal)
+    add_implication(snake, reptile)
+    add_implication(lizard, reptile)
+    add_implication(person, subject)
+    add_implication(woman, person)
+    add_implication(man, person)
+    add_implication(child, person)
+    add_implication(obj, subject)
+    add_implication(weapon, obj)
+    add_implication(sword, weapon)
+    add_implication(gun, weapon)
+    add_implication(bow, weapon)
+    add_implication(furniture, obj)
+    add_implication(chair, furniture)
+    add_implication(table, furniture)
+    add_implication(bed, furniture)
+    add_implication(vehicle, obj)
+    add_implication(car, vehicle)
+    add_implication(airplane, vehicle)
+    add_implication(ship, vehicle)
+    add_implication(sea, water)
+    add_implication(ocean, water)
+    add_implication(beach, water)
+    add_implication(underwater, water)
     create_tag('video', 'Video', 5, media, 'media_type.video')
