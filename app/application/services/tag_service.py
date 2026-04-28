@@ -125,7 +125,10 @@ class TagService:
         if tag_id not in current_ids:
             current_ids.append(tag_id)
 
-        return self.set_item_tags(item_id, current_ids)
+        return {
+            "added": [tag_id],
+            "tags": self.set_item_tags(item_id, current_ids)
+        }
 
     def remove_tag_from_item(self, item_id: str, tag_id: int) -> Dict:
         """Remove explicit tag from item and recalculate implied tags."""
@@ -136,7 +139,10 @@ class TagService:
         current_explicit = self.tags.get_item_tags_explicit(item_id)
         current_ids = [t["id"] for t in current_explicit if t["id"] != tag_id]
 
-        return self.set_item_tags(item_id, current_ids)
+        return {
+            "removed": [tag_id],
+            "tags": self.set_item_tags(item_id, current_ids)
+        }
 
     # ========================================================================
     # Suggestions

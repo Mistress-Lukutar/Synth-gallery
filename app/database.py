@@ -642,4 +642,4 @@ def _init_tag_hierarchy_v2(db):
     add_implication(ocean, water)
     add_implication(beach, water)
     add_implication(underwater, water)
-    create_tag('video', 'Video', 5, media, 'media_type.video')
+    video = create_flat_tag('video', 'Video', 5)

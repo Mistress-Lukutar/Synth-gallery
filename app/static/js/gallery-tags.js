@@ -167,6 +167,43 @@
         document.getElementById('detail-duration-row').classList.toggle('hidden', !metadata.duration);
     }
 
+    function formatDateTime(dateStr) {
+        if (!dateStr) return null;
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        return date.toLocaleString();
+    }
+
+    function formatFileSize(bytes) {
+        if (!bytes) return '-';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
+    }
+
+    function formatDuration(seconds) {
+        if (!seconds) return '-';
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        return new Date(dateStr).toLocaleDateString();
+    }
+
+    function formatForDateTimeLocal(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toISOString().slice(0, 16);
+    }
+
     // Initialize EasyMDE editor
     function initDescriptionEditor(initialValue) {
         const textarea = document.getElementById('item-description');
@@ -630,7 +667,6 @@
 
     // EasyMDE instance for description
     let descriptionEditor = null;
-    let currentDescriptionMode = 'edit';
 
     // Auto-save with debounce and dirty check
     let saveTimeout = null;
