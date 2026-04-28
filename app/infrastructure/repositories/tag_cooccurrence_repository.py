@@ -31,19 +31,16 @@ class TagCooccurrenceRepository(Repository):
                 pairs.append((a, b))
         if not pairs:
             return
-        # SQLite supports UPSERT
-        self._execute("""
-            CREATE TEMP TABLE IF NOT EXISTS _tmp_pairs (a INTEGER, b INTEGER)
-        """)
-        self._execute("DELETE FROM _tmp_pairs")
-        self._executemany("INSERT INTO _tmp_pairs (a, b) VALUES (?, ?)", pairs)
-        self._execute("""
-            INSERT INTO tag_cooccurrence (tag_a_id, tag_b_id, count)
-            SELECT a, b, 1 FROM _tmp_pairs
-            ON CONFLICT(tag_a_id, tag_b_id) DO UPDATE SET
-                count = tag_cooccurrence.count + 1,
-                updated_at = CURRENT_TIMESTAMP
-        """)
+        # Insert new pairs (ignore existing)
+        self._execute_many(
+            "INSERT OR IGNORE INTO tag_cooccurrence (tag_a_id, tag_b_id, count) VALUES (?, ?, 1)",
+            pairs
+        )
+        # Increment existing pairs
+        self._execute_many(
+            "UPDATE tag_cooccurrence SET count = count + 1, updated_at = CURRENT_TIMESTAMP WHERE tag_a_id = ? AND tag_b_id = ?",
+            pairs
+        )
         self._commit()
 
     def get_related_tags(self, tag_id: int, limit: int = 10,
@@ -114,7 +111,7 @@ class TagCooccurrenceRepository(Repository):
             for a, b in combinations(sorted(tags), 2):
                 pairs.append((a, b))
         if pairs:
-            self._executemany("""
+            self._execute_many("""
                 INSERT INTO tag_cooccurrence (tag_a_id, tag_b_id, count)
                 VALUES (?, ?, 1)
                 ON CONFLICT(tag_a_id, tag_b_id) DO UPDATE SET
