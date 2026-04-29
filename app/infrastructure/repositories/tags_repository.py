@@ -66,38 +66,43 @@ class TagsRepository(Repository):
         return [dict(row) for row in cursor.fetchall()]
 
     def list_tags(self, query: Optional[str] = None, limit: int = 50,
-                  offset: int = 0) -> List[Dict]:
+                  offset: int = 0, category_id: Optional[int] = None) -> List[Dict]:
         """Get paginated tag list with category info and usage count."""
+        conditions = []
+        params = []
         if query:
-            sql = """
-                SELECT t.*, c.name as category_name, c.color as category_color
-                FROM tags t
-                LEFT JOIN tag_categories c ON t.category_id = c.id
-                WHERE t.name LIKE ? OR t.display_name LIKE ?
-                ORDER BY t.usage_count DESC, t.name
-                LIMIT ? OFFSET ?
-            """
-            cursor = self._execute(sql, (f"%{query}%", f"%{query}%", limit, offset))
-        else:
-            sql = """
-                SELECT t.*, c.name as category_name, c.color as category_color
-                FROM tags t
-                LEFT JOIN tag_categories c ON t.category_id = c.id
-                ORDER BY t.usage_count DESC, t.name
-                LIMIT ? OFFSET ?
-            """
-            cursor = self._execute(sql, (limit, offset))
+            conditions.append("(t.name LIKE ? OR t.display_name LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
+        if category_id is not None:
+            conditions.append("t.category_id = ?")
+            params.append(category_id)
+
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+        sql = f"""
+            SELECT t.*, c.name as category_name, c.color as category_color
+            FROM tags t
+            LEFT JOIN tag_categories c ON t.category_id = c.id
+            {where}
+            ORDER BY t.usage_count DESC, t.name
+            LIMIT ? OFFSET ?
+        """
+        params.extend([limit, offset])
+        cursor = self._execute(sql, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
-    def count_tags(self, query: Optional[str] = None) -> int:
-        """Count total tags (optionally filtered by query)."""
+    def count_tags(self, query: Optional[str] = None, category_id: Optional[int] = None) -> int:
+        """Count total tags (optionally filtered by query and category)."""
+        conditions = []
+        params = []
         if query:
-            cursor = self._execute(
-                "SELECT COUNT(*) as cnt FROM tags WHERE name LIKE ? OR display_name LIKE ?",
-                (f"%{query}%", f"%{query}%")
-            )
-        else:
-            cursor = self._execute("SELECT COUNT(*) as cnt FROM tags")
+            conditions.append("(name LIKE ? OR display_name LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
+        if category_id is not None:
+            conditions.append("category_id = ?")
+            params.append(category_id)
+
+        where = "WHERE " + " AND ".join(conditions) if conditions else ""
+        cursor = self._execute(f"SELECT COUNT(*) as cnt FROM tags {where}", tuple(params))
         row = cursor.fetchone()
         return row["cnt"] if row else 0
 

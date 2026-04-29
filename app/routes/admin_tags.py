@@ -69,6 +69,7 @@ def tags_page(request: Request):
 def list_tags(
     request: Request,
     q: Optional[str] = Query(None),
+    category_id: Optional[int] = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0)
 ):
@@ -77,7 +78,7 @@ def list_tags(
     db = create_connection()
     try:
         service = _tag_service(db)
-        return service.list_tags(q, limit, offset)
+        return service.list_tags(q, limit, offset, category_id)
     finally:
         db.close()
 
