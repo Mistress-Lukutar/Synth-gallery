@@ -509,9 +509,9 @@ def _init_tag_hierarchy_v2(db):
         """Helper to create a flat tag and return its ID."""
         try:
             cursor = db.execute("""
-                INSERT INTO tags (name, display_name, category_id, usage_count)
-                VALUES (?, ?, ?, 0)
-            """, (name, display_name, category_id))
+                INSERT INTO tags (name, display_name, category_id, usage_count, path)
+                VALUES (?, ?, ?, 0, ?)
+            """, (name, display_name, category_id, name))
             return cursor.lastrowid
         except sqlite3.IntegrityError:
             row = db.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
