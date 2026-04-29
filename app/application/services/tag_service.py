@@ -181,10 +181,10 @@ class TagService:
         }
 
     def list_tags(self, query: Optional[str] = None, limit: int = 50,
-                  offset: int = 0) -> Dict:
+                  offset: int = 0, category_id: Optional[int] = None) -> Dict:
         """Get paginated tag list with implication counts."""
-        items = self.tags.list_tags(query, limit, offset)
-        total = self.tags.count_tags(query)
+        items = self.tags.list_tags(query, limit, offset, category_id)
+        total = self.tags.count_tags(query, category_id)
 
         # Enrich with implication counts
         for tag in items:

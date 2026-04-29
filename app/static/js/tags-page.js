@@ -1,5 +1,5 @@
 /**
- * Tag Management Page - CRUD + implications
+ * Tag Management Page - per-category CRUD + implications
  */
 
 const BASE_URL = (() => {
@@ -39,130 +39,93 @@ function showStatus(message, isError = false) {
 // State
 // =============================================================================
 
-let tagsData = [];
 let selectedTagId = null;
 let tagDetail = null;
-let currentQuery = '';
-let currentOffset = 0;
-const LIMIT = 50;
-let isLoading = false;
-let hasMore = true;
+let searchQuery = '';
+let catState = {}; // { [catId]: { tags: [], offset: 0, hasMore: true, isLoading: false } }
 
 // =============================================================================
-// Tag List
+// Load categories & init
 // =============================================================================
 
-async function loadTags(reset = false) {
-    if (isLoading) return;
-    isLoading = true;
+function initCategories() {
+    const opts = document.querySelectorAll('#new-tag-category option');
+    window.__categories = Array.from(opts).map(o => ({ id: parseInt(o.value, 10), name: o.textContent }));
 
-    if (reset) {
-        currentOffset = 0;
-        hasMore = true;
-        tagsData = [];
+    for (const cat of window.__categories) {
+        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
+        loadCategoryTags(cat.id);
     }
-    if (!hasMore) { isLoading = false; return; }
+}
 
-    const q = encodeURIComponent(currentQuery);
+async function loadCategoryTags(catId) {
+    const state = catState[catId];
+    if (!state || state.isLoading || !state.hasMore) return;
+
+    state.isLoading = true;
+    const q = encodeURIComponent(searchQuery);
     try {
-        const resp = await csrfFetch(`/api/tags?q=${q}&limit=${LIMIT}&offset=${currentOffset}`);
+        const resp = await csrfFetch(`/api/tags?category_id=${catId}&q=${q}&limit=50&offset=${state.offset}`);
         if (!resp.ok) throw new Error('Failed to load tags');
         const data = await resp.json();
 
-        if (reset) {
-            tagsData = data.items;
+        if (state.offset === 0) {
+            state.tags = data.items;
         } else {
-            tagsData = tagsData.concat(data.items);
+            state.tags = state.tags.concat(data.items);
         }
-        currentOffset += data.items.length;
-        hasMore = data.items.length === LIMIT && currentOffset < data.total;
+        state.offset += data.items.length;
+        state.hasMore = data.items.length === 50 && state.offset < data.total;
         renderTagList();
-        updatePaginationInfo(data.total);
     } catch (err) {
         showStatus(err.message, true);
     } finally {
-        isLoading = false;
+        state.isLoading = false;
     }
 }
 
-function updatePaginationInfo(total) {
-    const el = document.getElementById('pagination-info');
-    if (!total) {
-        el.textContent = '';
-        return;
-    }
-    el.textContent = `Showing ${tagsData.length} of ${total} tags`;
-}
+// =============================================================================
+// Render
+// =============================================================================
 
 function renderTagList() {
     const container = document.getElementById('tag-list');
-    if (!tagsData.length) {
+    const cats = window.__categories || [];
+    const hasAnyTag = cats.some(c => catState[c.id]?.tags.length);
+
+    if (!hasAnyTag) {
         container.innerHTML = `<div class="empty-state">No tags found</div>`;
         return;
     }
 
-    // Group by category
-    const groups = {};
-    for (const tag of tagsData) {
-        const catName = tag.category_name || 'General';
-        const catColor = tag.category_color || '#888';
-        if (!groups[catName]) {
-            groups[catName] = { color: catColor, tags: [] };
-        }
-        groups[catName].tags.push(tag);
-    }
+    const html = cats.map(cat => {
+        const state = catState[cat.id] || { tags: [] };
+        if (!state.tags.length && !state.hasMore) return '';
 
-    // Preserve category sort order from window.__categories if available
-    let categoryOrder = Object.keys(groups);
-    if (window.__categories && window.__categories.length) {
-        const orderMap = new Map(window.__categories.map((c, i) => [c.name, i]));
-        categoryOrder.sort((a, b) => {
-            const ia = orderMap.get(a) ?? 999;
-            const ib = orderMap.get(b) ?? 999;
-            return ia - ib;
-        });
-    }
-
-    const html = categoryOrder.map(catName => {
-        const group = groups[catName];
-        const itemsHtml = group.tags.map(tag => {
+        const itemsHtml = state.tags.map(tag => {
             const activeClass = tag.id === selectedTagId ? 'active' : '';
             return `
             <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})">
                 <span class="tag-name">${escapeHtml(tag.display_name || tag.name)}</span>
-                <span class="tag-meta">
-                    ${tag.usage_count || 0}
-                    ${tag.implies_count ? `· →${tag.implies_count}` : ''}
-                    ${tag.implied_by_count ? `· ←${tag.implied_by_count}` : ''}
-                </span>
-                <span class="tag-actions" onclick="event.stopPropagation()">
-                    <button title="Edit" onclick="startEditTag(${tag.id})">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                    </button>
-                    <button title="Delete" onclick="deleteTag(${tag.id})">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                    </button>
-                </span>
+                <span class="tag-meta">${tag.usage_count || 0}</span>
             </div>`;
         }).join('');
 
+        const loadMore = state.hasMore
+            ? `<div class="load-more"><button class="btn btn-small btn-secondary" onclick="loadCategoryTags(${cat.id})">Load more</button></div>`
+            : '';
+
         return `
         <div class="tag-category-block">
-            <div class="tag-category-header" style="color:${group.color}">${escapeHtml(catName)}</div>
+            <div class="tag-category-header" style="color:${cat.color||'#888'}">${escapeHtml(cat.name)}</div>
             <div class="tag-category-items">
-                ${itemsHtml}
+                ${itemsHtml || '<span style="font-size:0.75rem;color:var(--text-muted);">No tags</span>'}
             </div>
+            ${loadMore}
         </div>`;
     }).join('');
 
     container.innerHTML = html;
-
-    if (hasMore) {
-        const loadMore = document.createElement('div');
-        loadMore.className = 'load-more';
-        loadMore.innerHTML = `<button class="btn btn-small btn-secondary" onclick="loadTags()">Load more</button>`;
-        container.appendChild(loadMore);
-    }
 }
 
 // =============================================================================
@@ -266,9 +229,12 @@ function renderDetail() {
                 `).join('') || '<span style="font-size:0.8125rem;color:var(--text-muted);">No data yet</span>'}
             </div>
         </div>
+
+        <div class="detail-section" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
+            <button class="btn btn-small btn-danger" onclick="deleteTag(${tag.id})">Delete tag</button>
+        </div>
     `;
 
-    // Wire up implication search
     const searchInput = document.getElementById('implies-search');
     if (searchInput) {
         let debounce;
@@ -298,25 +264,28 @@ async function saveEdit(tagId) {
             throw new Error(err.detail || 'Failed to update tag');
         }
         showStatus('Tag updated');
-        // Refresh list and detail
-        await loadTags(true);
+        await refreshAllCategories();
         await selectTag(tagId);
     } catch (err) {
         showStatus(err.message, true);
     }
 }
 
-function startEditTag(tagId) {
-    selectTag(tagId);
-    // Focus name field after render
-    setTimeout(() => {
-        const el = document.getElementById('edit-name');
-        if (el) el.focus();
-    }, 50);
+async function refreshAllCategories() {
+    for (const cat of window.__categories || []) {
+        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
+        await loadCategoryTags(cat.id);
+    }
 }
 
 async function deleteTag(tagId) {
-    const tag = tagsData.find(t => t.id === tagId);
+    const tag = tagDetail?.tag || (() => {
+        for (const cat of window.__categories || []) {
+            const t = catState[cat.id]?.tags.find(x => x.id === tagId);
+            if (t) return t;
+        }
+        return null;
+    })();
     const name = tag ? (tag.display_name || tag.name) : 'this tag';
     if (!confirm(`Delete "${name}"?\n\nThis will remove the tag from all items.`)) return;
 
@@ -328,7 +297,7 @@ async function deleteTag(tagId) {
         tagDetail = null;
         document.getElementById('detail-panel').className = 'detail-panel empty';
         document.getElementById('detail-panel').innerHTML = '<p>Select a tag to view details</p>';
-        await loadTags(true);
+        await refreshAllCategories();
     } catch (err) {
         showStatus(err.message, true);
     }
@@ -382,7 +351,6 @@ async function addImplication(tagId, impliesTagId) {
         const input = document.getElementById('implies-search');
         const name = input?.value.trim();
         if (!name) return;
-        // Try exact match from last search
         const match = implicationSearchResults.find(t =>
             t.name.toLowerCase() === name.toLowerCase() ||
             (t.display_name && t.display_name.toLowerCase() === name.toLowerCase())
@@ -406,7 +374,7 @@ async function addImplication(tagId, impliesTagId) {
         }
         showStatus('Implication added');
         await selectTag(tagId);
-        await loadTags(true);
+        await refreshAllCategories();
     } catch (err) {
         showStatus(err.message, true);
     }
@@ -418,7 +386,7 @@ async function removeImplication(tagId, impliesTagId) {
         if (!resp.ok) throw new Error('Failed to remove implication');
         showStatus('Implication removed');
         await selectTag(tagId);
-        await loadTags(true);
+        await refreshAllCategories();
     } catch (err) {
         showStatus(err.message, true);
     }
@@ -461,7 +429,7 @@ async function createTag() {
         const data = await resp.json();
         showStatus('Tag created');
         closeModal();
-        await loadTags(true);
+        await refreshAllCategories();
         if (data.tag) selectTag(data.tag.id);
     } catch (err) {
         showStatus(err.message, true);
@@ -484,8 +452,11 @@ function escapeHtml(str) {
 // =============================================================================
 
 document.getElementById('tag-search').addEventListener('input', (e) => {
-    currentQuery = e.target.value.trim();
-    loadTags(true);
+    searchQuery = e.target.value.trim();
+    for (const cat of window.__categories || []) {
+        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
+        loadCategoryTags(cat.id);
+    }
 });
 
 document.getElementById('new-tag-btn').addEventListener('click', openModal);
@@ -498,13 +469,4 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModal();
 });
 
-// Pass categories to JS for edit form
-window.__categories = JSON.parse(document.querySelector('script[data-categories]')?.textContent || '[]');
-
-// Load categories from template into __categories if not already set
-if (!window.__categories.length) {
-    const opts = document.querySelectorAll('#new-tag-category option');
-    window.__categories = Array.from(opts).map(o => ({ id: parseInt(o.value,10), name: o.textContent }));
-}
-
-loadTags(true);
+initCategories();
