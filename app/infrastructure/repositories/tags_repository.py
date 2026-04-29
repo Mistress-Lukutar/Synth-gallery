@@ -152,7 +152,7 @@ class TagsRepository(Repository):
 
     def update_tag(self, tag_id: int, **fields) -> bool:
         """Update tag fields. Returns True if row updated."""
-        allowed = {"name", "display_name", "category_id"}
+        allowed = {"name", "display_name", "category_id", "description"}
         updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
         if not updates:
             return False
@@ -170,21 +170,22 @@ class TagsRepository(Repository):
         self._commit()
         return self._conn.total_changes > 0
 
-    def create(self, name: str, display_name: str, category_id: int) -> int:
+    def create(self, name: str, display_name: str, category_id: int, description: str = '') -> int:
         """Create a new flat tag.
 
         Args:
             name: Tag name (lowercase, underscore)
             display_name: Display name for UI
             category_id: Category ID
+            description: Markdown description
 
         Returns:
             New tag ID
         """
         cursor = self._execute("""
-            INSERT INTO tags (name, display_name, category_id, usage_count, path)
-            VALUES (?, ?, ?, 0, ?)
-        """, (name, display_name or name.replace('_', ' ').title(), category_id, name))
+            INSERT INTO tags (name, display_name, category_id, usage_count, path, description)
+            VALUES (?, ?, ?, 0, ?, ?)
+        """, (name, display_name or name.replace('_', ' ').title(), category_id, name, description))
         self._commit()
         return cursor.lastrowid
 

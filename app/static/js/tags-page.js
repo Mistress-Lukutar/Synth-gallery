@@ -40,6 +40,8 @@ let selectedTagId = null;
 let tagDetail = null;
 let searchQuery = '';
 let catState = {}; // { [catId]: { tags: [], offset: 0, hasMore: true, isLoading: false } }
+let tagDescriptionEditor = null;
+let tagDescMode = 'preview';
 
 // =============================================================================
 // Load categories & init
@@ -190,6 +192,26 @@ function renderDetail() {
             </div>
         </div>` : '';
 
+    const descValue = tag.description || '';
+    const descriptionSection = isAdmin ? `
+        <div class="detail-section">
+            <h3>Description</h3>
+            <div class="description-editor-wrapper preview-mode" id="tag-desc-wrapper">
+                <textarea id="tag-description-editor" style="display:none;"></textarea>
+                <div id="tag-description-preview" class="markdown-preview">${renderMarkdown(descValue) || '<em class="no-description">No description</em>'}</div>
+            </div>
+            <div class="desc-toolbar" style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.5rem;">
+                <button class="btn btn-small btn-secondary" id="tag-desc-toggle-btn" onclick="toggleTagDescMode()">Edit</button>
+                <button class="btn btn-small" onclick="saveTagDescription(${tag.id})">Save</button>
+            </div>
+        </div>` : `
+        <div class="detail-section">
+            <h3>Description</h3>
+            <div class="markdown-preview" id="tag-description-preview">
+                ${renderMarkdown(descValue) || '<em class="no-description" style="color:var(--text-muted);">No description</em>'}
+            </div>
+        </div>`;
+
     const impliesItems = implies.map(t => `
         <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
             <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
@@ -220,6 +242,7 @@ function renderDetail() {
         </div>
 
         ${propertiesSection}
+        ${descriptionSection}
 
         <div class="detail-section">
             <h3>Implies (${implies.length})</h3>
@@ -251,6 +274,10 @@ function renderDetail() {
 
         ${deleteSection}
     `;
+
+    if (isAdmin) {
+        initTagDescriptionEditor(descValue);
+    }
 
     const searchInput = document.getElementById('implies-search');
     if (searchInput) {
@@ -315,6 +342,120 @@ async function deleteTag(tagId) {
         document.getElementById('detail-panel').className = 'detail-panel empty';
         document.getElementById('detail-panel').innerHTML = '<p>Select a tag to view details</p>';
         await refreshAllCategories();
+    } catch (err) {
+        showStatus(err.message, true);
+    }
+}
+
+// =============================================================================
+// Description Editor
+// =============================================================================
+
+function renderMarkdown(text) {
+    if (!text) return '';
+    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    html = html.replace(/\n/g, '<br>');
+    return html;
+}
+
+function initTagDescriptionEditor(initialValue) {
+    const textarea = document.getElementById('tag-description-editor');
+    if (!textarea) return;
+
+    if (tagDescriptionEditor) {
+        tagDescriptionEditor.toTextArea();
+        tagDescriptionEditor = null;
+    }
+
+    textarea.value = initialValue || '';
+    tagDescMode = 'preview';
+
+    const wrapper = document.getElementById('tag-desc-wrapper');
+    const previewEl = document.getElementById('tag-description-preview');
+    const toggleBtn = document.getElementById('tag-desc-toggle-btn');
+
+    wrapper?.classList.add('preview-mode');
+    wrapper?.classList.remove('edit-mode');
+    if (toggleBtn) toggleBtn.textContent = 'Edit';
+    updateTagDescriptionPreview();
+    previewEl?.classList.remove('hidden');
+
+    tagDescriptionEditor = new EasyMDE({
+        element: textarea,
+        autofocus: false,
+        spellChecker: false,
+        autoDownloadFontAwesome: false,
+        toolbar: [
+            'bold', 'italic', 'heading', '|',
+            'code', 'quote', 'unordered-list', 'ordered-list', '|',
+            'link', '|',
+            'preview', 'side-by-side', 'fullscreen', '|',
+            'guide'
+        ],
+        status: false,
+        minHeight: '80px',
+        maxHeight: '200px',
+        placeholder: 'Enter tag description...',
+        initialValue: initialValue || ''
+    });
+}
+
+function updateTagDescriptionPreview() {
+    const previewEl = document.getElementById('tag-description-preview');
+    if (!previewEl || !tagDescriptionEditor) return;
+
+    const markdown = tagDescriptionEditor.value();
+    if (!markdown || !markdown.trim()) {
+        previewEl.innerHTML = '<em class="no-description">No description</em>';
+        return;
+    }
+    previewEl.innerHTML = renderMarkdown(markdown);
+}
+
+function toggleTagDescMode() {
+    const wrapper = document.getElementById('tag-desc-wrapper');
+    const toggleBtn = document.getElementById('tag-desc-toggle-btn');
+    const previewEl = document.getElementById('tag-description-preview');
+
+    if (tagDescMode === 'edit') {
+        wrapper?.classList.add('preview-mode');
+        wrapper?.classList.remove('edit-mode');
+        if (toggleBtn) toggleBtn.textContent = 'Edit';
+        updateTagDescriptionPreview();
+        previewEl?.classList.remove('hidden');
+        tagDescMode = 'preview';
+    } else {
+        wrapper?.classList.add('edit-mode');
+        wrapper?.classList.remove('preview-mode');
+        if (toggleBtn) toggleBtn.textContent = 'Preview';
+        previewEl?.classList.add('hidden');
+        tagDescMode = 'edit';
+    }
+}
+
+async function saveTagDescription(tagId) {
+    const desc = tagDescriptionEditor ? tagDescriptionEditor.value() : '';
+
+    try {
+        const resp = await csrfFetch(`/api/tags/${tagId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ description: desc })
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to save description');
+        }
+        showStatus('Description saved');
+        // Refresh tag detail to show updated description
+        await selectTag(tagId);
     } catch (err) {
         showStatus(err.message, true);
     }

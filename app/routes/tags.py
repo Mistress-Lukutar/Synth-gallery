@@ -24,6 +24,7 @@ class TagCreateInput(BaseModel):
     name: str
     display_name: Optional[str] = None
     category_id: int
+    description: Optional[str] = ''
 
 
 class TagAddInput(BaseModel):
@@ -130,6 +131,7 @@ def create_tag(data: TagCreateInput, request: Request):
             name=data.name,
             display_name=data.display_name,
             category_id=data.category_id,
+            description=data.description or '',
         )
         return {"status": "ok", "tag": tag}
     finally:
