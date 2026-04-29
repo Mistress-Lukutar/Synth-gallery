@@ -65,6 +65,62 @@ class TagsRepository(Repository):
         """, tuple(tag_ids))
         return [dict(row) for row in cursor.fetchall()]
 
+    def list_tags(self, query: Optional[str] = None, limit: int = 50,
+                  offset: int = 0) -> List[Dict]:
+        """Get paginated tag list with category info and usage count."""
+        if query:
+            sql = """
+                SELECT t.*, c.name as category_name, c.color as category_color
+                FROM tags t
+                LEFT JOIN tag_categories c ON t.category_id = c.id
+                WHERE t.name LIKE ? OR t.display_name LIKE ?
+                ORDER BY t.usage_count DESC, t.name
+                LIMIT ? OFFSET ?
+            """
+            cursor = self._execute(sql, (f"%{query}%", f"%{query}%", limit, offset))
+        else:
+            sql = """
+                SELECT t.*, c.name as category_name, c.color as category_color
+                FROM tags t
+                LEFT JOIN tag_categories c ON t.category_id = c.id
+                ORDER BY t.usage_count DESC, t.name
+                LIMIT ? OFFSET ?
+            """
+            cursor = self._execute(sql, (limit, offset))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def count_tags(self, query: Optional[str] = None) -> int:
+        """Count total tags (optionally filtered by query)."""
+        if query:
+            cursor = self._execute(
+                "SELECT COUNT(*) as cnt FROM tags WHERE name LIKE ? OR display_name LIKE ?",
+                (f"%{query}%", f"%{query}%")
+            )
+        else:
+            cursor = self._execute("SELECT COUNT(*) as cnt FROM tags")
+        row = cursor.fetchone()
+        return row["cnt"] if row else 0
+
+    def update_tag(self, tag_id: int, **fields) -> bool:
+        """Update tag fields. Returns True if row updated."""
+        allowed = {"name", "display_name", "category_id"}
+        updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        self._execute(
+            f"UPDATE tags SET {set_clause} WHERE id = ?",
+            tuple(updates.values()) + (tag_id,)
+        )
+        self._commit()
+        return self._conn.total_changes > 0
+
+    def delete_tag(self, tag_id: int) -> bool:
+        """Delete tag. Cascades via FK to item_tags and tag_implications."""
+        self._execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+        self._commit()
+        return self._conn.total_changes > 0
+
     def create(self, name: str, display_name: str, category_id: int) -> int:
         """Create a new flat tag.
 

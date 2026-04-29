@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Tag Management - Synth Gallery</title>
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <style>
+        .admin-layout {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .admin-header h1 {
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .admin-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        .admin-nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        .admin-nav a:hover { color: var(--text); }
+
+        .toolbar {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .toolbar input[type="search"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-secondary);
+            color: var(--text);
+            font-size: 0.875rem;
+        }
+        .toolbar input[type="search"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+        }
+        @media (max-width: 860px) {
+            .two-col { grid-template-columns: 1fr; }
+        }
+
+        /* Tag list */
+        .tag-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .tag-list-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 0.875rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background .15s, border-color .15s;
+        }
+        .tag-list-item:hover {
+            border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+        }
+        .tag-list-item.active {
+            border-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 8%, var(--bg-secondary));
+        }
+        .tag-list-item .tag-dot {
+            width: 9px; height: 9px; border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .tag-list-item .tag-name {
+            flex: 1;
+            font-weight: 500;
+            font-size: 0.9375rem;
+        }
+        .tag-list-item .tag-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 0.5rem;
+        }
+        .tag-list-item .tag-actions {
+            display: none;
+            gap: 0.25rem;
+        }
+        .tag-list-item:hover .tag-actions,
+        .tag-list-item.active .tag-actions {
+            display: flex;
+        }
+        .tag-list-item .tag-actions button {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+            border-radius: 4px;
+        }
+        .tag-list-item .tag-actions button:hover {
+            color: var(--text);
+            background: var(--bg-tertiary);
+        }
+
+        /* Detail panel */
+        .detail-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem;
+            position: sticky;
+            top: 1rem;
+            align-self: start;
+        }
+        .detail-panel.empty {
+            color: var(--text-muted);
+            text-align: center;
+            padding: 3rem 1.25rem;
+        }
+        .detail-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .detail-header h2 {
+            font-size: 1.125rem;
+            flex: 1;
+            margin: 0;
+        }
+        .detail-header .tag-chip {
+            font-size: 0.75rem;
+            padding: 0.125rem 0.5rem;
+        }
+        .detail-section {
+            margin-bottom: 1.25rem;
+        }
+        .detail-section h3 {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin: 0 0 0.5rem 0;
+        }
+
+        /* Inline edit form */
+        .inline-form {
+            display: grid;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .inline-form input, .inline-form select {
+            padding: 0.375rem 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.875rem;
+        }
+        .inline-form .form-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+        }
+
+        /* Implication lists */
+        .impl-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+        }
+        .impl-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem 0.5rem;
+            background: var(--bg);
+            border-radius: 6px;
+            font-size: 0.875rem;
+        }
+        .impl-row .impl-arrow {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+        }
+        .impl-row button {
+            margin-left: auto;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.125rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+        }
+        .impl-row button:hover {
+            color: #ef4444;
+            background: rgba(239,68,68,0.1);
+        }
+        .add-impl {
+            display: flex;
+            gap: 0.375rem;
+            margin-top: 0.5rem;
+        }
+        .add-impl input {
+            flex: 1;
+            padding: 0.375rem 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.8125rem;
+        }
+        .add-impl button {
+            padding: 0.375rem 0.625rem;
+            font-size: 0.8125rem;
+        }
+
+        /* Related tags */
+        .related-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+        }
+        .related-chip {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 1rem;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem;
+            width: 100%;
+            max-width: 420px;
+        }
+        .modal-box h2 {
+            margin: 0 0 1rem 0;
+            font-size: 1.125rem;
+        }
+        .modal-box .form-group {
+            margin-bottom: 0.75rem;
+        }
+        .modal-box label {
+            display: block;
+            font-size: 0.8125rem;
+            margin-bottom: 0.25rem;
+            color: var(--text-muted);
+        }
+        .modal-box input, .modal-box select {
+            width: 100%;
+            padding: 0.5rem 0.625rem;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.875rem;
+            box-sizing: border-box;
+        }
+        .modal-box .form-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1rem;
+        }
+
+        .status-message {
+            padding: 0.625rem 0.875rem;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            display: none;
+            font-size: 0.875rem;
+        }
+        .status-message.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #22c55e;
+        }
+        .status-message.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #ef4444;
+        }
+
+        .load-more {
+            text-align: center;
+            padding: 0.75rem;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+        .pagination-info {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+            padding-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-layout">
+        <header class="admin-header">
+            <h1>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7"/>
+                </svg>
+                Tag Management
+            </h1>
+            <nav class="admin-nav">
+                <a href="{{ base_url }}/admin/users">Users</a>
+                <a href="{{ base_url }}/admin/backups">Backups</a>
+                <a href="{{ base_url }}/admin/maintenance">Maintenance</a>
+                <a href="{{ base_url }}/tags" class="active">Tags</a>
+                <span style="color: var(--border);">|</span>
+                <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
+            </nav>
+        </header>
+
+        <div id="status-message" class="status-message"></div>
+
+        <div class="toolbar">
+            <input type="search" id="tag-search" placeholder="Search tags..." autocomplete="off">
+            <button id="new-tag-btn" class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                New Tag
+            </button>
+        </div>
+
+        <div class="two-col">
+            <div class="tag-list-wrapper">
+                <div id="tag-list" class="tag-list">
+                    <div class="empty-state">Loading tags...</div>
+                </div>
+                <div id="pagination-info" class="pagination-info"></div>
+            </div>
+
+            <aside id="detail-panel" class="detail-panel empty">
+                <p>Select a tag to view details</p>
+            </aside>
+        </div>
+    </div>
+
+    <!-- New Tag Modal -->
+    <div id="new-tag-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>Create Tag</h2>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="new-tag-name" placeholder="e.g. silver_fox">
+            </div>
+            <div class="form-group">
+                <label>Display Name</label>
+                <input type="text" id="new-tag-display" placeholder="e.g. Silver Fox">
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="new-tag-category">
+                    {% for cat in categories %}
+                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn" onclick="createTag()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ base_url }}/static/js/tags-page.js"></script>
+</body>
+</html>

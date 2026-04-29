@@ -74,6 +74,24 @@ class TagImplicationRepository(Repository):
         )
         return [row["tag_id"] for row in cursor.fetchall()]
 
+    def get_implications_count(self, tag_id: int) -> int:
+        """Count how many tags this tag directly implies."""
+        cursor = self._execute(
+            "SELECT COUNT(*) as cnt FROM tag_implications WHERE tag_id = ?",
+            (tag_id,)
+        )
+        row = cursor.fetchone()
+        return row["cnt"] if row else 0
+
+    def get_implied_by_count(self, tag_id: int) -> int:
+        """Count how many tags directly imply this tag."""
+        cursor = self._execute(
+            "SELECT COUNT(*) as cnt FROM tag_implications WHERE implies_tag_id = ?",
+            (tag_id,)
+        )
+        row = cursor.fetchone()
+        return row["cnt"] if row else 0
+
     def get_all(self) -> List[Dict]:
         """Get all implication edges."""
         cursor = self._execute(
