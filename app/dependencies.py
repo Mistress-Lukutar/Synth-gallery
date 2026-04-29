@@ -15,6 +15,14 @@ def require_user(request: Request) -> dict:
     return user
 
 
+def require_admin(request: Request) -> dict:
+    """Require admin user, raise 403 if not admin."""
+    user = require_user(request)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 def get_csrf_token(request: Request) -> str:
     """Get CSRF token from request state."""
     return getattr(request.state, "csrf_token", "")

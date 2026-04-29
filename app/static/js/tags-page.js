@@ -46,12 +46,14 @@ let catState = {}; // { [catId]: { tags: [], offset: 0, hasMore: true, isLoading
 // =============================================================================
 
 function initCategories() {
-    const opts = document.querySelectorAll('#new-tag-category option');
-    window.__categories = Array.from(opts).map(o => ({
-        id: parseInt(o.value, 10),
-        name: o.textContent,
-        color: o.getAttribute('data-color') || '#888'
-    }));
+    if (!window.__categories || !window.__categories.length) {
+        const opts = document.querySelectorAll('#new-tag-category option');
+        window.__categories = Array.from(opts).map(o => ({
+            id: parseInt(o.value, 10),
+            name: o.textContent,
+            color: o.getAttribute('data-color') || '#888'
+        }));
+    }
 
     for (const cat of window.__categories) {
         catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
@@ -166,17 +168,13 @@ function renderDetail() {
     if (!tagDetail) return;
     const tag = tagDetail.tag;
     const color = tag.category_color || '#888';
+    const isAdmin = window.__isAdmin === true;
 
     const implies = tagDetail.implications.implies || [];
     const impliedBy = tagDetail.implications.implied_by || [];
     const related = tagDetail.related_tags || [];
 
-    panel.innerHTML = `
-        <div class="detail-header">
-            <h2>${escapeHtml(tag.display_name || tag.name)}</h2>
-            <span class="tag-chip" style="--tag-color:${color}">${escapeHtml(tag.category_name || 'General')}</span>
-        </div>
-
+    const propertiesSection = isAdmin ? `
         <div class="detail-section">
             <h3>Properties</h3>
             <div class="inline-form">
@@ -190,27 +188,45 @@ function renderDetail() {
                     <button class="btn btn-small" onclick="saveEdit(${tag.id})">Save</button>
                 </div>
             </div>
+        </div>` : '';
+
+    const impliesItems = implies.map(t => `
+        <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
+            <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
+            ${isAdmin ? `<span class="tag-actions" onclick="event.stopPropagation()">
+                <button title="Remove implication" onclick="removeImplication(${tag.id}, ${t.id})">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </span>` : ''}
         </div>
+    `).join('');
+
+    const addImplSection = isAdmin ? `
+        <div class="add-impl">
+            <input type="text" id="implies-search" placeholder="Add implication..." autocomplete="off">
+            <button class="btn btn-small" onclick="addImplication(${tag.id})">Add</button>
+        </div>
+        <div id="implies-search-results" style="margin-top:0.25rem;"></div>` : '';
+
+    const deleteSection = isAdmin ? `
+        <div class="detail-section" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
+            <button class="btn btn-small btn-danger" onclick="deleteTag(${tag.id})">Delete tag</button>
+        </div>` : '';
+
+    panel.innerHTML = `
+        <div class="detail-header">
+            <h2>${escapeHtml(tag.display_name || tag.name)}</h2>
+            <span class="tag-chip" style="--tag-color:${color}">${escapeHtml(tag.category_name || 'General')}</span>
+        </div>
+
+        ${propertiesSection}
 
         <div class="detail-section">
             <h3>Implies (${implies.length})</h3>
             <div class="impl-list" id="implies-list">
-                ${implies.map(t => `
-                    <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
-                        <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
-                        <span class="tag-actions" onclick="event.stopPropagation()">
-                            <button title="Remove implication" onclick="removeImplication(${tag.id}, ${t.id})">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            </button>
-                        </span>
-                    </div>
-                `).join('') || '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0;">No outgoing implications</p>'}
+                ${impliesItems || '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0;">No outgoing implications</p>'}
             </div>
-            <div class="add-impl">
-                <input type="text" id="implies-search" placeholder="Add implication..." autocomplete="off">
-                <button class="btn btn-small" onclick="addImplication(${tag.id})">Add</button>
-            </div>
-            <div id="implies-search-results" style="margin-top:0.25rem;"></div>
+            ${addImplSection}
         </div>
 
         <div class="detail-section">
@@ -233,9 +249,7 @@ function renderDetail() {
             </div>
         </div>
 
-        <div class="detail-section" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
-            <button class="btn btn-small btn-danger" onclick="deleteTag(${tag.id})">Delete tag</button>
-        </div>
+        ${deleteSection}
     `;
 
     const searchInput = document.getElementById('implies-search');
@@ -576,14 +590,18 @@ document.getElementById('tag-search').addEventListener('input', (e) => {
     }
 });
 
-document.getElementById('new-tag-btn').addEventListener('click', openModal);
-document.getElementById('manage-cats-btn').addEventListener('click', openCategoriesModal);
+const newTagBtn = document.getElementById('new-tag-btn');
+if (newTagBtn) newTagBtn.addEventListener('click', openModal);
+const manageCatsBtn = document.getElementById('manage-cats-btn');
+if (manageCatsBtn) manageCatsBtn.addEventListener('click', openCategoriesModal);
 
-document.getElementById('new-tag-modal').addEventListener('click', (e) => {
+const newTagModal = document.getElementById('new-tag-modal');
+if (newTagModal) newTagModal.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
 });
 
-document.getElementById('categories-modal').addEventListener('click', (e) => {
+const categoriesModal = document.getElementById('categories-modal');
+if (categoriesModal) categoriesModal.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeCategoriesModal();
 });
 
