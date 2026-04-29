@@ -50,7 +50,11 @@ let catState = {}; // { [catId]: { tags: [], offset: 0, hasMore: true, isLoading
 
 function initCategories() {
     const opts = document.querySelectorAll('#new-tag-category option');
-    window.__categories = Array.from(opts).map(o => ({ id: parseInt(o.value, 10), name: o.textContent }));
+    window.__categories = Array.from(opts).map(o => ({
+        id: parseInt(o.value, 10),
+        name: o.textContent,
+        color: o.getAttribute('data-color') || '#888'
+    }));
 
     for (const cat of window.__categories) {
         catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
@@ -105,7 +109,7 @@ function renderTagList() {
         const itemsHtml = state.tags.map(tag => {
             const activeClass = tag.id === selectedTagId ? 'active' : '';
             return `
-            <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})">
+            <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})" style="--tag-color:${cat.color||'#888'}">
                 <span class="tag-name">${escapeHtml(tag.display_name || tag.name)}</span>
                 <span class="tag-meta">${tag.usage_count || 0}</span>
             </div>`;

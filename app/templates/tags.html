@@ -82,14 +82,6 @@
             border-radius: 10px;
             padding: 0.75rem 1rem;
         }
-        .tag-category-header {
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-            margin-bottom: 0.5rem;
-            opacity: 0.85;
-        }
         .tag-category-items {
             display: flex;
             flex-wrap: wrap;
@@ -104,15 +96,54 @@
             border: 1px solid var(--border);
             border-radius: 5px;
             cursor: pointer;
-            transition: border-color .15s, background .15s;
             font-size: 0.8125rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .tag-list-item::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: var(--tag-color);
+            opacity: 0;
+            transition: opacity .15s;
+            z-index: 0;
+        }
+        .tag-list-item:hover::before {
+            opacity: 0.35;
+        }
+        .tag-list-item:active::before,
+        .tag-list-item.active::before {
+            opacity: 0.2;
         }
         .tag-list-item:hover {
-            border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+            border-color: var(--tag-color);
         }
+        .tag-list-item:active,
         .tag-list-item.active {
-            border-color: var(--accent);
-            background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+            border-color: var(--tag-color);
+        }
+        .tag-list-item > * {
+            position: relative;
+            z-index: 1;
+        }
+        .tag-category-header {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.5rem;
+            opacity: 0.9;
+        }
+        .tag-category-header .cat-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            display: inline-block;
         }
         .tag-list-item .tag-name {
             font-weight: 500;
@@ -401,7 +432,7 @@
                 <label>Category</label>
                 <select id="new-tag-category">
                     {% for cat in categories %}
-                    <option value="{{ cat.id }}">{{ cat.name }}</option>
+                    <option value="{{ cat.id }}" data-color="{{ cat.color }}">{{ cat.name }}</option>
                     {% endfor %}
                 </select>
             </div>
