@@ -180,6 +180,71 @@ class TagService:
             "implied_by": implied_by_tags
         }
 
+    def list_tags(self, query: Optional[str] = None, limit: int = 50,
+                  offset: int = 0) -> Dict:
+        """Get paginated tag list with implication counts."""
+        items = self.tags.list_tags(query, limit, offset)
+        total = self.tags.count_tags(query)
+
+        # Enrich with implication counts
+        for tag in items:
+            if self.implications:
+                tag["implies_count"] = self.implications.get_implications_count(tag["id"])
+                tag["implied_by_count"] = self.implications.get_implied_by_count(tag["id"])
+            else:
+                tag["implies_count"] = 0
+                tag["implied_by_count"] = 0
+
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+    def update_tag(self, tag_id: int, name: Optional[str] = None,
+                   display_name: Optional[str] = None,
+                   category_id: Optional[int] = None) -> Dict:
+        """Update tag fields."""
+        tag = self.tags.get_by_id(tag_id)
+        if not tag:
+            raise HTTPException(404, "Tag not found")
+
+        updates = {}
+        if name is not None:
+            name = name.lower().strip().replace(' ', '_')
+            if not name or not name.replace('_', '').isalnum():
+                raise HTTPException(400, "Invalid tag name")
+            updates["name"] = name
+        if display_name is not None:
+            updates["display_name"] = display_name
+        if category_id is not None:
+            updates["category_id"] = category_id
+
+        self.tags.update_tag(tag_id, **updates)
+        return self.tags.get_by_id(tag_id)
+
+    def delete_tag(self, tag_id: int) -> bool:
+        """Delete a tag."""
+        tag = self.tags.get_by_id(tag_id)
+        if not tag:
+            raise HTTPException(404, "Tag not found")
+        return self.tags.delete_tag(tag_id)
+
+    def create_implication(self, tag_id: int, implies_tag_id: int) -> Dict:
+        """Create implication edge with cycle validation."""
+        if self.implications is None:
+            raise HTTPException(500, "Implication service not configured")
+
+        tag = self.tags.get_by_id(tag_id)
+        implied = self.tags.get_by_id(implies_tag_id)
+        if not tag or not implied:
+            raise HTTPException(404, "Tag not found")
+
+        self.implications.create(tag_id, implies_tag_id)
+        return self.get_tag_implications(tag_id)
+
+    def delete_implication(self, tag_id: int, implies_tag_id: int) -> bool:
+        """Delete implication edge."""
+        if self.implications is None:
+            raise HTTPException(500, "Implication service not configured")
+        return self.implications.delete(tag_id, implies_tag_id)
+
     # ========================================================================
     # Search
     # ========================================================================
