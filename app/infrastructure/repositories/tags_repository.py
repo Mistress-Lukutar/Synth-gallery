@@ -182,9 +182,9 @@ class TagsRepository(Repository):
             New tag ID
         """
         cursor = self._execute("""
-            INSERT INTO tags (name, display_name, category_id, usage_count)
-            VALUES (?, ?, ?, 0)
-        """, (name, display_name or name.replace('_', ' ').title(), category_id))
+            INSERT INTO tags (name, display_name, category_id, usage_count, path)
+            VALUES (?, ?, ?, 0, ?)
+        """, (name, display_name or name.replace('_', ' ').title(), category_id, name))
         self._commit()
         return cursor.lastrowid
 
