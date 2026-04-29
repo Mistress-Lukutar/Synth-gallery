@@ -99,24 +99,7 @@
             padding: 3rem;
             color: var(--text-muted);
         }
-        .status-message {
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-            display: none;
-        }
-        .status-message.success {
-            display: block;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #22c55e;
-        }
-        .status-message.error {
-            display: block;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
-        }
+
         .backup-in-progress {
             border-color: rgba(234, 179, 8, 0.3);
             animation: pulse 2s ease-in-out infinite;
@@ -161,8 +144,6 @@
                 <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
-
-        <div id="status-message" class="status-message"></div>
 
         <div class="backup-actions">
             <button id="create-backup-btn" class="btn">
@@ -286,13 +267,6 @@
             return fetch(url, { ...options, headers });
         }
 
-        function showStatus(message, isError = false) {
-            const el = document.getElementById('status-message');
-            el.textContent = message;
-            el.className = 'status-message ' + (isError ? 'error' : 'success');
-            setTimeout(() => { el.className = 'status-message'; }, 5000);
-        }
-
         document.getElementById('create-backup-btn').addEventListener('click', async () => {
             const btn = document.getElementById('create-backup-btn');
             btn.disabled = true;
@@ -303,10 +277,10 @@
                 if (!resp.ok) throw new Error('Failed to create backup');
 
                 const data = await resp.json();
-                showStatus('Backup created: ' + data.filename);
+                showToast('Backup created: ' + data.filename);
                 setTimeout(() => location.reload(), 1000);
             } catch (err) {
-                showStatus('Failed to create backup: ' + err.message, true);
+                showToast('Failed to create backup: ' + err.message, true);
                 btn.disabled = false;
                 btn.textContent = 'Create Backup';
             }
@@ -322,10 +296,10 @@
                 if (!resp.ok) throw new Error('Failed to restore backup');
 
                 const data = await resp.json();
-                showStatus(data.message);
+                showToast(data.message);
                 setTimeout(() => location.reload(), 2000);
             } catch (err) {
-                showStatus('Failed to restore: ' + err.message, true);
+                showToast('Failed to restore: ' + err.message, true);
             }
         }
 
@@ -341,7 +315,7 @@
                 const item = document.querySelector(`.backup-item[data-name="${filename}"]:not(.full-backup-item)`);
                 if (item) item.remove();
 
-                showStatus('Backup deleted');
+                showToast('Backup deleted');
 
                 // Check if list is now empty
                 if (document.querySelectorAll('#backup-list .backup-item').length === 0) {
@@ -352,7 +326,7 @@
                     `;
                 }
             } catch (err) {
-                showStatus('Failed to delete: ' + err.message, true);
+                showToast('Failed to delete: ' + err.message, true);
             }
         }
 
@@ -390,10 +364,10 @@
                 }
 
                 const data = await resp.json();
-                showStatus(`Full backup created: ${data.filename} (${data.size}, ${data.stats.total_files} files)`);
+                showToast(`Full backup created: ${data.filename} (${data.size}, ${data.stats.total_files} files)`);
                 setTimeout(() => location.reload(), 1000);
             } catch (err) {
-                showStatus('Failed to create full backup: ' + err.message, true);
+                showToast('Failed to create full backup: ' + err.message, true);
                 progressItem.remove();
                 btn.disabled = false;
                 btn.innerHTML = `
@@ -416,7 +390,7 @@
         });
 
         async function verifyFullBackup(filename) {
-            showStatus(`Verifying ${filename}...`);
+            showToast(`Verifying ${filename}...`);
 
             try {
                 const resp = await fetch(`{{ base_url }}/api/admin/full-backup/${filename}/verify`);
@@ -424,12 +398,12 @@
 
                 const data = await resp.json();
                 if (data.valid) {
-                    showStatus(`Backup is VALID: ${data.verified_files}/${data.total_files} files verified`);
+                    showToast(`Backup is VALID: ${data.verified_files}/${data.total_files} files verified`);
                 } else {
-                    showStatus(`Backup is INVALID: ${data.error || data.errors?.join(', ')}`, true);
+                    showToast(`Backup is INVALID: ${data.error || data.errors?.join(', ')}`, true);
                 }
             } catch (err) {
-                showStatus('Verification failed: ' + err.message, true);
+                showToast('Verification failed: ' + err.message, true);
             }
         }
 
@@ -438,7 +412,7 @@
                 return;
             }
 
-            showStatus(`Restoring from ${filename}...`);
+            showToast(`Restoring from ${filename}...`);
 
             try {
                 const resp = await csrfFetch(`{{ base_url }}/api/admin/full-backup/${filename}/restore`, { method: 'POST' });
@@ -448,10 +422,10 @@
                 }
 
                 const data = await resp.json();
-                showStatus(`${data.message} (${data.restored_files} files restored)`);
+                showToast(`${data.message} (${data.restored_files} files restored)`);
                 setTimeout(() => location.reload(), 3000);
             } catch (err) {
-                showStatus('Restore failed: ' + err.message, true);
+                showToast('Restore failed: ' + err.message, true);
             }
         }
 
@@ -467,7 +441,7 @@
                 const item = document.querySelector(`.full-backup-item[data-name="${filename}"]`);
                 if (item) item.remove();
 
-                showStatus('Full backup deleted');
+                showToast('Full backup deleted');
 
                 if (document.querySelectorAll('#full-backup-list .backup-item').length === 0) {
                     document.getElementById('full-backup-list').innerHTML = `
@@ -478,9 +452,10 @@
                     `;
                 }
             } catch (err) {
-                showStatus('Failed to delete: ' + err.message, true);
+                showToast('Failed to delete: ' + err.message, true);
             }
         }
     </script>
+    <script src="{{ base_url }}/static/js/toast.js"></script>
 </body>
 </html>

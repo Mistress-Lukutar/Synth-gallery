@@ -119,30 +119,7 @@
             padding: 3rem;
             color: var(--text-muted);
         }
-        .status-message {
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-            display: none;
-        }
-        .status-message.success {
-            display: block;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #22c55e;
-        }
-        .status-message.error {
-            display: block;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
-        }
-        .status-message.warning {
-            display: block;
-            background: rgba(234, 179, 8, 0.1);
-            border: 1px solid rgba(234, 179, 8, 0.3);
-            color: #eab308;
-        }
+
         /* Modal styles */
         .modal-overlay {
             position: fixed;
@@ -227,8 +204,6 @@
                 <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
-
-        <div id="status-message" class="status-message"></div>
 
         {% if default_admin_created %}
         <div class="default-admin-notice">
@@ -367,12 +342,12 @@
             const isAdmin = document.getElementById('new-is-admin').checked;
 
             if (!username || !displayName || !password) {
-                showStatus('Please fill in all fields', 'error');
+                showToast('Please fill in all fields', true);
                 return;
             }
 
             if (password.length < 4) {
-                showStatus('Password must be at least 4 characters', 'error');
+                showToast('Password must be at least 4 characters', true);
                 return;
             }
 
@@ -393,11 +368,11 @@
                     throw new Error(err.detail || 'Failed to create user');
                 }
 
-                showStatus('User created successfully');
+                showToast('User created successfully');
                 closeModal();
                 setTimeout(() => location.reload(), 1000);
             } catch (err) {
-                showStatus(err.message, 'error');
+                showToast(err.message, true);
             }
         }
 
@@ -416,7 +391,7 @@
                     throw new Error(err.detail || 'Failed to delete user');
                 }
 
-                showStatus('User deleted');
+                showToast('User deleted');
                 const item = document.querySelector(`.user-item[data-id="${userId}"]`);
                 if (item) item.remove();
 
@@ -429,7 +404,7 @@
                     `;
                 }
             } catch (err) {
-                showStatus(err.message, 'error');
+                showToast(err.message, true);
             }
         }
 
@@ -446,10 +421,10 @@
                     throw new Error(err.detail || 'Failed to grant admin rights');
                 }
 
-                showStatus('Admin rights granted');
+                showToast('Admin rights granted');
                 setTimeout(() => location.reload(), 1000);
             } catch (err) {
-                showStatus(err.message, 'error');
+                showToast(err.message, true);
             }
         }
 
@@ -470,10 +445,10 @@
                     throw new Error(err.detail || 'Failed to revoke admin rights');
                 }
 
-                showStatus('Admin rights revoked');
+                showToast('Admin rights revoked');
                 setTimeout(() => location.reload(), 1000);
             } catch (err) {
-                showStatus(err.message, 'error');
+                showToast(err.message, true);
             }
         }
 
@@ -484,5 +459,6 @@
             }
         });
     </script>
+    <script src="{{ base_url }}/static/js/toast.js"></script>
 </body>
 </html>
