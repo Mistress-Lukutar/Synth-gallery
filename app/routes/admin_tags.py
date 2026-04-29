@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from ..config import ROOT_PATH, BASE_DIR
 from ..database import create_connection
-from ..dependencies import require_user, get_csrf_token
+from ..dependencies import require_user, require_admin, get_csrf_token
 from ..infrastructure.repositories import TagsRepository, TagImplicationRepository, TagCooccurrenceRepository
 from ..application.services import TagService
 
@@ -98,7 +98,7 @@ def list_tags(
 @router.put("/api/tags/{tag_id}")
 def update_tag(tag_id: int, data: TagUpdateInput, request: Request):
     """Update tag fields."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
@@ -116,7 +116,7 @@ def update_tag(tag_id: int, data: TagUpdateInput, request: Request):
 @router.delete("/api/tags/{tag_id}")
 def delete_tag(tag_id: int, request: Request):
     """Delete a tag."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
@@ -133,7 +133,7 @@ def delete_tag(tag_id: int, request: Request):
 @router.post("/api/tags/{tag_id}/implications")
 def add_implication(tag_id: int, data: ImplicationInput, request: Request):
     """Add implication edge: tag_id -> implies_tag_id."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
@@ -149,7 +149,7 @@ def add_implication(tag_id: int, data: ImplicationInput, request: Request):
 @router.delete("/api/tags/{tag_id}/implications/{implies_tag_id}")
 def remove_implication(tag_id: int, implies_tag_id: int, request: Request):
     """Remove implication edge."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
@@ -178,7 +178,7 @@ def list_categories(request: Request):
 @router.post("/api/tag-categories")
 def create_category(data: CategoryCreateInput, request: Request):
     """Create a new tag category."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
@@ -191,7 +191,7 @@ def create_category(data: CategoryCreateInput, request: Request):
 @router.put("/api/tag-categories/{category_id}")
 def update_category(category_id: int, data: CategoryUpdateInput, request: Request):
     """Update a tag category."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
@@ -204,7 +204,7 @@ def update_category(category_id: int, data: CategoryUpdateInput, request: Reques
 @router.delete("/api/tag-categories/{category_id}")
 def delete_category(category_id: int, request: Request):
     """Delete a tag category."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)

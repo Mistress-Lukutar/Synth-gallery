@@ -415,6 +415,7 @@
             <div class="left-col">
                 <div class="toolbar">
                     <input type="search" id="tag-search" placeholder="Search tags..." autocomplete="off">
+                    {% if user and user.is_admin %}
                     <button id="new-tag-btn" class="btn">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                             <line x1="12" y1="5" x2="12" y2="19"/>
@@ -429,6 +430,7 @@
                         </svg>
                         Categories
                     </button>
+                    {% endif %}
                 </div>
 
                 <div class="tag-list-wrapper">
@@ -447,6 +449,7 @@
         </div>
     </div>
 
+    {% if user and user.is_admin %}
     <!-- Categories Modal -->
     <div id="categories-modal" class="modal-overlay">
         <div class="modal-box" style="max-width: 480px;">
@@ -489,7 +492,12 @@
             </div>
         </div>
     </div>
+    {% endif %}
 
+    <script>
+        window.__isAdmin = {{ 'true' if user and user.is_admin else 'false' }};
+        window.__categories = {{ categories | tojson }};
+    </script>
     <script src="{{ base_url }}/static/js/toast.js"></script>
     <script src="{{ base_url }}/static/js/tags-page.js"></script>
 </body>

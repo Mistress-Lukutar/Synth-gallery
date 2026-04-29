@@ -112,10 +112,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                                 pass
                         
                         # Valid session - attach user info to request state
+                        user_row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
                         request.state.user = {
                             "id": user_id,
                             "username": session["username"],
-                            "display_name": session["display_name"]
+                            "display_name": session["display_name"],
+                            "is_admin": bool(user_row["is_admin"]) if user_row else False
                         }
                         return await call_next(request)
             finally:

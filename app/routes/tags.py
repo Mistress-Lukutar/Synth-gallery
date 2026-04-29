@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
 
 from ..database import create_connection
-from ..dependencies import require_user
+from ..dependencies import require_user, require_admin
 from ..infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
@@ -122,7 +122,7 @@ def get_tag_implications(tag_id: int):
 @router.post("/api/tags")
 def create_tag(data: TagCreateInput, request: Request):
     """Create a new tag."""
-    require_user(request)
+    require_admin(request)
     db = create_connection()
     try:
         service = _tag_service(db)
