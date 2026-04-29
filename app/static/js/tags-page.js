@@ -199,10 +199,13 @@ function renderDetail() {
             <h3>Implies (${implies.length})</h3>
             <div class="impl-list" id="implies-list">
                 ${implies.map(t => `
-                    <div class="impl-row">
-                        <span style="color:${t.category_color||'#888'}">●</span>
-                        ${escapeHtml(t.display_name || t.name)}
-                        <button onclick="removeImplication(${tag.id}, ${t.id})">×</button>
+                    <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
+                        <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
+                        <span class="tag-actions" onclick="event.stopPropagation()">
+                            <button title="Remove implication" onclick="removeImplication(${tag.id}, ${t.id})">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </span>
                     </div>
                 `).join('') || '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0;">No outgoing implications</p>'}
             </div>
@@ -217,9 +220,8 @@ function renderDetail() {
             <h3>Implied By (${impliedBy.length})</h3>
             <div class="impl-list">
                 ${impliedBy.map(t => `
-                    <div class="impl-row">
-                        <span style="color:${t.category_color||'#888'}">●</span>
-                        ${escapeHtml(t.display_name || t.name)}
+                    <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
+                        <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
                     </div>
                 `).join('') || '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0;">No incoming implications</p>'}
             </div>
