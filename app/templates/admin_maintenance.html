@@ -105,24 +105,7 @@
         }
         .result-message.success { color: #22c55e; }
         .result-message.error { color: #ef4444; }
-        .status-message {
-            padding: 0.75rem 1rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-            display: none;
-        }
-        .status-message.success {
-            display: block;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #22c55e;
-        }
-        .status-message.error {
-            display: block;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
-        }
+
     </style>
 </head>
 <body>
@@ -143,8 +126,6 @@
                 <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
-
-        <div id="status-message" class="status-message"></div>
 
         <div class="stats-grid">
             <div class="stat-card healthy">
@@ -274,13 +255,6 @@
             return fetch(url, { ...options, headers });
         }
 
-        function showStatus(message, isError = false) {
-            const el = document.getElementById('status-message');
-            el.textContent = message;
-            el.className = 'status-message ' + (isError ? 'error' : 'success');
-            setTimeout(() => { el.className = 'status-message'; }, 5000);
-        }
-
         document.getElementById('regenerate-btn').addEventListener('click', async function() {
             const btn = this;
             const result = document.getElementById('regenerate-result');
@@ -370,5 +344,6 @@
             }
         });
     </script>
+    <script src="{{ base_url }}/static/js/toast.js"></script>
 </body>
 </html>

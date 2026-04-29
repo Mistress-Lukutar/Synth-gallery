@@ -347,25 +347,7 @@
             margin-top: 1rem;
         }
 
-        .status-message {
-            padding: 0.625rem 0.875rem;
-            border-radius: 6px;
-            margin-bottom: 1rem;
-            display: none;
-            font-size: 0.875rem;
-        }
-        .status-message.success {
-            display: block;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: #22c55e;
-        }
-        .status-message.error {
-            display: block;
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            color: #ef4444;
-        }
+
 
         .load-more {
             text-align: center;
@@ -428,8 +410,6 @@
                 <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
-
-        <div id="status-message" class="status-message"></div>
 
         <div class="main-layout">
             <div class="left-col">
@@ -510,6 +490,7 @@
         </div>
     </div>
 
+    <script src="{{ base_url }}/static/js/toast.js"></script>
     <script src="{{ base_url }}/static/js/tags-page.js"></script>
 </body>
 </html>

@@ -29,10 +29,7 @@ async function csrfFetch(url, options = {}) {
 }
 
 function showStatus(message, isError = false) {
-    const el = document.getElementById('status-message');
-    el.textContent = message;
-    el.className = 'status-message ' + (isError ? 'error' : 'success');
-    setTimeout(() => { el.className = 'status-message'; }, 5000);
+    showToast(message, isError);
 }
 
 // =============================================================================
