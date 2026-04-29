@@ -26,6 +26,18 @@ class ImplicationInput(BaseModel):
     implies_tag_id: int
 
 
+class CategoryCreateInput(BaseModel):
+    name: str
+    color: str = "#888888"
+    sort_order: Optional[int] = None
+
+
+class CategoryUpdateInput(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    sort_order: Optional[int] = None
+
+
 def _tag_service(db):
     return TagService(
         TagsRepository(db),
@@ -142,6 +154,61 @@ def remove_implication(tag_id: int, implies_tag_id: int, request: Request):
     try:
         service = _tag_service(db)
         deleted = service.delete_implication(tag_id, implies_tag_id)
+        return {"status": "ok", "deleted": deleted}
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Category CRUD API
+# =============================================================================
+
+@router.get("/api/tag-categories")
+def list_categories(request: Request):
+    """Get all tag categories."""
+    require_user(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        return {"categories": service.get_categories()}
+    finally:
+        db.close()
+
+
+@router.post("/api/tag-categories")
+def create_category(data: CategoryCreateInput, request: Request):
+    """Create a new tag category."""
+    require_user(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        cat = service.create_category(data.name, data.color, data.sort_order)
+        return {"status": "ok", "category": cat}
+    finally:
+        db.close()
+
+
+@router.put("/api/tag-categories/{category_id}")
+def update_category(category_id: int, data: CategoryUpdateInput, request: Request):
+    """Update a tag category."""
+    require_user(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        cat = service.update_category(category_id, name=data.name, color=data.color, sort_order=data.sort_order)
+        return {"status": "ok", "category": cat}
+    finally:
+        db.close()
+
+
+@router.delete("/api/tag-categories/{category_id}")
+def delete_category(category_id: int, request: Request):
+    """Delete a tag category."""
+    require_user(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        deleted = service.delete_category(category_id)
         return {"status": "ok", "deleted": deleted}
     finally:
         db.close()

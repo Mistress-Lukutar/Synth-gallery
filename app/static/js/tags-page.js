@@ -441,6 +441,120 @@ async function createTag() {
 }
 
 // =============================================================================
+// Categories
+// =============================================================================
+
+function openCategoriesModal() {
+    document.getElementById('categories-modal').classList.add('open');
+    loadCategories();
+}
+
+function closeCategoriesModal() {
+    document.getElementById('categories-modal').classList.remove('open');
+}
+
+async function loadCategories() {
+    try {
+        const resp = await csrfFetch('/api/tag-categories');
+        if (!resp.ok) throw new Error('Failed to load categories');
+        const data = await resp.json();
+        renderCategoriesList(data.categories);
+        window.__categories = (data.categories || []).map(c => ({ id: c.id, name: c.name, color: c.color }));
+        updateCategorySelectOptions(data.categories);
+    } catch (err) {
+        showStatus(err.message, true);
+    }
+}
+
+function updateCategorySelectOptions(categories) {
+    const select = document.getElementById('new-tag-category');
+    const editSelect = document.getElementById('edit-category');
+    const opts = (categories || []).map(c => `<option value="${c.id}" data-color="${escapeHtml(c.color)}">${escapeHtml(c.name)}</option>`).join('');
+    if (select) select.innerHTML = opts;
+    if (editSelect) editSelect.innerHTML = opts;
+}
+
+function renderCategoriesList(categories) {
+    const container = document.getElementById('categories-list');
+    if (!categories || !categories.length) {
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:0.875rem;">No categories</p>';
+        return;
+    }
+    container.innerHTML = categories.map(cat => `
+        <div class="cat-row" data-cat-id="${cat.id}">
+            <input type="color" value="${escapeHtml(cat.color)}" onchange="updateCategory(${cat.id})">
+            <input type="text" class="cat-name-input" value="${escapeHtml(cat.name)}" onchange="updateCategory(${cat.id})">
+            <button class="btn btn-small btn-danger" onclick="deleteCategory(${cat.id})">Delete</button>
+        </div>
+    `).join('');
+}
+
+async function createCategory() {
+    const name = document.getElementById('new-cat-name').value.trim();
+    const color = document.getElementById('new-cat-color').value;
+    if (!name) {
+        showStatus('Category name is required', true);
+        return;
+    }
+    try {
+        const resp = await csrfFetch('/api/tag-categories', {
+            method: 'POST',
+            body: JSON.stringify({ name, color })
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to create category');
+        }
+        showStatus('Category created');
+        document.getElementById('new-cat-name').value = '';
+        await loadCategories();
+        await refreshAllCategories();
+    } catch (err) {
+        showStatus(err.message, true);
+    }
+}
+
+async function updateCategory(catId) {
+    const row = document.querySelector(`.cat-row[data-cat-id="${catId}"]`);
+    if (!row) return;
+    const name = row.querySelector('.cat-name-input').value.trim();
+    const color = row.querySelector('input[type="color"]').value;
+    try {
+        const resp = await csrfFetch(`/api/tag-categories/${catId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ name, color })
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to update category');
+        }
+        showStatus('Category updated');
+        await refreshAllCategories();
+    } catch (err) {
+        showStatus(err.message, true);
+    }
+}
+
+async function deleteCategory(catId) {
+    const row = document.querySelector(`.cat-row[data-cat-id="${catId}"]`);
+    const name = row ? row.querySelector('.cat-name-input').value : 'this category';
+    if (!confirm(`Delete "${name}"?\n\nYou can only delete empty categories.`)) return;
+
+    try {
+        const resp = await csrfFetch(`/api/tag-categories/${catId}`, { method: 'DELETE' });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to delete category');
+        }
+        showStatus('Category deleted');
+        await loadCategories();
+        await refreshAllCategories();
+    } catch (err) {
+        showStatus(err.message, true);
+    }
+}
+
+// =============================================================================
 // Utils
 // =============================================================================
 
@@ -464,13 +578,21 @@ document.getElementById('tag-search').addEventListener('input', (e) => {
 });
 
 document.getElementById('new-tag-btn').addEventListener('click', openModal);
+document.getElementById('manage-cats-btn').addEventListener('click', openCategoriesModal);
 
 document.getElementById('new-tag-modal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
 });
 
+document.getElementById('categories-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeCategoriesModal();
+});
+
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') {
+        closeModal();
+        closeCategoriesModal();
+    }
 });
 
 initCategories();

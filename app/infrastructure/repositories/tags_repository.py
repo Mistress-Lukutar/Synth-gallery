@@ -27,6 +27,50 @@ class TagsRepository(Repository):
         row = cursor.fetchone()
         return dict(row) if row else None
 
+    def get_category_by_id(self, category_id: int) -> Optional[Dict]:
+        """Get category by ID."""
+        cursor = self._execute(
+            "SELECT id, slug, name, color, sort_order FROM tag_categories WHERE id = ?",
+            (category_id,)
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def create_category(self, name: str, slug: str, color: str, sort_order: int) -> int:
+        """Create a new tag category."""
+        cursor = self._execute(
+            "INSERT INTO tag_categories (name, slug, color, sort_order) VALUES (?, ?, ?, ?)",
+            (name, slug, color, sort_order)
+        )
+        self._commit()
+        return cursor.lastrowid
+
+    def update_category(self, category_id: int, **fields) -> bool:
+        """Update category fields."""
+        allowed = {"name", "slug", "color", "sort_order"}
+        updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        self._execute(
+            f"UPDATE tag_categories SET {set_clause} WHERE id = ?",
+            tuple(updates.values()) + (category_id,)
+        )
+        self._commit()
+        return self._conn.total_changes > 0
+
+    def delete_category(self, category_id: int) -> bool:
+        """Delete category if no tags reference it."""
+        cursor = self._execute(
+            "SELECT COUNT(*) as cnt FROM tags WHERE category_id = ?", (category_id,)
+        )
+        row = cursor.fetchone()
+        if row and row["cnt"] > 0:
+            raise ValueError("Cannot delete category with existing tags")
+        self._execute("DELETE FROM tag_categories WHERE id = ?", (category_id,))
+        self._commit()
+        return self._conn.total_changes > 0
+
     # ========================================================================
     # Tags - Basic CRUD
     # ========================================================================

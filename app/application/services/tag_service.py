@@ -33,6 +33,49 @@ class TagService:
         """Get category by slug."""
         return self.tags.get_category_by_slug(slug)
 
+    def create_category(self, name: str, color: str, sort_order: Optional[int] = None) -> Dict:
+        """Create a new tag category."""
+        slug = name.lower().strip().replace(' ', '_')
+        if not slug or not slug.replace('_', '').isalnum():
+            raise HTTPException(400, "Invalid category name")
+        existing = self.tags.get_category_by_slug(slug)
+        if existing:
+            raise HTTPException(400, "Category already exists")
+        if sort_order is None:
+            categories = self.tags.get_categories()
+            sort_order = max((c.get('sort_order', 0) for c in categories), default=0) + 1
+        cat_id = self.tags.create_category(name, slug, color, sort_order)
+        cat = self.tags.get_category_by_id(cat_id)
+        return cat
+
+    def update_category(self, category_id: int, name: Optional[str] = None,
+                        color: Optional[str] = None,
+                        sort_order: Optional[int] = None) -> Dict:
+        """Update category fields."""
+        cat = self.tags.get_category_by_id(category_id)
+        if not cat:
+            raise HTTPException(404, "Category not found")
+        updates = {}
+        if name is not None:
+            updates["name"] = name
+            updates["slug"] = name.lower().strip().replace(' ', '_')
+        if color is not None:
+            updates["color"] = color
+        if sort_order is not None:
+            updates["sort_order"] = sort_order
+        self.tags.update_category(category_id, **updates)
+        return self.tags.get_category_by_id(category_id)
+
+    def delete_category(self, category_id: int) -> bool:
+        """Delete a category if it has no tags."""
+        cat = self.tags.get_category_by_id(category_id)
+        if not cat:
+            raise HTTPException(404, "Category not found")
+        try:
+            return self.tags.delete_category(category_id)
+        except ValueError as e:
+            raise HTTPException(400, detail=str(e))
+
     # ========================================================================
     # Tag CRUD
     # ========================================================================
