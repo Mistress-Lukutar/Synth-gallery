@@ -84,13 +84,14 @@ class TagService:
         """Get tag by ID."""
         return self.tags.get_by_id(tag_id)
 
-    def create_tag(self, name: str, display_name: str, category_id: int) -> Dict:
+    def create_tag(self, name: str, display_name: str, category_id: int, description: str = '') -> Dict:
         """Create a new flat tag.
 
         Args:
             name: Tag name (lowercase, underscore)
             display_name: Display name
             category_id: Category ID
+            description: Markdown description
 
         Returns:
             Created tag dict
@@ -104,7 +105,7 @@ class TagService:
         if existing:
             raise HTTPException(400, "Tag already exists")
 
-        tag_id = self.tags.create(name, display_name or name.replace('_', ' ').title(), category_id)
+        tag_id = self.tags.create(name, display_name or name.replace('_', ' ').title(), category_id, description)
         return self.tags.get_by_id(tag_id)
 
     # ========================================================================
@@ -242,7 +243,8 @@ class TagService:
 
     def update_tag(self, tag_id: int, name: Optional[str] = None,
                    display_name: Optional[str] = None,
-                   category_id: Optional[int] = None) -> Dict:
+                   category_id: Optional[int] = None,
+                   description: Optional[str] = None) -> Dict:
         """Update tag fields."""
         tag = self.tags.get_by_id(tag_id)
         if not tag:
@@ -258,6 +260,8 @@ class TagService:
             updates["display_name"] = display_name
         if category_id is not None:
             updates["category_id"] = category_id
+        if description is not None:
+            updates["description"] = description
 
         self.tags.update_tag(tag_id, **updates)
         return self.tags.get_by_id(tag_id)

@@ -233,12 +233,19 @@ def init_db():
             level INTEGER DEFAULT 0,
             is_leaf INTEGER DEFAULT 1,
             usage_count INTEGER DEFAULT 0,
+            description TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES tag_categories(id),
             FOREIGN KEY (parent_id) REFERENCES tags(id)
         )
     """)
     
+    # Migration: Add description column to tags if not exists
+    cursor = db.execute("PRAGMA table_info(tags)")
+    tag_columns = [row['name'] for row in cursor.fetchall()]
+    if 'description' not in tag_columns:
+        db.execute("ALTER TABLE tags ADD COLUMN description TEXT DEFAULT ''")
+
     # Item-tags relationship (many-to-many)
     # v3: stores both explicit (user-added) and implied (auto-resolved) tags
     db.execute("""
