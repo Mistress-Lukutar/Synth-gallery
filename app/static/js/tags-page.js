@@ -101,26 +101,57 @@ function renderTagList() {
         return;
     }
 
-    const html = tagsData.map(tag => {
-        const color = tag.category_color || '#888';
-        const activeClass = tag.id === selectedTagId ? 'active' : '';
+    // Group by category
+    const groups = {};
+    for (const tag of tagsData) {
+        const catName = tag.category_name || 'General';
+        const catColor = tag.category_color || '#888';
+        if (!groups[catName]) {
+            groups[catName] = { color: catColor, tags: [] };
+        }
+        groups[catName].tags.push(tag);
+    }
+
+    // Preserve category sort order from window.__categories if available
+    let categoryOrder = Object.keys(groups);
+    if (window.__categories && window.__categories.length) {
+        const orderMap = new Map(window.__categories.map((c, i) => [c.name, i]));
+        categoryOrder.sort((a, b) => {
+            const ia = orderMap.get(a) ?? 999;
+            const ib = orderMap.get(b) ?? 999;
+            return ia - ib;
+        });
+    }
+
+    const html = categoryOrder.map(catName => {
+        const group = groups[catName];
+        const itemsHtml = group.tags.map(tag => {
+            const activeClass = tag.id === selectedTagId ? 'active' : '';
+            return `
+            <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})">
+                <span class="tag-name">${escapeHtml(tag.display_name || tag.name)}</span>
+                <span class="tag-meta">
+                    ${tag.usage_count || 0}
+                    ${tag.implies_count ? `· →${tag.implies_count}` : ''}
+                    ${tag.implied_by_count ? `· ←${tag.implied_by_count}` : ''}
+                </span>
+                <span class="tag-actions" onclick="event.stopPropagation()">
+                    <button title="Edit" onclick="startEditTag(${tag.id})">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
+                    <button title="Delete" onclick="deleteTag(${tag.id})">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
+                </span>
+            </div>`;
+        }).join('');
+
         return `
-        <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})">
-            <span class="tag-dot" style="background:${color}"></span>
-            <span class="tag-name">${escapeHtml(tag.display_name || tag.name)}</span>
-            <span class="tag-meta">
-                <span>${tag.usage_count || 0} items</span>
-                ${tag.implies_count ? `<span>→ ${tag.implies_count}</span>` : ''}
-                ${tag.implied_by_count ? `<span>← ${tag.implied_by_count}</span>` : ''}
-            </span>
-            <span class="tag-actions" onclick="event.stopPropagation()">
-                <button title="Edit" onclick="startEditTag(${tag.id})">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
-                <button title="Delete" onclick="deleteTag(${tag.id})">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </button>
-            </span>
+        <div class="tag-category-block">
+            <div class="tag-category-header" style="color:${group.color}">${escapeHtml(catName)}</div>
+            <div class="tag-category-items">
+                ${itemsHtml}
+            </div>
         </div>`;
     }).join('');
 

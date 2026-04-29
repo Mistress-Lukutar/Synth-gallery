@@ -1239,6 +1239,26 @@ main {
     margin-bottom: 0.5rem;
 }
 
+.tags-help-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    text-decoration: none;
+    margin-left: 0.25rem;
+    vertical-align: middle;
+    border: 1px solid var(--border);
+}
+.tags-help-link:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 .no-tags-hint {
     color: var(--text-muted);
     font-size: 0.85rem;
