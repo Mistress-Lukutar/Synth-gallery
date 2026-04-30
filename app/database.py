@@ -456,6 +456,36 @@ def init_db():
     if 'file_size' not in media_columns:
         db.execute("ALTER TABLE item_media ADD COLUMN file_size INTEGER")
 
+    # AI Tagging Jobs table
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS ai_tagging_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            started_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            result_tags TEXT,
+            error_message TEXT,
+            retry_count INTEGER DEFAULT 0,
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+        )
+    """)
+
+    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_tagging_jobs(status)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_item ON ai_tagging_jobs(item_id)")
+
+    # AI API Keys table
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS ai_api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            key_hash TEXT NOT NULL UNIQUE,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # Create default admin user if no users exist (first run)
     cursor = db.execute("SELECT COUNT(*) as count FROM users")
     if cursor.fetchone()["count"] == 0:
