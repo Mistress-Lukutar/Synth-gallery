@@ -11,6 +11,7 @@ from .album_service import AlbumService
 from .tag_service import TagService
 from .tag_implication_service import TagImplicationService
 from .tag_suggestion_service import TagSuggestionService
+from .ai_tagging_service import AITaggingService
 
 __all__ = [
     "FolderService",
@@ -24,4 +25,5 @@ __all__ = [
     "TagService",
     "TagImplicationService",
     "TagSuggestionService",
+    "AITaggingService",
 ]
