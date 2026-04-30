@@ -74,8 +74,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Allow API paths with API key (for AI service)
         if check_path.startswith("/api/ai/"):
-            # AI endpoints have their own auth via API key
-            return await call_next(request)
+            # AI endpoints: allow if API key is present (validated in endpoint)
+            # Otherwise fall through to normal session auth for user-facing endpoints
+            if request.headers.get("X-API-Key"):
+                return await call_next(request)
 
         # Allow WebAuthn authentication paths (for passwordless login)
         if check_path.startswith("/api/webauthn/authenticate/") or check_path.startswith("/api/webauthn/check/"):
