@@ -475,6 +475,16 @@ def init_db():
         )
     """)
 
+    # Migration: Add user_id and processing_deadline to ai_tagging_jobs if not exist
+    cursor = db.execute("PRAGMA table_info(ai_tagging_jobs)")
+    ai_job_columns = [row['name'] for row in cursor.fetchall()]
+    if 'user_id' not in ai_job_columns:
+        db.execute("ALTER TABLE ai_tagging_jobs ADD COLUMN user_id INTEGER")
+        # Assign existing jobs to the first available user (or admin)
+        db.execute("UPDATE ai_tagging_jobs SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL")
+    if 'processing_deadline' not in ai_job_columns:
+        db.execute("ALTER TABLE ai_tagging_jobs ADD COLUMN processing_deadline TIMESTAMP")
+
     db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_tagging_jobs(status)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_item ON ai_tagging_jobs(item_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_user ON ai_tagging_jobs(user_id)")
