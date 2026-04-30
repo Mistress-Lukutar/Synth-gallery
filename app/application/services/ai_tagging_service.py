@@ -19,13 +19,13 @@ class AITaggingService:
         self.items = item_repo
         self.item_media = item_media_repo
 
-    def create_jobs(self, item_ids: List[str]) -> List[Dict]:
+    def create_jobs(self, item_ids: List[str], user_id: int) -> List[Dict]:
         """Create pending jobs for given item IDs.
 
         Returns:
             List of created job dicts
         """
-        job_ids = self.jobs.create_jobs(item_ids)
+        job_ids = self.jobs.create_jobs(item_ids, user_id)
         result = []
         for job_id in job_ids:
             job = self.jobs.get_job_by_id(job_id)
@@ -37,13 +37,17 @@ class AITaggingService:
         """Get pending jobs."""
         return self.jobs.get_pending(limit)
 
-    def claim_job(self, job_id: int) -> Optional[Dict]:
+    def get_active_jobs_for_user(self, user_id: int) -> List[Dict]:
+        """Get active jobs for a specific user."""
+        return self.jobs.get_active_by_user(user_id)
+
+    def claim_job(self, job_id: int, timeout_minutes: int = 10) -> Optional[Dict]:
         """Claim a job and return enriched data with item metadata.
 
         Returns:
             Dict with job and item metadata, or None if claim failed
         """
-        claimed = self.jobs.claim_job(job_id)
+        claimed = self.jobs.claim_job(job_id, timeout_minutes)
         if not claimed:
             return None
 
@@ -131,3 +135,15 @@ class AITaggingService:
     def get_job_progress(self, job_ids: List[int]) -> Dict:
         """Get progress statistics for given job IDs."""
         return self.jobs.get_stats(job_ids)
+
+    def reap_stale_jobs(self, max_retries: int = 3) -> Dict:
+        """Reap stale processing jobs.
+
+        Returns:
+            Dict with retried and failed job counts
+        """
+        retried = self.jobs.reap_stale_jobs(max_retries)
+        return {
+            "retried": len(retried),
+            "message": f"Reaped {len(retried)} stale jobs"
+        }

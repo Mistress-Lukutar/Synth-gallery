@@ -1,20 +1,114 @@
 /**
  * Gallery AI Tagging module
- * Queue selected items for AI tagging and poll progress.
+ * Uses Server-Sent Events for progress instead of polling.
  */
 
 (function() {
-    let pollInterval = null;
-    let currentJobIds = [];
+    let eventSource = null;
     let currentItemIds = [];
 
     function init() {
         const btn = document.getElementById('ai-tag-selected-btn');
-        if (!btn) return;
+        if (btn) {
+            btn.addEventListener('click', () => {
+                startAITagging();
+            });
+        }
 
-        btn.addEventListener('click', () => {
-            startAITagging();
+        // On page load, check for active jobs and reconnect SSE
+        checkActiveJobs();
+    }
+
+    async function checkActiveJobs() {
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/ai/jobs/active`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const jobs = data.jobs || [];
+            if (jobs.length === 0) {
+                hideSpinner();
+                return;
+            }
+
+            const jobIds = jobs.map(j => j.id);
+            currentItemIds = []; // Will be filled from progress events
+            showSpinner();
+            connectSSE(jobIds);
+        } catch (err) {
+            console.error('Failed to check active jobs:', err);
+        }
+    }
+
+    function showSpinner() {
+        const el = document.getElementById('ai-tag-progress');
+        if (el) el.classList.remove('hidden');
+    }
+
+    function hideSpinner() {
+        const el = document.getElementById('ai-tag-progress');
+        if (el) el.classList.add('hidden');
+    }
+
+    function connectSSE(jobIds) {
+        if (eventSource) {
+            eventSource.close();
+        }
+
+        const url = `${getBaseUrl()}/api/ai/jobs/events`;
+        eventSource = new EventSource(url);
+
+        eventSource.addEventListener('progress', (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                showSpinner();
+                if (data.jobs) {
+                    currentItemIds = data.jobs.map(j => j.item_id);
+                }
+            } catch (err) {
+                console.error('SSE progress parse error:', err);
+            }
         });
+
+        eventSource.addEventListener('complete', (e) => {
+            try {
+                const stats = JSON.parse(e.data);
+                hideSpinner();
+                const failed = stats.failed || 0;
+                if (failed > 0) {
+                    showToast(`AI tagging complete — ${stats.completed || 0} done, ${failed} failed`, true);
+                } else {
+                    showToast(`AI tagging complete — ${stats.completed || 0} tags added`);
+                }
+                refreshCurrentItemTags();
+            } catch (err) {
+                console.error('SSE complete parse error:', err);
+            }
+            closeSSE();
+        });
+
+        eventSource.addEventListener('done', () => {
+            hideSpinner();
+            closeSSE();
+        });
+
+        eventSource.addEventListener('error', () => {
+            // SSE connection error — will auto-retry or close
+            console.warn('SSE connection error');
+        });
+    }
+
+    function closeSSE() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+    }
+
+    function refreshCurrentItemTags() {
+        const currentItemId = window.currentLightboxPhotoId || window.editingItemId;
+        if (currentItemId && currentItemIds.includes(currentItemId) && window.loadItemDetails) {
+            window.loadItemDetails(currentItemId);
+        }
     }
 
     window.startAITagging = async function() {
@@ -28,7 +122,7 @@
 
         // Collect all item IDs from selected photos and albums
         const itemIdSet = new Set(photos);
-        const albumItemSafeIds = new Map(); // itemId -> safe_id from album API
+        const albumItemSafeIds = new Map();
 
         // Fetch items from selected albums
         if (albums.length > 0) {
@@ -54,12 +148,10 @@
         const eligibleIds = [];
         const skippedIds = [];
         for (const itemId of itemIdSet) {
-            // Check if item came from an album with safe_id
             if (albumItemSafeIds.has(itemId)) {
                 skippedIds.push(itemId);
                 continue;
             }
-            // Check DOM for selected photos
             const itemEl = document.querySelector(`[data-item-id="${itemId}"]`);
             if (itemEl && (itemEl.dataset.safeId || itemEl.dataset.isEncrypted === 'true')) {
                 skippedIds.push(itemId);
@@ -91,95 +183,19 @@
 
             const data = await resp.json();
             const jobs = data.jobs || [];
-            currentJobIds = jobs.map(j => j.id);
             currentItemIds = eligibleIds;
 
             showToast(`${jobs.length} item${jobs.length !== 1 ? 's' : ''} queued for AI tagging`);
+            showSpinner();
 
-            // Start polling
-            startPolling();
+            // Connect to SSE for progress
+            const jobIds = jobs.map(j => j.id);
+            connectSSE(jobIds);
         } catch (err) {
             console.error('AI tagging error:', err);
             showToast('AI tagging failed: ' + err.message, true);
         }
     };
-
-    function startPolling() {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-        }
-
-        updateStatusUI();
-        pollInterval = setInterval(pollProgress, 3000);
-        // Immediate first poll
-        pollProgress();
-    }
-
-    function stopPolling() {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-            pollInterval = null;
-        }
-        const statusEl = document.getElementById('ai-tag-status');
-        if (statusEl) {
-            statusEl.classList.add('hidden');
-        }
-    }
-
-    async function pollProgress() {
-        if (currentJobIds.length === 0) {
-            stopPolling();
-            return;
-        }
-
-        try {
-            const idsParam = currentJobIds.join(',');
-            const resp = await fetch(`${getBaseUrl()}/api/ai/jobs/progress?job_ids=${encodeURIComponent(idsParam)}`);
-            if (!resp.ok) return;
-
-            const stats = await resp.json();
-            const done = (stats.completed || 0) + (stats.failed || 0);
-            const total = stats.total || currentJobIds.length;
-
-            updateStatusUI(done, total);
-
-            if (done >= total) {
-                stopPolling();
-                const failed = stats.failed || 0;
-                if (failed > 0) {
-                    showToast(`AI tagging complete — ${stats.completed || 0} done, ${failed} failed`, true);
-                } else {
-                    showToast(`AI tagging complete — ${stats.completed || 0} tags added`);
-                }
-
-                // Refresh tags for current item if it was in the batch
-                const currentItemId = window.currentLightboxPhotoId || window.editingItemId;
-                if (currentItemId && currentItemIds.includes(currentItemId) && window.loadItemDetails) {
-                    window.loadItemDetails(currentItemId);
-                }
-
-                currentJobIds = [];
-                currentItemIds = [];
-            }
-        } catch (err) {
-            console.error('Polling error:', err);
-        }
-    }
-
-    function updateStatusUI(done, total) {
-        const statusEl = document.getElementById('ai-tag-status');
-        if (!statusEl) return;
-
-        if (typeof done === 'number' && typeof total === 'number' && total > 0) {
-            statusEl.textContent = `${done}/${total} processing...`;
-            statusEl.classList.remove('hidden');
-        } else if (currentJobIds.length > 0) {
-            statusEl.textContent = 'processing...';
-            statusEl.classList.remove('hidden');
-        } else {
-            statusEl.classList.add('hidden');
-        }
-    }
 
     // Init on DOM ready
     if (document.readyState === 'loading') {
