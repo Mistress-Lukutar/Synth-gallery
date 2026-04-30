@@ -4579,11 +4579,7 @@ main {
     border-style: dashed;
 }
 
-.tag-chip-implied::after {
-    content: ' auto';
-    font-size: 0.75em;
-    opacity: 0.5;
-}
+/* .tag-chip-implied::after removed — implied tags no longer show 'auto' label */
 
 /* Related Tags Container */
 .related-tags-container {

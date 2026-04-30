@@ -482,14 +482,10 @@
 
         let html = '';
 
-        // Section 1: Your Tags (explicit) - editable
-        if (explicit.length > 0) {
+        // Single section: all tags together
+        if (explicit.length > 0 || implied.length > 0) {
             html += `
-                <div class="tags-section explicit-tags">
-                    <div class="tags-section-header">
-                        <span>Your Tags</span>
-                        <span class="tags-hint">Click × to remove</span>
-                    </div>
+                <div class="tags-section">
                     <div class="tags-list">
                         ${explicit.map(tag => `
                             <span class="tag-chip tag-chip-editable"
@@ -500,20 +496,6 @@
                                         title="Remove">×</button>
                             </span>
                         `).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        // Section 2: Implied Tags - read-only, auto-resolved
-        if (implied.length > 0) {
-            html += `
-                <div class="tags-section implied-tags">
-                    <div class="tags-section-header">
-                        <span>Implied Tags</span>
-                        <span class="tags-hint">Auto-resolved</span>
-                    </div>
-                    <div class="tags-list">
                         ${implied.map(tag => `
                             <span class="tag-chip tag-chip-implied"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}"
