@@ -69,6 +69,14 @@
     <div id="item-details-panel" class="item-details-panel">
         <div class="item-details-header">
             <h3>Details</h3>
+            <button type="button" id="edit-mode-btn" class="edit-mode-toggle" onclick="toggleEditMode()" title="Edit">
+                <svg id="edit-icon-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                </svg>
+                <svg id="edit-icon-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="display:none;">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+            </button>
             <button class="btn-close item-details-close" onclick="closeItemDetails()">&times;</button>
         </div>
         
@@ -87,65 +95,19 @@
                             <textarea id="item-description" data-field="description" placeholder="Add a description..." style="display: none;"></textarea>
                             <div id="item-description-preview" class="markdown-preview hidden"></div>
                         </div>
-                        <div class="description-toolbar">
-                            <button type="button" id="desc-toggle-btn" class="desc-tool-btn" onclick="toggleDescriptionMode()">
-                                <span id="desc-toggle-text">Preview</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Collapsible Details Section -->
-                <div class="metadata-details collapsible">
-                    <button class="collapsible-toggle" onclick="toggleDetailsSection()">
-                        <span class="toggle-icon">▼</span>
-                        <span>Details</span>
-                    </button>
-                    <div class="collapsible-content" id="details-content">
-                        <div class="detail-row">
-                            <span class="detail-label">Filename</span>
-                            <span class="detail-value" id="detail-filename">-</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Type</span>
-                            <span class="detail-value" id="detail-type">-</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Size</span>
-                            <span class="detail-value" id="detail-size">-</span>
-                        </div>
-                        <div class="detail-row" id="detail-dimensions-row">
-                            <span class="detail-label">Dimensions</span>
-                            <span class="detail-value" id="detail-dimensions">-</span>
-                        </div>
-                        <div class="detail-row hidden" id="detail-duration-row">
-                            <span class="detail-label">Duration</span>
-                            <span class="detail-value" id="detail-duration">-</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Uploaded</span>
-                            <span class="detail-value" id="detail-uploaded">-</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Modified</span>
-                            <span class="detail-value" id="detail-modified">-</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Date Taken</span>
-                            <span class="detail-value" id="detail-taken-at">-</span>
-                        </div>
+
                     </div>
                 </div>
             </div>
             
-            <div class="details-divider"></div>
-            
-            <!-- TAGS SECTION (keep existing tag structure) -->
+            <!-- TAGS SECTION -->
             <div class="tags-section-panel">
-                <div class="current-tags-section">
-                    <label>Tags: <a href="{{ base_url }}/tags" class="tags-help-link" title="Manage tags">?</a></label>
-                    <div id="current-tags-container" class="selected-tags-container">
-                        <span class="no-tags-hint">No tags selected</span>
+                <div class="field-group">
+                    <label><a href="{{ base_url }}/tags" title="Manage tags">Tags</a></label>
+                    <div class="current-tags-section">
+                        <div id="current-tags-container" class="selected-tags-container">
+                            <span class="no-tags-hint">No tags selected</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -156,6 +118,44 @@
                 <div id="tag-tree-container" class="tag-tree-container"></div>
 
                 <div id="related-tags-container" class="related-tags-container"></div>
+            </div>
+            
+            <div class="details-divider"></div>
+            
+            <!-- Details Section -->
+            <div class="metadata-details">
+                <div class="detail-row">
+                    <span class="detail-label">Filename</span>
+                    <span class="detail-value" id="detail-filename">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Type</span>
+                    <span class="detail-value" id="detail-type">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Size</span>
+                    <span class="detail-value" id="detail-size">-</span>
+                </div>
+                <div class="detail-row" id="detail-dimensions-row">
+                    <span class="detail-label">Dimensions</span>
+                    <span class="detail-value" id="detail-dimensions">-</span>
+                </div>
+                <div class="detail-row hidden" id="detail-duration-row">
+                    <span class="detail-label">Duration</span>
+                    <span class="detail-value" id="detail-duration">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Uploaded</span>
+                    <span class="detail-value" id="detail-uploaded">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Modified</span>
+                    <span class="detail-value" id="detail-modified">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Date Taken</span>
+                    <span class="detail-value" id="detail-taken-at">-</span>
+                </div>
             </div>
         </div>
     </div>
