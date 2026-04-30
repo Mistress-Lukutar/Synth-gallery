@@ -201,7 +201,6 @@
             showToast(`${jobs.length} item${jobs.length !== 1 ? 's' : ''} queued for AI tagging`);
             showSpinner();
             updateTooltip({ queue: jobs.length });
-            updateSpinnerProgress(0);
 
             // Connect to SSE for progress
             const jobIds = jobs.map(j => j.id);
