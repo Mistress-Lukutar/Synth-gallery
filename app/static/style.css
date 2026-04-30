@@ -704,10 +704,6 @@ main {
     margin-bottom: 2rem;
 }
 
-.tags-section {
-    margin-bottom: 2rem;
-}
-
 .tags-section h3 {
     font-size: 1rem;
     margin-bottom: 0.75rem;
@@ -1097,25 +1093,6 @@ main {
     margin-bottom: 1.5rem;
 }
 
-#tag-search {
-    width: 100%;
-    padding: 0.8rem 1rem;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 1rem;
-}
-
-#tag-search:focus {
-    outline: none;
-    border-color: var(--accent);
-}
-
-#tag-search::placeholder {
-    color: var(--text-muted);
-}
-
 .tag-presets {
     margin-bottom: 1.5rem;
 }
@@ -1239,25 +1216,7 @@ main {
     margin-bottom: 0.5rem;
 }
 
-.tags-help-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-    font-size: 0.65rem;
-    text-decoration: none;
-    margin-left: 0.25rem;
-    vertical-align: middle;
-    border: 1px solid var(--border);
-}
-.tags-help-link:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-}
+/* .tags-help-link styles removed — Tags label itself is now the link */
 
 .no-tags-hint {
     color: var(--text-muted);
@@ -4234,16 +4193,30 @@ main {
 
 /* Current Tags Section */
 .current-tags-section {
-    margin-bottom: 20px;
+    background: var(--input-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 16px;
 }
 
-.current-tags-section label {
+.tags-section-panel .field-group label {
     display: block;
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     opacity: 0.7;
     margin-bottom: 10px;
+}
+
+.tags-section-panel .field-group label a {
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.tags-section-panel .field-group label a:hover {
+    color: var(--accent);
 }
 
 .selected-tags-container {
@@ -4324,10 +4297,10 @@ main {
 
 .tag-search-container input {
     width: 100%;
-    padding: 10px 14px;
-    border: 1px solid var(--border-color, #444);
+    padding: 10px 12px;
+    border: 1px solid var(--border-color, #333);
     border-radius: 6px;
-    background: var(--input-bg, #252525);
+    background: var(--input-bg, #2a2a2a);
     color: var(--text-color, #fff);
     font-size: 14px;
 }
@@ -4539,10 +4512,6 @@ main {
 }
 
 /* Tags v2 - Two sections */
-.tags-section {
-    margin-bottom: 16px;
-}
-
 .tags-section-header {
     display: flex;
     justify-content: space-between;
@@ -4656,17 +4625,21 @@ main {
 
 .item-details-header {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     padding: 16px 20px;
+    padding-right: 60px;
     border-bottom: 1px solid var(--border-color, #333);
     flex-shrink: 0;
+    position: relative;
 }
 
 .item-details-header h3 {
     margin: 0;
     font-size: 18px;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
 }
 
 .item-details-close {
@@ -4677,6 +4650,25 @@ main {
     color: var(--text-color, #fff);
     opacity: 0.7;
     transition: opacity 0.2s;
+}
+
+.edit-mode-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s;
+    margin-left: 10px;
+}
+
+.edit-mode-toggle:hover {
+    color: var(--accent);
+    background: var(--bg-tertiary, #2a2a2a);
 }
 
 .item-details-close:hover {
@@ -4726,43 +4718,15 @@ main {
     border-color: var(--accent, #3b82f6);
 }
 
-/* Collapsible Details Section */
+/* Details Section */
 .metadata-details {
     margin-top: 16px;
+    margin-bottom: 16px;
     border: 1px solid var(--border-color, #333);
     border-radius: 6px;
     overflow: hidden;
-}
-
-.collapsible-toggle {
-    width: 100%;
-    padding: 12px 16px;
-    background: var(--bg-secondary, #222);
-    border: none;
-    color: var(--text-color, #fff);
-    display: flex;
-    justify-content: flex-start;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
-    font-size: 14px;
-}
-
-.collapsible-toggle:hover {
-    background: var(--bg-tertiary, #2a2a2a);
-}
-
-.toggle-icon {
-    transition: transform 0.2s;
-}
-
-.collapsible-content {
     padding: 12px 16px;
     background: var(--bg-primary, #1a1a1a);
-}
-
-.collapsible-content.collapsed {
-    display: none;
 }
 
 .detail-row {
@@ -5233,6 +5197,14 @@ main {
     display: flex;
     gap: 8px;
     margin-top: 8px;
+}
+
+.edit-toolbar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color, #333);
 }
 
 .desc-tool-btn {

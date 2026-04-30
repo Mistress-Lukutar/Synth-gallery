@@ -61,6 +61,7 @@
     // Metadata state
     let currentItemMetadata = null;
     let hasMetadataChanges = false;
+    let isEditMode = false;
 
     function init() {
         itemDetailsPanel = document.getElementById('item-details-panel');
@@ -137,18 +138,9 @@
 
         // Initialize Markdown editor (but keep it hidden initially)
         initDescriptionEditor(metadata.description || '');
-        currentDescriptionMode = 'preview';
 
-        // Apply preview mode by default (Edit button to enter edit mode)
-        const wrapper = document.querySelector('.description-editor-wrapper');
-        const toggleText = document.getElementById('desc-toggle-text');
-        const previewEl = document.getElementById('item-description-preview');
-
-        wrapper?.classList.add('preview-mode');
-        wrapper?.classList.remove('edit-mode');
-        if (toggleText) toggleText.textContent = 'Edit';
-        updateDescriptionPreview();
-        previewEl?.classList.remove('hidden');
+        // Apply preview mode by default
+        applyEditMode(false);
 
         // Read-only details (includes Date Taken)
         document.getElementById('detail-filename').textContent = metadata.original_name || '-';
@@ -274,29 +266,44 @@
         return html;
     }
 
-    // Description edit mode toggle
-    let currentDescriptionMode = 'edit';
-    window.toggleDescriptionMode = function() {
-        const wrapper = document.querySelector('.description-editor-wrapper');
-        const toggleText = document.getElementById('desc-toggle-text');
-        const previewEl = document.getElementById('item-description-preview');
+    // Global edit mode toggle (controls description + tags)
+    let currentDescriptionMode = 'preview';
 
-        if (currentDescriptionMode === 'edit') {
-            // Switch to preview
-            wrapper?.classList.add('preview-mode');
-            wrapper?.classList.remove('edit-mode');
-            if (toggleText) toggleText.textContent = 'Edit';
-            updateDescriptionPreview();
-            previewEl?.classList.remove('hidden');
-            currentDescriptionMode = 'preview';
-        } else {
-            // Switch to edit
+    function applyEditMode(edit) {
+        isEditMode = edit;
+        const wrapper = document.querySelector('.description-editor-wrapper');
+        const previewEl = document.getElementById('item-description-preview');
+        const editBtn = document.getElementById('edit-mode-btn');
+        const pencilIcon = document.getElementById('edit-icon-pencil');
+        const checkIcon = document.getElementById('edit-icon-check');
+        const tagSearchContainer = document.querySelector('.tag-search-container');
+
+        if (isEditMode) {
+            // Edit mode: show description editor, show tag search, show remove buttons
             wrapper?.classList.add('edit-mode');
             wrapper?.classList.remove('preview-mode');
-            if (toggleText) toggleText.textContent = 'Preview';
             previewEl?.classList.add('hidden');
-            currentDescriptionMode = 'edit';
+            if (editBtn) editBtn.title = 'Done';
+            if (pencilIcon) pencilIcon.style.display = 'none';
+            if (checkIcon) checkIcon.style.display = '';
+            if (tagSearchContainer) tagSearchContainer.style.display = '';
+        } else {
+            // Preview mode: show description preview, hide tag search, hide remove buttons
+            wrapper?.classList.add('preview-mode');
+            wrapper?.classList.remove('edit-mode');
+            updateDescriptionPreview();
+            previewEl?.classList.remove('hidden');
+            if (editBtn) editBtn.title = 'Edit';
+            if (pencilIcon) pencilIcon.style.display = '';
+            if (checkIcon) checkIcon.style.display = 'none';
+            if (tagSearchContainer) tagSearchContainer.style.display = 'none';
         }
+
+        renderCurrentTags();
+    }
+
+    window.toggleEditMode = function() {
+        applyEditMode(!isEditMode);
     };
 
     // ========================================================================
@@ -491,9 +498,9 @@
                             <span class="tag-chip tag-chip-editable"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}">
                                 ${escapeHtml(tag.display_name || tag.name)}
-                                <button class="tag-remove"
+                                ${isEditMode ? `<button class="tag-remove"
                                         onclick="window.removeTag(${tag.id})"
-                                        title="Remove">×</button>
+                                        title="Remove">×</button>` : ''}
                             </span>
                         `).join('')}
                         ${implied.map(tag => `
@@ -509,7 +516,9 @@
         }
 
         if (explicit.length === 0 && implied.length === 0) {
-            html = '<span class="no-tags-hint">No tags selected. Search to add tags.</span>';
+            html = isEditMode
+                ? '<span class="no-tags-hint">No tags selected. Search to add tags.</span>'
+                : '<span class="no-tags-hint">No tags selected</span>';
         }
 
         currentTagsContainer.innerHTML = html;
