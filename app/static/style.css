@@ -188,16 +188,15 @@ body {
 .ai-tag-spinner {
     width: 22px;
     height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: ai-tag-spin 1s linear infinite;
     flex-shrink: 0;
 }
 
-.ai-tag-spinner-bg {
-    stroke: var(--border);
-}
-
-.ai-tag-spinner-fill {
-    stroke: var(--accent);
-    transition: stroke-dashoffset 0.3s ease;
+@keyframes ai-tag-spin {
+    to { transform: rotate(360deg); }
 }
 
 .ai-tag-tooltip {
