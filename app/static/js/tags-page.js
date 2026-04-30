@@ -396,9 +396,7 @@ function initTagDescriptionEditor(initialValue) {
         toolbar: [
             'bold', 'italic', 'heading', '|',
             'code', 'quote', 'unordered-list', 'ordered-list', '|',
-            'link', '|',
-            'preview', 'side-by-side', 'fullscreen', '|',
-            'guide'
+            'link', 'image'
         ],
         status: false,
         minHeight: '80px',
