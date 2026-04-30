@@ -461,19 +461,24 @@ def init_db():
         CREATE TABLE IF NOT EXISTS ai_tagging_jobs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             item_id TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             started_at TIMESTAMP,
             completed_at TIMESTAMP,
+            processing_deadline TIMESTAMP,
             result_tags TEXT,
             error_message TEXT,
             retry_count INTEGER DEFAULT 0,
-            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
 
     db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_tagging_jobs(status)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_item ON ai_tagging_jobs(item_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_user ON ai_tagging_jobs(user_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_deadline ON ai_tagging_jobs(processing_deadline)")
 
     # AI API Keys table
     db.execute("""

@@ -1,11 +1,15 @@
 """AI service API routes - job queue for external AI agents."""
+import asyncio
+import json
+from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..database import create_connection
-from ..dependencies import require_user, require_api_key
+from ..dependencies import require_user, require_api_key, require_admin
 from ..infrastructure.repositories import (
     AIJobRepository,
     TagsRepository,
@@ -68,14 +72,27 @@ def _ai_tagging_service(db):
 @router.post("/api/ai/jobs")
 def create_jobs(data: CreateJobsInput, request: Request):
     """Create AI tagging jobs for selected items."""
-    require_user(request)
+    user = require_user(request)
     if not data.item_ids:
         raise HTTPException(status_code=400, detail="No item IDs provided")
 
     db = create_connection()
     try:
         service = _ai_tagging_service(db)
-        jobs = service.create_jobs(data.item_ids)
+        jobs = service.create_jobs(data.item_ids, user["id"])
+        return {"jobs": jobs}
+    finally:
+        db.close()
+
+
+@router.get("/api/ai/jobs/active")
+def get_active_jobs(request: Request):
+    """Get active jobs for the current user (for page load recovery)."""
+    user = require_user(request)
+    db = create_connection()
+    try:
+        service = _ai_tagging_service(db)
+        jobs = service.get_active_jobs_for_user(user["id"])
         return {"jobs": jobs}
     finally:
         db.close()
@@ -100,6 +117,76 @@ def get_progress(request: Request, job_ids: str = Query(...)):
         return stats
     finally:
         db.close()
+
+
+@router.get("/api/ai/jobs/events")
+async def job_events(request: Request):
+    """Server-Sent Events stream for job progress updates.
+
+    Sends progress updates every 2 seconds for the user's active jobs.
+    """
+    user = require_user(request)
+
+    async def event_generator():
+        sent_progress = {}
+        while True:
+            db = create_connection()
+            try:
+                service = _ai_tagging_service(db)
+                jobs = service.get_active_jobs_for_user(user["id"])
+
+                if not jobs:
+                    # No active jobs, send keepalive and close after a bit
+                    yield f"event: ping\ndata: {json.dumps({'time': asyncio.get_event_loop().time()})}\n\n"
+                    await asyncio.sleep(5)
+                    # Double-check before closing
+                    jobs = service.get_active_jobs_for_user(user["id"])
+                    if not jobs:
+                        yield f"event: done\ndata: {json.dumps({'message': 'No active jobs'})}\n\n"
+                        break
+                    continue
+
+                job_ids = [j["id"] for j in jobs]
+                stats = service.get_job_progress(job_ids)
+
+                # Only send if progress changed
+                progress_key = f"{stats.get('completed', 0)}-{stats.get('failed', 0)}-{stats.get('processing', 0)}-{stats.get('pending', 0)}"
+                if progress_key != sent_progress.get(tuple(job_ids)):
+                    sent_progress[tuple(job_ids)] = progress_key
+                    # Serialize jobs without datetime objects
+                    serializable_jobs = []
+                    for j in jobs:
+                        sj = dict(j)
+                        for key in list(sj.keys()):
+                            if isinstance(sj[key], datetime):
+                                sj[key] = sj[key].isoformat()
+                        serializable_jobs.append(sj)
+                    payload = {
+                        "job_ids": job_ids,
+                        "stats": stats,
+                        "jobs": serializable_jobs,
+                    }
+                    yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
+
+                # If all done, send completion and close
+                done = stats.get("completed", 0) + stats.get("failed", 0)
+                if done >= stats["total"]:
+                    yield f"event: complete\ndata: {json.dumps(stats)}\n\n"
+                    break
+
+            finally:
+                db.close()
+
+            await asyncio.sleep(2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
 # =============================================================================
@@ -207,5 +294,22 @@ async def get_item_file_api(item_id: str, request: Request):
             from fastapi.responses import RedirectResponse
             url = storage.get_url(item_id, "uploads", expires=3600)
             return RedirectResponse(url=url)
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Reaper / Maintenance
+# =============================================================================
+
+@router.post("/api/ai/jobs/reap")
+def reap_jobs(request: Request, max_retries: int = Query(3, ge=1, le=10)):
+    """Reap stale processing jobs. Admin only."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        service = _ai_tagging_service(db)
+        result = service.reap_stale_jobs(max_retries)
+        return result
     finally:
         db.close()
