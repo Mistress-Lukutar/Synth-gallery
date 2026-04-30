@@ -163,6 +163,17 @@ body {
     gap: 0.25rem;
 }
 
+.ai-tag-status {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-left: 0.25rem;
+    white-space: nowrap;
+}
+
+.ai-tag-status.hidden {
+    display: none;
+}
+
 .selection-menu.hidden {
     display: none;
 }
