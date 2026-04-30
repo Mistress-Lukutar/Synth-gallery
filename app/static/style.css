@@ -186,16 +186,56 @@ body {
 }
 
 .ai-tag-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--border-color);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-    animation: ai-tag-spin 1s linear infinite;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
 }
 
-@keyframes ai-tag-spin {
-    to { transform: rotate(360deg); }
+.ai-tag-spinner-bg {
+    stroke: var(--border);
+}
+
+.ai-tag-spinner-fill {
+    stroke: var(--accent);
+    transition: stroke-dashoffset 0.3s ease;
+}
+
+.ai-tag-tooltip {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text);
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.ai-tag-progress {
+    position: relative;
+}
+
+.ai-tag-progress:hover .ai-tag-tooltip {
+    opacity: 1;
+    visibility: visible;
+}
+
+.ai-tag-tooltip::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    right: 10px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: transparent transparent var(--border) transparent;
 }
 
 .selection-menu.hidden {

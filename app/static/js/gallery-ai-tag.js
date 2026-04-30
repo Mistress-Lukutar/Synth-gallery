@@ -6,6 +6,7 @@
 (function() {
     let eventSource = null;
     let currentItemIds = [];
+    let currentStats = {};
 
     function init() {
         const btn = document.getElementById('ai-tag-selected-btn');
@@ -33,6 +34,8 @@
             const jobIds = jobs.map(j => j.id);
             currentItemIds = []; // Will be filled from progress events
             showSpinner();
+            updateTooltip({ queue: jobs.length });
+            updateSpinnerProgress(0);
             connectSSE(jobIds);
         } catch (err) {
             console.error('Failed to check active jobs:', err);
@@ -63,6 +66,14 @@
                 showSpinner();
                 if (data.jobs) {
                     currentItemIds = data.jobs.map(j => j.item_id);
+                }
+                if (data.stats) {
+                    currentStats = data.stats;
+                    updateTooltip(currentStats);
+                    const total = currentStats.total || 0;
+                    const completed = currentStats.completed || 0;
+                    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+                    updateSpinnerProgress(percent);
                 }
             } catch (err) {
                 console.error('SSE progress parse error:', err);
@@ -95,6 +106,26 @@
             // SSE connection error — will auto-retry or close
             console.warn('SSE connection error');
         });
+    }
+
+    function updateTooltip(stats) {
+        const tooltip = document.getElementById('ai-tag-tooltip');
+        if (!tooltip) return;
+        const done = stats.completed || 0;
+        const queue = stats.pending || stats.queue || 0;
+        const processing = stats.processing || 0;
+        const totalQueue = queue + processing;
+        tooltip.textContent = `AI Tagging: done ${done}, queue ${totalQueue}`;
+    }
+
+    function updateSpinnerProgress(percent) {
+        const circle = document.getElementById('ai-tag-spinner-fill');
+        if (!circle) return;
+        const radius = 9;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (percent / 100) * circumference;
+        circle.style.strokeDasharray = circumference;
+        circle.style.strokeDashoffset = offset;
     }
 
     function closeSSE() {
@@ -187,6 +218,8 @@
 
             showToast(`${jobs.length} item${jobs.length !== 1 ? 's' : ''} queued for AI tagging`);
             showSpinner();
+            updateTooltip({ queue: jobs.length });
+            updateSpinnerProgress(0);
 
             // Connect to SSE for progress
             const jobIds = jobs.map(j => j.id);
