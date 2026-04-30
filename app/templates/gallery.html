@@ -257,6 +257,7 @@
             <!-- Selection Menu - inline with folder actions -->
             <div id="selection-menu" class="selection-menu hidden">
                 <span id="selection-count">0</span>
+                <span id="ai-tag-status" class="ai-tag-status hidden"></span>
                 <button id="select-all-btn" class="selection-action-btn" title="Select All">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18">
                         <rect x="5" y="5" width="14" height="14" rx="2" stroke-width="2.5"/>
@@ -287,6 +288,13 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                </button>
+                <button id="ai-tag-selected-btn" class="selection-action-btn" title="AI Tag">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                        <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/>
+                        <path d="M5 16l-1 3 3-1"/>
+                        <path d="M19 16l1 3-3-1"/>
                     </svg>
                 </button>
                 <button id="delete-selected-btn" class="selection-action-btn selection-action-btn--danger" title="Delete">
