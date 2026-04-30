@@ -35,7 +35,8 @@ class CreateJobsInput(BaseModel):
 
 
 class JobResultInput(BaseModel):
-    tag_ids: List[int]
+    tag_ids: Optional[List[int]] = None
+    tag_names: Optional[List[str]] = None
 
 
 class JobFailInput(BaseModel):
@@ -226,15 +227,40 @@ def claim_job(job_id: int, request: Request):
 
 @router.post("/api/ai/jobs/{job_id}/results")
 def submit_results(job_id: int, data: JobResultInput, request: Request):
-    """Submit tag results for a job."""
+    """Submit tag results for a job. Accepts tag_ids or tag_names."""
     require_api_key(request)
     db = create_connection()
     try:
         service = _ai_tagging_service(db)
-        success = service.submit_results(job_id, data.tag_ids)
+        success = service.submit_results(job_id, tag_ids=data.tag_ids, tag_names=data.tag_names)
         if not success:
             raise HTTPException(status_code=400, detail="Failed to complete job")
         return {"status": "ok"}
+    except HTTPException:
+        raise
+    finally:
+        db.close()
+
+
+@router.get("/api/ai/tags")
+def get_ai_tags(request: Request):
+    """Get all tags for AI agent reference."""
+    require_api_key(request)
+    db = create_connection()
+    try:
+        tag_repo = TagsRepository(db)
+        tags = tag_repo.list_tags(query=None, limit=10000, offset=0)
+        simplified = [
+            {
+                "id": t["id"],
+                "name": t["name"],
+                "display_name": t.get("display_name"),
+                "description": t.get("description"),
+                "category": t.get("category_name"),
+            }
+            for t in tags
+        ]
+        return {"tags": simplified, "total": len(simplified)}
     finally:
         db.close()
 

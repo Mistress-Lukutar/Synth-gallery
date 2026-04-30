@@ -306,3 +306,94 @@ class TestAITaggingJobs:
             headers={"X-API-Key": api_key}
         )
         assert resp.status_code == 403
+
+    def test_get_ai_tags_requires_api_key(self, authenticated_client: TestClient):
+        """Tag list endpoint requires API key."""
+        resp = authenticated_client.get("/api/ai/tags")
+        assert resp.status_code == 401
+
+    def test_get_ai_tags(self, authenticated_client: TestClient, api_key: str, test_tags: list):
+        """Agent can fetch full tag dictionary."""
+        resp = authenticated_client.get(
+            "/api/ai/tags",
+            headers={"X-API-Key": api_key}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tags" in data
+        assert data["total"] >= 3
+        # Check structure
+        tag = data["tags"][0]
+        assert "id" in tag
+        assert "name" in tag
+        assert "display_name" in tag
+        assert "category" in tag
+
+    def test_submit_results_by_tag_names(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict,
+        uploaded_photo: dict,
+        api_key: str,
+        test_tags: list
+    ):
+        """Agent can submit results using tag names instead of IDs."""
+        # Create job
+        resp = authenticated_client.post(
+            "/api/ai/jobs",
+            json={"item_ids": [uploaded_photo["id"]]}
+        )
+        assert resp.status_code == 200
+        job_id = resp.json()["jobs"][0]["id"]
+
+        # Claim
+        resp = authenticated_client.post(
+            f"/api/ai/jobs/{job_id}/claim",
+            headers={"X-API-Key": api_key}
+        )
+        assert resp.status_code == 200
+
+        # Submit by names
+        resp = authenticated_client.post(
+            f"/api/ai/jobs/{job_id}/results",
+            headers={"X-API-Key": api_key},
+            json={"tag_names": ["fox", "wolf"]}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_submit_results_unknown_tag_names(
+        self,
+        authenticated_client: TestClient,
+        test_user: dict,
+        uploaded_photo: dict,
+        api_key: str,
+        test_tags: list
+    ):
+        """Submitting unknown tag names returns specific error with unknown tags list."""
+        # Create job
+        resp = authenticated_client.post(
+            "/api/ai/jobs",
+            json={"item_ids": [uploaded_photo["id"]]}
+        )
+        assert resp.status_code == 200
+        job_id = resp.json()["jobs"][0]["id"]
+
+        # Claim
+        resp = authenticated_client.post(
+            f"/api/ai/jobs/{job_id}/claim",
+            headers={"X-API-Key": api_key}
+        )
+        assert resp.status_code == 200
+
+        # Submit unknown names
+        resp = authenticated_client.post(
+            f"/api/ai/jobs/{job_id}/results",
+            headers={"X-API-Key": api_key},
+            json={"tag_names": ["dragon", "unicorn", "fox"]}
+        )
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "unknown_tags" in data["detail"]
+        assert sorted(data["detail"]["unknown_tags"]) == ["dragon", "unicorn"]
+        assert "fox" not in data["detail"]["unknown_tags"]  # fox exists

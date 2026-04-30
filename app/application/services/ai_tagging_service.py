@@ -90,18 +90,24 @@ class AITaggingService:
         }
         return enriched
 
-    def submit_results(self, job_id: int, tag_ids: List[int]) -> bool:
+    def submit_results(self, job_id: int, tag_ids: Optional[List[int]] = None, tag_names: Optional[List[str]] = None) -> bool:
         """Submit tag results for a job and resolve implications.
 
         Merges new tags with existing explicit tags to preserve user-added tags.
+        Accepts either tag_ids or tag_names. If tag_names provided, resolves them
+        to IDs. Raises HTTPException with unknown_tags detail if any name not found.
 
         Args:
             job_id: Job ID
             tag_ids: List of tag IDs identified by AI agent
+            tag_names: List of tag names (alternative to tag_ids)
 
         Returns:
             True if successful
         """
+        if not tag_ids and not tag_names:
+            raise HTTPException(status_code=400, detail="Either tag_ids or tag_names must be provided")
+
         job = self.jobs.get_job_by_id(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -109,6 +115,22 @@ class AITaggingService:
             raise HTTPException(status_code=400, detail="Job is not in processing state")
 
         item_id = job["item_id"]
+        final_tag_ids = set(tag_ids or [])
+
+        # Resolve tag_names to IDs
+        if tag_names:
+            unknown_tags = []
+            for name in tag_names:
+                matched = self.tags.tags.get_by_name(name) if self.tags else []
+                if matched:
+                    final_tag_ids.add(matched[0]["id"])
+                else:
+                    unknown_tags.append(name)
+            if unknown_tags:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "Unknown tags", "unknown_tags": unknown_tags}
+                )
 
         # Merge with existing explicit tags to avoid removing user-added tags
         existing_explicit = []
@@ -119,14 +141,14 @@ class AITaggingService:
             except HTTPException:
                 pass
 
-        merged_tag_ids = list(set(existing_explicit) | set(tag_ids))
+        merged_tag_ids = list(set(existing_explicit) | final_tag_ids)
 
         # Apply tags via TagService (resolves implications automatically)
         if self.tags:
             self.tags.set_item_tags(item_id, merged_tag_ids)
 
         # Mark job as completed
-        return self.jobs.complete_job(job_id, tag_ids)
+        return self.jobs.complete_job(job_id, list(final_tag_ids))
 
     def fail_job(self, job_id: int, error: str) -> bool:
         """Mark job as failed."""
