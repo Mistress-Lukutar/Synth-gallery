@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-30
+
+### Added
+- **AI Tagging Job Queue** - External AI agents can tag media via a job queue
+  - New `ai_tagging_jobs` and `ai_api_keys` tables with deadline-based reaping
+  - `AIJobRepository` with atomic claim, complete, fail, and stale reaper
+  - `AITaggingService` with tag merging and implication resolution
+  - API endpoints under `/api/ai/*` with API-key auth for agents
+  - `GET /api/ai/tags` - full tag dictionary for agents
+  - `POST /api/ai/jobs/{id}/results` accepts `tag_names` (strings) or `tag_ids`
+  - Unknown tag errors return specific `unknown_tags` list for agent retry
+  - SSE progress stream (`/api/ai/jobs/events`) for real-time UI updates
+  - Stale job reaper endpoint (`POST /api/ai/jobs/reap`) for admin recovery
+  - Frontend spinner with hover tooltip showing queue count
+  - Album support - AI Tag expands albums to individual items automatically
+  - Encrypted/safe item filtering - skips protected items with toast warning
+  - Page-load recovery - reconnects SSE for active jobs on refresh
+  - AI Tagger skill (`scripts/skills/ai-tagger/`) with bundled API helper script
+- **Tag System Refactor** - Flat tags with implication-based inheritance
+  - Tag management page with CRUD, implications, and co-occurrence tracking
+  - Tag categories with colored dots and per-category pagination
+  - Search-first tags with related suggestions and inline chips
+  - `TagImplicationService` and `TagCooccurrenceRepository` for smart suggestions
+  - Admin tag routes (`/admin/tags`) for full tag administration
+
+### Changed
+- **Item Details Panel** - Redesigned with inline edit mode and unified metadata view
+- **Toast Notifications** - Darker semi-transparent styling with uniform toolbar buttons
+- **Start.bat** - Replaced Unicode symbols with ASCII equivalents for compatibility
+
+### Fixed
+- **Gallery Aspect Ratio** - Clamped to prevent extreme aspect ratios in masonry grid
+- **Database Migration** - Automatic migration for `ai_tagging_jobs` columns on old databases
+
 ## [1.1.1] - 2026-04-27
 
 ### Fixed
@@ -579,4 +613,9 @@ finally:
 [0.4.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.1.0...v0.2.0
+[1.2.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.1.1...v1.2.0
+[1.1.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.8.5...v1.0.0
 [0.1.0]: https://github.com/Mistress-Lukutar/Synth-gallery/releases/tag/v0.1.0
