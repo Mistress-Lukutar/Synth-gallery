@@ -472,7 +472,7 @@ async function searchForImplication(query) {
         return;
     }
     try {
-        const resp = await csrfFetch(`/api/tags/search?q=${encodeURIComponent(query)}&limit=8`);
+        const resp = await csrfFetch(`/api/tags/search?q=${encodeURIComponent(query)}&limit=50`);
         if (!resp.ok) return;
         const payload = await resp.json();
         const data = payload.tags || [];

@@ -198,16 +198,30 @@ class TagsRepository(Repository):
     # ========================================================================
 
     def search(self, query: str, limit: int = 10) -> List[Dict]:
-        """Search tags by name or display_name, ordered by usage count."""
+        """Search tags by name or display_name.
+
+        Results are ordered by relevance:
+        1. Exact name match
+        2. Name starts with query
+        3. Other contains matches
+        Within each group tags are sorted alphabetically by name.
+        """
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, t.usage_count as count
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE t.name LIKE ? OR t.display_name LIKE ?
-            ORDER BY t.usage_count DESC, t.name
+            ORDER BY
+                CASE
+                    WHEN t.name = ? THEN 0
+                    WHEN t.name LIKE ? THEN 1
+                    ELSE 2
+                END,
+                t.usage_count DESC,
+                t.name
             LIMIT ?
-        """, (f"%{query}%", f"%{query}%", limit))
+        """, (f"%{query}%", f"%{query}%", query, f"{query}%", limit))
         return [dict(row) for row in cursor.fetchall()]
 
     # ========================================================================
