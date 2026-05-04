@@ -94,7 +94,7 @@ def require_api_key(request: Request) -> dict:
         repo = AiApiKeyRepository(db)
         # First try bcrypt hash lookup
         cursor = db.execute(
-            "SELECT id, name, key_hash, is_active, user_id FROM ai_api_keys"
+            "SELECT id, name, key_hash, is_active, user_id, expires_at FROM ai_api_keys"
         )
         for row in cursor.fetchall():
             key_hash_db = row["key_hash"]

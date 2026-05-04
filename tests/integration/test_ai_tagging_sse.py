@@ -11,13 +11,13 @@ class TestAITaggingSSE:
     """Test SSE progress streaming and active jobs recovery."""
 
     @pytest.fixture(scope="function")
-    def api_key(self, db_connection) -> str:
-        """Create an API key for agent authentication."""
+    def api_key(self, db_connection, test_user) -> str:
+        """Create an API key for agent authentication bound to test_user."""
         raw_key = "test-api-key-sse"
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
         db_connection.execute(
-            "INSERT INTO ai_api_keys (name, key_hash, is_active) VALUES (?, ?, 1)",
-            ("Test Agent", key_hash)
+            "INSERT INTO ai_api_keys (name, key_hash, is_active, user_id) VALUES (?, ?, 1, ?)",
+            ("Test Agent", key_hash, test_user["id"])
         )
         db_connection.commit()
         return raw_key

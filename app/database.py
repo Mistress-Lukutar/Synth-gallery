@@ -249,25 +249,32 @@ def init_db():
         )
     """)
     
-    # Tags (flat with optional legacy path/parent for migration compatibility)
+    # Tags (flat tags grouped by category)
     db.execute("""
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             display_name TEXT,
             category_id INTEGER,
-            parent_id INTEGER,
-            path TEXT DEFAULT '',
-            level INTEGER DEFAULT 0,
-            is_leaf INTEGER DEFAULT 1,
             usage_count INTEGER DEFAULT 0,
             description TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES tag_categories(id),
-            FOREIGN KEY (parent_id) REFERENCES tags(id)
+            FOREIGN KEY (category_id) REFERENCES tag_categories(id)
         )
     """)
-    
+
+    # Migration: Drop legacy tree columns if they exist
+    cursor = db.execute("PRAGMA table_info(tags)")
+    tag_columns = [row['name'] for row in cursor.fetchall()]
+    if 'parent_id' in tag_columns:
+        db.execute("ALTER TABLE tags DROP COLUMN parent_id")
+    if 'path' in tag_columns:
+        db.execute("ALTER TABLE tags DROP COLUMN path")
+    if 'level' in tag_columns:
+        db.execute("ALTER TABLE tags DROP COLUMN level")
+    if 'is_leaf' in tag_columns:
+        db.execute("ALTER TABLE tags DROP COLUMN is_leaf")
+
     # Migration: Add description column to tags if not exists
     cursor = db.execute("PRAGMA table_info(tags)")
     tag_columns = [row['name'] for row in cursor.fetchall()]
@@ -371,8 +378,8 @@ def init_db():
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_safe ON items(safe_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_path ON tags(path)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id)")
+    db.execute("DROP INDEX IF EXISTS idx_tags_path")
+    db.execute("DROP INDEX IF EXISTS idx_tags_parent")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_item ON item_tags(item_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id)")
