@@ -126,9 +126,22 @@ def init_db():
             password_salt TEXT NOT NULL DEFAULT '',
             display_name TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_admin INTEGER DEFAULT 0
+            is_admin INTEGER DEFAULT 0,
+            failed_login_attempts INTEGER DEFAULT 0,
+            locked_until TIMESTAMP,
+            last_login TIMESTAMP
         )
     """)
+
+    # Migration: Add security columns to users if not exist
+    cursor = db.execute("PRAGMA table_info(users)")
+    user_columns = [row['name'] for row in cursor.fetchall()]
+    if 'failed_login_attempts' not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0")
+    if 'locked_until' not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN locked_until TIMESTAMP")
+    if 'last_login' not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN last_login TIMESTAMP")
 
     # Sessions table for login sessions
     db.execute("""
@@ -139,9 +152,24 @@ def init_db():
             expires_at TIMESTAMP NOT NULL,
             encrypted_dek BLOB,
             fingerprint TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            last_active_at TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
+
+    # Migration: Add new columns to sessions if not exist
+    cursor = db.execute("PRAGMA table_info(sessions)")
+    session_columns = [row['name'] for row in cursor.fetchall()]
+    if 'ip_address' not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN ip_address TEXT")
+    if 'user_agent' not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN user_agent TEXT")
+    if 'last_active_at' not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP")
+
+    db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)")
 
     # WebAuthn credentials for hardware key authentication
     db.execute("""
@@ -497,9 +525,28 @@ def init_db():
             name TEXT NOT NULL,
             key_hash TEXT NOT NULL UNIQUE,
             is_active INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER REFERENCES users(id),
+            created_by INTEGER REFERENCES users(id),
+            expires_at TIMESTAMP,
+            last_used_at TIMESTAMP,
+            rate_limit_tier TEXT DEFAULT 'default'
         )
     """)
+
+    # Migration: Add new columns to ai_api_keys if not exist
+    cursor = db.execute("PRAGMA table_info(ai_api_keys)")
+    api_key_columns = [row['name'] for row in cursor.fetchall()]
+    if 'user_id' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN user_id INTEGER REFERENCES users(id)")
+    if 'created_by' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN created_by INTEGER REFERENCES users(id)")
+    if 'expires_at' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN expires_at TIMESTAMP")
+    if 'last_used_at' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN last_used_at TIMESTAMP")
+    if 'rate_limit_tier' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN rate_limit_tier TEXT DEFAULT 'default'")
 
     # Create default admin user if no users exist (first run)
     cursor = db.execute("SELECT COUNT(*) as count FROM users")

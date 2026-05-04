@@ -1,5 +1,6 @@
 """Authentication routes."""
 import hashlib
+from contextlib import contextmanager
 
 from fastapi import APIRouter, Request, Form, HTTPException
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -28,12 +29,25 @@ templates.env.globals["base_url"] = ROOT_PATH
 templates.env.globals["external_host"] = EXTERNAL_HOST
 
 
-def get_auth_service() -> AuthService:
-    """Create AuthService with repositories."""
+@contextmanager
+def get_auth_service():
+    """Create AuthService with repositories and ensure connection is closed."""
     db = create_connection()
-    return AuthService(
-        user_repository=UserRepository(db),
-        session_repository=SessionRepository(db)
+    try:
+        yield AuthService(
+            user_repository=UserRepository(db),
+            session_repository=SessionRepository(db)
+        )
+    finally:
+        db.close()
+
+
+def _is_safe_redirect(url: str) -> bool:
+    """Validate redirect URL to prevent open redirects."""
+    return (
+        url.startswith("/")
+        and not url.startswith("//")
+        and not url.startswith("/\\")
     )
 
 
@@ -66,7 +80,7 @@ def login_page(request: Request, error: str = None, next: str = None):
                 )
 
             # DEK is in cache or user has no encryption, safe to redirect to next or home
-            redirect_url = next if next and next.startswith("/") else f"{ROOT_PATH}/"
+            redirect_url = next if next and _is_safe_redirect(next) else f"{ROOT_PATH}/"
             return RedirectResponse(url=redirect_url, status_code=302)
 
     return templates.TemplateResponse(
@@ -85,8 +99,8 @@ def login_page(request: Request, error: str = None, next: str = None):
 @router.post("/login")
 def login(request: Request, username: str = Form(...), password: str = Form(...), next: str = Form("")):
     """Process login form."""
-    service = get_auth_service()
-    user = service.authenticate(username, password)
+    with get_auth_service() as service:
+        user = service.authenticate(username, password)
 
     if not user:
         return templates.TemplateResponse(
@@ -104,23 +118,25 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
 
     # Create session with fingerprint for hijacking protection
     fingerprint = _generate_fingerprint(request)
-    session_id = service.create_session(user["id"], fingerprint=fingerprint)
+    with get_auth_service() as service:
+        session_id = service.create_session(user["id"], fingerprint=fingerprint)
 
-    # Handle encryption key
-    enc_keys = service.get_encryption_keys(user["id"])
+    with get_auth_service() as service:
+        # Handle encryption key
+        enc_keys = service.get_encryption_keys(user["id"])
 
-    if enc_keys:
-        # User has encryption set up - decrypt DEK and cache it
-        # Pass session_id to store DEK in session for persistence (Issue #18)
-        service.decrypt_and_cache_dek(user["id"], password, session_id=session_id, ttl_seconds=SESSION_MAX_AGE)
-    else:
-        # New user or encryption not set up yet - generate DEK
-        dek, salt = service.setup_encryption(user["id"], password)
-        # Store DEK in session for persistence (Issue #18)
-        service.store_dek_in_session(session_id, dek)
+        if enc_keys:
+            # User has encryption set up - decrypt DEK and cache it
+            # Pass session_id to store DEK in session for persistence (Issue #18)
+            service.decrypt_and_cache_dek(user["id"], password, session_id=session_id, ttl_seconds=SESSION_MAX_AGE)
+        else:
+            # New user or encryption not set up yet - generate DEK
+            dek, salt = service.setup_encryption(user["id"], password)
+            # Store DEK in session for persistence (Issue #18)
+            service.store_dek_in_session(session_id, dek)
 
     # Redirect to next URL or gallery with session cookie
-    redirect_url = next if next and next.startswith("/") else f"{ROOT_PATH}/"
+    redirect_url = next if next and _is_safe_redirect(next) else f"{ROOT_PATH}/"
     response = RedirectResponse(url=redirect_url, status_code=302)
     response.set_cookie(
         key=SESSION_COOKIE,
@@ -139,12 +155,12 @@ def logout(request: Request):
     """Logout user."""
     session_id = request.cookies.get(SESSION_COOKIE)
     if session_id:
-        service = get_auth_service()
-        # Get user ID before deleting session to clear DEK cache
-        session = service.get_session(session_id)
-        if session:
-            dek_cache.invalidate(session["user_id"])
-        service.delete_session(session_id)
+        with get_auth_service() as service:
+            # Get user ID before deleting session to clear DEK cache
+            session = service.get_session(session_id)
+            if session:
+                dek_cache.invalidate(session["user_id"])
+            service.delete_session(session_id)
 
     response = RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
     response.delete_cookie(SESSION_COOKIE, path="/")
@@ -168,12 +184,11 @@ class PasswordResetRequest(BaseModel):
 @router.post("/api/auth/recover")
 def recover_with_key(request: Request, data: RecoveryKeyLoginRequest):
     """Authenticate with recovery key and get reset token."""
-    service = get_auth_service()
-    
-    user, reset_token = service.authenticate_with_recovery_key(
-        data.username,
-        data.recovery_key
-    )
+    with get_auth_service() as service:
+        user, reset_token = service.authenticate_with_recovery_key(
+            data.username,
+            data.recovery_key
+        )
     
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or recovery key")
@@ -196,9 +211,8 @@ def reset_password_page(
     if not token:
         return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
     
-    # Validate token
-    service = get_auth_service()
-    user_id = service.validate_reset_token(token)
+    with get_auth_service() as service:
+        user_id = service.validate_reset_token(token)
     
     if not user_id:
         return templates.TemplateResponse(
@@ -249,36 +263,35 @@ def reset_password(
             status_code=302
         )
     
-    if len(new_password) < 4:
+    if len(new_password) < 12:
         return RedirectResponse(
-            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error=Password+must+be+at+least+4+characters",
+            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error=Password+must+be+at+least+12+characters",
             status_code=302
         )
-    
-    service = get_auth_service()
-    
-    try:
-        fingerprint = _generate_fingerprint(request)
-        user, session_id = service.complete_password_reset(
-            reset_token,
-            new_password,
-            fingerprint=fingerprint
-        )
+
+    with get_auth_service() as service:
+        try:
+            fingerprint = _generate_fingerprint(request)
+            user, session_id = service.complete_password_reset(
+                reset_token,
+                new_password,
+                fingerprint=fingerprint
+            )
         
-        # Redirect to gallery with session cookie
-        response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
-        response.set_cookie(
-            key=SESSION_COOKIE,
-            value=session_id,
-            httponly=True,
-            samesite="lax",
-            secure=COOKIE_SECURE,
-            max_age=SESSION_MAX_AGE
-        )
-        return response
-        
-    except HTTPException as e:
-        return RedirectResponse(
-            url=f"{ROOT_PATH}/reset-password?token={reset_token}&error={e.detail}",
-            status_code=302
-        )
+            # Redirect to gallery with session cookie
+            response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
+            response.set_cookie(
+                key=SESSION_COOKIE,
+                value=session_id,
+                httponly=True,
+                samesite="lax",
+                secure=COOKIE_SECURE,
+                max_age=SESSION_MAX_AGE
+            )
+            return response
+
+        except HTTPException as e:
+            return RedirectResponse(
+                url=f"{ROOT_PATH}/reset-password?token={reset_token}&error={e.detail}",
+                status_code=302
+            )

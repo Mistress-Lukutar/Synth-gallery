@@ -314,14 +314,18 @@ class AuthService:
         
         # Update password
         self.user_repo.update_password(user_id, new_password)
-        
+
+        # Invalidate all existing sessions (security: prevent attacker from staying logged in)
+        self.session_repo.delete_all_for_user(user_id)
+        dek_cache.invalidate(user_id)
+
         # Re-encrypt DEK with new password
         salt = EncryptionService.generate_salt()
         kek = EncryptionService.derive_kek(new_password, salt)
         encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
         self.user_repo.save_encryption_keys(user_id, encrypted_dek, salt)
-        
-        # Create session
+
+        # Create new session
         session_id = self.create_session(user_id, fingerprint=fingerprint)
         
         # Store DEK in session
