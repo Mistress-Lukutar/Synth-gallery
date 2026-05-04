@@ -57,31 +57,31 @@ def login_page(request: Request, error: str = None, next: str = None):
     # If already logged in, check if we can auto-redirect
     session_id = request.cookies.get(SESSION_COOKIE)
     if session_id:
-        service = get_auth_service()
-        session = service.get_session(session_id)
-        if session:
-            user_id = session["user_id"]
-            enc_keys = service.get_encryption_keys(user_id)
+        with get_auth_service() as service:
+            session = service.get_session(session_id)
+            if session:
+                user_id = session["user_id"]
+                enc_keys = service.get_encryption_keys(user_id)
 
-            # If user has encryption but DEK not in cache, need password re-entry
-            # This happens after server restart or when DEK cache expires
-            if enc_keys and not service.is_dek_cached(user_id):
-                # Show login page with info message
-                return templates.TemplateResponse(
-                    "login.html",
-                    {
-                        "request": request,
-                        "error": "Session restored. Please enter password to decrypt your files.",
-                        "username": session["username"],
-                        "csrf_token": get_csrf_token(request),
-                        "base_url": ROOT_PATH,
-                        "next": next or ""
-                    }
-                )
+                # If user has encryption but DEK not in cache, need password re-entry
+                # This happens after server restart or when DEK cache expires
+                if enc_keys and not service.is_dek_cached(user_id):
+                    # Show login page with info message
+                    return templates.TemplateResponse(
+                        "login.html",
+                        {
+                            "request": request,
+                            "error": "Session restored. Please enter password to decrypt your files.",
+                            "username": session["username"],
+                            "csrf_token": get_csrf_token(request),
+                            "base_url": ROOT_PATH,
+                            "next": next or ""
+                        }
+                    )
 
-            # DEK is in cache or user has no encryption, safe to redirect to next or home
-            redirect_url = next if next and _is_safe_redirect(next) else f"{ROOT_PATH}/"
-            return RedirectResponse(url=redirect_url, status_code=302)
+                # DEK is in cache or user has no encryption, safe to redirect to next or home
+                redirect_url = next if next and _is_safe_redirect(next) else f"{ROOT_PATH}/"
+                return RedirectResponse(url=redirect_url, status_code=302)
 
     return templates.TemplateResponse(
         "login.html",
