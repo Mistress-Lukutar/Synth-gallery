@@ -30,6 +30,13 @@ from app.infrastructure.repositories import (
 from app.database import init_db
 
 
+@pytest.fixture(scope="function", autouse=True)
+def reset_rate_limiter():
+    """Reset rate limiter state before each test."""
+    from app.middleware import RateLimitMiddleware
+    RateLimitMiddleware.reset()
+
+
 @pytest.fixture(scope="session")
 def test_data_dir() -> Path:
     """Directory containing test fixtures (images, etc.)."""

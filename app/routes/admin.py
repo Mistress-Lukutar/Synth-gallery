@@ -11,6 +11,10 @@ from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
 from ..database import create_connection
 from ..dependencies import require_user, get_csrf_token
 from ..infrastructure.repositories import UserRepository, AiApiKeyRepository
+from ..infrastructure.services.audit_log import (
+    log_api_key_created,
+    log_api_key_revoked,
+)
 from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,
     restore_backup, delete_backup,
@@ -496,6 +500,13 @@ def create_api_key_endpoint(request: Request, data: CreateApiKeyRequest):
             expires_at=expires_at
         )
 
+        log_api_key_created(
+            key_id=key_id,
+            key_name=data.name.strip(),
+            admin_id=current_user["id"],
+            user_id=data.user_id
+        )
+
         return {
             "status": "ok",
             "key_id": key_id,
@@ -528,8 +539,14 @@ def delete_api_key_endpoint(request: Request, key_id: int):
     db = create_connection()
     try:
         key_repo = AiApiKeyRepository(db)
+        key = key_repo.get_by_id(key_id)
         if not key_repo.delete(key_id):
             raise HTTPException(status_code=404, detail="API key not found")
+
+        log_api_key_revoked(
+            key_id=key_id,
+            admin_id=current_user["id"]
+        )
         return {"status": "ok"}
     finally:
         db.close()

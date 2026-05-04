@@ -8,6 +8,7 @@ from fastapi import Request, HTTPException
 
 from .database import create_connection
 from .infrastructure.repositories import AiApiKeyRepository
+from .infrastructure.services.audit_log import log_api_key_failure
 
 
 # In-memory rate limiter for API keys (sufficient for single-instance deployments)
@@ -108,9 +109,17 @@ def require_api_key(request: Request) -> dict:
                     matched = row
                     break
         else:
+            log_api_key_failure(
+                ip=request.client.host if request.client else None,
+                reason="invalid_key"
+            )
             raise HTTPException(status_code=401, detail="Invalid API key")
 
         if not matched["is_active"]:
+            log_api_key_failure(
+                ip=request.client.host if request.client else None,
+                reason="inactive_key"
+            )
             raise HTTPException(status_code=401, detail="API key inactive")
 
         # Check expiration
@@ -121,6 +130,10 @@ def require_api_key(request: Request) -> dict:
             else:
                 expires = matched["expires_at"]
             if datetime.now() > expires:
+                log_api_key_failure(
+                    ip=request.client.host if request.client else None,
+                    reason="expired_key"
+                )
                 raise HTTPException(status_code=401, detail="API key expired")
 
         # Update last_used_at
