@@ -222,7 +222,6 @@ content = await storage.download(file_id, folder="uploads")
 **Storage Backends:**
 - **LocalStorage**: Filesystem storage (default)
 - **S3Storage**: AWS S3 / MinIO / DigitalOcean Spaces
-- **EncryptedStorage**: Wrapper for E2E encryption
 
 **Configuration (Environment Variables):**
 | Variable | Description | Default |

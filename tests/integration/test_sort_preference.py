@@ -7,6 +7,7 @@ Verifies:
 - Sort preference defaults to 'uploaded'
 """
 from fastapi.testclient import TestClient
+from app.config import CSRF_COOKIE_NAME
 
 
 class TestSortPreferenceAPI:
@@ -116,7 +117,7 @@ class TestSortPreferenceAPI:
             headers={"X-CSRF-Token": csrf_token}
         )
         
-        assert response.status_code == 400
+        assert response.status_code == 422
     
     def test_sort_preference_requires_access(
         self,
@@ -133,7 +134,7 @@ class TestSortPreferenceAPI:
         
         # Login as first user
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         client.post(
             "/login",
             data={
@@ -148,7 +149,7 @@ class TestSortPreferenceAPI:
         response = client.put(
             f"/api/folders/{private_folder}/sort",
             json={"sort_by": "taken"},
-            headers={"X-CSRF-Token": client.cookies.get('synth_csrf', '')}
+            headers={"X-CSRF-Token": client.cookies.get(CSRF_COOKIE_NAME, '')}
         )
         
         assert response.status_code == 403

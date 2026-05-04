@@ -126,9 +126,22 @@ def init_db():
             password_salt TEXT NOT NULL DEFAULT '',
             display_name TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_admin INTEGER DEFAULT 0
+            is_admin INTEGER DEFAULT 0,
+            failed_login_attempts INTEGER DEFAULT 0,
+            locked_until TIMESTAMP,
+            last_login TIMESTAMP
         )
     """)
+
+    # Migration: Add security columns to users if not exist
+    cursor = db.execute("PRAGMA table_info(users)")
+    user_columns = [row['name'] for row in cursor.fetchall()]
+    if 'failed_login_attempts' not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0")
+    if 'locked_until' not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN locked_until TIMESTAMP")
+    if 'last_login' not in user_columns:
+        db.execute("ALTER TABLE users ADD COLUMN last_login TIMESTAMP")
 
     # Sessions table for login sessions
     db.execute("""
@@ -139,9 +152,24 @@ def init_db():
             expires_at TIMESTAMP NOT NULL,
             encrypted_dek BLOB,
             fingerprint TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            last_active_at TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
+
+    # Migration: Add new columns to sessions if not exist
+    cursor = db.execute("PRAGMA table_info(sessions)")
+    session_columns = [row['name'] for row in cursor.fetchall()]
+    if 'ip_address' not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN ip_address TEXT")
+    if 'user_agent' not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN user_agent TEXT")
+    if 'last_active_at' not in session_columns:
+        db.execute("ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP")
+
+    db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)")
 
     # WebAuthn credentials for hardware key authentication
     db.execute("""
@@ -221,25 +249,47 @@ def init_db():
         )
     """)
     
-    # Tags (flat with optional legacy path/parent for migration compatibility)
+    # Tags (flat tags grouped by category)
     db.execute("""
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             display_name TEXT,
             category_id INTEGER,
-            parent_id INTEGER,
-            path TEXT DEFAULT '',
-            level INTEGER DEFAULT 0,
-            is_leaf INTEGER DEFAULT 1,
             usage_count INTEGER DEFAULT 0,
             description TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES tag_categories(id),
-            FOREIGN KEY (parent_id) REFERENCES tags(id)
+            FOREIGN KEY (category_id) REFERENCES tag_categories(id)
         )
     """)
-    
+
+    # Migration: Drop legacy tree columns via table recreation
+    # SQLite cannot DROP COLUMN when it has a self-referencing foreign key,
+    # so we recreate the table and copy data.
+    cursor = db.execute("PRAGMA table_info(tags)")
+    tag_columns = [row['name'] for row in cursor.fetchall()]
+    if 'parent_id' in tag_columns:
+        db.execute("PRAGMA foreign_keys = OFF")
+        db.execute("""
+            CREATE TABLE tags_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                display_name TEXT,
+                category_id INTEGER,
+                usage_count INTEGER DEFAULT 0,
+                description TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (category_id) REFERENCES tag_categories(id)
+            )
+        """)
+        db.execute("""
+            INSERT INTO tags_new (id, name, display_name, category_id, usage_count, description, created_at)
+            SELECT id, name, display_name, category_id, usage_count, description, created_at FROM tags
+        """)
+        db.execute("DROP TABLE tags")
+        db.execute("ALTER TABLE tags_new RENAME TO tags")
+        db.execute("PRAGMA foreign_keys = ON")
+
     # Migration: Add description column to tags if not exists
     cursor = db.execute("PRAGMA table_info(tags)")
     tag_columns = [row['name'] for row in cursor.fetchall()]
@@ -343,8 +393,8 @@ def init_db():
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_safe ON items(safe_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_path ON tags(path)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_parent ON tags(parent_id)")
+    db.execute("DROP INDEX IF EXISTS idx_tags_path")
+    db.execute("DROP INDEX IF EXISTS idx_tags_parent")
     db.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_item ON item_tags(item_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id)")
@@ -497,9 +547,28 @@ def init_db():
             name TEXT NOT NULL,
             key_hash TEXT NOT NULL UNIQUE,
             is_active INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            user_id INTEGER REFERENCES users(id),
+            created_by INTEGER REFERENCES users(id),
+            expires_at TIMESTAMP,
+            last_used_at TIMESTAMP,
+            rate_limit_tier TEXT DEFAULT 'default'
         )
     """)
+
+    # Migration: Add new columns to ai_api_keys if not exist
+    cursor = db.execute("PRAGMA table_info(ai_api_keys)")
+    api_key_columns = [row['name'] for row in cursor.fetchall()]
+    if 'user_id' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN user_id INTEGER REFERENCES users(id)")
+    if 'created_by' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN created_by INTEGER REFERENCES users(id)")
+    if 'expires_at' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN expires_at TIMESTAMP")
+    if 'last_used_at' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN last_used_at TIMESTAMP")
+    if 'rate_limit_tier' not in api_key_columns:
+        db.execute("ALTER TABLE ai_api_keys ADD COLUMN rate_limit_tier TEXT DEFAULT 'default'")
 
     # Create default admin user if no users exist (first run)
     cursor = db.execute("SELECT COUNT(*) as count FROM users")

@@ -290,12 +290,16 @@ class ItemService:
         
         # Determine media type
         media_type = get_media_type(file.content_type)
-        
+
+        # Validate file content by magic bytes (security: prevent spoofing)
+        if not is_encrypted and not self._validate_content(content, media_type):
+            raise HTTPException(400, f"Invalid file content for type: {file.content_type}")
+
         # Extract dimensions and metadata
         orig_width, orig_height = None, None
         duration = None
         taken_at = None
-        
+
         if not is_encrypted:
             if media_type == 'image':
                 # Get original dimensions

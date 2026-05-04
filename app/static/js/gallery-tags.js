@@ -47,7 +47,7 @@
     // DOM Elements
     let itemDetailsPanel = null;
     let tagSearch = null;
-    let tagTreeContainer = null;
+    let tagResultsContainer = null;
     let currentTagsContainer = null;
     let lightbox = null;
 
@@ -69,7 +69,7 @@
 
         lightbox = document.getElementById('lightbox');
         tagSearch = document.getElementById('tag-search');
-        tagTreeContainer = document.getElementById('tag-tree-container');
+        tagResultsContainer = document.getElementById('tag-tree-container');
         currentTagsContainer = document.getElementById('current-tags-container');
 
         setupEventListeners();
@@ -313,7 +313,7 @@
 
         try {
             const resp = await fetch(
-                `${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=10`
+                `${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=50`
             );
             if (resp.ok) {
                 const data = await resp.json();
@@ -425,10 +425,10 @@
     // ========================================================================
 
     function renderSearchResults() {
-        if (!tagTreeContainer) return;
+        if (!tagResultsContainer) return;
 
         if (searchResults.length === 0) {
-            tagTreeContainer.innerHTML = '';
+            tagResultsContainer.innerHTML = '';
             return;
         }
 
@@ -446,7 +446,7 @@
             `;
         }).join('');
 
-        tagTreeContainer.innerHTML = `
+        tagResultsContainer.innerHTML = `
             <div class="search-results-header">
                 ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}
             </div>

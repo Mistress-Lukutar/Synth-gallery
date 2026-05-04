@@ -38,18 +38,30 @@ class AuthService:
         """
         return self.user_repo.authenticate(username, password)
     
-    def create_session(self, user_id: int, expires_hours: int = 24 * 7, fingerprint: str | None = None) -> str:
+    def create_session(
+        self,
+        user_id: int,
+        expires_hours: int = 24 * 7,
+        fingerprint: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
+    ) -> str:
         """Create new session for user.
-        
+
         Args:
             user_id: User ID
             expires_hours: Session lifetime
             fingerprint: Optional browser fingerprint for session validation
-            
+            ip_address: Client IP address
+            user_agent: Client user agent string
+
         Returns:
             Session ID
         """
-        return self.session_repo.create(user_id, expires_hours, encrypted_dek=None, fingerprint=fingerprint)
+        return self.session_repo.create(
+            user_id, expires_hours, encrypted_dek=None, fingerprint=fingerprint,
+            ip_address=ip_address, user_agent=user_agent
+        )
     
     def store_dek_in_session(self, session_id: str, dek: bytes) -> bool:
         """Encrypt DEK with session key and store in database.
@@ -290,15 +302,19 @@ class AuthService:
         self,
         reset_token: str,
         new_password: str,
-        fingerprint: str | None = None
+        fingerprint: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> tuple[Optional[dict], Optional[str]]:
         """Complete password reset after recovery login.
-        
+
         Args:
             reset_token: Reset token from recovery login
             new_password: New password
             fingerprint: Optional browser fingerprint
-            
+            ip_address: Client IP address
+            user_agent: Client user agent string
+
         Returns:
             Tuple of (user dict, session_id) if successful
         """
@@ -306,23 +322,30 @@ class AuthService:
         user_id = self.validate_reset_token(reset_token)
         if not user_id:
             raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-        
+
         # Get DEK from cache
         dek = dek_cache.get(f"reset_{reset_token}")
         if not dek:
             raise HTTPException(status_code=400, detail="Session expired. Please use recovery key again.")
-        
+
         # Update password
         self.user_repo.update_password(user_id, new_password)
-        
+
+        # Invalidate all existing sessions (security: prevent attacker from staying logged in)
+        self.session_repo.delete_all_for_user(user_id)
+        dek_cache.invalidate(user_id)
+
         # Re-encrypt DEK with new password
         salt = EncryptionService.generate_salt()
         kek = EncryptionService.derive_kek(new_password, salt)
         encrypted_dek = EncryptionService.encrypt_dek(dek, kek)
         self.user_repo.save_encryption_keys(user_id, encrypted_dek, salt)
-        
-        # Create session
-        session_id = self.create_session(user_id, fingerprint=fingerprint)
+
+        # Create new session
+        session_id = self.create_session(
+            user_id, fingerprint=fingerprint,
+            ip_address=ip_address, user_agent=user_agent
+        )
         
         # Store DEK in session
         self.store_dek_in_session(session_id, dek)

@@ -14,7 +14,8 @@ def get_safe_file_service(db) -> SafeFileService:
     """Get configured SafeFileService instance."""
     safe_repo = SafeRepository(db)
     item_repo = ItemRepository(db)
-    return SafeFileService(safe_repo, item_repo)
+    item_media_repo = ItemMediaRepository(db)
+    return SafeFileService(safe_repo, item_repo, item_media_repo)
 
 
 def get_permission_service(db) -> PermissionService:
