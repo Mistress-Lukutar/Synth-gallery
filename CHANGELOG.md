@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-04
+
+### Added
+- **Security Hardening** - Rate limiting, audit logging, and security headers
+  - `RateLimitMiddleware` with configurable limits per endpoint
+  - `SecurityHeadersMiddleware` with CSP, HSTS, X-Frame-Options, etc.
+  - `AuditLogService` for security event tracking
+  - Session hijacking detection with browser fingerprinting
+- **AI API Admin UI** - Per-user AI API key isolation and management
+  - Admin panel for managing AI API keys per user
+
+### Changed
+- **Tag Search** - Relevance-based ordering and scrollable results
+  - Exact match → starts-with → contains priority in SQL
+  - Secondary sort by `usage_count DESC` for popularity ranking
+  - Increased search limit to 50 with scrollable container (`max-height: 280px`)
+- **CSP Compliance** - All external CDN libraries moved to local `static/vendor/`
+  - EasyMDE, Font Awesome, Highlight.js, KaTeX, Marked.js now served locally
+
+### Fixed
+- **Session Fingerprint** - Removed unstable Client Hints (`sec-ch-ua`, `sec-ch-ua-platform`)
+  - Fixes false positive session hijack detection causing immediate logout after login
+- **Gallery Tags** - Fixed undefined `tagTreeContainer` variable in `renderSearchResults()`
+- **Admin API Keys** - Fixed `delete_api_key_endpoint` to properly capture `current_user`
+- **Auth Service** - Fixed `get_auth_service` context manager usage in login page
+
 ## [1.2.0] - 2026-04-30
 
 ### Added
