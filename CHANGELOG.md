@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-05-04
+
+### Added
+- **Tag Search Keyboard Navigation** - Arrow keys and Enter for tag search
+  - `ArrowDown` / `ArrowUp` to navigate search results
+  - `Enter` to add the selected tag (clears search field)
+  - `Escape` to clear search and close results
+  - Visual outline highlight on the selected result
+
+### Changed
+- **Tag Grouping** - Current tags in item details are now grouped by category
+  - Groups: General, Species, Meta (or any custom categories)
+  - Within each group: explicit tags first, then implied tags
+- **Implied Tag Ordering** - Implied tags ordered by BFS depth from explicit tags
+  - Closer implications appear first (e.g. `silver_fox` → `fox` → `canine` → `canid` → `mammal`)
+
 ## [1.3.1] - 2026-05-04
 
 ### Fixed
