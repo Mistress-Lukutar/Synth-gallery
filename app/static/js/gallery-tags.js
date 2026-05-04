@@ -425,10 +425,10 @@
     // ========================================================================
 
     function renderSearchResults() {
-        if (!tagTreeContainer) return;
+        if (!tagResultsContainer) return;
 
         if (searchResults.length === 0) {
-            tagTreeContainer.innerHTML = '';
+            tagResultsContainer.innerHTML = '';
             return;
         }
 
