@@ -274,6 +274,7 @@ function renderDetail() {
 
         ${deleteSection}
     `;
+    addCopyButtonsToCodeBlocks(panel);
 
     if (isAdmin) {
         initTagDescriptionEditor(descValue);
@@ -353,6 +354,10 @@ async function deleteTag(tagId) {
 
 function renderMarkdown(text) {
     if (!text) return '';
+    if (window.marked && window.marked.parse) {
+        return window.marked.parse(text);
+    }
+    // Fallback to simple renderer
     let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
     html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
@@ -416,6 +421,51 @@ function updateTagDescriptionPreview() {
         return;
     }
     previewEl.innerHTML = renderMarkdown(markdown);
+    addCopyButtonsToCodeBlocks(previewEl);
+}
+
+// Add copy buttons to code blocks in preview
+function addCopyButtonsToCodeBlocks(container) {
+    const codeBlocks = container.querySelectorAll('pre code');
+    codeBlocks.forEach((codeBlock) => {
+        const pre = codeBlock.parentElement;
+        if (pre.querySelector('.code-copy-btn')) return;
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'code-copy-btn';
+        copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+        copyBtn.title = 'Copy code';
+        copyBtn.onclick = () => copyCodeToClipboard(codeBlock, copyBtn);
+
+        pre.style.position = 'relative';
+        pre.appendChild(copyBtn);
+    });
+}
+
+async function copyCodeToClipboard(codeBlock, button) {
+    const code = codeBlock.textContent;
+    const copyFn = window.copyToClipboard || async function(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (err) {
+                console.warn('Clipboard API failed:', err);
+            }
+        }
+        return false;
+    };
+    const copied = await copyFn(code);
+    if (copied) {
+        button.classList.add('copied');
+        button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+        setTimeout(() => {
+            button.classList.remove('copied');
+            button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+        }, 2000);
+    } else {
+        window.prompt('Copy code manually:', code);
+    }
 }
 
 function toggleTagDescMode() {

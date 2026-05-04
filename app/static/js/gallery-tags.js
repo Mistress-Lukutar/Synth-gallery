@@ -240,26 +240,58 @@
             return;
         }
         previewEl.innerHTML = renderMarkdown(markdown);
+        addCopyButtonsToCodeBlocks(previewEl);
     }
 
-    // Simple markdown renderer for preview
+    // Add copy buttons to code blocks in preview
+    function addCopyButtonsToCodeBlocks(container) {
+        const codeBlocks = container.querySelectorAll('pre code');
+        codeBlocks.forEach((codeBlock) => {
+            const pre = codeBlock.parentElement;
+            if (pre.querySelector('.code-copy-btn')) return;
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'code-copy-btn';
+            copyBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            copyBtn.title = 'Copy code';
+            copyBtn.onclick = () => copyCodeToClipboard(codeBlock, copyBtn);
+
+            pre.style.position = 'relative';
+            pre.appendChild(copyBtn);
+        });
+    }
+
+    async function copyCodeToClipboard(codeBlock, button) {
+        const code = codeBlock.textContent;
+        const copied = await _copyToClipboard(code);
+        if (copied) {
+            button.classList.add('copied');
+            button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+            setTimeout(() => {
+                button.classList.remove('copied');
+                button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            }, 2000);
+        } else {
+            window.prompt('Copy code manually:', code);
+        }
+    }
+
+    // Markdown renderer for preview using marked.js
     function renderMarkdown(text) {
         if (!text) return '';
-        // Escape HTML
+        if (window.marked && window.marked.parse) {
+            return window.marked.parse(text);
+        }
+        // Fallback to simple renderer
         let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        // Headers
         html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
         html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
         html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-        // Bold and italic
         html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
         html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        // Code
         html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-        // Links
         html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-        // Line breaks
         html = html.replace(/\n/g, '<br>');
         return html;
     }
