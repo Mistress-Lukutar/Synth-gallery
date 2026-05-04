@@ -8,8 +8,10 @@ venv/
 uploads/
 thumbnails/
 backups/
+logs/
 .claude/
 *.db
+backup-*.zip
 
 # IDE
 .idea/
