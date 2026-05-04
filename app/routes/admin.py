@@ -1,18 +1,16 @@
 """Admin routes - backup management and admin-only features."""
+import secrets
 
+import bcrypt
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, field_validator
 
 from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
-
-templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
-templates.env.globals["base_url"] = ROOT_PATH
-templates.env.globals["external_host"] = EXTERNAL_HOST
 from ..database import create_connection
-from ..infrastructure.repositories import UserRepository
-from pydantic import BaseModel, field_validator
 from ..dependencies import require_user, get_csrf_token
+from ..infrastructure.repositories import UserRepository, AiApiKeyRepository
 from ..infrastructure.services.backup import (
     create_backup, list_backups, get_backup_path,
     restore_backup, delete_backup,
@@ -22,6 +20,10 @@ from ..infrastructure.services.thumbnail import (
     cleanup_orphaned_thumbnails, cleanup_orphaned_uploads,
     regenerate_missing_thumbnails, get_thumbnail_stats
 )
+
+templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
+templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["external_host"] = EXTERNAL_HOST
 
 router = APIRouter()
 
@@ -281,8 +283,8 @@ def create_user_endpoint(request: Request, data: CreateUserRequest):
     """Create a new user."""
     require_admin(request)
 
-    if len(data.password) < 4:
-        raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
+    if len(data.password) < 12:
+        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
 
     db = create_connection()
     try:
@@ -417,3 +419,136 @@ def regenerate_thumbnails_endpoint(request: Request):
 
     result = regenerate_missing_thumbnails()
     return {"status": "ok", **result}
+
+
+# === API Key Management Page ===
+
+@router.get("/admin/api-keys")
+def api_keys_page(request: Request):
+    """API key management page."""
+    user = require_admin(request)
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+        users = user_repo.list_all()
+    finally:
+        db.close()
+
+    return templates.TemplateResponse(
+        "admin_api_keys.html",
+        {
+            "request": request,
+            "user": user,
+            "users": users,
+            "csrf_token": get_csrf_token(request),
+            "base_url": ROOT_PATH,
+        }
+    )
+
+
+# === API Key Management API ===
+
+class CreateApiKeyRequest(BaseModel):
+    name: str
+    user_id: int
+    expires_days: int | None = None
+
+
+class CreateApiKeyResponse(BaseModel):
+    status: str
+    key_id: int
+    api_key: str
+
+
+@router.post("/api/admin/api-keys")
+def create_api_key_endpoint(request: Request, data: CreateApiKeyRequest):
+    """Create a new API key for AI agent access.
+
+    The plaintext key is returned exactly once and cannot be retrieved later.
+    """
+    current_user = require_admin(request)
+
+    db = create_connection()
+    try:
+        user_repo = UserRepository(db)
+        key_repo = AiApiKeyRepository(db)
+
+        # Validate target user exists
+        target_user = user_repo.get_by_id(data.user_id)
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Generate plaintext key
+        raw_key = "sg_" + secrets.token_urlsafe(32)
+        key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+        from datetime import datetime, timedelta
+        expires_at = None
+        if data.expires_days and data.expires_days > 0:
+            expires_at = datetime.now() + timedelta(days=data.expires_days)
+
+        key_id = key_repo.create(
+            name=data.name.strip(),
+            key_hash=key_hash,
+            user_id=data.user_id,
+            created_by=current_user["id"],
+            expires_at=expires_at
+        )
+
+        return {
+            "status": "ok",
+            "key_id": key_id,
+            "api_key": raw_key,
+        }
+    finally:
+        db.close()
+
+
+@router.get("/api/admin/api-keys")
+def list_api_keys_endpoint(request: Request):
+    """List all API keys (without hashes)."""
+    require_admin(request)
+
+    db = create_connection()
+    try:
+        key_repo = AiApiKeyRepository(db)
+        keys = key_repo.list_all()
+    finally:
+        db.close()
+
+    return {"keys": keys}
+
+
+@router.delete("/api/admin/api-keys/{key_id}")
+def delete_api_key_endpoint(request: Request, key_id: int):
+    """Revoke (delete) an API key."""
+    require_admin(request)
+
+    db = create_connection()
+    try:
+        key_repo = AiApiKeyRepository(db)
+        if not key_repo.delete(key_id):
+            raise HTTPException(status_code=404, detail="API key not found")
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+@router.post("/api/admin/api-keys/{key_id}/toggle")
+def toggle_api_key_endpoint(request: Request, key_id: int):
+    """Enable or disable an API key."""
+    require_admin(request)
+
+    db = create_connection()
+    try:
+        key_repo = AiApiKeyRepository(db)
+        key = key_repo.get_by_id(key_id)
+        if not key:
+            raise HTTPException(status_code=404, detail="API key not found")
+
+        new_state = not key["is_active"]
+        key_repo.set_active(key_id, new_state)
+        return {"status": "ok", "is_active": new_state}
+    finally:
+        db.close()

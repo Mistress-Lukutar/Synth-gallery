@@ -19,16 +19,17 @@ from .infrastructure.services.session_dek import SessionDEKService
 
 def _generate_fingerprint(request: Request) -> str:
     """Generate browser fingerprint from request headers.
-    
+
     Used to detect session hijacking (cookie copied to different browser).
     """
-    # Combine User-Agent and Accept-Language for basic fingerprinting
+    # Combine multiple signals for stronger fingerprinting
     user_agent = request.headers.get("user-agent", "")
     accept_lang = request.headers.get("accept-language", "")
-    
-    # Create simple hash - not perfect but catches most copy-paste attacks
-    fingerprint_data = f"{user_agent}:{accept_lang}"
-    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
+    sec_ch_ua = request.headers.get("sec-ch-ua", "")
+    sec_ch_ua_platform = request.headers.get("sec-ch-ua-platform", "")
+
+    fingerprint_data = f"{user_agent}:{accept_lang}:{sec_ch_ua}:{sec_ch_ua_platform}"
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()
 
 
 def strip_root_path(path: str) -> str:
@@ -99,8 +100,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     
                     if stored_fingerprint and stored_fingerprint != current_fingerprint:
                         # Fingerprint mismatch - possible session hijacking
-                        # Delete the session and require re-authentication
+                        # Delete the session, invalidate DEK cache, and require re-authentication
                         session_repo.delete(session_id)
+                        dek_cache.invalidate(user_id)
                         # Continue to "no valid session" handling below
                     else:
                         # Restore DEK from session storage if not in memory cache
@@ -130,8 +132,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             next_url = request.url.path
             if request.url.query:
                 next_url += f"?{request.url.query}"
+            # Validate next_url to prevent open redirects
+            if not next_url.startswith("/") or next_url.startswith("//") or next_url.startswith("/\\"):
+                next_url = f"{ROOT_PATH}/"
             # URL-encode next parameter to preserve query string
-            login_url = f"{ROOT_PATH}/login?next={quote(next_url, safe='')}" 
+            login_url = f"{ROOT_PATH}/login?next={quote(next_url, safe='')}"
             return RedirectResponse(url=login_url, status_code=302)
 
         # For API calls, return 401
@@ -207,6 +212,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             httponly=False,  # JavaScript needs to read this for CSRF protection
             samesite="lax",
             secure=COOKIE_SECURE,  # True in production (HTTPS only)
-            max_age=60 * 60 * 24  # 24 hours
+            max_age=60 * 60 * 24,  # 24 hours
+            path="/"
         )
         return response

@@ -38,6 +38,18 @@ class AIJobRepository(Repository):
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_pending_by_user(self, user_id: int, limit: int = 10) -> List[Dict]:
+        """Get pending jobs for a specific user ordered by creation time."""
+        cursor = self._execute(
+            """SELECT id, item_id, status, created_at, retry_count
+               FROM ai_tagging_jobs
+               WHERE status = 'pending' AND user_id = ?
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            (user_id, limit)
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_active_by_user(self, user_id: int) -> List[Dict]:
         """Get active (pending or processing) jobs for a user."""
         cursor = self._execute(

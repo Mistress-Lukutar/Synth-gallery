@@ -25,6 +25,7 @@ from .tags_repository import TagsRepository
 from .tag_implication_repository import TagImplicationRepository
 from .tag_cooccurrence_repository import TagCooccurrenceRepository
 from .ai_job_repository import AIJobRepository
+from .ai_api_key_repository import AiApiKeyRepository
 
 __all__ = [
     "Repository",
@@ -42,4 +43,5 @@ __all__ = [
     "TagImplicationRepository",
     "TagCooccurrenceRepository",
     "AIJobRepository",
+    "AiApiKeyRepository",
 ]

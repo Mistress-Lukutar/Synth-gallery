@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..database import create_connection
 from ..dependencies import require_user, require_api_key, require_admin
@@ -35,8 +35,8 @@ class CreateJobsInput(BaseModel):
 
 
 class JobResultInput(BaseModel):
-    tag_ids: Optional[List[int]] = None
-    tag_names: Optional[List[str]] = None
+    tag_ids: Optional[List[int]] = Field(None, max_length=50)
+    tag_names: Optional[List[str]] = Field(None, max_length=50)
 
 
 class JobFailInput(BaseModel):
@@ -199,12 +199,12 @@ def get_pending_jobs(
     request: Request,
     limit: int = Query(10, ge=1, le=50)
 ):
-    """Get pending jobs for AI agents."""
-    require_api_key(request)
+    """Get pending jobs for AI agents (scoped to API key owner)."""
+    api_key_info = require_api_key(request)
     db = create_connection()
     try:
         service = _ai_tagging_service(db)
-        jobs = service.get_pending_jobs(limit)
+        jobs = service.get_pending_jobs_for_user(api_key_info["user_id"], limit)
         return {"jobs": jobs}
     finally:
         db.close()
@@ -213,9 +213,17 @@ def get_pending_jobs(
 @router.post("/api/ai/jobs/{job_id}/claim")
 def claim_job(job_id: int, request: Request):
     """Atomically claim a pending job."""
-    require_api_key(request)
+    api_key_info = require_api_key(request)
     db = create_connection()
     try:
+        # Verify job belongs to API key owner before claiming
+        job_repo = AIJobRepository(db)
+        job = job_repo.get_job_by_id(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job["user_id"] != api_key_info["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+
         service = _ai_tagging_service(db)
         result = service.claim_job(job_id)
         if not result:
@@ -228,9 +236,17 @@ def claim_job(job_id: int, request: Request):
 @router.post("/api/ai/jobs/{job_id}/results")
 def submit_results(job_id: int, data: JobResultInput, request: Request):
     """Submit tag results for a job. Accepts tag_ids or tag_names."""
-    require_api_key(request)
+    api_key_info = require_api_key(request)
     db = create_connection()
     try:
+        # Verify job belongs to API key owner
+        job_repo = AIJobRepository(db)
+        job = job_repo.get_job_by_id(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job["user_id"] != api_key_info["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+
         service = _ai_tagging_service(db)
         success = service.submit_results(job_id, tag_ids=data.tag_ids, tag_names=data.tag_names)
         if not success:
@@ -268,9 +284,17 @@ def get_ai_tags(request: Request):
 @router.post("/api/ai/jobs/{job_id}/fail")
 def fail_job(job_id: int, data: JobFailInput, request: Request):
     """Mark a job as failed."""
-    require_api_key(request)
+    api_key_info = require_api_key(request)
     db = create_connection()
     try:
+        # Verify job belongs to API key owner
+        job_repo = AIJobRepository(db)
+        job = job_repo.get_job_by_id(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job["user_id"] != api_key_info["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+
         service = _ai_tagging_service(db)
         success = service.fail_job(job_id, data.error)
         if not success:
@@ -291,7 +315,7 @@ async def get_item_file_api(item_id: str, request: Request):
     Returns decrypted file bytes for non-encrypted items.
     Server-side encrypted items are not accessible via API key.
     """
-    require_api_key(request)
+    api_key_info = require_api_key(request)
 
     db = create_connection()
     try:
@@ -301,6 +325,10 @@ async def get_item_file_api(item_id: str, request: Request):
         item = item_repo.get_by_id(item_id)
         if not item or item.get("type") != "media":
             raise HTTPException(status_code=404, detail="Item not found")
+
+        # Enforce ownership: item must belong to the API key owner
+        if item.get("user_id") != api_key_info["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
 
         # Do not serve encrypted items via API key (no DEK available)
         if item.get("is_encrypted") or item.get("safe_id"):
