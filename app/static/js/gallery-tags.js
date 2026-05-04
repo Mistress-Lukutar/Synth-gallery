@@ -513,16 +513,33 @@
     function renderCurrentTags() {
         if (!currentTagsContainer) return;
 
-        // New API format: is_explicit flag
-        const explicit = currentTags.filter(t => t.is_explicit);
-        const implied = currentTags.filter(t => !t.is_explicit);
+        if (currentTags.length === 0) {
+            currentTagsContainer.innerHTML = isEditMode
+                ? '<span class="no-tags-hint">No tags selected. Search to add tags.</span>'
+                : '<span class="no-tags-hint">No tags selected</span>';
+            return;
+        }
 
-        let html = '';
+        // Group by category
+        const grouped = {};
+        for (const tag of currentTags) {
+            const catName = tag.category_name || 'Other';
+            if (!grouped[catName]) {
+                grouped[catName] = { tags: [], color: tag.category_color || '#6b7280' };
+            }
+            grouped[catName].tags.push(tag);
+        }
 
-        // Single section: all tags together
-        if (explicit.length > 0 || implied.length > 0) {
+        let html = '<div class="tags-section">';
+        for (const [catName, group] of Object.entries(grouped)) {
+            const explicit = group.tags.filter(t => t.is_explicit);
+            const implied = group.tags.filter(t => !t.is_explicit);
+
             html += `
-                <div class="tags-section">
+                <div class="tag-group">
+                    <div class="tag-group-header" style="--tag-color: ${group.color}">
+                        ${escapeHtml(catName)}
+                    </div>
                     <div class="tags-list">
                         ${explicit.map(tag => `
                             <span class="tag-chip tag-chip-editable"
@@ -544,12 +561,7 @@
                 </div>
             `;
         }
-
-        if (explicit.length === 0 && implied.length === 0) {
-            html = isEditMode
-                ? '<span class="no-tags-hint">No tags selected. Search to add tags.</span>'
-                : '<span class="no-tags-hint">No tags selected</span>';
-        }
+        html += '</div>';
 
         currentTagsContainer.innerHTML = html;
     }
