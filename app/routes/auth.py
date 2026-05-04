@@ -13,6 +13,12 @@ from ..database import create_connection
 from ..dependencies import get_csrf_token
 from ..infrastructure.repositories import UserRepository, SessionRepository
 from ..infrastructure.services.encryption import dek_cache
+from ..infrastructure.services.audit_log import (
+    log_failed_login,
+    log_successful_login,
+    log_logout,
+    log_password_reset,
+)
 
 
 def _generate_fingerprint(request: Request) -> str:
@@ -105,6 +111,11 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
         user = service.authenticate(username, password)
 
     if not user:
+        log_failed_login(
+            username=username,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
         return templates.TemplateResponse(
             "login.html",
             {
@@ -117,6 +128,12 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
             },
             status_code=401
         )
+
+    log_successful_login(
+        user_id=user["id"],
+        username=user["username"],
+        ip=request.client.host if request.client else None
+    )
 
     # Create session with fingerprint for hijacking protection
     fingerprint = _generate_fingerprint(request)
@@ -279,7 +296,12 @@ def reset_password(
                 new_password,
                 fingerprint=fingerprint
             )
-        
+
+            log_password_reset(
+                user_id=user["id"],
+                ip=request.client.host if request.client else None
+            )
+
             # Redirect to gallery with session cookie
             response = RedirectResponse(url=f"{ROOT_PATH}/", status_code=302)
             response.set_cookie(

@@ -168,18 +168,23 @@ class UserRepository(Repository):
     
     def authenticate(self, username: str, password: str) -> dict | None:
         """Authenticate user with username and password.
-        
+
         Args:
             username: Username
             password: Plain text password
-            
+
         Returns:
             User dict if authentication successful, None otherwise
         """
         user = self.get_by_username(username)
         if not user:
+            # Prevent username enumeration via timing side-channel
+            # Perform a dummy bcrypt check so failed logins for missing users
+            # take roughly the same time as failed logins for existing users.
+            dummy_hash = "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW"
+            self._verify_password(password, dummy_hash)
             return None
-        
+
         if self._verify_password(password, user["password_hash"], user.get("password_salt", "")):
             return user
         return None

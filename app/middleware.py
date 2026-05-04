@@ -15,6 +15,8 @@ from .database import create_connection
 from .infrastructure.repositories import SessionRepository
 from .infrastructure.services.encryption import dek_cache
 from .infrastructure.services.session_dek import SessionDEKService
+from .infrastructure.services.rate_limiter import RateLimiter
+from .infrastructure.services.audit_log import log_session_hijack_detected
 
 
 def _generate_fingerprint(request: Request) -> str:
@@ -39,6 +41,32 @@ def strip_root_path(path: str) -> str:
     return path
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' blob: data:; "
+            "media-src 'self' blob:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self';"
+        )
+        if COOKIE_SECURE:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
+
+
 class BasePathMiddleware(BaseHTTPMiddleware):
     """Middleware to redirect requests from root to base path.
     
@@ -58,6 +86,48 @@ class BasePathMiddleware(BaseHTTPMiddleware):
                 redirect_url += f"?{query}"
             return RedirectResponse(url=redirect_url, status_code=307)  # 307 preserves method
         
+        return await call_next(request)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limiting for authentication endpoints."""
+
+    _limiter = RateLimiter()
+
+    # Path -> (max_requests, window_seconds)
+    _limits = {
+        ("POST", "/login"): (5, 15 * 60),
+        ("POST", "/api/auth/recover"): (3, 15 * 60),
+        ("POST", "/reset-password"): (5, 15 * 60),
+    }
+
+    @staticmethod
+    def _is_loopback(ip: str) -> bool:
+        return ip.startswith("127.") or ip == "::1" or ip.startswith("0:0:0:0:0:0:0:1") or ip == "testclient"
+
+    @classmethod
+    def reset(cls):
+        """Reset rate limiter state (useful for tests)."""
+        cls._limiter = RateLimiter()
+
+    async def dispatch(self, request: Request, call_next):
+        method = request.method
+        path = strip_root_path(request.url.path)
+        limit_key = (method, path)
+
+        if limit_key in self._limits:
+            client_ip = request.client.host if request.client else "unknown"
+            # Skip rate limiting for loopback (tests and local dev)
+            if not self._is_loopback(client_ip):
+                max_req, window = self._limits[limit_key]
+                key = f"ratelimit:{client_ip}:{method}:{path}"
+
+                if not self._limiter.is_allowed(key, max_req, window):
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": "Too many attempts. Please try again later."}
+                    )
+
         return await call_next(request)
 
 
@@ -103,6 +173,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         # Delete the session, invalidate DEK cache, and require re-authentication
                         session_repo.delete(session_id)
                         dek_cache.invalidate(user_id)
+                        log_session_hijack_detected(
+                            session_id=session_id,
+                            user_id=user_id,
+                            ip=request.client.host if request.client else None,
+                            user_agent=request.headers.get("user-agent")
+                        )
                         # Continue to "no valid session" handling below
                     else:
                         # Restore DEK from session storage if not in memory cache

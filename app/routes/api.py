@@ -20,6 +20,7 @@ from ..infrastructure.repositories import (
 )
 from ..infrastructure.storage import get_storage, LocalStorage
 from ..application.services import TagService, AITaggingService
+from ..infrastructure.services.audit_log import log_ai_job_claimed
 
 router = APIRouter(tags=["ai"])
 
@@ -228,6 +229,12 @@ def claim_job(job_id: int, request: Request):
         result = service.claim_job(job_id)
         if not result:
             raise HTTPException(status_code=409, detail="Job not available")
+
+        log_ai_job_claimed(
+            key_id=api_key_info["id"],
+            job_id=job_id,
+            item_id=result["job"]["item_id"]
+        )
         return result
     finally:
         db.close()
