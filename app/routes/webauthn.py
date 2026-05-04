@@ -13,7 +13,7 @@ def _generate_fingerprint(request: Request) -> str:
     user_agent = request.headers.get("user-agent", "")
     accept_lang = request.headers.get("accept-language", "")
     fingerprint_data = f"{user_agent}:{accept_lang}"
-    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()
 
 from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, BASE_DIR, COOKIE_SECURE, EXTERNAL_HOST
 
@@ -270,7 +270,12 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
         # Create session with fingerprint for hijacking protection
         session_repo = SessionRepository(db)
         fingerprint = _generate_fingerprint(request)
-        session_id = session_repo.create(cred["user_id"], fingerprint=fingerprint)
+        client_host = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        session_id = session_repo.create(
+            cred["user_id"], fingerprint=fingerprint,
+            ip_address=client_host, user_agent=user_agent
+        )
 
         # Decrypt DEK from credential if available
         if cred.get("encrypted_dek"):

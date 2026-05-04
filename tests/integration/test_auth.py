@@ -8,6 +8,7 @@ Verifies:
 - CSRF protection
 """
 from fastapi.testclient import TestClient
+from app.config import SESSION_COOKIE, CSRF_COOKIE_NAME
 
 
 class TestLoginFlow:
@@ -32,7 +33,7 @@ class TestLoginFlow:
         
         assert response.status_code == 302
         assert "/" in response.headers.get("location", "")
-        assert "synth_session" in response.cookies
+        assert SESSION_COOKIE in response.cookies
     
     def test_login_with_invalid_password(self, client: TestClient, test_user: dict):
         """Invalid password should return 401 and show error."""
@@ -120,12 +121,12 @@ class TestCSRFProtection:
         """CSRF cookie should be set when visiting login."""
         response = client.get("/login")
         
-        assert "synth_csrf" in response.cookies
+        assert CSRF_COOKIE_NAME in response.cookies
     
     def test_post_without_csrf_fails(self, authenticated_client: TestClient):
         """POST without CSRF token should be rejected."""
         # Clear CSRF cookie to simulate missing token
-        authenticated_client.cookies.pop("synth_csrf", None)
+        authenticated_client.cookies.pop(CSRF_COOKIE_NAME, None)
         
         response = authenticated_client.post(
             "/api/folders",  # Assuming this endpoint exists

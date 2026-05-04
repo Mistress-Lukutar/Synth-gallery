@@ -15,20 +15,22 @@ from .database import create_connection
 from .infrastructure.repositories import SessionRepository
 from .infrastructure.services.encryption import dek_cache
 from .infrastructure.services.session_dek import SessionDEKService
+from .infrastructure.services.rate_limiter import RateLimiter
+from .infrastructure.services.audit_log import log_session_hijack_detected
 
 
 def _generate_fingerprint(request: Request) -> str:
     """Generate browser fingerprint from request headers.
-    
+
     Used to detect session hijacking (cookie copied to different browser).
+    Keeps only stable headers to avoid false positives from Client Hints
+    that may vary between requests.
     """
-    # Combine User-Agent and Accept-Language for basic fingerprinting
     user_agent = request.headers.get("user-agent", "")
     accept_lang = request.headers.get("accept-language", "")
-    
-    # Create simple hash - not perfect but catches most copy-paste attacks
+
     fingerprint_data = f"{user_agent}:{accept_lang}"
-    return hashlib.sha256(fingerprint_data.encode()).hexdigest()[:32]
+    return hashlib.sha256(fingerprint_data.encode()).hexdigest()
 
 
 def strip_root_path(path: str) -> str:
@@ -36,6 +38,32 @@ def strip_root_path(path: str) -> str:
     if ROOT_PATH and path.startswith(ROOT_PATH):
         return path[len(ROOT_PATH):] or "/"
     return path
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' blob: data:; "
+            "media-src 'self' blob:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self';"
+        )
+        if COOKIE_SECURE:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+        return response
 
 
 class BasePathMiddleware(BaseHTTPMiddleware):
@@ -57,6 +85,50 @@ class BasePathMiddleware(BaseHTTPMiddleware):
                 redirect_url += f"?{query}"
             return RedirectResponse(url=redirect_url, status_code=307)  # 307 preserves method
         
+        return await call_next(request)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limiting for authentication endpoints."""
+
+    _limiter = RateLimiter()
+
+    # Path -> (max_requests, window_seconds)
+    _limits = {
+        ("POST", "/login"): (5, 15 * 60),
+        ("POST", "/api/auth/recover"): (3, 15 * 60),
+        ("POST", "/reset-password"): (5, 15 * 60),
+    }
+
+    @staticmethod
+    def _is_loopback(ip: str) -> bool:
+        return ip.startswith("127.") or ip == "::1" or ip.startswith("0:0:0:0:0:0:0:1") or ip == "testclient"
+
+    @classmethod
+    def reset(cls):
+        """Reset rate limiter state (useful for tests)."""
+        cls._limiter = RateLimiter()
+
+    async def dispatch(self, request: Request, call_next):
+        method = request.method
+        path = strip_root_path(request.url.path)
+        limit_key = (method, path)
+
+        if limit_key in self._limits:
+            client_ip = request.client.host if request.client else "unknown"
+            # Skip rate limiting for loopback (tests and local dev)
+            if not self._is_loopback(client_ip):
+                max_req, window = self._limits[limit_key]
+                key = f"ratelimit:{client_ip}:{method}:{path}"
+
+                if not self._limiter.is_allowed(key, max_req, window):
+                    retry_after = window
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": "Too many attempts. Please try again later."},
+                        headers={"Retry-After": str(retry_after)}
+                    )
+
         return await call_next(request)
 
 
@@ -99,8 +171,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     
                     if stored_fingerprint and stored_fingerprint != current_fingerprint:
                         # Fingerprint mismatch - possible session hijacking
-                        # Delete the session and require re-authentication
+                        # Invalidate DEK cache first, then delete session, and require re-authentication
+                        dek_cache.invalidate(user_id)
                         session_repo.delete(session_id)
+                        log_session_hijack_detected(
+                            session_id=session_id,
+                            user_id=user_id,
+                            ip=request.client.host if request.client else None,
+                            user_agent=request.headers.get("user-agent")
+                        )
                         # Continue to "no valid session" handling below
                     else:
                         # Restore DEK from session storage if not in memory cache
@@ -130,8 +209,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             next_url = request.url.path
             if request.url.query:
                 next_url += f"?{request.url.query}"
+            # Validate next_url to prevent open redirects
+            if not next_url.startswith("/") or next_url.startswith("//") or next_url.startswith("/\\"):
+                next_url = f"{ROOT_PATH}/"
             # URL-encode next parameter to preserve query string
-            login_url = f"{ROOT_PATH}/login?next={quote(next_url, safe='')}" 
+            login_url = f"{ROOT_PATH}/login?next={quote(next_url, safe='')}"
             return RedirectResponse(url=login_url, status_code=302)
 
         # For API calls, return 401
@@ -207,6 +289,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             httponly=False,  # JavaScript needs to read this for CSRF protection
             samesite="lax",
             secure=COOKIE_SECURE,  # True in production (HTTPS only)
-            max_age=60 * 60 * 24  # 24 hours
+            max_age=60 * 60 * 24,  # 24 hours
+            path="/"
         )
         return response

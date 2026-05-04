@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import BASE_DIR, ROOT_PATH
 from .database import init_db, cleanup_expired_sessions
-from .middleware import AuthMiddleware, CSRFMiddleware, BasePathMiddleware
+from .middleware import AuthMiddleware, CSRFMiddleware, BasePathMiddleware, SecurityHeadersMiddleware, RateLimitMiddleware
 from .infrastructure.services.backup import backup_scheduler
 
 # Import routers
@@ -37,11 +37,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Photo Gallery", lifespan=lifespan, root_path=ROOT_PATH)
 
-# Add middleware (order matters - first added = last executed)
-# BasePathMiddleware first to redirect root requests before auth check
+# Add middleware (order matters - first added = outermost wrapper)
+# SecurityHeaders first so it runs last on the response (after all others)
+app.add_middleware(SecurityHeadersMiddleware)
+# BasePathMiddleware redirects root requests before auth check
 app.add_middleware(BasePathMiddleware)
 app.add_middleware(AuthMiddleware)
 app.add_middleware(CSRFMiddleware)
+# RateLimit innermost so it rejects abuse before expensive checks
+app.add_middleware(RateLimitMiddleware)
 
 # Static files
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")

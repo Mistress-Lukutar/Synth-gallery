@@ -8,6 +8,7 @@ Verifies:
 - Navigation updates photo_id in URL
 """
 from fastapi.testclient import TestClient
+from app.config import CSRF_COOKIE_NAME
 
 
 class TestLightboxURL:
@@ -57,15 +58,14 @@ class TestLightboxURL:
         uploaded_photo: dict
     ):
         """Photo API returns info needed for lightbox navigation."""
-        response = authenticated_client.get(f"/api/photos/{uploaded_photo['id']}")
+        response = authenticated_client.get(f"/api/items/{uploaded_photo['id']}")
         
         assert response.status_code == 200
         data = response.json()
         
         # Should have all fields needed for lightbox display
         assert "id" in data
-        assert "filename" in data
-        assert "original_name" in data
+        assert "title" in data
         assert "media_type" in data
         
         # Album info if applicable
@@ -103,8 +103,8 @@ class TestLightboxNavigationAPI:
         data = response.json()
         
         items = data.get("items", [])
-        photo_items = [item for item in items if item.get("type") == "photo"]
-        
+        photo_items = [item for item in items if item.get("type") == "item" and item.get("media_type") == "image"]
+
         # Should be able to find current and adjacent photos
         assert len(photo_items) >= 3
         

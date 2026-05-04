@@ -37,6 +37,10 @@ class AITaggingService:
         """Get pending jobs."""
         return self.jobs.get_pending(limit)
 
+    def get_pending_jobs_for_user(self, user_id: int, limit: int = 10) -> List[Dict]:
+        """Get pending jobs for a specific user."""
+        return self.jobs.get_pending_by_user(user_id, limit)
+
     def get_active_jobs_for_user(self, user_id: int) -> List[Dict]:
         """Get active jobs for a specific user."""
         return self.jobs.get_active_by_user(user_id)

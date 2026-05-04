@@ -9,11 +9,12 @@ Verifies:
 - Download/retrieval of uploaded files
 """
 from fastapi.testclient import TestClient
+from app.config import CSRF_COOKIE_NAME
 
 
 def _csrf_headers(client: TestClient) -> dict:
     """Get CSRF headers for POST requests."""
-    token = client.cookies.get("synth_csrf", "")
+    token = client.cookies.get(CSRF_COOKIE_NAME, "")
     return {"X-CSRF-Token": token}
 
 
@@ -64,12 +65,12 @@ class TestSingleFileUpload:
         
         # Get CSRF token
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
             "/upload",
-            data={"folder_id": folder_id},
-            headers={"X-CSRF-Token": csrf_token}, 
+            data={"folder_id": folder_id, "is_encrypted": "true"},
+            headers={"X-CSRF-Token": csrf_token},
             files={"file": ("encrypted.jpg", img_bytes.getvalue(), "image/jpeg")}
         )
         
@@ -78,7 +79,7 @@ class TestSingleFileUpload:
         
         # Verify photo is marked as encrypted in database
         db = get_db()
-        photo = db.execute("SELECT is_encrypted FROM photos WHERE id = ?", (data["id"],)).fetchone()
+        photo = db.execute("SELECT is_encrypted FROM items WHERE id = ?", (data["id"],)).fetchone()
         assert photo is not None
         assert photo["is_encrypted"] == 1
     
@@ -128,7 +129,7 @@ class TestSingleFileUpload:
         # Try to upload as first user (no permission)
         # Get CSRF token first
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         client.post(
             "/login",
@@ -141,7 +142,7 @@ class TestSingleFileUpload:
         )
         
         # Get fresh CSRF token after login
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
             "/upload",

@@ -6,6 +6,7 @@ Tests security-critical aspects of E2E-encrypted safes:
 - Session management and expiration
 - Permission boundaries
 """
+from app.config import CSRF_COOKIE_NAME
 
 
 class TestSafeDeleteSecurity:
@@ -58,23 +59,15 @@ class TestSafeDeleteSecurity:
         
         # Safe is NOT unlocked (no session created)
         # Try to delete photo
-        csrf_token = authenticated_client.cookies.get("synth_csrf", "")
-        response = authenticated_client.post(
-            "/api/photos/batch-delete",
-            json={"photo_ids": [photo_id], "album_ids": []},
+        csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
+        response = authenticated_client.delete(
+            f"/api/items/{photo_id}",
             headers={"X-CSRF-Token": csrf_token}
         )
-        
+
         # Should fail - server should check is_unlocked
-        # The response might be 200 with partial failure or 403
-        if response.status_code == 200:
-            result = response.json()
-            # Photo should NOT be deleted
-            assert result.get("photos_deleted", 0) == 0, \
-                "Should not delete photos from locked safe"
-        else:
-            assert response.status_code in [403, 400], \
-                f"Expected 403 or 400, got {response.status_code}"
+        assert response.status_code == 403, \
+            f"Expected 403, got {response.status_code}"
     
     def test_cannot_delete_album_from_locked_safe(self, authenticated_client, test_user, db_connection):
         """Server-side: Deleting album from locked safe should fail."""
@@ -105,20 +98,15 @@ class TestSafeDeleteSecurity:
         db_connection.commit()
         
         # Try to delete album without unlocking safe
-        csrf_token = authenticated_client.cookies.get("synth_csrf", "")
-        response = authenticated_client.post(
-            "/api/photos/batch-delete",
-            json={"photo_ids": [], "album_ids": [album_id]},
+        csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
+        response = authenticated_client.delete(
+            f"/api/albums/{album_id}",
             headers={"X-CSRF-Token": csrf_token}
         )
-        
+
         # Should fail
-        if response.status_code == 200:
-            result = response.json()
-            assert result.get("albums_deleted", 0) == 0, \
-                "Should not delete albums from locked safe"
-        else:
-            assert response.status_code in [403, 400]
+        assert response.status_code == 403, \
+            f"Expected 403, got {response.status_code}"
     
     def test_can_delete_from_unlocked_safe(self, authenticated_client, test_user, db_connection):
         """Server-side: Deleting from unlocked safe should succeed."""
@@ -162,17 +150,13 @@ class TestSafeDeleteSecurity:
         safe_repo.create_session(safe_id, test_user["id"], b"fake_session_encrypted_dek")
         
         # Now deletion should work
-        csrf_token = authenticated_client.cookies.get("synth_csrf", "")
-        response = authenticated_client.post(
-            "/api/photos/batch-delete",
-            json={"photo_ids": [photo_id], "album_ids": []},
+        csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
+        response = authenticated_client.delete(
+            f"/api/items/{photo_id}",
             headers={"X-CSRF-Token": csrf_token}
         )
-        
+
         assert response.status_code == 200
-        result = response.json()
-        assert result.get("deleted_photos", 0) == 1, \
-            "Should delete photos from unlocked safe"
 
 
 class TestSafeSessionSecurity:
@@ -231,7 +215,7 @@ class TestSafeSessionSecurity:
         assert safe_repo.is_unlocked(safe_id, test_user["id"]) is True
         
         # Lock safe via API
-        csrf_token = authenticated_client.cookies.get("synth_csrf", "")
+        csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
         response = authenticated_client.post(
             f"/api/safes/{safe_id}/lock",
             headers={"X-CSRF-Token": csrf_token}
@@ -374,7 +358,7 @@ class TestSafePermissionSecurity:
         })
         
         # Try to delete safe as second_user
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         response = client.delete(
             f"/api/safes/{safe_id}",
             headers={"X-CSRF-Token": csrf_token}
@@ -470,7 +454,7 @@ class TestSafeClientSync:
         assert safe_repo.is_unlocked(safe_id, test_user["id"]) is True
         
         # Simulate client lock signal via API
-        csrf_token = authenticated_client.cookies.get("synth_csrf", "")
+        csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
         response = authenticated_client.post(
             f"/api/safes/{safe_id}/lock",
             headers={"X-CSRF-Token": csrf_token}

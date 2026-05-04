@@ -4413,105 +4413,10 @@ main {
     color: #fff;
 }
 
-/* Tag Tree Container */
+/* Tag Results Container */
 .tag-tree-container {
-    flex: 1;
+    max-height: 280px;
     overflow-y: auto;
-}
-
-/* Tree View */
-.tree-breadcrumbs {
-    margin-bottom: 12px;
-}
-
-.breadcrumb-back {
-    background: none;
-    border: none;
-    color: var(--accent-color, #3b82f6);
-    cursor: pointer;
-    font-size: 13px;
-    padding: 0;
-}
-
-.breadcrumb-back:hover {
-    text-decoration: underline;
-}
-
-.tree-node {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: background 0.2s;
-}
-
-.tree-node:hover {
-    background: var(--hover-bg, #252525);
-}
-
-.tree-node-content {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 1;
-}
-
-.tree-expand {
-    background: none;
-    border: none;
-    color: var(--text-color, #fff);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 2px 6px;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-}
-
-.tree-expand:hover {
-    opacity: 1;
-}
-
-.tree-leaf-icon {
-    font-size: 8px;
-    opacity: 0.5;
-    padding: 2px 6px;
-}
-
-.tree-node-name {
-    font-size: 14px;
-}
-
-.tree-count {
-    font-size: 11px;
-    opacity: 0.5;
-    margin-left: auto;
-}
-
-.tree-add-btn {
-    background: var(--accent-color, #3b82f6);
-    border: none;
-    color: #fff;
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.tree-node:hover .tree-add-btn {
-    opacity: 1;
-}
-
-.tree-add-btn:hover {
-    background: var(--accent-hover, #2563eb);
 }
 
 /* Search Results */
