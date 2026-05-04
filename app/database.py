@@ -263,17 +263,32 @@ def init_db():
         )
     """)
 
-    # Migration: Drop legacy tree columns if they exist
+    # Migration: Drop legacy tree columns via table recreation
+    # SQLite cannot DROP COLUMN when it has a self-referencing foreign key,
+    # so we recreate the table and copy data.
     cursor = db.execute("PRAGMA table_info(tags)")
     tag_columns = [row['name'] for row in cursor.fetchall()]
     if 'parent_id' in tag_columns:
-        db.execute("ALTER TABLE tags DROP COLUMN parent_id")
-    if 'path' in tag_columns:
-        db.execute("ALTER TABLE tags DROP COLUMN path")
-    if 'level' in tag_columns:
-        db.execute("ALTER TABLE tags DROP COLUMN level")
-    if 'is_leaf' in tag_columns:
-        db.execute("ALTER TABLE tags DROP COLUMN is_leaf")
+        db.execute("PRAGMA foreign_keys = OFF")
+        db.execute("""
+            CREATE TABLE tags_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                display_name TEXT,
+                category_id INTEGER,
+                usage_count INTEGER DEFAULT 0,
+                description TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (category_id) REFERENCES tag_categories(id)
+            )
+        """)
+        db.execute("""
+            INSERT INTO tags_new (id, name, display_name, category_id, usage_count, description, created_at)
+            SELECT id, name, display_name, category_id, usage_count, description, created_at FROM tags
+        """)
+        db.execute("DROP TABLE tags")
+        db.execute("ALTER TABLE tags_new RENAME TO tags")
+        db.execute("PRAGMA foreign_keys = ON")
 
     # Migration: Add description column to tags if not exists
     cursor = db.execute("PRAGMA table_info(tags)")
