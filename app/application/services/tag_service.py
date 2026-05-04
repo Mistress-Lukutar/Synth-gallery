@@ -115,12 +115,43 @@ class TagService:
     def get_item_tags(self, item_id: str) -> Dict:
         """Get tags for item - explicit (user) and implied (auto).
 
+        Implied tags are ordered by BFS depth from explicit tags
+        (closest implications first), so the display order is natural.
+
         Returns:
             Dict with explicit_tags, implied_tags, and all_tags
         """
         explicit = self.tags.get_item_tags_explicit(item_id)
         implied = self.tags.get_item_tags_implied(item_id)
         all_tags = self.tags.get_item_tags_all(item_id)
+
+        # Sort implied by BFS depth from explicit tags
+        if implied and self.implications:
+            explicit_ids = {t["id"] for t in explicit}
+            implied_ids = {t["id"] for t in implied}
+
+            depth_map = {}
+            queue = list(explicit_ids)
+            visited = set(explicit_ids)
+            current_depth = 0
+            while queue:
+                next_queue = []
+                direct = self.implications.get_direct_implications(queue)
+                for tid, implied_list in direct.items():
+                    for next_tid in implied_list:
+                        if next_tid not in visited and next_tid in implied_ids:
+                            visited.add(next_tid)
+                            depth_map[next_tid] = current_depth + 1
+                            next_queue.append(next_tid)
+                queue = next_queue
+                current_depth += 1
+
+            def sort_key(tag):
+                if tag["is_explicit"]:
+                    return (0, 0, tag["name"])
+                return (1, depth_map.get(tag["id"], 999), tag["name"])
+
+            all_tags = sorted(all_tags, key=sort_key)
 
         return {
             "explicit_tags": explicit,
