@@ -229,7 +229,7 @@ class TestUploadMimeTypeValidation:
         )
         
         assert response.status_code == 400
-        assert "images and videos" in response.text.lower() or "media" in response.text.lower()
+        assert "invalid file type" in response.text.lower()
     
     def test_rejects_text_plain_disguised_as_image(
         self,

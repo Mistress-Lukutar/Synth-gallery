@@ -27,7 +27,8 @@ ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 
 # Session configuration
-SESSION_COOKIE = "synth_session"
+# __Host- prefix enforces Secure, Path=/ and no Domain attribute at browser level
+SESSION_COOKIE = "__Host-synth_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
 
 # Paths that don't require authentication (without BASE_URL prefix)
@@ -42,7 +43,7 @@ PUBLIC_PATHS = {
 # CSRF configuration
 CSRF_TOKEN_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
-CSRF_COOKIE_NAME = "synth_csrf"
+CSRF_COOKIE_NAME = "__Host-synth_csrf"
 
 # Backup configuration
 BACKUP_PATH = Path(os.environ.get("BACKUP_PATH", str(BASE_DIR / "backups")))
@@ -57,6 +58,5 @@ EXTERNAL_HOST = os.environ.get("SYNTH_EXTERNAL_HOST", "").strip("/")
 WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
 
 # Cookie security settings
-# Set SYNTH_ENV=production to enable secure cookies (HTTPS only)
-SYNTH_ENV = os.environ.get("SYNTH_ENV", "development")
-COOKIE_SECURE = SYNTH_ENV == "production"
+# Default is secure (HTTPS only). Set COOKIE_SECURE=false for HTTP dev environments.
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"

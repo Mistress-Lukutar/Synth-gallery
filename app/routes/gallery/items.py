@@ -258,16 +258,12 @@ async def delete_item(item_id: str, request: Request):
 
     db = create_connection()
     try:
+        from .deps import get_permission_service
+        perm_service = get_permission_service(db)
+        if not perm_service.can_delete_item(item_id, user["id"]):
+            raise HTTPException(403, "Cannot delete item")
+
         item_service = get_item_service(db)
-
-        # Check ownership
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(404, "Item not found")
-
-        if item["user_id"] != user["id"]:
-            raise HTTPException(403, "Not owner")
-
         success = await item_service.delete_item(item_id, user["id"])
         if not success:
             raise HTTPException(400, "Delete failed")
@@ -575,15 +571,19 @@ def update_album(album_id: str, data: dict, request: Request):
 def delete_album(album_id: str, request: Request):
     """Delete album and all its items including files."""
     user = require_user(request)
-    
+
     db = create_connection()
     try:
+        from .deps import get_permission_service
+        perm_service = get_permission_service(db)
+        if not perm_service.can_delete_album(album_id, user["id"]):
+            raise HTTPException(403, "Cannot delete album")
+
         album_service = get_album_service(db)
-        
         success = album_service.delete_album(album_id, user["id"])
         if not success:
             raise HTTPException(400, "Delete failed")
-        
+
         return {"status": "ok"}
     finally:
         db.close()

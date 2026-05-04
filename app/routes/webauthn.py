@@ -272,7 +272,12 @@ def authenticate_complete(request: Request, body: AuthenticationCompleteRequest)
         # Create session with fingerprint for hijacking protection
         session_repo = SessionRepository(db)
         fingerprint = _generate_fingerprint(request)
-        session_id = session_repo.create(cred["user_id"], fingerprint=fingerprint)
+        client_host = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        session_id = session_repo.create(
+            cred["user_id"], fingerprint=fingerprint,
+            ip_address=client_host, user_agent=user_agent
+        )
 
         # Decrypt DEK from credential if available
         if cred.get("encrypted_dek"):

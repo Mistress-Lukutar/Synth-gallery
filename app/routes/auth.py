@@ -138,7 +138,12 @@ def login(request: Request, username: str = Form(...), password: str = Form(...)
     # Create session with fingerprint for hijacking protection
     fingerprint = _generate_fingerprint(request)
     with get_auth_service() as service:
-        session_id = service.create_session(user["id"], fingerprint=fingerprint)
+        session_id = service.create_session(
+            user["id"],
+            fingerprint=fingerprint,
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
 
     with get_auth_service() as service:
         # Handle encryption key
@@ -294,7 +299,9 @@ def reset_password(
             user, session_id = service.complete_password_reset(
                 reset_token,
                 new_password,
-                fingerprint=fingerprint
+                fingerprint=fingerprint,
+                ip_address=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent")
             )
 
             log_password_reset(

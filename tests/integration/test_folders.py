@@ -10,6 +10,7 @@ Verifies:
 
 import pytest
 from fastapi.testclient import TestClient
+from app.config import CSRF_COOKIE_NAME
 
 
 class TestFolderCreation:
@@ -174,7 +175,7 @@ class TestFolderPermissions:
         
         # First user uploads - get CSRF token first
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         client.post(
             "/login",
@@ -187,7 +188,7 @@ class TestFolderPermissions:
         )
         
         # Get fresh CSRF token after login
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
             "/upload",
