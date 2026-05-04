@@ -541,7 +541,7 @@ def list_api_keys_endpoint(request: Request):
 @router.delete("/api/admin/api-keys/{key_id}")
 def delete_api_key_endpoint(request: Request, key_id: int):
     """Revoke (delete) an API key."""
-    require_admin(request)
+    current_user = require_admin(request)
 
     db = create_connection()
     try:
