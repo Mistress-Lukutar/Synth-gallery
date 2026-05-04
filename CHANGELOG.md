@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-05-04
+
+### Fixed
+- **Markdown Preview** - Restored code block copy buttons and full markdown rendering
+  - `renderMarkdown()` now uses `marked.parse()` for proper support of code blocks, horizontal rules, blockquotes and lists
+  - Restored `addCopyButtonsToCodeBlocks()` and `copyCodeToClipboard()` functions lost during flat tags refactor
+  - Copy buttons appear on hover for all `<pre><code>` blocks in gallery item and tag page previews
+
 ## [1.3.0] - 2026-05-04
 
 ### Added
