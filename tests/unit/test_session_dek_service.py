@@ -80,3 +80,21 @@ class TestSessionDEKService:
         decrypted = SessionDEKService.decrypt_dek(encrypted, session_id)
         
         assert decrypted == original_dek
+
+    def test_decrypt_legacy_pbkdf2_session(self):
+        """Decrypting a session created with legacy PBKDF2 should still work."""
+        session_id = "legacy-session-123"
+        original_dek = b"y" * 32
+
+        # Encrypt with legacy PBKDF2 key derivation
+        legacy_key = SessionDEKService._derive_key_legacy(session_id)
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        import os
+        aesgcm = AESGCM(legacy_key)
+        nonce = os.urandom(12)
+        ciphertext = aesgcm.encrypt(nonce, original_dek, None)
+        encrypted_legacy = nonce + ciphertext
+
+        # Decrypt should fall back to PBKDF2 and succeed
+        decrypted = SessionDEKService.decrypt_dek(encrypted_legacy, session_id)
+        assert decrypted == original_dek

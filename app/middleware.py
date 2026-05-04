@@ -123,9 +123,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 key = f"ratelimit:{client_ip}:{method}:{path}"
 
                 if not self._limiter.is_allowed(key, max_req, window):
+                    retry_after = window
                     return JSONResponse(
                         status_code=429,
-                        content={"detail": "Too many attempts. Please try again later."}
+                        content={"detail": "Too many attempts. Please try again later."},
+                        headers={"Retry-After": str(retry_after)}
                     )
 
         return await call_next(request)
@@ -170,9 +172,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     
                     if stored_fingerprint and stored_fingerprint != current_fingerprint:
                         # Fingerprint mismatch - possible session hijacking
-                        # Delete the session, invalidate DEK cache, and require re-authentication
-                        session_repo.delete(session_id)
+                        # Invalidate DEK cache first, then delete session, and require re-authentication
                         dek_cache.invalidate(user_id)
+                        session_repo.delete(session_id)
                         log_session_hijack_detected(
                             session_id=session_id,
                             user_id=user_id,

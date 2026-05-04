@@ -281,6 +281,13 @@ class CreateUserRequest(BaseModel):
     password: str
     is_admin: bool = False
 
+    @field_validator('password')
+    @classmethod
+    def validate_password_length(cls, v: str) -> str:
+        if len(v) < 12:
+            raise ValueError('Password must be at least 12 characters')
+        return v
+
 
 @router.post("/api/admin/users")
 def create_user_endpoint(request: Request, data: CreateUserRequest):
