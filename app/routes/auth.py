@@ -25,9 +25,7 @@ def _generate_fingerprint(request: Request) -> str:
     """Generate browser fingerprint from request headers."""
     user_agent = request.headers.get("user-agent", "")
     accept_lang = request.headers.get("accept-language", "")
-    sec_ch_ua = request.headers.get("sec-ch-ua", "")
-    sec_ch_ua_platform = request.headers.get("sec-ch-ua-platform", "")
-    fingerprint_data = f"{user_agent}:{accept_lang}:{sec_ch_ua}:{sec_ch_ua_platform}"
+    fingerprint_data = f"{user_agent}:{accept_lang}"
     return hashlib.sha256(fingerprint_data.encode()).hexdigest()
 
 router = APIRouter()
