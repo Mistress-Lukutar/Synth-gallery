@@ -70,7 +70,7 @@ def get_tag_categories():
 @router.get("/api/tags/search")
 def search_tags(
     q: str = Query(..., min_length=1),
-    limit: int = Query(10, ge=1, le=50)
+    limit: int = Query(50, ge=1, le=100)
 ):
     """Search tags with usage count."""
     db = create_connection()

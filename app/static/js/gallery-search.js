@@ -160,7 +160,7 @@
             if (currentWord.length < 2) return;
 
             // Fetch matching tags from new API
-            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(currentWord)}&limit=8`);
+            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(currentWord)}&limit=50`);
             if (!resp.ok) return;
 
             const data = await resp.json();

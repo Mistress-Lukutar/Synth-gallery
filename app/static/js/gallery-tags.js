@@ -313,7 +313,7 @@
 
         try {
             const resp = await fetch(
-                `${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=10`
+                `${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=50`
             );
             if (resp.ok) {
                 const data = await resp.json();
