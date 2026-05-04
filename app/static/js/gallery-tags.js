@@ -55,6 +55,7 @@
     let editingItemId = null;
     let currentTags = [];
     let searchResults = [];
+    let selectedSearchIndex = -1;
     let recentTags = [];
     let relatedSuggestions = [];
 
@@ -93,12 +94,38 @@
             });
 
             tagSearch.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && searchResults.length > 0) {
-                    addTag(searchResults[0].id);
+                if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (searchResults.length > 0) {
+                        selectedSearchIndex = Math.min(selectedSearchIndex + 1, searchResults.length - 1);
+                        renderSearchResults();
+                    }
+                    return;
+                }
+                if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (searchResults.length > 0) {
+                        selectedSearchIndex = Math.max(selectedSearchIndex - 1, 0);
+                        renderSearchResults();
+                    }
+                    return;
+                }
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (searchResults.length > 0) {
+                        const idx = selectedSearchIndex >= 0 ? selectedSearchIndex : 0;
+                        addTag(searchResults[idx].id);
+                        tagSearch.value = '';
+                        searchResults = [];
+                        selectedSearchIndex = -1;
+                        renderSearchResults();
+                    }
+                    return;
                 }
                 if (e.key === 'Escape') {
                     tagSearch.value = '';
                     searchResults = [];
+                    selectedSearchIndex = -1;
                     renderSearchResults();
                 }
             });
@@ -350,6 +377,7 @@
             if (resp.ok) {
                 const data = await resp.json();
                 searchResults = data.tags || [];
+                selectedSearchIndex = -1;
                 renderSearchResults();
             }
         } catch (e) {
@@ -464,9 +492,10 @@
             return;
         }
 
-        const html = searchResults.map(tag => {
+        const html = searchResults.map((tag, idx) => {
+            const selectedClass = idx === selectedSearchIndex ? 'selected' : '';
             return `
-                <div class="search-result" data-id="${tag.id}" onclick="window.addTag(${tag.id})">
+                <div class="search-result ${selectedClass}" data-id="${tag.id}" data-index="${idx}" onclick="window.addTag(${tag.id})">
                     <div class="search-result-main">
                         <span class="search-result-name"
                               style="--tag-color: ${tag.category_color || '#6b7280'}">

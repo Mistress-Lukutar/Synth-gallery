@@ -4460,6 +4460,12 @@ main {
     background: var(--hover-bg, #252525);
 }
 
+.search-result.selected {
+    background: var(--hover-bg, #252525);
+    outline: 2px solid var(--accent, #3b82f6);
+    outline-offset: -2px;
+}
+
 .search-result-main {
     display: flex;
     justify-content: space-between;
