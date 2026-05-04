@@ -88,7 +88,11 @@ def require_api_key(request: Request) -> dict:
     # Temporary rate limiting (to be replaced by proper middleware in future)
     sha_hash = hashlib.sha256(api_key.encode()).hexdigest()
     if not _check_rate_limit(sha_hash, max_requests=60, window_seconds=60):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": "60"}
+        )
 
     db = create_connection()
     try:

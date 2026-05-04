@@ -1,21 +1,28 @@
 """Backup service for database and encrypted content."""
 import asyncio
+import base64
 import hashlib
 import json
+import os
 import shutil
+import sqlite3
 import threading
 import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from ..storage import get_storage
 from ...config import (
-    BASE_DIR, BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE
+    BASE_DIR, BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE, BACKUP_ENCRYPTION_KEY
 )
 
 DATABASE_PATH = BASE_DIR / "gallery.db"
 BACKUPS_DIR = BASE_DIR / "backups"  # Legacy DB-only backups
+UPLOADS_DIR = BASE_DIR / "uploads"   # Kept for test compatibility
+THUMBNAILS_DIR = BASE_DIR / "thumbnails"  # Kept for test compatibility
 MAX_BACKUPS = 5
 
 
@@ -26,6 +33,66 @@ def _format_size(size_bytes: int) -> str:
             return f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+def _get_backup_key() -> bytes | None:
+    """Derive 256-bit AES key from SYNTH_BACKUP_KEY env var.
+
+    Returns None if no backup encryption key is configured.
+    """
+    if not BACKUP_ENCRYPTION_KEY:
+        return None
+    return hashlib.sha256(BACKUP_ENCRYPTION_KEY.encode("utf-8")).digest()
+
+
+def _encrypt_backup_data(plaintext: bytes, key: bytes) -> bytes:
+    """Encrypt backup data with AES-256-GCM.
+
+    Returns: nonce (12 bytes) + ciphertext + tag
+    """
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+    return nonce + ciphertext
+
+
+def _decrypt_backup_data(encrypted_data: bytes, key: bytes) -> bytes:
+    """Decrypt backup data with AES-256-GCM.
+
+    Args:
+        encrypted_data: nonce (12 bytes) + ciphertext + tag
+        key: 32-byte AES key
+
+    Returns:
+        Decrypted plaintext bytes
+    """
+    nonce = encrypted_data[:12]
+    ciphertext = encrypted_data[12:]
+    aesgcm = AESGCM(key)
+    return aesgcm.decrypt(nonce, ciphertext, None)
+
+
+def _prepare_db_copy(src_path: Path, dest_path: Path) -> None:
+    """Create a copy of the database with sensitive tables cleared.
+
+    Removes sessions and ai_api_keys to avoid leaking session tokens
+    and API key hashes in backups.
+    """
+    shutil.copy2(src_path, dest_path)
+    conn = sqlite3.connect(str(dest_path))
+    try:
+        cursor = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'ai_api_keys')"
+        )
+        existing_tables = {row[0] for row in cursor.fetchall()}
+        if "sessions" in existing_tables:
+            conn.execute("DELETE FROM sessions")
+        if "ai_api_keys" in existing_tables:
+            conn.execute("DELETE FROM ai_api_keys")
+        conn.execute("VACUUM")
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # =============================================================================
@@ -223,30 +290,52 @@ class FullBackupService:
         # Get storage for media files
         storage = get_storage()
 
+        # Prepare sanitized database copy
+        temp_db_path = BACKUP_PATH / f".backup-db-{timestamp}.tmp"
         try:
+            _prepare_db_copy(db_path, temp_db_path)
+
+            # Determine backup encryption settings
+            backup_key = _get_backup_key()
+            db_arc_name = "gallery.db"
+            encrypted = False
+
+            if backup_key:
+                # Encrypt the sanitized database
+                with open(temp_db_path, "rb") as f:
+                    db_plaintext = f.read()
+                db_ciphertext = _encrypt_backup_data(db_plaintext, backup_key)
+                db_arc_name = "gallery.db.enc"
+                encrypted = True
+
             # Collect all files to backup
             files_to_backup = []
             checksums = {}
 
-            # Database (always from local filesystem)
-            files_to_backup.append(("gallery.db", db_path, None))
+            # Database (sanitized, possibly encrypted)
+            files_to_backup.append((db_arc_name, temp_db_path, None, encrypted))
 
             # Uploads from storage (works for both local and S3)
             uploads = storage.list_files("uploads")
             for file_id in uploads:
-                files_to_backup.append((f"uploads/{file_id}", None, file_id))
+                files_to_backup.append((f"uploads/{file_id}", None, file_id, False))
 
             total_files = len(files_to_backup)
             total_size = 0
 
             # Create zip with files
             with zipfile.ZipFile(temp_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for idx, (arc_name, file_path, file_id) in enumerate(files_to_backup):
+                for idx, (arc_name, file_path, file_id, is_encrypted_db) in enumerate(files_to_backup):
                     if progress_callback:
                         progress_callback(idx, total_files, f"Adding {arc_name}")
 
-                    if arc_name == "gallery.db":
-                        # Database from local filesystem
+                    if is_encrypted_db:
+                        # Write encrypted database bytes
+                        zf.writestr(arc_name, db_ciphertext)
+                        checksum = f"sha256:{hashlib.sha256(db_ciphertext).hexdigest()}"
+                        file_size = len(db_ciphertext)
+                    elif arc_name == db_arc_name and not encrypted:
+                        # Unencrypted sanitized database copy
                         zf.write(file_path, arc_name)
                         checksum = FullBackupService.get_file_checksum(file_path)
                         file_size = file_path.stat().st_size
@@ -260,11 +349,10 @@ class FullBackupService:
                     checksums[arc_name] = checksum
                     total_size += file_size
 
-                # Get user list from database
+                # Get user list from sanitized database copy
                 users = []
                 try:
-                    import sqlite3
-                    conn = sqlite3.connect(str(db_path))
+                    conn = sqlite3.connect(str(temp_db_path))
                     cursor = conn.execute("SELECT username FROM users")
                     users = [row[0] for row in cursor.fetchall()]
                     conn.close()
@@ -277,6 +365,8 @@ class FullBackupService:
                     "created_at": datetime.now().isoformat(),
                     "synth_gallery_version": FullBackupService._get_app_version(),
                     "checksums": checksums,
+                    "encrypted": encrypted,
+                    "encryption_method": "aes-256-gcm-v1" if encrypted else None,
                     "stats": {
                         "total_files": total_files,
                         "total_size_bytes": total_size,
@@ -296,19 +386,29 @@ class FullBackupService:
             # Rotate old backups
             FullBackupService.rotate_full_backups()
 
-            return {
+            result = {
                 "success": True,
                 "filename": backup_filename,
                 "path": str(backup_path),
                 "size": backup_path.stat().st_size,
                 "size_human": _format_size(backup_path.stat().st_size),
-                "stats": manifest["stats"]
+                "stats": manifest["stats"],
+                "encrypted": encrypted,
             }
+            if not encrypted:
+                result["warning"] = (
+                    "Backup created without encryption. "
+                    "Set SYNTH_BACKUP_KEY environment variable for encrypted backups."
+                )
+            return result
 
         except Exception as e:
             if temp_path.exists():
                 temp_path.unlink()
             return {"success": False, "error": str(e)}
+        finally:
+            if temp_db_path.exists():
+                temp_db_path.unlink()
 
     @staticmethod
     def verify_full_backup(backup_path: Path) -> dict:
@@ -375,14 +475,39 @@ class FullBackupService:
                 files = [f for f in zf.namelist() if f != "manifest.json"]
                 total = len(files)
 
+                # Determine encryption settings
+                encrypted = manifest.get("encrypted", False)
+                backup_key = _get_backup_key()
+
                 for idx, arc_name in enumerate(files):
                     if progress_callback:
                         progress_callback(idx, total, f"Restoring {arc_name}")
 
                     content = zf.read(arc_name)
 
-                    if arc_name == "gallery.db":
-                        # Database to local filesystem
+                    if arc_name == "gallery.db.enc":
+                        if not backup_key:
+                            return {
+                                "success": False,
+                                "error": (
+                                    "Backup is encrypted but SYNTH_BACKUP_KEY is not set. "
+                                    "Set the environment variable to the key used during backup creation."
+                                )
+                            }
+                        try:
+                            content = _decrypt_backup_data(content, backup_key)
+                        except Exception:
+                            return {
+                                "success": False,
+                                "error": "Failed to decrypt backup. Invalid SYNTH_BACKUP_KEY."
+                            }
+                        # Decrypted database to local filesystem
+                        target = BASE_DIR / "gallery.db"
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with open(target, "wb") as f:
+                            f.write(content)
+                    elif arc_name == "gallery.db":
+                        # Legacy unencrypted database
                         target = BASE_DIR / arc_name
                         target.parent.mkdir(parents=True, exist_ok=True)
                         with open(target, "wb") as f:

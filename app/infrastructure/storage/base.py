@@ -61,7 +61,6 @@ class StorageInterface(ABC):
     Implementations:
     - LocalStorage: Filesystem storage
     - S3Storage: AWS S3 / MinIO / DigitalOcean Spaces
-    - EncryptedStorage: Wrapper that encrypts/decrypts on top of another storage
     """
     
     @abstractmethod

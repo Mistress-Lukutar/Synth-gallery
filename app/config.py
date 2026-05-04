@@ -50,6 +50,7 @@ BACKUP_PATH = Path(os.environ.get("BACKUP_PATH", str(BASE_DIR / "backups")))
 BACKUP_PATH.mkdir(exist_ok=True)
 BACKUP_ROTATION_COUNT = int(os.environ.get("BACKUP_ROTATION_COUNT", "5"))
 BACKUP_SCHEDULE = os.environ.get("BACKUP_SCHEDULE", "daily")  # daily, weekly, or disabled
+BACKUP_ENCRYPTION_KEY = os.environ.get("SYNTH_BACKUP_KEY", "")
 
 # External host configuration (for generating shareable links)
 EXTERNAL_HOST = os.environ.get("SYNTH_EXTERNAL_HOST", "").strip("/")

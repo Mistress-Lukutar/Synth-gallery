@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..database import create_connection
-from ..dependencies import require_user, require_api_key, require_admin
+from ..dependencies import require_user, require_api_key, require_admin, _check_rate_limit
 from ..infrastructure.repositories import (
     AIJobRepository,
     TagsRepository,
@@ -323,6 +323,16 @@ async def get_item_file_api(item_id: str, request: Request):
     Server-side encrypted items are not accessible via API key.
     """
     api_key_info = require_api_key(request)
+
+    # Apply stricter rate limit for file downloads (30/min per API key)
+    import hashlib
+    rate_key = hashlib.sha256(str(api_key_info["id"]).encode()).hexdigest() + ":file"
+    if not _check_rate_limit(rate_key, max_requests=30, window_seconds=60):
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded for file downloads",
+            headers={"Retry-After": "60"}
+        )
 
     db = create_connection()
     try:
