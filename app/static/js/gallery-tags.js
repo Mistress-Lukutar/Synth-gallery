@@ -47,7 +47,7 @@
     // DOM Elements
     let itemDetailsPanel = null;
     let tagSearch = null;
-    let tagTreeContainer = null;
+    let tagResultsContainer = null;
     let currentTagsContainer = null;
     let lightbox = null;
 
@@ -69,7 +69,7 @@
 
         lightbox = document.getElementById('lightbox');
         tagSearch = document.getElementById('tag-search');
-        tagTreeContainer = document.getElementById('tag-tree-container');
+        tagResultsContainer = document.getElementById('tag-tree-container');
         currentTagsContainer = document.getElementById('current-tags-container');
 
         setupEventListeners();
@@ -446,7 +446,7 @@
             `;
         }).join('');
 
-        tagTreeContainer.innerHTML = `
+        tagResultsContainer.innerHTML = `
             <div class="search-results-header">
                 ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}
             </div>
