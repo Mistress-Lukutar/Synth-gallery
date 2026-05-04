@@ -4,6 +4,7 @@ Minimal working example - показывает как тестировать с 
 """
 import pytest
 from fastapi.testclient import TestClient
+from app.config import CSRF_COOKIE_NAME
 
 
 def test_upload_with_csrf(authenticated_client: TestClient, test_folder: str):
@@ -17,7 +18,7 @@ def test_upload_with_csrf(authenticated_client: TestClient, test_folder: str):
     img.save(buf, format='JPEG')
     
     # Получаем CSRF токен
-    csrf_token = authenticated_client.cookies.get("synth_csrf", "")
+    csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
     
     # Загружаем с заголовком CSRF
     response = authenticated_client.post(

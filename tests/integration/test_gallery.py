@@ -8,6 +8,7 @@ Verifies:
 - Sort order
 """
 from fastapi.testclient import TestClient
+from app.config import CSRF_COOKIE_NAME
 
 
 class TestGalleryView:
@@ -78,7 +79,7 @@ class TestFileAccessControl:
         
         # Get CSRF token first
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         client.post(
             "/login",
@@ -91,7 +92,7 @@ class TestFileAccessControl:
         )
         
         # Get fresh CSRF token after login
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
             "/upload",
@@ -108,7 +109,7 @@ class TestFileAccessControl:
         # First user accesses file
         client.cookies.clear()
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         client.post(
             "/login",
@@ -141,7 +142,7 @@ class TestFileAccessControl:
         
         # Get CSRF token
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         client.post(
             "/login",
@@ -154,7 +155,7 @@ class TestFileAccessControl:
         )
         
         # Get fresh CSRF token
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
             "/upload",
@@ -235,7 +236,7 @@ class TestThumbnailAccess:
         
         # Get CSRF token
         client.get("/login")
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         client.post(
             "/login",
@@ -248,7 +249,7 @@ class TestThumbnailAccess:
         )
         
         # Get fresh CSRF token
-        csrf_token = client.cookies.get("synth_csrf", "")
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
             "/upload",

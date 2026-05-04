@@ -495,7 +495,11 @@ async def upload_album(
     Creates items and an album containing them.
     """
     user = require_user(request)
-    
+
+    # Check minimum files for album
+    if len(files) < 2:
+        raise HTTPException(400, "Album requires at least 2 files")
+
     # Check permissions
     from .deps import get_permission_service
     db = create_connection()
@@ -505,7 +509,7 @@ async def upload_album(
             raise HTTPException(403, "Cannot upload to this folder")
     finally:
         db.close()
-    
+
     # Upload all files
     item_ids = []
     for file in files:

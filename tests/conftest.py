@@ -21,6 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ["SYNTH_BASE_URL"] = ""
 os.environ["BACKUP_PATH"] = ""
 os.environ["WEBAUTHN_RP_NAME"] = "Test Synth Gallery"
+os.environ["COOKIE_SECURE"] = "false"
+
+from app.config import SESSION_COOKIE, CSRF_COOKIE_NAME
 
 # Import repositories
 from app.infrastructure.repositories import (
@@ -77,23 +80,27 @@ def patched_config(isolated_environment: Dict):
         "THUMBNAILS_DIR": config.THUMBNAILS_DIR,
         "BACKUP_PATH": config.BACKUP_PATH,
         "DATABASE_PATH": db_module.DATABASE_PATH,
+        "COOKIE_SECURE": config.COOKIE_SECURE,
     }
-    
+
     # Apply patches - NOTE: We don't patch BASE_DIR to keep static files working
     config.UPLOADS_DIR = isolated_environment["uploads_dir"]
     config.THUMBNAILS_DIR = isolated_environment["thumbnails_dir"]
     config.BACKUP_PATH = isolated_environment["backups_dir"]
     db_module.DATABASE_PATH = isolated_environment["db_path"]
     db_module.BASE_DIR = isolated_environment["base_dir"]
-    
+    # Disable Secure flag for tests (TestClient uses HTTP)
+    config.COOKIE_SECURE = False
+
     yield isolated_environment
-    
+
     # Restore original values
     config.UPLOADS_DIR = originals["UPLOADS_DIR"]
     config.THUMBNAILS_DIR = originals["THUMBNAILS_DIR"]
     config.BACKUP_PATH = originals["BACKUP_PATH"]
     db_module.DATABASE_PATH = originals["DATABASE_PATH"]
     db_module.BASE_DIR = config.BASE_DIR  # Restore from config
+    config.COOKIE_SECURE = originals["COOKIE_SECURE"]
 
 
 @pytest.fixture(scope="function")
@@ -214,7 +221,7 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
     """
     # First get login page to obtain CSRF token
     client.get("/login")
-    csrf_token = client.cookies.get("synth_csrf", "")
+    csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
     
     response = client.post(
         "/login",
@@ -227,7 +234,7 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
     )
     
     assert response.status_code == 302, "Login should redirect to gallery"
-    assert "synth_session" in response.cookies, "Session cookie should be set"
+    assert SESSION_COOKIE in response.cookies, "Session cookie should be set"
     
     return client
 
@@ -235,7 +242,7 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
 @pytest.fixture(scope="function")
 def csrf_token(authenticated_client: TestClient) -> str:
     """Get CSRF token for authenticated client."""
-    return authenticated_client.cookies.get("synth_csrf", "")
+    return authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
 
 
 @pytest.fixture(scope="function")

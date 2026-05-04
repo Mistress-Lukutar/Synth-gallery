@@ -19,27 +19,55 @@ class SessionRepository(Repository):
         >>> repo.delete(session_id)  # logout
     """
     
-    def create(self, user_id: int, expires_hours: int = 24 * 7, encrypted_dek: bytes | None = None, fingerprint: str | None = None) -> str:
+    def create(
+        self,
+        user_id: int,
+        expires_hours: int = 24 * 7,
+        encrypted_dek: bytes | None = None,
+        fingerprint: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
+    ) -> str:
         """Create new session for user.
-        
+
         Args:
             user_id: User ID to create session for
             expires_hours: Session lifetime in hours (default: 7 days)
             encrypted_dek: Optional encrypted DEK for session-based key storage
             fingerprint: Optional browser fingerprint for session validation
-            
+            ip_address: Client IP address
+            user_agent: Client user agent string
+
         Returns:
             Secure random session ID
         """
+        # Enforce max 10 active sessions per user
+        self._limit_sessions_for_user(user_id, max_sessions=10)
+
         session_id = secrets.token_urlsafe(32)
-        
+
         self._execute(
-            """INSERT INTO sessions (id, user_id, expires_at, encrypted_dek, fingerprint) 
-               VALUES (?, ?, datetime('now', '+' || ? || ' hours'), ?, ?)""",
-            (session_id, user_id, expires_hours, encrypted_dek, fingerprint)
+            """INSERT INTO sessions (id, user_id, expires_at, encrypted_dek, fingerprint, ip_address, user_agent, last_active_at)
+               VALUES (?, ?, datetime('now', '+' || ? || ' hours'), ?, ?, ?, ?, datetime('now'))""",
+            (session_id, user_id, expires_hours, encrypted_dek, fingerprint, ip_address, user_agent)
         )
         self._commit()
         return session_id
+
+    def _limit_sessions_for_user(self, user_id: int, max_sessions: int = 10) -> None:
+        """Delete oldest sessions if user exceeds max active sessions."""
+        cursor = self._execute(
+            """SELECT id FROM sessions
+               WHERE user_id = ? AND expires_at > datetime('now')
+               ORDER BY created_at DESC
+               LIMIT -1 OFFSET ?""",
+            (user_id, max_sessions)
+        )
+        old_sessions = [row["id"] for row in cursor.fetchall()]
+        for sid in old_sessions:
+            self._execute("DELETE FROM sessions WHERE id = ?", (sid,))
+        if old_sessions:
+            self._commit()
     
     def get_valid(self, session_id: str) -> dict | None:
         """Get session if valid (not expired).

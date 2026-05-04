@@ -9,7 +9,7 @@ from typing import Optional, Dict, Callable
 
 from fastapi import HTTPException
 
-from ...infrastructure.repositories import SafeRepository, ItemRepository
+from ...infrastructure.repositories import SafeRepository, ItemRepository, ItemMediaRepository
 from ...config import UPLOADS_DIR, THUMBNAILS_DIR
 
 
@@ -26,10 +26,12 @@ class SafeFileService:
     def __init__(
         self,
         safe_repository: SafeRepository,
-        item_repository: Optional[ItemRepository] = None
+        item_repository: Optional[ItemRepository] = None,
+        item_media_repository: Optional[ItemMediaRepository] = None
     ):
         self.safe_repo = safe_repository
         self.item_repo = item_repository
+        self.item_media_repo = item_media_repository
     
     def get_photo_key(
         self,
@@ -140,12 +142,16 @@ class SafeFileService:
         if not safe or safe["user_id"] != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
+        # Get filename from item_media
+        media = self.item_media_repo.get_by_item_id(photo_id) if self.item_media_repo else None
+        filename = media["original_name"] if media else photo_id
+
         # Return file path
-        file_path = UPLOADS_DIR / item["filename"]
-        
+        file_path = UPLOADS_DIR / filename
+
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="File not found")
-        
+
         return file_path
     
     def get_photo_thumbnail_path(
