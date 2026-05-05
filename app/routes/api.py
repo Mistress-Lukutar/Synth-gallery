@@ -315,6 +315,29 @@ def fail_job(job_id: int, data: JobFailInput, request: Request):
         db.close()
 
 
+@router.post("/api/ai/jobs/{job_id}/release")
+def release_job(job_id: int, request: Request):
+    """Release a claimed job back to the queue (processing -> pending)."""
+    api_key_info = require_api_key(request)
+    db = create_connection()
+    try:
+        # Verify job belongs to API key owner
+        job_repo = AIJobRepository(db)
+        job = job_repo.get_job_by_id(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job["user_id"] != api_key_info["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        service = _ai_tagging_service(db)
+        success = service.release_job(job_id)
+        if not success:
+            raise HTTPException(status_code=409, detail="Job not in processing state")
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
 # =============================================================================
 # File access for AI agents
 # =============================================================================

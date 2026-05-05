@@ -106,6 +106,25 @@ class AIJobRepository(Repository):
         self._commit()
         return self._conn.total_changes > 0
 
+    def release_job(self, job_id: int) -> bool:
+        """Release a claimed job back to pending (processing -> pending).
+
+        Resets started_at and processing_deadline. Does NOT increment retry_count.
+
+        Returns:
+            True if job was released, False if not in processing state
+        """
+        self._execute(
+            """UPDATE ai_tagging_jobs
+               SET status = 'pending',
+                   started_at = NULL,
+                   processing_deadline = NULL
+               WHERE id = ? AND status = 'processing'""",
+            (job_id,)
+        )
+        self._commit()
+        return self._conn.total_changes > 0
+
     def fail_job(self, job_id: int, error: str) -> bool:
         """Mark job as failed with error message and increment retry count."""
         self._execute(
