@@ -219,6 +219,50 @@ class TagService:
             "tags": self.set_item_tags(item_id, current_ids)
         }
 
+    def sanitize_all_items(self) -> Dict:
+        """Recalculate implied tags for all items that have explicit tags.
+
+        Removes implied tags that are no longer reachable, adds new ones,
+        and removes explicit tags that are now implied by other explicit tags.
+        """
+        item_ids = self.tags.get_all_item_ids_with_explicit_tags()
+        updated = 0
+        tags_added = 0
+        tags_removed = 0
+        for item_id in item_ids:
+            old_all = {t["id"] for t in self.tags.get_item_tags_all(item_id)}
+
+            explicit_ids = [t["id"] for t in self.tags.get_item_tags_explicit(item_id)]
+            explicit_set = set(explicit_ids)
+
+            if self.implications is not None:
+                # Iteratively remove explicit tags that are reachable from other explicit tags
+                changed = True
+                while changed:
+                    changed = False
+                    for tid in list(explicit_set):
+                        others = explicit_set - {tid}
+                        if others:
+                            closure = self.implications.get_transitive_closure(others)
+                            if tid in closure:
+                                explicit_set.remove(tid)
+                                changed = True
+                                break
+
+                clean_explicit = list(explicit_set)
+                clean_implied = list(self.implications.get_transitive_closure(clean_explicit))
+            else:
+                clean_explicit = list(explicit_set)
+                clean_implied = []
+
+            self.tags.set_item_tags(item_id, clean_explicit, clean_implied)
+
+            new_all = set(clean_explicit) | set(clean_implied)
+            tags_added += len(new_all - old_all)
+            tags_removed += len(old_all - new_all)
+            updated += 1
+        return {"updated": updated, "tags_added": tags_added, "tags_removed": tags_removed}
+
     # ========================================================================
     # Suggestions
     # ========================================================================

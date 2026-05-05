@@ -311,6 +311,17 @@ class TagsRepository(Repository):
         self._commit()
 
     # ========================================================================
+    # Sanitize helpers
+    # ========================================================================
+
+    def get_all_item_ids_with_explicit_tags(self) -> List[str]:
+        """Get all item IDs that have at least one explicit tag."""
+        cursor = self._execute("""
+            SELECT DISTINCT item_id FROM item_tags WHERE is_explicit = 1
+        """)
+        return [row["item_id"] for row in cursor.fetchall()]
+
+    # ========================================================================
     # Item search by tags
     # ========================================================================
 
@@ -405,3 +416,12 @@ class TagsRepository(Repository):
 
         cursor = self._execute(sql, final_params)
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_all_items_with_explicit_tags(self):
+        """Return all item IDs that have at least one explicit tag."""
+        cursor = self._execute(
+            """
+            SELECT DISTINCT item_id FROM item_tags WHERE is_explicit = 1
+            """
+        )
+        return [row["item_id"] for row in cursor.fetchall()]

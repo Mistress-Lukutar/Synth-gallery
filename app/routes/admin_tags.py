@@ -214,3 +214,21 @@ def delete_category(category_id: int, request: Request):
         return {"status": "ok", "deleted": deleted}
     finally:
         db.close()
+
+
+@router.post("/api/admin/tags/sanitize")
+def sanitize_tags(request: Request):
+    """Recalculate implied tags for all items. Admin only."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        result = service.sanitize_all_items()
+        return {
+            "status": "ok",
+            "items_processed": result["updated"],
+            "tags_added": result["tags_added"],
+            "tags_removed": result["tags_removed"],
+        }
+    finally:
+        db.close()
