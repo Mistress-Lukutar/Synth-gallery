@@ -4332,7 +4332,8 @@ main {
     letter-spacing: 0.5px;
 }
 
-.tag-group-tags {
+.tag-group-tags,
+.tags-list {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;

@@ -159,12 +159,19 @@
 
     function renderMetadata(metadata) {
         currentItemMetadata = metadata;
+        window.itemCanEdit = metadata.can_edit !== false;
 
         // Editable fields
         document.getElementById('item-title').value = metadata.title || '';
 
         // Initialize Markdown editor (but keep it hidden initially)
         initDescriptionEditor(metadata.description || '');
+
+        // Show/hide edit button based on permissions
+        const editBtn = document.getElementById('edit-mode-btn');
+        if (editBtn) {
+            editBtn.style.display = window.itemCanEdit ? '' : 'none';
+        }
 
         // Apply preview mode by default
         applyEditMode(false);
@@ -363,6 +370,7 @@
     }
 
     window.toggleEditMode = function() {
+        if (!window.itemCanEdit) return;
         applyEditMode(!isEditMode);
     };
 

@@ -127,6 +127,11 @@ def get_item_metadata(item_id: str, request: Request):
         if folder_id and not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(403, "Access denied")
         
+        # Check edit permission
+        can_edit = True
+        if folder_id:
+            can_edit = perm_service.can_edit(folder_id, user["id"])
+
         # Format response
         return {
             "id": metadata["id"],
@@ -142,7 +147,8 @@ def get_item_metadata(item_id: str, request: Request):
             "width": metadata.get("width"),
             "height": metadata.get("height"),
             "duration": metadata.get("duration"),
-            "taken_at": metadata.get("taken_at")
+            "taken_at": metadata.get("taken_at"),
+            "can_edit": can_edit,
         }
     finally:
         db.close()
