@@ -272,7 +272,7 @@ def get_ai_tags(request: Request):
     db = create_connection()
     try:
         tag_repo = TagsRepository(db)
-        tags = tag_repo.list_tags(query=None, limit=10000, offset=0)
+        tags = tag_repo.list_tags(query=None, limit=None, offset=0)
         simplified = [
             {
                 "id": t["id"],

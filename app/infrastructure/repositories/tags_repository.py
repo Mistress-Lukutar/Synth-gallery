@@ -112,9 +112,12 @@ class TagsRepository(Repository):
         """, tuple(tag_ids))
         return [dict(row) for row in cursor.fetchall()]
 
-    def list_tags(self, query: Optional[str] = None, limit: int = 50,
+    def list_tags(self, query: Optional[str] = None, limit: Optional[int] = 50,
                   offset: int = 0, category_id: Optional[int] = None) -> List[Dict]:
-        """Get paginated tag list with category info and usage count."""
+        """Get paginated tag list with category info and usage count.
+
+        Pass limit=None to return all tags without pagination.
+        """
         conditions = []
         params = []
         if query:
@@ -125,6 +128,11 @@ class TagsRepository(Repository):
             params.append(category_id)
 
         where = "WHERE " + " AND ".join(conditions) if conditions else ""
+        pagination = ""
+        if limit is not None and limit > 0:
+            pagination = "LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
         sql = f"""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color
@@ -132,9 +140,8 @@ class TagsRepository(Repository):
             LEFT JOIN tag_categories c ON t.category_id = c.id
             {where}
             ORDER BY t.usage_count DESC, t.name
-            LIMIT ? OFFSET ?
+            {pagination}
         """
-        params.extend([limit, offset])
         cursor = self._execute(sql, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
