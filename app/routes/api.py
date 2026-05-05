@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi import APIRouter, Request, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,7 @@ from ..infrastructure.repositories import (
     ItemMediaRepository,
 )
 from ..infrastructure.storage import get_storage, LocalStorage
+from ..infrastructure.services.encryption import EncryptionService, dek_cache
 from ..application.services import TagService, AITaggingService
 from ..infrastructure.services.audit_log import log_ai_job_claimed
 import logging
@@ -366,17 +367,57 @@ async def get_item_file_api(item_id: str, request: Request):
             )
             raise HTTPException(status_code=403, detail="Access denied")
 
-        # Do not serve encrypted items via API key (no DEK available)
+        # Detailed logging for access debugging
+        logger.info(
+            "AI file access check: item_id=%s, user_id=%s, safe_id=%s, api_user_id=%s",
+            item_id,
+            item.get("user_id"),
+            item.get("safe_id"),
+            api_user_id,
+        )
+
+        # Block E2E (safe) files — API cannot decrypt client-side encryption
         if item.get("safe_id"):
             logger.warning(
-                "AI file access: encrypted item blocked. item_id=%s, safe_id=%s",
+                "AI file access: E2E item blocked (safe_id set). item_id=%s, safe_id=%s",
                 item_id,
                 item.get("safe_id"),
             )
-            raise HTTPException(status_code=403, detail="Encrypted items not accessible via API")
+            raise HTTPException(status_code=403, detail="E2E encrypted items not accessible via API")
 
-        # All files are server-side encrypted; API key has no DEK to decrypt
-        raise HTTPException(status_code=403, detail="Encrypted items not accessible via API")
+        # Server-side encrypted files: decrypt with owner's DEK if available
+        owner_id = item.get("user_id")
+        user_dek = dek_cache.get(owner_id) if owner_id else None
+        if not user_dek:
+            logger.warning(
+                "AI file access: DEK not in cache for user_id=%s. item_id=%s",
+                owner_id,
+                item_id,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Encryption key not available. Ensure the user has an active session."
+            )
+
+        media = media_repo.get_by_item_id(item_id)
+        content_type = media.get("content_type") if media else "image/jpeg"
+
+        if not storage.exists(item_id, "uploads"):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if isinstance(storage, LocalStorage):
+            file_path = storage.get_path(item_id, "uploads")
+            with open(file_path, "rb") as f:
+                data = f.read()
+        else:
+            data = await storage.download(item_id, "uploads")
+
+        try:
+            decrypted_data = EncryptionService.decrypt_file(data, user_dek)
+        except Exception:
+            # Fallback for legacy plaintext files
+            decrypted_data = data
+        return Response(content=decrypted_data, media_type=content_type)
     finally:
         db.close()
 
