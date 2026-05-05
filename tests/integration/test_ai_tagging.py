@@ -274,13 +274,37 @@ class TestAITaggingJobs:
         uploaded_photo: dict,
         api_key: str
     ):
-        """Agent can download non-encrypted item files."""
+        """Agent cannot download encrypted item files."""
         resp = authenticated_client.get(
             f"/api/ai/items/{uploaded_photo['id']}/file",
             headers={"X-API-Key": api_key}
         )
+        assert resp.status_code == 403
+
+    def test_file_access_for_album_item(
+        self,
+        authenticated_client: TestClient,
+        test_album: dict,
+        api_key: str,
+        csrf_token: str
+    ):
+        """Agent cannot download encrypted files for items inside an album."""
+        photo_id = test_album["photo_ids"][0]
+
+        # Create job for album item
+        resp = authenticated_client.post(
+            "/api/ai/jobs",
+            json={"item_ids": [photo_id]},
+            headers={"X-CSRF-Token": csrf_token}
+        )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/jpeg"
+
+        # Agent should be rejected - all files are encrypted server-side
+        resp = authenticated_client.get(
+            f"/api/ai/items/{photo_id}/file",
+            headers={"X-API-Key": api_key}
+        )
+        assert resp.status_code == 403, f"Expected 403, got {resp.status_code}: {resp.text}"
 
     def test_file_access_rejects_encrypted(
         self,
@@ -296,11 +320,10 @@ class TestAITaggingJobs:
         item_id = item_repo.create(
             item_type="media",
             folder_id=test_folder,
-            user_id=test_user["id"],
-            is_encrypted=True
+            user_id=test_user["id"]
         )
 
-        # Agent should be rejected
+        # Agent should be rejected - all files are encrypted server-side
         resp = authenticated_client.get(
             f"/api/ai/items/{item_id}/file",
             headers={"X-API-Key": api_key}
