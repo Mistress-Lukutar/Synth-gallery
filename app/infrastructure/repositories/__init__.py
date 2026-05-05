@@ -24,6 +24,8 @@ from .album_repository import AlbumRepository
 from .tags_repository import TagsRepository
 from .tag_implication_repository import TagImplicationRepository
 from .tag_cooccurrence_repository import TagCooccurrenceRepository
+from .tag_mutex_repository import TagMutexRepository
+from .tag_feedback_repository import TagFeedbackRepository
 from .ai_job_repository import AIJobRepository
 from .ai_api_key_repository import AiApiKeyRepository
 
@@ -42,6 +44,8 @@ __all__ = [
     "TagsRepository",
     "TagImplicationRepository",
     "TagCooccurrenceRepository",
+    "TagMutexRepository",
+    "TagFeedbackRepository",
     "AIJobRepository",
     "AiApiKeyRepository",
 ]

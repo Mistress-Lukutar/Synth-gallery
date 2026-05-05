@@ -4578,8 +4578,7 @@ main {
     --tag-color: #6b7280;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 3px 10px 3px 8px;
+    padding: 0;
     background: transparent;
     border: 1px solid color-mix(in srgb, var(--tag-color) 40%, transparent);
     color: var(--tag-color);
@@ -4587,9 +4586,19 @@ main {
     font-size: 12px;
     cursor: pointer;
     transition: all 0.15s;
+    overflow: hidden;
 }
 
-.related-tag-btn::before {
+.related-tag-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px 3px 8px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+
+.related-tag-add::before {
     content: '';
     display: inline-block;
     width: 6px;
@@ -4599,10 +4608,26 @@ main {
     flex-shrink: 0;
 }
 
-.related-tag-btn:hover {
+.related-tag-add:hover {
     background: var(--tag-color);
     color: #fff;
-    border-color: var(--tag-color);
+}
+
+.related-tag-reject {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    opacity: 0.5;
+    border-left: 1px solid color-mix(in srgb, var(--tag-color) 20%, transparent);
+}
+
+.related-tag-reject:hover {
+    background: #ef4444;
+    color: #fff;
+    opacity: 1;
 }
 
 

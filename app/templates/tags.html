@@ -406,10 +406,12 @@
                 Tag Management
             </h1>
             <nav class="admin-nav">
+                {% if user and user.is_admin %}
                 <a href="{{ base_url }}/admin/users">Users</a>
                 <a href="{{ base_url }}/admin/api-keys">API Keys</a>
                 <a href="{{ base_url }}/admin/backups">Backups</a>
                 <a href="{{ base_url }}/admin/maintenance">Maintenance</a>
+                {% endif %}
                 <a href="{{ base_url }}/tags" class="active">Tags</a>
                 <span style="color: var(--border);">|</span>
                 <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
@@ -441,6 +443,14 @@
                             <polyline points="22,6 12,13 2,6"/>
                         </svg>
                         Sanitize
+                    </button>
+                    <button id="rebuild-mutex-btn" class="btn btn-secondary" title="Rebuild mutex statistics">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                            <path d="M12 20V10"/>
+                            <path d="M18 20V4"/>
+                            <path d="M6 20v-4"/>
+                        </svg>
+                        Rebuild Mutex
                     </button>
                     {% endif %}
                 </div>

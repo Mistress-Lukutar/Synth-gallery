@@ -333,6 +333,31 @@ def init_db():
         )
     """)
 
+    # Tag mutex pairs: negative correlation cache (data-driven + manual)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS tag_mutex_pairs (
+            tag_a_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            tag_b_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            phi REAL NOT NULL,
+            is_auto INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (tag_a_id, tag_b_id),
+            CHECK (tag_a_id < tag_b_id)
+        )
+    """)
+
+    # Tag suggestion feedback: user accept/reject/dismiss actions
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS tag_suggestion_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id TEXT NOT NULL,
+            context_tag_ids TEXT NOT NULL,
+            suggested_tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            outcome TEXT NOT NULL CHECK(outcome IN ('accepted', 'rejected', 'dismissed')),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # =============================================================================
     # Polymorphic Items Architecture
     # =============================================================================
@@ -401,6 +426,10 @@ def init_db():
     db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_explicit ON item_tags(item_id, is_explicit)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_cooccurrence_a ON tag_cooccurrence(tag_a_id, count DESC)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_cooccurrence_b ON tag_cooccurrence(tag_b_id, count DESC)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_mutex_a ON tag_mutex_pairs(tag_a_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_mutex_b ON tag_mutex_pairs(tag_b_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_suggested_tag ON tag_suggestion_feedback(suggested_tag_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_outcome ON tag_suggestion_feedback(outcome)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)")

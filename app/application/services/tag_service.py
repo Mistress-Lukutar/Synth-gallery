@@ -7,6 +7,7 @@ from ...infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
     TagCooccurrenceRepository,
+    TagMutexRepository,
 )
 
 
@@ -16,10 +17,12 @@ class TagService:
     def __init__(self,
                  tags_repo: TagsRepository,
                  implication_repo: Optional[TagImplicationRepository] = None,
-                 cooccurrence_repo: Optional[TagCooccurrenceRepository] = None):
+                 cooccurrence_repo: Optional[TagCooccurrenceRepository] = None,
+                 mutex_repo: Optional[TagMutexRepository] = None):
         self.tags = tags_repo
         self.implications = implication_repo
         self.cooccurrence = cooccurrence_repo
+        self.mutex = mutex_repo
 
     # ========================================================================
     # Categories
@@ -175,12 +178,26 @@ class TagService:
         # Remove explicit tags that are also implied (implied wins for is_explicit=0)
         implied_ids = implied_ids - set(explicit_tag_ids)
 
+        # Read current tags BEFORE replacing them
+        old_tags = self.tags.get_item_tags_all(item_id)
+        old_all_ids = {t["id"] for t in old_tags}
+        new_all_ids = set(explicit_tag_ids) | implied_ids
+
+        # Build pair deltas
+        def _all_pairs(ids):
+            ids = sorted(ids)
+            return set((ids[i], ids[j]) for i in range(len(ids)) for j in range(i + 1, len(ids)))
+
+        old_pairs = _all_pairs(old_all_ids)
+        new_pairs = _all_pairs(new_all_ids)
+        added_pairs = list(new_pairs - old_pairs)
+        removed_pairs = list(old_pairs - new_pairs)
+
         self.tags.set_item_tags(item_id, explicit_tag_ids, list(implied_ids))
 
-        # Update co-occurrence statistics
+        # Update co-occurrence statistics with correct deltas
         if self.cooccurrence is not None:
-            all_ids = list(set(explicit_tag_ids) | implied_ids)
-            self.cooccurrence.increment_many(all_ids)
+            self.cooccurrence.update_deltas(added_pairs, removed_pairs)
 
         return self.get_item_tags(item_id)
 
@@ -224,6 +241,7 @@ class TagService:
 
         Removes implied tags that are no longer reachable, adds new ones,
         and removes explicit tags that are now implied by other explicit tags.
+        After processing all items, rebuilds aggregate stats.
         """
         item_ids = self.tags.get_all_item_ids_with_explicit_tags()
         updated = 0
@@ -261,6 +279,13 @@ class TagService:
             tags_added += len(new_all - old_all)
             tags_removed += len(old_all - new_all)
             updated += 1
+
+        # Rebuild aggregate stats from scratch after bulk changes
+        if self.cooccurrence is not None:
+            self.cooccurrence.rebuild_all_from_item_tags()
+        if self.mutex is not None:
+            self.mutex.rebuild_all()
+
         return {"updated": updated, "tags_added": tags_added, "tags_removed": tags_removed}
 
     # ========================================================================

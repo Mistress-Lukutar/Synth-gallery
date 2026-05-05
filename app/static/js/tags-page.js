@@ -815,6 +815,38 @@ if (sanitizeTagsBtn) {
     });
 }
 
+const rebuildMutexBtn = document.getElementById('rebuild-mutex-btn');
+if (rebuildMutexBtn) {
+    rebuildMutexBtn.addEventListener('click', async () => {
+        if (!confirm('This will rebuild mutex pair statistics from current tag usage. Continue?')) return;
+        rebuildMutexBtn.disabled = true;
+        rebuildMutexBtn.textContent = 'Rebuilding...';
+        try {
+            const response = await csrfFetch('/api/admin/tags/rebuild-mutex', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert('Mutex statistics rebuilt successfully.');
+            } else {
+                alert(data.detail || 'Rebuild failed.');
+            }
+        } catch (e) {
+            alert('Network error during rebuild.');
+        } finally {
+            rebuildMutexBtn.disabled = false;
+            rebuildMutexBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <path d="M12 20V10"/>
+                    <path d="M18 20V4"/>
+                    <path d="M6 20v-4"/>
+                </svg>
+                Rebuild Mutex
+            `;
+        }
+    });
+}
+
 const newTagModal = document.getElementById('new-tag-modal');
 if (newTagModal) newTagModal.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
