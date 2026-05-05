@@ -784,6 +784,37 @@ if (newTagBtn) newTagBtn.addEventListener('click', openModal);
 const manageCatsBtn = document.getElementById('manage-cats-btn');
 if (manageCatsBtn) manageCatsBtn.addEventListener('click', openCategoriesModal);
 
+const sanitizeTagsBtn = document.getElementById('sanitize-tags-btn');
+if (sanitizeTagsBtn) {
+    sanitizeTagsBtn.addEventListener('click', async () => {
+        if (!confirm('This will recalculate all implied tags across all items based on current tag implications. Continue?')) return;
+        sanitizeTagsBtn.disabled = true;
+        sanitizeTagsBtn.textContent = 'Sanitizing...';
+        try {
+            const response = await csrfFetch('/api/admin/tags/sanitize', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (response.ok) {
+                alert(`Sanitize complete! Processed ${data.items_processed} items. Added ${data.tags_added}, removed ${data.tags_removed}.`);
+            } else {
+                alert(data.detail || 'Sanitize failed.');
+            }
+        } catch (e) {
+            alert('Network error during sanitize.');
+        } finally {
+            sanitizeTagsBtn.disabled = false;
+            sanitizeTagsBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                    <polyline points="22,6 12,13 2,6"/>
+                </svg>
+                Sanitize
+            `;
+        }
+    });
+}
+
 const newTagModal = document.getElementById('new-tag-modal');
 if (newTagModal) newTagModal.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
