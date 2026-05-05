@@ -43,15 +43,15 @@ class TestSingleFileUpload:
         # Extension-less storage: filename is just the UUID
         assert data["filename"] == data["id"]
     
-    def test_upload_with_encryption_enabled(
+    def test_upload_is_encrypted_on_disk(
         self,
         client: TestClient,
         encrypted_user: dict,
         db_connection
     ):
-        """Upload with server-side encryption (user has DEK in cache)."""
+        """Upload is encrypted server-side on disk."""
         from app.infrastructure.repositories import FolderRepository
-        from app.database import get_db
+        from app.infrastructure.storage import get_storage
         
         folder_repo = FolderRepository(db_connection)
         folder_id = folder_repo.create("Encrypted Folder", encrypted_user["id"])
@@ -62,6 +62,7 @@ class TestSingleFileUpload:
         img = Image.new('RGB', (100, 100), color='blue')
         img_bytes = io.BytesIO()
         img.save(img_bytes, format='JPEG')
+        raw_bytes = img_bytes.getvalue()
         
         # Get CSRF token
         client.get("/login")
@@ -69,19 +70,21 @@ class TestSingleFileUpload:
         
         response = client.post(
             "/upload",
-            data={"folder_id": folder_id, "is_encrypted": "true"},
+            data={"folder_id": folder_id},
             headers={"X-CSRF-Token": csrf_token},
-            files={"file": ("encrypted.jpg", img_bytes.getvalue(), "image/jpeg")}
+            files={"file": ("encrypted.jpg", raw_bytes, "image/jpeg")}
         )
         
         assert response.status_code == 200
         data = response.json()
         
-        # Verify photo is marked as encrypted in database
-        db = get_db()
-        photo = db.execute("SELECT is_encrypted FROM items WHERE id = ?", (data["id"],)).fetchone()
-        assert photo is not None
-        assert photo["is_encrypted"] == 1
+        # Verify file on disk is encrypted (not a valid JPEG)
+        storage = get_storage()
+        file_path = storage.get_path(data["id"], "uploads")
+        assert file_path.exists()
+        disk_bytes = file_path.read_bytes()
+        # Encrypted file should not start with JPEG magic bytes
+        assert not disk_bytes.startswith(b'\xff\xd8')
     
     def test_upload_rejects_invalid_file_type(
         self,

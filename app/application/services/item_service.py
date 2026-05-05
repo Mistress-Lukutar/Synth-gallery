@@ -126,81 +126,6 @@ class ItemService:
     # Media Item Creation (Photos/Videos)
     # ========================================================================
 
-    async def _process_media(
-        self,
-        item_id: str,
-        file_content: bytes,
-        ext: str,
-        media_type: str,
-        user_dek: Optional[bytes]
-    ) -> tuple:
-        """Process media: thumbnail, encryption, metadata."""
-        import tempfile
-        from pathlib import Path
-        
-        # Extract taken date
-        taken_at = datetime.now()
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-            tmp.write(file_content)
-            tmp_path = Path(tmp.name)
-        
-        try:
-            extracted = extract_taken_date(tmp_path)
-            if extracted:
-                taken_at = extracted
-        finally:
-            tmp_path.unlink(missing_ok=True)
-        
-        # Create thumbnail
-        try:
-            if media_type == 'video':
-                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(file_content)
-            else:
-                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(file_content)
-        except Exception:
-            thumb_bytes, thumb_w, thumb_h = None, 0, 0
-        
-        # Encrypt if needed
-        if user_dek:
-            file_content = EncryptionService.encrypt_file(file_content, user_dek)
-            if thumb_bytes:
-                thumb_bytes = EncryptionService.encrypt_file(thumb_bytes, user_dek)
-        
-        # Save to storage
-        await self.storage.upload(
-            file_id=item_id,
-            content=file_content,
-            folder="uploads"
-        )
-        if thumb_bytes:
-            await self.storage.upload(
-                file_id=item_id,
-                content=thumb_bytes,
-                folder="thumbnails"
-            )
-        
-        return taken_at, thumb_w, thumb_h
-    
-    async def _save_encrypted(
-        self,
-        item_id: str,
-        content: bytes,
-        thumbnail: Optional[bytes],
-        is_safe: bool = True
-    ):
-        """Save E2E encrypted content."""
-        await self.storage.upload(
-            file_id=item_id,
-            content=content,
-            folder="uploads"
-        )
-        if thumbnail:
-            await self.storage.upload(
-                file_id=item_id,
-                content=thumbnail,
-                folder="thumbnails"
-            )
-    
     def _validate_content(self, content: bytes, expected_media_type: str) -> bool:
         """Validate file content by magic bytes."""
         if len(content) < 4:
@@ -239,7 +164,8 @@ class ItemService:
         folder_id: str,
         user_id: int,
         safe_id: str = None,
-        is_encrypted: bool = False,
+        is_e2e: bool = False,
+        user_dek: bytes = None,
         client_encryption_metadata: str = None,
         thumbnail: UploadFile = None,
         thumb_width: int = 0,
@@ -251,6 +177,7 @@ class ItemService:
         - File validation
         - EXIF date extraction
         - Thumbnail generation (or use client-provided for E2E)
+        - Server-side encryption (for non-E2E uploads)
         - Storage upload
         - Database record creation
         
@@ -258,8 +185,9 @@ class ItemService:
             file: Uploaded file
             folder_id: Target folder
             user_id: Owner user ID
-            safe_id: Safe ID if in encrypted vault
-            is_encrypted: Whether file is E2E encrypted
+            safe_id: Safe ID if in encrypted vault (E2E)
+            is_e2e: Whether file is E2E encrypted (even without safe_id)
+            user_dek: User's DEK for server-side encryption
             client_encryption_metadata: Client encryption metadata
             thumbnail: Client-provided thumbnail (for E2E)
             thumb_width: Thumbnail width (client-provided)
@@ -271,11 +199,13 @@ class ItemService:
         import tempfile
         from pathlib import Path
         
+        is_e2e = is_e2e or safe_id is not None
+        
         # Validate file
         if not file.filename:
             raise HTTPException(400, "No filename")
         
-        if not is_encrypted and file.content_type not in ALLOWED_MEDIA_TYPES:
+        if not is_e2e and file.content_type not in ALLOWED_MEDIA_TYPES:
             raise HTTPException(400, f"Invalid file type: {file.content_type}")
         
         # Generate item ID
@@ -292,7 +222,7 @@ class ItemService:
         media_type = get_media_type(file.content_type)
 
         # Validate file content by magic bytes (security: prevent spoofing)
-        if not is_encrypted and not self._validate_content(content, media_type):
+        if not is_e2e and not self._validate_content(content, media_type):
             raise HTTPException(400, f"Invalid file content for type: {file.content_type}")
 
         # Extract dimensions and metadata
@@ -300,7 +230,7 @@ class ItemService:
         duration = None
         taken_at = None
 
-        if not is_encrypted:
+        if not is_e2e:
             if media_type == 'image':
                 # Get original dimensions
                 dims = get_image_dimensions(content)
@@ -324,10 +254,10 @@ class ItemService:
         # Handle thumbnail
         thumb_w, thumb_h = thumb_width, thumb_height
         thumb_bytes = None
-        if is_encrypted and thumbnail:
+        if is_e2e and thumbnail:
             # E2E: Use encrypted thumbnail from client
             thumb_bytes = await thumbnail.read()
-        elif not is_encrypted:
+        elif not is_e2e:
             # Server-side: Generate thumbnail
             if media_type == 'image':
                 try:
@@ -339,6 +269,15 @@ class ItemService:
                     thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(content)
                 except Exception:
                     pass
+        
+        # Server-side encryption for all non-E2E uploads
+        if not is_e2e:
+            if user_dek:
+                content = EncryptionService.encrypt_file(content, user_dek)
+                if thumb_bytes:
+                    thumb_bytes = EncryptionService.encrypt_file(thumb_bytes, user_dek)
+            else:
+                raise HTTPException(403, "Encryption key not available")
         
         # Upload to storage
         await self.storage.upload(item_id, content, folder="uploads")
@@ -354,13 +293,11 @@ class ItemService:
                 "size": size,
                 "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "user_id": user_id,
-                "is_encrypted": is_encrypted,
                 "taken_at": taken_at,
             },
             media_data={
                 "media_type": media_type,
                 "storage_path": f"uploads/{item_id}",
-                "is_encrypted": is_encrypted,
                 "client_encryption_metadata": client_encryption_metadata,
                 "thumb_width": thumb_w,
                 "thumb_height": thumb_h,
@@ -393,8 +330,8 @@ class ItemService:
 
         Args:
             item_id: Pre-generated item UUID
-            file_data: Dict with filename, content_type, size, uploaded_at, user_id, is_encrypted
-            media_data: Dict with media_type, storage_path, is_encrypted, client_encryption_metadata
+            file_data: Dict with filename, content_type, size, uploaded_at, user_id
+            media_data: Dict with media_type, storage_path, client_encryption_metadata
             folder_id: Target folder
             user_id: Owner
             safe_id: Safe ID if in encrypted vault
@@ -410,7 +347,6 @@ class ItemService:
             item_id=item_id,
             title=file_data.get('filename', ''),
             safe_id=safe_id,
-            is_encrypted=file_data.get('is_encrypted', False),
             uploaded_at=file_data.get('uploaded_at')
         )
         
@@ -439,7 +375,6 @@ class ItemService:
             'user_id': user_id,
             'uploaded_at': file_data.get('uploaded_at'),
             'title': file_data.get('filename', ''),
-            'is_encrypted': file_data.get('is_encrypted', False),
             'media_type': media_data.get('media_type', 'image'),
             # original_name removed - using title only
             'content_type': file_data.get('content_type', 'application/octet-stream'),
@@ -562,8 +497,7 @@ class ItemService:
         item_id: str,
         dest_folder_id: str,
         user_id: int,
-        source_owner_id: int = None,
-        is_encrypted: bool = False
+        source_owner_id: int = None
     ) -> str:
         """Copy a single item to another folder.
         
@@ -582,7 +516,7 @@ class ItemService:
             raise HTTPException(404, "Media not found")
         
         source_owner_id = source_owner_id or item["user_id"]
-        is_encrypted = is_encrypted if is_encrypted else item.get("is_encrypted", False)
+        is_e2e = item.get("safe_id") is not None
         
         new_item_id = str(uuid.uuid4())
         
@@ -594,15 +528,12 @@ class ItemService:
         def _copy_and_reencrypt_file(
             old_path: Path,
             new_path: Path,
-            is_encrypted: bool,
+            is_e2e: bool,
             source_owner_id: int,
             dest_owner_id: int
         ) -> bool:
             import shutil
             import os
-            
-            old_path_str = str(old_path)
-            new_path_str = str(new_path)
             
             if not old_path.exists():
                 return False
@@ -613,7 +544,7 @@ class ItemService:
                 return False
             
             try:
-                if not is_encrypted or source_owner_id == dest_owner_id:
+                if is_e2e or source_owner_id == dest_owner_id:
                     data = old_path.read_bytes()
                     new_path.write_bytes(data)
                     return new_path.exists()
@@ -628,7 +559,16 @@ class ItemService:
                 try:
                     plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
                 except Exception:
-                    return False
+                    # Source may be an old plaintext file (backward compat)
+                    if (len(encrypted_data) > 12 and
+                        (encrypted_data.startswith(b"\xff\xd8") or
+                         encrypted_data.startswith(b"\x89PNG") or
+                         encrypted_data[:4] in (b"GIF8", b"GIF9") or
+                         encrypted_data[8:12] == b"WEBP" or
+                         encrypted_data[4:8] in (b"ftyp", b"moov"))):
+                        plaintext = encrypted_data
+                    else:
+                        return False
                 
                 new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
                 new_path.write_bytes(new_encrypted)
@@ -637,13 +577,13 @@ class ItemService:
                 return False
         
         if not _copy_and_reencrypt_file(
-            old_upload, new_upload, is_encrypted, source_owner_id, user_id
+            old_upload, new_upload, is_e2e, source_owner_id, user_id
         ):
             raise HTTPException(500, "Failed to copy file")
         
         if old_thumb.exists():
             _copy_and_reencrypt_file(
-                old_thumb, new_thumb, is_encrypted, source_owner_id, user_id
+                old_thumb, new_thumb, is_e2e, source_owner_id, user_id
             )
         
         self.item_repo.create(
@@ -653,8 +593,7 @@ class ItemService:
             item_id=new_item_id,
             title=item.get("title", "Untitled"),
             description=item.get("description"),
-            safe_id=item.get("safe_id"),
-            is_encrypted=is_encrypted
+            safe_id=item.get("safe_id")
         )
         
         self.media_repo.create(

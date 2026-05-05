@@ -190,7 +190,6 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "safe_id": item.get("safe_id"),
                 "uploaded_at": item.get("uploaded_at"),
                 "taken_at": item.get("taken_at"),
-                "is_encrypted": item.get("is_encrypted", False),
                 # Rendered properties for gallery display
                 "has_thumbnail": rendered.get("has_thumbnail", False),
                 "thumbnail_url": rendered.get("thumbnail_url"),

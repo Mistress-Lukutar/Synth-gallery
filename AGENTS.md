@@ -7,8 +7,8 @@
 Synth Gallery is a **personal media vault** with end-to-end encryption, hardware key authentication, and multi-user support. It allows users to securely store, organize, and share photos and videos.
 
 ### Key Features
-- **Server-side Encryption**: AES-256-GCM for all uploaded files (per-user keys)
-- **Encrypted Vaults (Safes)**: Independent E2E-encrypted containers with separate keys (client-side encryption)
+- **Universal Server-side Encryption**: ALL non-safe media files are encrypted with AES-256-GCM using the owner's DEK on upload
+- **Encrypted Vaults (Safes)**: Independent E2E-encrypted containers with separate keys (client-side encryption); detected by `safe_id` only
 - **Hardware Key Login**: WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Folder Hierarchy**: Nested folders with sharing support (Viewer/Editor permissions)
 - **Albums**: Group related media with drag-and-drop reordering
@@ -117,8 +117,10 @@ Synth-Gallery/
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
 │   └── unit/                     # Unit tests
-├── uploads/                      # Uploaded files (encrypted)
-├── thumbnails/                   # Generated thumbnails (encrypted)
+├── uploads/                      # Uploaded files (server-side encrypted by default)
+├── thumbnails/                   # Generated thumbnails (server-side encrypted by default)
+├── .agents/                      # Maintenance scripts and plans
+│   └── encrypt_existing_uploads.py   # Migration: encrypt legacy plaintext files
 ├── backups/                      # Backup storage
 ├── gallery.db                    # SQLite database
 ├── pyproject.toml                # Project configuration and dependencies (PEP 621)
@@ -205,8 +207,26 @@ DEK (Data Encryption Key) ◄──┘
 - **DEK (Data Encryption Key)**: Per-user, 256-bit random, cached in memory during session
 - **KEK (Key Encryption Key)**: Derived from password via PBKDF2
 - **Files**: Encrypted with AES-256-GCM (nonce + ciphertext stored)
+- **E2E Detection**: Safe (vault) files are identified exclusively by `safe_id` on the item; the legacy `is_encrypted` column has been removed
+- **Migration Fallback**: File serving routes detect old plaintext uploads by magic bytes and serve them directly (with a log warning) until the migration script is run
 
-### 5. Storage Abstraction Layer
+### 5. Encryption Behavior
+
+**Uploads (normal / non-safe):**
+- `process_media_upload()` encrypts the file bytes with the owner's DEK before writing to storage
+- Thumbnails are also encrypted with the same DEK
+- Upload fails with 403 if the user's DEK is not available
+
+**Uploads (E2E / Safe):**
+- Files are stored as-is (already client-encrypted)
+- No server-side encryption is applied
+- Client-provided thumbnail is stored as-is
+
+**File Serving:**
+- Non-safe files are decrypted on-the-fly using the owner's DEK
+- If decryption fails and the file matches plaintext magic bytes, it is served raw for backward compatibility
+
+### 6. Storage Abstraction Layer
 
 All file operations go through the storage abstraction layer (`app/infrastructure/storage/`):
 

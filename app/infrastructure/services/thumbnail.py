@@ -25,7 +25,7 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     db = get_db()
     # Phase 5: Get from item_media + items tables
     photo = db.execute(
-        """SELECT im.filename, im.media_type, i.is_encrypted, i.user_id 
+        """SELECT im.filename, im.media_type, i.safe_id, i.user_id 
             FROM item_media im
             JOIN items i ON im.item_id = i.id
             WHERE i.id = ?""",
@@ -42,45 +42,37 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
 
     thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less storage
 
-    # Handle encrypted files
-    if photo["is_encrypted"]:
-        # Try to get DEK from cache - check requesting user first, then owner
-        dek = None
-        if user_id:
-            dek = dek_cache.get(user_id)
-        if not dek:
-            dek = dek_cache.get(photo["user_id"])
+    # E2E files: cannot regenerate thumbnail server-side
+    if photo["safe_id"]:
+        return False
 
-        if not dek:
-            # Cannot regenerate without DEK
-            return False
+    # Server-side encrypted files: decrypt, generate thumbnail, re-encrypt
+    dek = None
+    if user_id:
+        dek = dek_cache.get(user_id)
+    if not dek:
+        dek = dek_cache.get(photo["user_id"])
 
-        try:
-            # Read and decrypt original
-            with open(original_path, "rb") as f:
-                encrypted_data = f.read()
-            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+    if not dek:
+        # Cannot regenerate without DEK
+        return False
 
-            # Create thumbnail from decrypted bytes
-            if photo["media_type"] == "video":
-                thumb_bytes, _, _ = create_video_thumbnail_bytes(decrypted_data)
-            else:
-                thumb_bytes, _, _ = create_thumbnail_bytes(decrypted_data)
-
-            # Encrypt and save thumbnail
-            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-            with open(thumb_path, "wb") as f:
-                f.write(encrypted_thumb)
-            return True
-        except Exception:
-            return False
-
-    # Unencrypted file - use original path-based functions
     try:
+        # Read and decrypt original
+        with open(original_path, "rb") as f:
+            encrypted_data = f.read()
+        decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+
+        # Create thumbnail from decrypted bytes
         if photo["media_type"] == "video":
-            create_video_thumbnail(original_path, thumb_path)
+            thumb_bytes, _, _ = create_video_thumbnail_bytes(decrypted_data)
         else:
-            create_thumbnail(original_path, thumb_path)
+            thumb_bytes, _, _ = create_thumbnail_bytes(decrypted_data)
+
+        # Encrypt and save thumbnail
+        encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+        with open(thumb_path, "wb") as f:
+            f.write(encrypted_thumb)
         return True
     except Exception:
         return False
@@ -253,7 +245,7 @@ def regenerate_missing_thumbnails() -> dict:
     # Get all photos including current dimension status
     # Phase 5: Get from item_media + items tables
     photos = db.execute(
-        """SELECT i.id, im.filename, im.media_type, i.is_encrypted, i.user_id, im.thumb_width 
+        """SELECT i.id, im.filename, im.media_type, i.safe_id, i.user_id, im.thumb_width 
             FROM items i
             JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""
@@ -263,7 +255,7 @@ def regenerate_missing_thumbnails() -> dict:
     dimensions_updated = 0  # Existing thumbnails where we added dimensions
     failed = 0
     skipped = 0  # Original file missing
-    skipped_encrypted = 0  # Encrypted but no DEK available
+    skipped_encrypted = 0  # Server-side encrypted but no DEK available
     already_exists_with_dims = 0
 
     for photo in photos:
@@ -274,116 +266,83 @@ def regenerate_missing_thumbnails() -> dict:
             skipped += 1
             continue
 
+        # E2E files: skip thumbnail regeneration (client-provided)
+        if photo["safe_id"]:
+            if thumb_path.exists() and photo["thumb_width"] is not None:
+                already_exists_with_dims += 1
+            continue
+
         # Check if thumbnail exists
         if thumb_path.exists():
             # If thumbnail exists but no dimensions in DB, try to measure and update
             if photo["thumb_width"] is None:
-                # For encrypted files, we can't measure directly (file is encrypted)
-                if photo["is_encrypted"]:
-                    # Try to regenerate with DEK if available
-                    dek = dek_cache.get(photo["user_id"])
-                    if dek:
-                        try:
-                            # Read and decrypt original
-                            with open(original_path, "rb") as f:
-                                encrypted_data = f.read()
-                            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                # Try to regenerate with DEK if available
+                dek = dek_cache.get(photo["user_id"])
+                if dek:
+                    try:
+                        # Read and decrypt original
+                        with open(original_path, "rb") as f:
+                            encrypted_data = f.read()
+                        decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
 
-                            # Create thumbnail with dimensions
-                            if photo["media_type"] == "video":
-                                thumb_bytes, width, height = create_video_thumbnail_bytes(decrypted_data)
-                            else:
-                                thumb_bytes, width, height = create_thumbnail_bytes(decrypted_data)
+                        # Create thumbnail with dimensions
+                        if photo["media_type"] == "video":
+                            thumb_bytes, width, height = create_video_thumbnail_bytes(decrypted_data)
+                        else:
+                            thumb_bytes, width, height = create_thumbnail_bytes(decrypted_data)
 
-                            # Encrypt and save thumbnail
-                            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-                            with open(thumb_path, "wb") as f:
-                                f.write(encrypted_thumb)
-                            
-                            # Update dimensions in DB
-                            aspect_ratio = width / height if height > 0 else None
-                            # Phase 5: Update item_media table
-                            db.execute(
-                                "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
-                                (width, height, photo["id"])
-                            )
-                            db.commit()
-                            regenerated += 1
-                        except Exception:
-                            skipped_encrypted += 1
-                    else:
+                        # Encrypt and save thumbnail
+                        encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+                        with open(thumb_path, "wb") as f:
+                            f.write(encrypted_thumb)
+                        
+                        # Update dimensions in DB
+                        db.execute(
+                            "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
+                            (width, height, photo["id"])
+                        )
+                        db.commit()
+                        regenerated += 1
+                    except Exception:
                         skipped_encrypted += 1
                 else:
-                    # Unencrypted file - measure existing thumbnail
-                    if _update_item_thumbnail_dimensions(photo["id"], thumb_path, db):
-                        dimensions_updated += 1
-                    else:
-                        # Failed to measure, try to regenerate
-                        try:
-                            if photo["media_type"] == "video":
-                                create_video_thumbnail(original_path, thumb_path)
-                            else:
-                                create_thumbnail(original_path, thumb_path)
-                            
-                            # Update dimensions after regeneration
-                            if _update_item_thumbnail_dimensions(photo["id"], thumb_path, db):
-                                regenerated += 1
-                            else:
-                                failed += 1
-                        except Exception:
-                            failed += 1
+                    skipped_encrypted += 1
             else:
                 already_exists_with_dims += 1
             continue
 
         # Thumbnail doesn't exist - create it
-        if photo["is_encrypted"]:
-            dek = dek_cache.get(photo["user_id"])
-            if not dek:
-                skipped_encrypted += 1
-                continue
+        dek = dek_cache.get(photo["user_id"])
+        if not dek:
+            skipped_encrypted += 1
+            continue
 
-            try:
-                # Read and decrypt original
-                with open(original_path, "rb") as f:
-                    encrypted_data = f.read()
-                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+        try:
+            # Read and decrypt original
+            with open(original_path, "rb") as f:
+                encrypted_data = f.read()
+            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
 
-                # Create thumbnail with dimensions
-                if photo["media_type"] == "video":
-                    thumb_bytes, width, height = create_video_thumbnail_bytes(decrypted_data)
-                else:
-                    thumb_bytes, width, height = create_thumbnail_bytes(decrypted_data)
+            # Create thumbnail with dimensions
+            if photo["media_type"] == "video":
+                thumb_bytes, width, height = create_video_thumbnail_bytes(decrypted_data)
+            else:
+                thumb_bytes, width, height = create_thumbnail_bytes(decrypted_data)
 
-                # Encrypt and save thumbnail
-                encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
-                with open(thumb_path, "wb") as f:
-                    f.write(encrypted_thumb)
-                
-                # Update dimensions in DB
-                db.execute(
-                    "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
-                    (width, height, photo["id"])
-                )
-                db.commit()
-                regenerated += 1
-            except Exception:
-                failed += 1
-        else:
-            # Unencrypted file
-            try:
-                if photo["media_type"] == "video":
-                    create_video_thumbnail(original_path, thumb_path)
-                else:
-                    create_thumbnail(original_path, thumb_path)
-                
-                # Update dimensions after creation
-                if _update_item_thumbnail_dimensions(photo["id"], thumb_path, db):
-                    regenerated += 1
-                else:
-                    failed += 1
-            except Exception:
-                failed += 1
+            # Encrypt and save thumbnail
+            encrypted_thumb = EncryptionService.encrypt_file(thumb_bytes, dek)
+            with open(thumb_path, "wb") as f:
+                f.write(encrypted_thumb)
+            
+            # Update dimensions in DB
+            db.execute(
+                "UPDATE item_media SET thumb_width = ?, thumb_height = ? WHERE item_id = ?",
+                (width, height, photo["id"])
+            )
+            db.commit()
+            regenerated += 1
+        except Exception:
+            failed += 1
 
     return {
         "regenerated": regenerated,
@@ -412,7 +371,7 @@ def get_thumbnail_stats() -> dict:
 
     # Get all photos with their dimension status
     photos = db.execute(
-        """SELECT i.id, im.filename, im.thumb_width, i.is_encrypted 
+        """SELECT i.id, im.filename, im.thumb_width, i.safe_id, i.user_id
             FROM items i
             JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""
@@ -427,7 +386,7 @@ def get_thumbnail_stats() -> dict:
     missing_dimensions = 0  # File exists but no dimensions (needs repair)
     missing_originals = 0
     healthy = 0
-    encrypted_no_dek = 0  # Encrypted files where we can't check dimensions
+    encrypted_no_dek = 0  # Server-side encrypted files where we can't check dimensions
 
     for photo in photos:
         thumb_path = THUMBNAILS_DIR / photo['id']  # Extension-less
@@ -441,8 +400,10 @@ def get_thumbnail_stats() -> dict:
             # File exists but no dimensions in DB
             missing_dimensions += 1
             missing_thumbnails += 1  # Count as missing for regeneration purposes
-            if photo["is_encrypted"]:
-                encrypted_no_dek += 1
+            if not photo["safe_id"]:
+                # Server-side encrypted thumbnail: need DEK to measure
+                if not dek_cache.get(photo["user_id"]):
+                    encrypted_no_dek += 1
         else:
             healthy += 1
 

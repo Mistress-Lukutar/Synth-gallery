@@ -21,8 +21,11 @@ from ..infrastructure.repositories import (
 from ..infrastructure.storage import get_storage, LocalStorage
 from ..application.services import TagService, AITaggingService
 from ..infrastructure.services.audit_log import log_ai_job_claimed
+import logging
 
 router = APIRouter(tags=["ai"])
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -341,30 +344,39 @@ async def get_item_file_api(item_id: str, request: Request):
 
         item = item_repo.get_by_id(item_id)
         if not item or item.get("type") != "media":
+            logger.warning(
+                "AI file access: item not found. item_id=%s, found=%s, type=%s",
+                item_id,
+                item is not None,
+                item.get("type") if item else None,
+            )
             raise HTTPException(status_code=404, detail="Item not found")
 
         # Enforce ownership: item must belong to the API key owner
-        if item.get("user_id") != api_key_info["user_id"]:
+        item_user_id = item.get("user_id")
+        api_user_id = api_key_info["user_id"]
+        if item_user_id != api_user_id:
+            logger.warning(
+                "AI file access: ownership mismatch. item_id=%s, item_user_id=%s (type=%s), api_user_id=%s (type=%s)",
+                item_id,
+                item_user_id,
+                type(item_user_id).__name__,
+                api_user_id,
+                type(api_user_id).__name__,
+            )
             raise HTTPException(status_code=403, detail="Access denied")
 
         # Do not serve encrypted items via API key (no DEK available)
-        if item.get("is_encrypted") or item.get("safe_id"):
+        if item.get("safe_id"):
+            logger.warning(
+                "AI file access: encrypted item blocked. item_id=%s, safe_id=%s",
+                item_id,
+                item.get("safe_id"),
+            )
             raise HTTPException(status_code=403, detail="Encrypted items not accessible via API")
 
-        media = media_repo.get_by_item_id(item_id)
-        content_type = media.get("content_type") if media else "image/jpeg"
-
-        if not storage.exists(item_id, "uploads"):
-            raise HTTPException(status_code=404, detail="File not found")
-
-        if isinstance(storage, LocalStorage):
-            from fastapi.responses import FileResponse
-            file_path = storage.get_path(item_id, "uploads")
-            return FileResponse(file_path, media_type=content_type)
-        else:
-            from fastapi.responses import RedirectResponse
-            url = storage.get_url(item_id, "uploads", expires=3600)
-            return RedirectResponse(url=url)
+        # All files are server-side encrypted; API key has no DEK to decrypt
+        raise HTTPException(status_code=403, detail="Encrypted items not accessible via API")
     finally:
         db.close()
 

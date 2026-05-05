@@ -373,7 +373,6 @@ def init_db():
             uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
             title TEXT,
             metadata TEXT,
-            is_encrypted INTEGER DEFAULT 0,
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL

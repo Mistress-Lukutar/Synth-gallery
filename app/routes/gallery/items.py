@@ -313,9 +313,9 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
             raise HTTPException(status_code=404, detail="Item not found")
         
         source_owner_id = item["user_id"]
-        is_encrypted = item["is_encrypted"]
+        is_e2e = item.get("safe_id") is not None
         
-        if is_encrypted and source_owner_id != user["id"]:
+        if not is_e2e and source_owner_id != user["id"]:
             if not dek_cache.get(source_owner_id) or not user_dek:
                 raise HTTPException(status_code=403, detail="Cannot re-encrypt without DEK")
         
@@ -323,8 +323,7 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
             item_id=item_id,
             dest_folder_id=data.folder_id,
             user_id=user["id"],
-            source_owner_id=source_owner_id,
-            is_encrypted=is_encrypted
+            source_owner_id=source_owner_id
         )
         
         db.commit()
@@ -409,7 +408,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get from items + item_media tables
             item = db.execute(
-                """SELECT i.id, i.title, i.is_encrypted, i.user_id 
+                """SELECT i.id, i.title, i.safe_id, i.user_id 
                    FROM items i
                    WHERE i.id = ?""",
                 (item_id,)
@@ -423,7 +422,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                     files_to_download.append((
                         archive_path,
                         file_path,
-                        item["is_encrypted"],
+                        item["safe_id"] is not None,
                         item["user_id"]
                     ))
 
@@ -442,7 +441,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get items from album via album_items
             album_items = db.execute(
-                """SELECT i.id, i.title, i.is_encrypted, i.user_id
+                """SELECT i.id, i.title, i.safe_id, i.user_id
                    FROM items i
                    JOIN album_items ai ON i.id = ai.item_id
                    WHERE ai.album_id = ?
@@ -462,7 +461,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                     files_to_download.append((
                         archive_path,
                         file_path,
-                        item["is_encrypted"],
+                        item["safe_id"] is not None,
                         item["user_id"]
                     ))
 
@@ -472,9 +471,12 @@ async def batch_download(data: BatchDownloadInput, request: Request):
         # Create ZIP file
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for archive_path, file_path, is_encrypted, owner_id in files_to_download:
-                if is_encrypted:
-                    # Need to decrypt before adding to ZIP
+            for archive_path, file_path, is_e2e, owner_id in files_to_download:
+                if is_e2e:
+                    # E2E files: include as-is, client decrypts
+                    zf.write(file_path, archive_path)
+                else:
+                    # Server-side encrypted: decrypt before adding to ZIP
                     dek = user_dek if owner_id == user["id"] else dek_cache.get(owner_id)
                     if dek:
                         try:
@@ -483,8 +485,6 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                             zf.writestr(archive_path, plaintext)
                         except Exception:
                             continue
-                else:
-                    zf.write(file_path, archive_path)
 
         zip_buffer.seek(0)
         

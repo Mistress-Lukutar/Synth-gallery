@@ -16,6 +16,7 @@ from ...config import UPLOADS_DIR, ALLOWED_MEDIA_TYPES
 from ...database import create_connection
 from ...dependencies import require_user
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
+from ...infrastructure.services.encryption import EncryptionService, dek_cache
 from ...infrastructure.services.media import get_media_type
 from ...infrastructure.services.metadata import extract_taken_date
 from ...logging_config import get_logger
@@ -37,7 +38,7 @@ async def _process_upload(
     folder_id: str,
     safe_id: Optional[str],
     user: dict,
-    is_encrypted: bool = False,
+    is_e2e: bool = False,
     client_encryption_metadata: Optional[str] = None,
     thumbnail: Optional[UploadFile] = None,
     thumb_width: int = 0,
@@ -50,12 +51,14 @@ async def _process_upload(
     db = create_connection()
     try:
         item_service = get_item_service(db)
+        user_dek = dek_cache.get(user["id"])
         return await item_service.process_media_upload(
             file=file,
             folder_id=folder_id,
             user_id=user["id"],
             safe_id=safe_id,
-            is_encrypted=is_encrypted,
+            is_e2e=is_e2e,
+            user_dek=user_dek,
             client_encryption_metadata=client_encryption_metadata,
             thumbnail=thumbnail,
             thumb_width=thumb_width,
@@ -72,7 +75,6 @@ async def upload_file(
     file: UploadFile = File(...),
     folder_id: str = Form(...),
     safe_id: Optional[str] = Form(None),
-    is_encrypted: bool = Form(False),
     encryption_metadata: Optional[str] = Form(None),
     encrypted_ck: Optional[str] = Form(None),
     thumbnail: Optional[UploadFile] = File(None),
@@ -92,7 +94,7 @@ async def upload_file(
     user = require_user(request)
     
     # Detect E2E encrypted upload for safes (client passes encrypted_ck)
-    is_e2e_encrypted = is_encrypted or (encrypted_ck is not None and encrypted_ck == 'safe')
+    is_e2e = safe_id is not None or (encrypted_ck is not None and encrypted_ck == 'safe')
     
     # Check permissions
     from .deps import get_permission_service
@@ -109,7 +111,7 @@ async def upload_file(
         folder_id=folder_id,
         safe_id=safe_id,
         user=user,
-        is_encrypted=is_e2e_encrypted,
+        is_e2e=is_e2e,
         client_encryption_metadata=encryption_metadata,
         thumbnail=thumbnail,
         thumb_width=thumb_width,
@@ -128,7 +130,6 @@ async def upload_file(
         "thumb_width": item.get("thumb_width", 0),
         "thumb_height": item.get("thumb_height", 0),
         "taken_at": item.get("taken_at"),
-        "is_encrypted": item.get("is_encrypted", False),
         "status": "ok"
     }
 
@@ -139,7 +140,6 @@ async def upload_batch(
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
     safe_id: Optional[str] = Form(None),
-    is_encrypted: bool = Form(False),
     encryption_metadata: Optional[str] = Form(None),
     encrypted_ck: Optional[str] = Form(None)
 ):
@@ -153,7 +153,7 @@ async def upload_batch(
     user = require_user(request)
     
     # Detect E2E encrypted upload for safes (client passes encrypted_ck)
-    is_e2e_encrypted = is_encrypted or (encrypted_ck is not None and encrypted_ck == 'safe')
+    is_e2e = safe_id is not None or (encrypted_ck is not None and encrypted_ck == 'safe')
     
     # Check permissions once
     from .deps import get_permission_service
@@ -175,7 +175,7 @@ async def upload_batch(
                 folder_id=folder_id,
                 safe_id=safe_id,
                 user=user,
-                is_encrypted=is_e2e_encrypted,
+                is_e2e=is_e2e,
                 client_encryption_metadata=encryption_metadata if idx == 0 else None
             )
             # Clean response structure (use id as filename)
@@ -212,13 +212,15 @@ async def upload_chunk(
     folder_id: str = Form(...),
     filename: str = Form(...),
     safe_id: Optional[str] = Form(None),
-    is_encrypted: bool = Form(False)
+    encrypted_ck: Optional[str] = Form(None)
 ):
     """Upload file chunk for resumable uploads.
     
     Stores chunks in temporary location, assembles on last chunk.
     """
     user = require_user(request)
+    
+    is_e2e = safe_id is not None or (encrypted_ck is not None and encrypted_ck == 'safe')
     
     # Check permissions
     from .deps import get_permission_service
@@ -264,6 +266,17 @@ async def upload_chunk(
         
         size = len(assembled_content)
         
+        # Server-side encryption for non-E2E uploads
+        if not is_e2e:
+            user_dek = dek_cache.get(user["id"])
+            if user_dek:
+                assembled_content = EncryptionService.encrypt_file(assembled_content, user_dek)
+                # Overwrite assembled file with encrypted version
+                with open(final_path, "wb") as f:
+                    f.write(assembled_content)
+            else:
+                raise HTTPException(403, "Encryption key not available")
+        
         # Create Item + ItemMedia
         db = create_connection()
         try:
@@ -278,10 +291,19 @@ async def upload_chunk(
             
             # Extract taken_at from EXIF for images
             taken_at = None
-            if media_type == 'image':
+            if media_type == 'image' and not is_e2e:
                 try:
+                    # Need decrypted content for EXIF extraction
+                    exif_content = assembled_content
+                    if not is_e2e:
+                        user_dek = dek_cache.get(user["id"])
+                        if user_dek:
+                            try:
+                                exif_content = EncryptionService.decrypt_file(assembled_content, user_dek)
+                            except Exception:
+                                pass
                     with tempfile.NamedTemporaryFile(delete=False) as tmp:
-                        tmp.write(assembled_content)
+                        tmp.write(exif_content)
                         tmp.flush()
                         taken_at = extract_taken_date(Path(tmp.name))
                 except Exception:
@@ -295,13 +317,11 @@ async def upload_chunk(
                     "size": size,
                     "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
                     "user_id": user["id"],
-                    "is_encrypted": is_encrypted,
                     "taken_at": taken_at,
                 },
                 media_data={
                     "media_type": media_type,
                     "storage_path": f"uploads/{item_id}_{filename}",
-                    "is_encrypted": is_encrypted,
                 },
                 folder_id=folder_id,
                 safe_id=safe_id,
@@ -415,7 +435,7 @@ async def upload_bulk(
                     folder_id=folder_id,
                     safe_id=safe_id,
                     user=user,
-                    is_encrypted=is_e2e_encrypted
+                    is_e2e=is_e2e_encrypted
                 )
                 individual_photos += 1
             except Exception as e:
@@ -442,7 +462,7 @@ async def upload_bulk(
                             folder_id=subfolder["id"],
                             safe_id=safe_id,
                             user=user,
-                            is_encrypted=is_e2e_encrypted
+                            is_e2e=is_e2e_encrypted
                         )
                         item_ids.append(item["id"])
                         photos_in_albums += 1
@@ -565,7 +585,6 @@ async def upload_album(
                     "thumb_width": item.get("thumb_width"),
                     "thumb_height": item.get("thumb_height"),
                     "taken_at": item.get("taken_at"),
-                    "is_encrypted": item.get("is_encrypted", False),
                 })
         
         return {

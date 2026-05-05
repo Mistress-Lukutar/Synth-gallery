@@ -16,33 +16,59 @@ from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
 from ...infrastructure.storage import get_storage, LocalStorage
 from .deps import get_permission_service
+from ...logging_config import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 # Get storage backend
 storage = get_storage()
 
 
+def _is_plaintext_media(content: bytes) -> bool:
+    """Check if content looks like a plaintext media file by magic bytes."""
+    if len(content) < 12:
+        return False
+    if content.startswith(b"\xff\xd8"):
+        return True
+    if content.startswith(b"\x89PNG"):
+        return True
+    if content[:4] in (b"GIF8", b"GIF9"):
+        return True
+    if content[8:12] == b"WEBP":
+        return True
+    if content[4:8] in (b"ftyp", b"moov"):
+        return True
+    return False
+
+
 def _decrypt_file_response(file_path: Path, dek: bytes, content_type: str = None) -> Response:
-    """Decrypt server-side encrypted file and return as Response."""
+    """Decrypt server-side encrypted file and return as Response.
+    
+    Falls back to serving raw bytes if the file appears to be an old
+    plaintext upload (backward compatibility during migration).
+    """
     with open(file_path, "rb") as f:
-        encrypted_data = f.read()
+        data = f.read()
 
     try:
-        decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+        decrypted_data = EncryptionService.decrypt_file(data, dek)
+        return Response(content=decrypted_data, media_type=content_type or "image/jpeg")
     except Exception:
+        if _is_plaintext_media(data):
+            logger.warning(
+                "Serving plaintext file (not encrypted): %s. Run encrypt_existing_uploads.py",
+                file_path.name
+            )
+            return Response(content=data, media_type=content_type or "image/jpeg")
         raise HTTPException(status_code=500, detail="Decryption failed")
-
-    return Response(content=decrypted_data, media_type=content_type or "image/jpeg")
 
 
 def _get_encryption_type(photo: dict) -> str:
     """Determine encryption type from photo metadata."""
     if photo.get("safe_id"):
         return "e2e"
-    elif photo.get("is_encrypted"):
-        return "server"
-    return "none"
+    return "server"
 
 
 async def _get_storage_response(filename: str, folder: str) -> Response:
@@ -71,7 +97,6 @@ def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=No
             "filename": item_id,  # Storage uses item_id as filename
             "title": item.get("title", item_id),
             "safe_id": item.get("safe_id"),
-            "is_encrypted": item.get("is_encrypted", False),
             "user_id": item.get("user_id"),
             "folder_id": item.get("folder_id"),
             "content_type": media.get("content_type", "image/jpeg") if media else "image/jpeg",
@@ -150,8 +175,15 @@ async def get_file(photo_id: str, request: Request):
                 file_path = storage.get_path(filename, "uploads")
                 return _decrypt_file_response(file_path, dek, content_type)
             else:
-                encrypted_data = await storage.download(filename, "uploads")
-                decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+                data = await storage.download(filename, "uploads")
+                try:
+                    decrypted_data = EncryptionService.decrypt_file(data, dek)
+                except Exception:
+                    if _is_plaintext_media(data):
+                        logger.warning("Serving plaintext file from S3: %s", filename)
+                        decrypted_data = data
+                    else:
+                        raise HTTPException(status_code=500, detail="Decryption failed")
                 return Response(content=decrypted_data, media_type=content_type)
         
         # Regular files: serve directly
@@ -231,11 +263,18 @@ async def get_file_thumbnail(photo_id: str, request: Request):
             if isinstance(storage, LocalStorage):
                 file_path = storage.get_path(photo_id, "thumbnails")
                 with open(file_path, "rb") as f:
-                    encrypted_data = f.read()
+                    data = f.read()
             else:
-                encrypted_data = await storage.download(photo_id, "thumbnails")
+                data = await storage.download(photo_id, "thumbnails")
             
-            decrypted_data = EncryptionService.decrypt_file(encrypted_data, dek)
+            try:
+                decrypted_data = EncryptionService.decrypt_file(data, dek)
+            except Exception:
+                if _is_plaintext_media(data):
+                    logger.warning("Serving plaintext thumbnail: %s", photo_id)
+                    decrypted_data = data
+                else:
+                    raise HTTPException(status_code=500, detail="Decryption failed")
             return Response(content=decrypted_data, media_type=content_type)
         
         # Regular files
