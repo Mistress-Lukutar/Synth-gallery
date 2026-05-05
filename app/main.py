@@ -8,6 +8,7 @@ from .config import BASE_DIR, ROOT_PATH
 from .database import init_db, cleanup_expired_sessions
 from .middleware import AuthMiddleware, CSRFMiddleware, BasePathMiddleware, SecurityHeadersMiddleware, RateLimitMiddleware
 from .infrastructure.services.backup import backup_scheduler
+from .infrastructure.services.tag_stats_scheduler import tag_stats_scheduler
 
 # Import routers
 from .routes.auth import router as auth_router
@@ -30,9 +31,11 @@ async def lifespan(app: FastAPI):
     init_db()
     cleanup_expired_sessions()
     backup_scheduler.start()
+    tag_stats_scheduler.start()
     yield
     # Shutdown: runs when application is stopping (cleanup code goes here)
     backup_scheduler.stop()
+    tag_stats_scheduler.stop()
 
 
 app = FastAPI(title="Photo Gallery", lifespan=lifespan, root_path=ROOT_PATH)

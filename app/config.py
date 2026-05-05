@@ -52,6 +52,10 @@ BACKUP_ROTATION_COUNT = int(os.environ.get("BACKUP_ROTATION_COUNT", "5"))
 BACKUP_SCHEDULE = os.environ.get("BACKUP_SCHEDULE", "daily")  # daily, weekly, or disabled
 BACKUP_ENCRYPTION_KEY = os.environ.get("SYNTH_BACKUP_KEY", "")
 
+# Tag stats scheduler configuration
+TAG_STATS_SCHEDULE = os.environ.get("TAG_STATS_SCHEDULE", "weekly")  # daily, weekly, or disabled
+TAG_STATS_HOUR = int(os.environ.get("TAG_STATS_HOUR", "3"))
+
 # External host configuration (for generating shareable links)
 EXTERNAL_HOST = os.environ.get("SYNTH_EXTERNAL_HOST", "").strip("/")
 

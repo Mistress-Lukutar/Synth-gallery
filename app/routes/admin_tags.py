@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from ..config import ROOT_PATH, BASE_DIR
 from ..database import create_connection
 from ..dependencies import require_user, require_admin, get_csrf_token
-from ..infrastructure.repositories import TagsRepository, TagImplicationRepository, TagCooccurrenceRepository
+from ..infrastructure.repositories import TagsRepository, TagImplicationRepository, TagCooccurrenceRepository, TagMutexRepository
 from ..application.services import TagService
 
 router = APIRouter()
@@ -44,6 +44,7 @@ def _tag_service(db):
         TagsRepository(db),
         TagImplicationRepository(db),
         TagCooccurrenceRepository(db),
+        TagMutexRepository(db),
     )
 
 
@@ -229,6 +230,20 @@ def sanitize_tags(request: Request):
             "items_processed": result["updated"],
             "tags_added": result["tags_added"],
             "tags_removed": result["tags_removed"],
+            "stats_rebuilt": True,
         }
+    finally:
+        db.close()
+
+
+@router.post("/api/admin/tags/rebuild-mutex")
+def rebuild_mutex(request: Request):
+    """Rebuild mutex pair statistics. Admin only."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        repo = TagMutexRepository(db)
+        repo.rebuild_all()
+        return {"status": "ok", "rebuilt": True}
     finally:
         db.close()

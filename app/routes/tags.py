@@ -10,8 +10,10 @@ from ..infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
     TagCooccurrenceRepository,
+    TagMutexRepository,
+    TagFeedbackRepository,
 )
-from ..application.services import TagService
+from ..application.services import TagService, TagSuggestionService
 
 router = APIRouter(tags=["tags"])
 
@@ -35,6 +37,13 @@ class TagSetInput(BaseModel):
     tag_ids: List[int]
 
 
+class TagFeedbackInput(BaseModel):
+    item_id: str
+    context_tag_ids: List[int]
+    suggested_tag_id: int
+    outcome: str  # accepted | rejected | dismissed
+
+
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -45,6 +54,17 @@ def _tag_service(db):
         TagsRepository(db),
         TagImplicationRepository(db),
         TagCooccurrenceRepository(db),
+        TagMutexRepository(db),
+    )
+
+
+def _suggestion_service(db):
+    """Build TagSuggestionService with all repositories."""
+    return TagSuggestionService(
+        TagCooccurrenceRepository(db),
+        TagsRepository(db),
+        TagMutexRepository(db),
+        TagFeedbackRepository(db),
     )
 
 
@@ -154,6 +174,18 @@ def get_item_tags(item_id: str, request: Request):
         db.close()
 
 
+@router.get("/api/items/{item_id}/tags/suggestions")
+def get_item_tag_suggestions(item_id: str, request: Request):
+    """Get contextual tag suggestions for an item."""
+    require_user(request)
+    db = create_connection()
+    try:
+        service = _suggestion_service(db)
+        return {"tags": service.get_suggestions_for_item(item_id)}
+    finally:
+        db.close()
+
+
 @router.post("/api/items/{item_id}/tags")
 def add_tag_to_item(item_id: str, data: TagAddInput, request: Request):
     """Add a single explicit tag to item."""
@@ -193,6 +225,26 @@ def remove_tag_from_item(
         service = _tag_service(db)
         result = service.remove_tag_from_item(item_id, tag_id)
         return {"status": "ok", **result}
+    finally:
+        db.close()
+
+
+@router.post("/api/tag-feedback")
+def submit_tag_feedback(data: TagFeedbackInput, request: Request):
+    """Record user feedback for a tag suggestion."""
+    require_user(request)
+    if data.outcome not in ("accepted", "rejected", "dismissed"):
+        raise HTTPException(400, "Invalid outcome")
+    db = create_connection()
+    try:
+        service = _suggestion_service(db)
+        service.record_feedback(
+            data.item_id,
+            data.context_tag_ids,
+            data.suggested_tag_id,
+            data.outcome,
+        )
+        return {"status": "ok"}
     finally:
         db.close()
 

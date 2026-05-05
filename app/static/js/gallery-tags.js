@@ -334,6 +334,7 @@
         const pencilIcon = document.getElementById('edit-icon-pencil');
         const checkIcon = document.getElementById('edit-icon-check');
         const tagSearchContainer = document.querySelector('.tag-search-container');
+        const relatedTagsContainer = document.getElementById('related-tags-container');
 
         if (isEditMode) {
             // Edit mode: show description editor, show tag search, show remove buttons
@@ -344,6 +345,7 @@
             if (pencilIcon) pencilIcon.style.display = 'none';
             if (checkIcon) checkIcon.style.display = '';
             if (tagSearchContainer) tagSearchContainer.style.display = '';
+            if (relatedTagsContainer) relatedTagsContainer.style.display = '';
         } else {
             // Preview mode: show description preview, hide tag search, hide remove buttons
             wrapper?.classList.add('preview-mode');
@@ -354,6 +356,7 @@
             if (pencilIcon) pencilIcon.style.display = '';
             if (checkIcon) checkIcon.style.display = 'none';
             if (tagSearchContainer) tagSearchContainer.style.display = 'none';
+            if (relatedTagsContainer) relatedTagsContainer.style.display = 'none';
         }
 
         renderCurrentTags();
@@ -404,6 +407,10 @@
                 renderCurrentTags();
                 await loadRelatedSuggestions();
 
+                // Record implicit acceptance feedback
+                const contextIds = currentTags.map(t => t.id).filter(id => id !== tagId);
+                recordFeedback(tagId, 'accepted', contextIds);
+
                 // Add to recent
                 const tag = searchResults.find(t => t.id === tagId);
                 if (tag) addToRecent(tag);
@@ -419,6 +426,32 @@
         } catch (e) {
             console.error('Failed to add tag:', e);
         }
+    }
+
+    async function recordFeedback(suggestedTagId, outcome, contextTagIds) {
+        if (!editingItemId) return;
+        try {
+            await csrfFetch(`${getBaseUrl()}/api/tag-feedback`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_id: editingItemId,
+                    suggested_tag_id: suggestedTagId,
+                    outcome: outcome,
+                    context_tag_ids: contextTagIds || currentTags.map(t => t.id)
+                })
+            });
+        } catch (e) {
+            console.error('Feedback recording failed:', e);
+        }
+    }
+
+    async function rejectSuggestion(tagId) {
+        const contextIds = currentTags.map(t => t.id);
+        await recordFeedback(tagId, 'rejected', contextIds);
+        // Remove from UI immediately
+        relatedSuggestions = relatedSuggestions.filter(t => t.id !== tagId);
+        renderRelatedSuggestions();
     }
 
     async function removeTag(tagId) {
@@ -449,34 +482,23 @@
             renderRelatedSuggestions();
             return;
         }
-        // Aggregate related tags from all explicit tags
-        const relatedMap = new Map();
         try {
-            for (const tag of explicit) {
-                const resp = await fetch(
-                    `${getBaseUrl()}/api/tags/${tag.id}/related?limit=5`
-                );
-                if (resp.ok) {
-                    const data = await resp.json();
-                    for (const t of (data.tags || [])) {
-                        const existing = relatedMap.get(t.id);
-                        if (existing) {
-                            existing.count += t.count || 1;
-                        } else {
-                            relatedMap.set(t.id, { ...t });
-                        }
-                    }
-                }
+            const resp = await fetch(
+                `${getBaseUrl()}/api/items/${editingItemId}/tags/suggestions`
+            );
+            if (resp.ok) {
+                const data = await resp.json();
+                const currentIds = new Set(currentTags.map(t => t.id));
+                relatedSuggestions = (data.tags || [])
+                    .filter(t => !currentIds.has(t.id))
+                    .slice(0, 12);
+            } else {
+                relatedSuggestions = [];
             }
         } catch (e) {
             console.error('Failed to load related tags:', e);
+            relatedSuggestions = [];
         }
-        // Exclude already applied tags
-        const currentIds = new Set(currentTags.map(t => t.id));
-        relatedSuggestions = Array.from(relatedMap.values())
-            .filter(t => !currentIds.has(t.id))
-            .sort((a, b) => (b.count || 0) - (a.count || 0))
-            .slice(0, 12);
         renderRelatedSuggestions();
     }
 
@@ -527,9 +549,14 @@
         const html = relatedSuggestions.map(tag => `
             <button class="related-tag-btn"
                     style="--tag-color: ${tag.category_color || '#6b7280'}"
-                    onclick="window.addTag(${tag.id})"
                     title="Add ${escapeHtml(tag.display_name || tag.name)}">
-                + ${escapeHtml(tag.display_name || tag.name)}
+                <span class="related-tag-add"
+                      onclick="window.addTag(${tag.id})">
+                    + ${escapeHtml(tag.display_name || tag.name)}
+                </span>
+                <span class="related-tag-reject"
+                      onclick="window.rejectSuggestion(${tag.id}); event.stopPropagation();"
+                      title="Not relevant">▼</span>
             </button>
         `).join('');
 
@@ -844,6 +871,7 @@
 
     window.addTag = addTag;
     window.removeTag = removeTag;
+    window.rejectSuggestion = rejectSuggestion;
     window.saveTagChanges = window.closeItemDetails;
 
     // Initialize on DOM ready
