@@ -488,6 +488,28 @@
         </div>
     </div>
 
+    <!-- Remap Tag Modal -->
+    <div id="remap-tag-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>Delete & Remap Tag</h2>
+            <p style="font-size:0.8125rem;color:var(--text-muted);margin:0 0 0.75rem 0;">
+                The selected tag will be deleted and replaced with the target tag on all items.
+            </p>
+            <div class="form-group">
+                <label>Target Tag</label>
+                <input type="text" id="remap-tag-search" placeholder="Search for a tag..." autocomplete="off">
+            </div>
+            <div id="remap-tag-results" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.75rem;max-height:200px;overflow-y:auto;"></div>
+            <div id="remap-tag-selected" style="display:none;font-size:0.8125rem;margin-bottom:0.75rem;">
+                Selected: <strong id="remap-tag-selected-name"></strong>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeRemapModal()">Cancel</button>
+                <button class="btn btn-danger" id="remap-tag-confirm" onclick="confirmRemap()" disabled>Delete & Remap</button>
+            </div>
+        </div>
+    </div>
+
     <!-- New Tag Modal -->
     <div id="new-tag-modal" class="modal-overlay">
         <div class="modal-box">

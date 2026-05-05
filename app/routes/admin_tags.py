@@ -27,6 +27,10 @@ class ImplicationInput(BaseModel):
     implies_tag_id: int
 
 
+class TagRemapInput(BaseModel):
+    target_tag_id: int
+
+
 class CategoryCreateInput(BaseModel):
     name: str
     color: str = "#888888"
@@ -125,6 +129,19 @@ def delete_tag(tag_id: int, request: Request):
         service = _tag_service(db)
         deleted = service.delete_tag(tag_id)
         return {"status": "ok", "deleted": deleted}
+    finally:
+        db.close()
+
+
+@router.post("/api/tags/{tag_id}/remap")
+def remap_tag(tag_id: int, data: TagRemapInput, request: Request):
+    """Delete a tag and remap all its items to another tag."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        service.remap_tag(tag_id, data.target_tag_id)
+        return {"status": "ok", "remapped": True}
     finally:
         db.close()
 

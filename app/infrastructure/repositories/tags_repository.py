@@ -181,6 +181,55 @@ class TagsRepository(Repository):
         self._commit()
         return self._conn.total_changes > 0
 
+    def remap_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Replace tag_id with target_tag_id on all items, then delete tag_id.
+
+        Items that already have target_tag_id keep it; if the old tag was
+        explicit the target becomes explicit as well.
+        """
+        # Promote target to explicit on items where old tag was explicit
+        self._execute(
+            """
+            UPDATE item_tags
+            SET is_explicit = 1
+            WHERE tag_id = ?
+              AND is_explicit = 0
+              AND item_id IN (
+                  SELECT item_id FROM item_tags WHERE tag_id = ? AND is_explicit = 1
+              )
+            """,
+            (target_tag_id, tag_id),
+        )
+
+        # Move items that don't already have the target tag
+        self._execute(
+            """
+            UPDATE item_tags
+            SET tag_id = ?
+            WHERE tag_id = ?
+              AND item_id NOT IN (SELECT item_id FROM item_tags WHERE tag_id = ?)
+            """,
+            (target_tag_id, tag_id, target_tag_id),
+        )
+
+        # Delete remaining old associations (items that had both tags)
+        self._execute("DELETE FROM item_tags WHERE tag_id = ?", (tag_id,))
+
+        # Recalculate target tag usage count
+        self._execute(
+            """
+            UPDATE tags SET usage_count = (
+                SELECT COUNT(DISTINCT item_id) FROM item_tags WHERE tag_id = ?
+            ) WHERE id = ?
+            """,
+            (target_tag_id, target_tag_id),
+        )
+
+        # Delete old tag (cascades to implications, co-occurrence, mutex via FK)
+        self._execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+        self._commit()
+        return True
+
     def create(self, name: str, display_name: str, category_id: int, description: str = '') -> int:
         """Create a new flat tag.
 

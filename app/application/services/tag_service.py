@@ -296,9 +296,7 @@ class TagService:
         """Get tags frequently co-occurring with this tag."""
         if self.cooccurrence is None:
             return []
-        all_current = self.tags.get_item_tags_all(item_id=None)  # Not needed here
-        # Actually get_related_tags doesn't need item context
-        return self.cooccurrence.get_related_tags(tag_id, limit)
+        return self.cooccurrence.get_related_by_pmi(tag_id, limit)
 
     def get_contextual_suggestions(self,
                                    selected_tag_ids: List[int],
@@ -372,6 +370,18 @@ class TagService:
         if not tag:
             raise HTTPException(404, "Tag not found")
         return self.tags.delete_tag(tag_id)
+
+    def remap_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Delete a tag and replace it with another on all items."""
+        if tag_id == target_tag_id:
+            raise HTTPException(400, "Cannot remap tag to itself")
+        tag = self.tags.get_by_id(tag_id)
+        if not tag:
+            raise HTTPException(404, "Tag not found")
+        target = self.tags.get_by_id(target_tag_id)
+        if not target:
+            raise HTTPException(404, "Target tag not found")
+        return self.tags.remap_tag(tag_id, target_tag_id)
 
     def create_implication(self, tag_id: int, implies_tag_id: int) -> Dict:
         """Create implication edge with cycle validation."""
