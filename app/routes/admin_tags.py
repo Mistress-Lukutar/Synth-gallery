@@ -146,6 +146,19 @@ def remap_tag(tag_id: int, data: TagRemapInput, request: Request):
         db.close()
 
 
+@router.post("/api/tags/{tag_id}/replace")
+def replace_tag(tag_id: int, data: TagRemapInput, request: Request):
+    """Replace a tag with another on all items without deleting the source."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        service.replace_tag(tag_id, data.target_tag_id)
+        return {"status": "ok", "replaced": True}
+    finally:
+        db.close()
+
+
 # =============================================================================
 # Implication API (extensions not present in routes/tags.py)
 # =============================================================================
