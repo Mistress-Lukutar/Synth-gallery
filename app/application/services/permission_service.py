@@ -386,6 +386,52 @@ class PermissionService:
     # Legacy alias for backward compatibility
     can_delete_photo = can_delete_item
     
+    def can_edit_item(self, item_id: str, user_id: int) -> bool:
+        """Check if user can edit item (tags, metadata).
+        
+        Rules:
+        - Item owner can always edit
+        - Folder owner can edit any item in their folder
+        - Editor can edit any item in folders where they have editor permission
+        - Items in locked safes cannot be edited
+        
+        Args:
+            item_id: Item ID
+            user_id: User ID
+            
+        Returns:
+            True if user can edit the item
+        """
+        if not self.item_repo:
+            raise RuntimeError("ItemRepository not configured")
+        
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
+            return False
+        
+        # Check if item is in a safe - safe must be unlocked
+        safe_id = item.get("safe_id")
+        if safe_id and self.safe_repo:
+            if not self.safe_repo.is_unlocked(safe_id, user_id):
+                return False
+        
+        # Item owner can always edit
+        if item["user_id"] == user_id:
+            return True
+        
+        # Check folder permissions
+        if item.get("folder_id"):
+            folder = self.folder_repo.get_by_id(item["folder_id"])
+            if folder:
+                # Folder owner can edit any item
+                if folder["user_id"] == user_id:
+                    return True
+                
+                # Editor can edit items in shared folders
+                return self.can_edit(item["folder_id"], user_id)
+        
+        return False
+    
     def can_access_album(self, album_id: str, user_id: int) -> bool:
         """Check if user can access album.
         

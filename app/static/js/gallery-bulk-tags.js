@@ -1,0 +1,219 @@
+/**
+ * Gallery Bulk Tags - Mass tag editing for selected items
+ */
+
+(function() {
+    'use strict';
+
+    const modal = document.getElementById('bulk-tags-modal');
+    const searchInput = document.getElementById('bulk-tag-search');
+    const resultsContainer = document.getElementById('bulk-tag-results');
+    const commonTagsContainer = document.getElementById('bulk-common-tags');
+    const countLabel = document.getElementById('bulk-tag-count');
+    const aiTagBtn = document.getElementById('bulk-ai-tag-btn');
+    const bulkTagsBtn = document.getElementById('bulk-tags-btn');
+
+    let currentItemIds = [];
+    let currentCommonTags = [];
+    let searchDebounce = null;
+
+    function init() {
+        if (!modal || !bulkTagsBtn) return;
+
+        bulkTagsBtn.addEventListener('click', openModal);
+        aiTagBtn?.addEventListener('click', () => {
+            closeModal();
+            if (window.startAITagging) window.startAITagging();
+        });
+
+        searchInput?.addEventListener('input', (e) => {
+            clearTimeout(searchDebounce);
+            const query = e.target.value.trim();
+            if (!query) {
+                resultsContainer.innerHTML = '';
+                return;
+            }
+            searchDebounce = setTimeout(() => doSearch(query), 200);
+        });
+
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('open')) {
+                closeModal();
+            }
+        });
+    }
+
+    async function openModal() {
+        const ids = Array.from(window.selectedPhotos || []);
+        if (ids.length === 0) return;
+
+        currentItemIds = ids;
+        countLabel.textContent = ids.length;
+        searchInput.value = '';
+        resultsContainer.innerHTML = '';
+        modal.classList.add('open');
+
+        await loadCommonTags();
+    }
+
+    window.closeBulkTagsModal = function() {
+        modal.classList.remove('open');
+        currentItemIds = [];
+        currentCommonTags = [];
+    };
+
+    async function loadCommonTags() {
+        try {
+            const resp = await fetch(
+                `${getBaseUrl()}/api/items/tags/common?item_ids=${encodeURIComponent(currentItemIds.join(','))}`
+            );
+            if (resp.ok) {
+                const data = await resp.json();
+                currentCommonTags = data.tags || [];
+                renderCommonTags();
+            }
+        } catch (e) {
+            console.error('Failed to load common tags:', e);
+        }
+    }
+
+    function renderCommonTags() {
+        if (!commonTagsContainer) return;
+        if (typeof window.tagEditorRenderChips === 'function') {
+            window.tagEditorRenderChips(commonTagsContainer, currentCommonTags, {
+                removable: true,
+                onRemove: removeTag,
+                emptyHint: 'No common tags'
+            });
+        } else {
+            // Fallback inline render
+            if (!currentCommonTags.length) {
+                commonTagsContainer.innerHTML = '<span class="no-tags-hint">No common tags</span>';
+                return;
+            }
+            commonTagsContainer.innerHTML = currentCommonTags.map(tag =>
+                `<span class="tag-chip tag-chip-editable" style="--tag-color:${tag.category_color||'#6b7280'}">
+                    ${escapeHtml(tag.display_name||tag.name)}
+                    <button class="tag-remove" onclick="window._bulkRemoveTag(${tag.id})">×</button>
+                 </span>`
+            ).join('');
+            window._bulkRemoveTag = removeTag;
+        }
+    }
+
+    async function doSearch(query) {
+        if (typeof window.tagEditorSearch === 'function') {
+            const results = await window.tagEditorSearch(query);
+            if (typeof window.tagEditorRenderSearchResults === 'function') {
+                window.tagEditorRenderSearchResults(resultsContainer, results, (tag) => {
+                    addTag(tag.id);
+                });
+            } else {
+                fallbackRenderSearch(results);
+            }
+        } else {
+            // Direct fallback
+            try {
+                const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=50`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    fallbackRenderSearch(data.tags || []);
+                }
+            } catch (e) {
+                console.error('Search failed:', e);
+            }
+        }
+    }
+
+    function fallbackRenderSearch(results) {
+        if (!resultsContainer) return;
+        if (!results.length) {
+            resultsContainer.innerHTML = '';
+            return;
+        }
+        resultsContainer.innerHTML = results.map(tag =>
+            `<div class="search-result" onclick="window._bulkAddTag(${tag.id})">
+                <div class="search-result-main">
+                    <span class="search-result-name" style="--tag-color:${tag.category_color||'#6b7280'}">
+                        ${escapeHtml(tag.display_name||tag.name)}
+                    </span>
+                    <span class="search-result-count">${tag.count||0}</span>
+                </div>
+            </div>`
+        ).join('');
+        window._bulkAddTag = addTag;
+    }
+
+    async function addTag(tagId) {
+        if (!currentItemIds.length) return;
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/tags/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_ids: currentItemIds,
+                    add_tag_ids: [tagId],
+                    remove_tag_ids: []
+                })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.skipped > 0) {
+                    showToast(`${data.skipped} item(s) skipped (no permission)`, true);
+                }
+                searchInput.value = '';
+                resultsContainer.innerHTML = '';
+                await loadCommonTags();
+            } else {
+                const err = await resp.json();
+                showToast(err.detail || 'Failed to add tag', true);
+            }
+        } catch (e) {
+            showToast('Failed to add tag', true);
+        }
+    }
+
+    async function removeTag(tagId) {
+        if (!currentItemIds.length) return;
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/tags/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_ids: currentItemIds,
+                    add_tag_ids: [],
+                    remove_tag_ids: [tagId]
+                })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                if (data.skipped > 0) {
+                    showToast(`${data.skipped} item(s) skipped (no permission)`, true);
+                }
+                await loadCommonTags();
+            } else {
+                const err = await resp.json();
+                showToast(err.detail || 'Failed to remove tag', true);
+            }
+        } catch (e) {
+            showToast('Failed to remove tag', true);
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();

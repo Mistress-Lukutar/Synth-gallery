@@ -1,4 +1,5 @@
 """Tag service - flat tags with implication-based inheritance and suggestions."""
+import re
 from typing import Optional, List, Dict, Tuple
 
 from fastapi import HTTPException
@@ -100,8 +101,8 @@ class TagService:
             Created tag dict
         """
         name = name.lower().strip().replace(' ', '_')
-        if not name or not name.replace('_', '').isalnum():
-            raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores.")
+        if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
+            raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores, hyphens, dots, brackets, etc.")
 
         # Check if tag already exists
         existing = self.tags.get_by_name(name)
@@ -351,7 +352,7 @@ class TagService:
         updates = {}
         if name is not None:
             name = name.lower().strip().replace(' ', '_')
-            if not name or not name.replace('_', '').isalnum():
+            if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
                 raise HTTPException(400, "Invalid tag name")
             updates["name"] = name
         if display_name is not None:
@@ -394,6 +395,52 @@ class TagService:
         if not target:
             raise HTTPException(404, "Target tag not found")
         return self.tags.replace_tag(tag_id, target_tag_id)
+
+    def get_common_tags(self, item_ids: List[str]) -> List[Dict]:
+        """Get tags present on all provided items."""
+        return self.tags.get_common_tags(item_ids)
+
+    def bulk_edit_tags(self, item_ids: List[str], add_tag_ids: List[int],
+                       remove_tag_ids: List[int], permission_service, user_id: int) -> Dict:
+        """Add/remove tags from multiple items, skipping those without edit permission.
+
+        Returns:
+            Dict with processed, skipped, added_total, removed_total
+        """
+        processed = 0
+        skipped = 0
+        added_total = 0
+        removed_total = 0
+
+        for item_id in item_ids:
+            if not permission_service.can_edit_item(item_id, user_id):
+                skipped += 1
+                continue
+
+            for tag_id in add_tag_ids:
+                try:
+                    result = self.add_tag_to_item(item_id, tag_id)
+                    if result.get("added"):
+                        added_total += 1
+                except HTTPException:
+                    pass
+
+            for tag_id in remove_tag_ids:
+                try:
+                    result = self.remove_tag_from_item(item_id, tag_id)
+                    if result.get("removed"):
+                        removed_total += 1
+                except HTTPException:
+                    pass
+
+            processed += 1
+
+        return {
+            "processed": processed,
+            "skipped": skipped,
+            "added_total": added_total,
+            "removed_total": removed_total,
+        }
 
     def create_implication(self, tag_id: int, implies_tag_id: int) -> Dict:
         """Create implication edge with cycle validation."""

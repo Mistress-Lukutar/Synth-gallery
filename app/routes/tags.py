@@ -12,8 +12,12 @@ from ..infrastructure.repositories import (
     TagCooccurrenceRepository,
     TagMutexRepository,
     TagFeedbackRepository,
+    PermissionRepository,
+    FolderRepository,
+    ItemRepository,
+    SafeRepository,
 )
-from ..application.services import TagService, TagSuggestionService
+from ..application.services import TagService, TagSuggestionService, PermissionService
 
 router = APIRouter(tags=["tags"])
 
@@ -55,6 +59,16 @@ def _tag_service(db):
         TagImplicationRepository(db),
         TagCooccurrenceRepository(db),
         TagMutexRepository(db),
+    )
+
+
+def _permission_service(db):
+    """Build PermissionService with required repositories."""
+    return PermissionService(
+        PermissionRepository(db),
+        FolderRepository(db),
+        ItemRepository(db),
+        safe_repository=SafeRepository(db),
     )
 
 
@@ -224,6 +238,52 @@ def remove_tag_from_item(
     try:
         service = _tag_service(db)
         result = service.remove_tag_from_item(item_id, tag_id)
+        return {"status": "ok", **result}
+    finally:
+        db.close()
+
+
+class BulkTagEditInput(BaseModel):
+    item_ids: List[str]
+    add_tag_ids: List[int] = []
+    remove_tag_ids: List[int] = []
+
+
+@router.get("/api/items/tags/common")
+def get_common_tags(
+    request: Request,
+    item_ids: str = Query(..., description="Comma-separated item IDs")
+):
+    """Get tags common to all specified items."""
+    require_user(request)
+    ids = [i.strip() for i in item_ids.split(",") if i.strip()]
+    if not ids:
+        return {"tags": []}
+
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        tags = service.get_common_tags(ids)
+        return {"tags": tags}
+    finally:
+        db.close()
+
+
+@router.post("/api/items/tags/bulk")
+def bulk_edit_tags(data: BulkTagEditInput, request: Request):
+    """Add/remove tags from multiple items. Skips items without edit permission."""
+    user = require_user(request)
+    db = create_connection()
+    try:
+        tag_service = _tag_service(db)
+        perm_service = _permission_service(db)
+        result = tag_service.bulk_edit_tags(
+            data.item_ids,
+            data.add_tag_ids,
+            data.remove_tag_ids,
+            perm_service,
+            user["id"],
+        )
         return {"status": "ok", **result}
     finally:
         db.close()

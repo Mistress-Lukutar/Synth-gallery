@@ -290,7 +290,13 @@
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                     </svg>
                 </button>
-                <button id="ai-tag-selected-btn" class="selection-action-btn" title="AI Tag">
+                <button id="bulk-tags-btn" class="selection-action-btn" title="Edit tags">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                        <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+                        <line x1="7" y1="7" x2="7.01" y2="7"/>
+                    </svg>
+                </button>
+                <button id="ai-tag-selected-btn" class="selection-action-btn hidden" title="AI Tag">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                         <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z"/>
                         <path d="M5 16l-1 3 3-1"/>
@@ -330,6 +336,27 @@
 <!-- Gallery grid (SPA rendered) -->
 <div class="gallery" id="gallery" style="opacity: 0; transition: opacity 0.15s;">
     <!-- Content loaded via API -->
+</div>
+
+<!-- Bulk Tags Modal -->
+<div id="bulk-tags-modal" class="modal-overlay">
+    <div class="modal-box" style="max-width: 480px;">
+        <h2>Edit Tags (<span id="bulk-tag-count">0</span>)</h2>
+        <div class="detail-section">
+            <h3>Common Tags</h3>
+            <div id="bulk-common-tags" class="selected-tags-container"></div>
+        </div>
+        <div class="tag-search-container">
+            <input type="text" id="bulk-tag-search" placeholder="Search tags..." autocomplete="off">
+        </div>
+        <div id="bulk-tag-results" class="tag-tree-container"></div>
+        <div class="detail-section" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+            <button id="bulk-ai-tag-btn" class="btn btn-secondary">AI Tag Selected</button>
+        </div>
+        <div class="form-actions">
+            <button class="btn btn-secondary" onclick="closeBulkTagsModal()">Close</button>
+        </div>
+    </div>
 </div>
 
 <!-- Initial folder ID for init.js -->
