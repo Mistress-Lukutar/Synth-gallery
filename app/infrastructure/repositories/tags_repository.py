@@ -396,6 +396,34 @@ class TagsRepository(Repository):
 
         self._commit()
 
+    def get_common_tags(self, item_ids: List[str]) -> List[Dict]:
+        """Get tags that exist on ALL provided items (intersection).
+
+        Args:
+            item_ids: List of item IDs
+
+        Returns:
+            List of tag dicts present on every item
+        """
+        if not item_ids:
+            return []
+
+        placeholders = ','.join('?' * len(item_ids))
+        cursor = self._execute(f"""
+            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+                   c.name as category_name, c.color as category_color
+            FROM tags t
+            LEFT JOIN tag_categories c ON t.category_id = c.id
+            WHERE t.id IN (
+                SELECT tag_id FROM item_tags
+                WHERE item_id IN ({placeholders})
+                GROUP BY tag_id
+                HAVING COUNT(DISTINCT item_id) = ?
+            )
+            ORDER BY t.name
+        """, tuple(item_ids) + (len(item_ids),))
+        return [dict(row) for row in cursor.fetchall()]
+
     # ========================================================================
     # Sanitize helpers
     # ========================================================================
