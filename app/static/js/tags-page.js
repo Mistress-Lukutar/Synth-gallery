@@ -233,7 +233,8 @@ function renderDetail() {
     const deleteSection = isAdmin ? `
         <div class="detail-section" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);display:flex;gap:0.5rem;flex-wrap:wrap;">
             <button class="btn btn-small btn-danger" onclick="deleteTag(${tag.id})">Delete tag</button>
-            <button class="btn btn-small btn-danger" onclick="openRemapModal(${tag.id})">Delete & Remap</button>
+            <button class="btn btn-small btn-danger" onclick="openRemapModal(${tag.id}, 'remap')">Delete & Remap</button>
+            <button class="btn btn-small btn-warning" onclick="openRemapModal(${tag.id}, 'replace')">Remap</button>
         </div>` : '';
 
     panel.innerHTML = `
@@ -355,15 +356,23 @@ async function deleteTag(tagId) {
 
 let remapTagId = null;
 let remapTargetId = null;
+let remapMode = 'remap'; // 'remap' (delete + remap) or 'replace' (remap only)
 
-function openRemapModal(tagId) {
+function openRemapModal(tagId, mode) {
     remapTagId = tagId;
     remapTargetId = null;
+    remapMode = mode || 'remap';
+    const isReplace = remapMode === 'replace';
     document.getElementById('remap-tag-search').value = '';
     document.getElementById('remap-tag-results').innerHTML = '';
     document.getElementById('remap-tag-selected').style.display = 'none';
     document.getElementById('remap-tag-selected-name').textContent = '';
     document.getElementById('remap-tag-confirm').disabled = true;
+    document.getElementById('remap-tag-confirm').textContent = isReplace ? 'Remap' : 'Delete & Remap';
+    document.querySelector('#remap-tag-modal h2').textContent = isReplace ? 'Remap Tag' : 'Delete & Remap Tag';
+    document.querySelector('#remap-tag-modal p').textContent = isReplace
+        ? 'The selected tag will be replaced with the target tag on all items. The original tag will remain.'
+        : 'The selected tag will be deleted and replaced with the target tag on all items.';
     document.getElementById('remap-tag-modal').classList.add('open');
     document.getElementById('remap-tag-search').focus();
 }
@@ -372,6 +381,7 @@ function closeRemapModal() {
     document.getElementById('remap-tag-modal').classList.remove('open');
     remapTagId = null;
     remapTargetId = null;
+    remapMode = 'remap';
 }
 
 function selectRemapTarget(tagId, name) {
@@ -416,10 +426,15 @@ async function confirmRemap() {
     const tag = tagDetail?.tag;
     const name = tag ? (tag.display_name || tag.name) : 'this tag';
     const targetName = document.getElementById('remap-tag-selected-name').textContent;
-    if (!confirm(`Delete "${name}" and remap all its items to "${targetName}"?`)) return;
+    const isReplace = remapMode === 'replace';
+    const confirmMsg = isReplace
+        ? `Replace "${name}" with "${targetName}" on all items?`
+        : `Delete "${name}" and remap all its items to "${targetName}"?`;
+    if (!confirm(confirmMsg)) return;
 
+    const endpoint = isReplace ? `/api/tags/${remapTagId}/replace` : `/api/tags/${remapTagId}/remap`;
     try {
-        const resp = await csrfFetch(`/api/tags/${remapTagId}/remap`, {
+        const resp = await csrfFetch(endpoint, {
             method: 'POST',
             body: JSON.stringify({ target_tag_id: remapTargetId })
         });
@@ -427,12 +442,9 @@ async function confirmRemap() {
             const err = await resp.json();
             throw new Error(err.detail || 'Failed to remap tag');
         }
-        showStatus('Tag remapped');
+        showStatus(isReplace ? 'Tag replaced' : 'Tag remapped');
         closeRemapModal();
-        selectedTagId = null;
-        tagDetail = null;
-        document.getElementById('detail-panel').className = 'detail-panel empty';
-        document.getElementById('detail-panel').innerHTML = '<p>Select a tag to view details</p>';
+        await selectTag(remapTagId);
         await refreshAllCategories();
     } catch (err) {
         showStatus(err.message, true);

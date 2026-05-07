@@ -187,6 +187,41 @@ class TagsRepository(Repository):
         Items that already have target_tag_id keep it; if the old tag was
         explicit the target becomes explicit as well.
         """
+        self._replace_tag_on_items(tag_id, target_tag_id)
+
+        # Delete old tag (cascades to implications, co-occurrence, mutex via FK)
+        self._execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+        self._commit()
+        return True
+
+    def replace_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Replace tag_id with target_tag_id on all items without deleting tag_id.
+
+        Items that already have target_tag_id keep it; if the old tag was
+        explicit the target becomes explicit as well. The source tag remains
+        in the database with zero usage count.
+        """
+        self._replace_tag_on_items(tag_id, target_tag_id)
+
+        # Recalculate source tag usage count (should be zero after move)
+        self._execute(
+            """
+            UPDATE tags SET usage_count = (
+                SELECT COUNT(DISTINCT item_id) FROM item_tags WHERE tag_id = ?
+            ) WHERE id = ?
+            """,
+            (tag_id, tag_id),
+        )
+
+        self._commit()
+        return True
+
+    def _replace_tag_on_items(self, tag_id: int, target_tag_id: int) -> None:
+        """Core logic: move item associations from tag_id to target_tag_id.
+
+        Promotes target to explicit where needed, moves items without the
+        target tag, and deletes remaining old associations.
+        """
         # Promote target to explicit on items where old tag was explicit
         self._execute(
             """
@@ -224,11 +259,6 @@ class TagsRepository(Repository):
             """,
             (target_tag_id, target_tag_id),
         )
-
-        # Delete old tag (cascades to implications, co-occurrence, mutex via FK)
-        self._execute("DELETE FROM tags WHERE id = ?", (tag_id,))
-        self._commit()
-        return True
 
     def create(self, name: str, display_name: str, category_id: int, description: str = '') -> int:
         """Create a new flat tag.

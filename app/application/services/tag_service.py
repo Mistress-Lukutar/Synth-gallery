@@ -383,6 +383,18 @@ class TagService:
             raise HTTPException(404, "Target tag not found")
         return self.tags.remap_tag(tag_id, target_tag_id)
 
+    def replace_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Replace a tag with another on all items without deleting the source."""
+        if tag_id == target_tag_id:
+            raise HTTPException(400, "Cannot replace tag with itself")
+        tag = self.tags.get_by_id(tag_id)
+        if not tag:
+            raise HTTPException(404, "Tag not found")
+        target = self.tags.get_by_id(target_tag_id)
+        if not target:
+            raise HTTPException(404, "Target tag not found")
+        return self.tags.replace_tag(tag_id, target_tag_id)
+
     def create_implication(self, tag_id: int, implies_tag_id: int) -> Dict:
         """Create implication edge with cycle validation."""
         if self.implications is None:
