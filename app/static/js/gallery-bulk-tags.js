@@ -5,19 +5,27 @@
 (function() {
     'use strict';
 
-    const modal = document.getElementById('bulk-tags-modal');
-    const searchInput = document.getElementById('bulk-tag-search');
-    const resultsContainer = document.getElementById('bulk-tag-results');
-    const commonTagsContainer = document.getElementById('bulk-common-tags');
-    const countLabel = document.getElementById('bulk-tag-count');
-    const aiTagBtn = document.getElementById('bulk-ai-tag-btn');
-    const bulkTagsBtn = document.getElementById('bulk-tags-btn');
+    let modal = null;
+    let searchInput = null;
+    let resultsContainer = null;
+    let commonTagsContainer = null;
+    let countLabel = null;
+    let aiTagBtn = null;
+    let bulkTagsBtn = null;
 
     let currentItemIds = [];
     let currentCommonTags = [];
     let searchDebounce = null;
 
     function init() {
+        modal = document.getElementById('bulk-tags-modal');
+        searchInput = document.getElementById('bulk-tag-search');
+        resultsContainer = document.getElementById('bulk-tag-results');
+        commonTagsContainer = document.getElementById('bulk-common-tags');
+        countLabel = document.getElementById('bulk-tag-count');
+        aiTagBtn = document.getElementById('bulk-ai-tag-btn');
+        bulkTagsBtn = document.getElementById('bulk-tags-btn');
+
         if (!modal || !bulkTagsBtn) return;
 
         bulkTagsBtn.addEventListener('click', openModal);
@@ -37,12 +45,12 @@
         });
 
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) closeModal();
+            if (e.target === modal) closeBulkTagsModal();
         });
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.classList.contains('open')) {
-                closeModal();
+            if (e.key === 'Escape' && !modal.classList.contains('hidden')) {
+                closeBulkTagsModal();
             }
         });
     }
@@ -55,13 +63,13 @@
         countLabel.textContent = ids.length;
         searchInput.value = '';
         resultsContainer.innerHTML = '';
-        modal.classList.add('open');
+        modal.classList.remove('hidden');
 
         await loadCommonTags();
     }
 
     window.closeBulkTagsModal = function() {
-        modal.classList.remove('open');
+        modal.classList.add('hidden');
         currentItemIds = [];
         currentCommonTags = [];
     };
