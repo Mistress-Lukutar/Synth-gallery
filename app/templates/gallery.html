@@ -339,21 +339,22 @@
 </div>
 
 <!-- Bulk Tags Modal -->
-<div id="bulk-tags-modal" class="modal-overlay">
-    <div class="modal-box" style="max-width: 480px;">
+<div id="bulk-tags-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px;">
+        <span class="close" onclick="closeBulkTagsModal()">&times;</span>
         <h2>Edit Tags (<span id="bulk-tag-count">0</span>)</h2>
         <div class="detail-section">
             <h3>Common Tags</h3>
             <div id="bulk-common-tags" class="selected-tags-container"></div>
         </div>
         <div class="tag-search-container">
-            <input type="text" id="bulk-tag-search" placeholder="Search tags..." autocomplete="off">
+            <input type="text" id="bulk-tag-search" placeholder="Search tags..." autocomplete="off" class="form-input">
         </div>
         <div id="bulk-tag-results" class="tag-tree-container"></div>
         <div class="detail-section" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
             <button id="bulk-ai-tag-btn" class="btn btn-secondary">AI Tag Selected</button>
         </div>
-        <div class="form-actions">
+        <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeBulkTagsModal()">Close</button>
         </div>
     </div>

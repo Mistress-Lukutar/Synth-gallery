@@ -878,6 +878,10 @@ main {
     display: none;
 }
 
+.detail-section {
+    margin-bottom: 1.25rem;
+}
+
 .modal-content {
     background: var(--bg-secondary);
     padding: 2rem;
