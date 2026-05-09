@@ -352,13 +352,18 @@ def search_by_tags(
             matching_in_album = [iid for iid in album_ids if iid in matching_ids]
             album_item_ids.update(matching_in_album)
 
+            # Choose cover: existing cover if it matches, otherwise first matching item
+            cover_id = album.get("cover_item_id")
+            if cover_id not in matching_in_album:
+                cover_id = matching_in_album[0] if matching_in_album else None
+
             album_results.append({
                 "type": "album",
                 "id": album["id"],
                 "name": album["name"],
                 "photo_count": len(matching_in_album),
-                "cover_photo_id": album.get("cover_item_id"),
-                "cover_item_id": album.get("cover_item_id"),
+                "cover_photo_id": cover_id,
+                "cover_item_id": cover_id,
                 "safe_id": album.get("safe_id"),
                 "matching_item_ids": matching_in_album,
                 "uploaded_at": album.get("uploaded_at"),
