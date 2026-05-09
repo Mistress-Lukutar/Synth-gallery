@@ -554,12 +554,16 @@ main {
 .select-indicator svg {
     width: 14px;
     height: 14px;
-    opacity: 1;
+    opacity: 0;
     color: white;
     transition: opacity 0.15s;
 }
 
 .gallery-item:hover .select-indicator {
+    opacity: 1;
+}
+
+.gallery-item:hover .select-indicator svg {
     opacity: 1;
 }
 
@@ -569,15 +573,20 @@ main {
     transform: scale(1.1);
 }
 
+/* Selection mode: all indicators visible */
+#gallery.selection-active .gallery-item .select-indicator {
+    opacity: 1;
+}
+
+#gallery.selection-active .gallery-item .select-indicator svg {
+    opacity: 1;
+}
+
 /* Selected state */
 .gallery-item.selected .select-indicator {
     opacity: 1;
     background: var(--accent);
     border-color: var(--accent);
-}
-
-.gallery-item .select-indicator {
-    opacity: 1;
 }
 
 .gallery-item.selected .select-indicator svg {
