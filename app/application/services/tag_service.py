@@ -398,8 +398,12 @@ class TagService:
         return self.tags.replace_tag(tag_id, target_tag_id)
 
     def get_common_tags(self, item_ids: List[str]) -> List[Dict]:
-        """Get tags present on all provided items."""
-        return self.tags.get_common_tags(item_ids)
+        """Get explicit tags for items with partial coverage info."""
+        tags = self.tags.get_common_tags(item_ids)
+        total = len(item_ids)
+        for tag in tags:
+            tag["is_partial"] = tag.get("coverage", 0) < total
+        return tags
 
     def bulk_edit_tags(self, item_ids: List[str], add_tag_ids: List[int],
                        remove_tag_ids: List[int], permission_service, user_id: int) -> Dict:

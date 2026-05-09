@@ -397,13 +397,13 @@ class TagsRepository(Repository):
         self._commit()
 
     def get_common_tags(self, item_ids: List[str]) -> List[Dict]:
-        """Get tags that exist on ALL provided items (intersection).
+        """Get all explicit tags for items with coverage count.
 
         Args:
             item_ids: List of item IDs
 
         Returns:
-            List of tag dicts present on every item
+            List of tag dicts with coverage count (how many items have this tag)
         """
         if not item_ids:
             return []
@@ -411,17 +411,15 @@ class TagsRepository(Repository):
         placeholders = ','.join('?' * len(item_ids))
         cursor = self._execute(f"""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color
+                   c.name as category_name, c.color as category_color, c.sort_order as category_order,
+                   COUNT(DISTINCT it.item_id) as coverage
             FROM tags t
+            JOIN item_tags it ON t.id = it.tag_id
             LEFT JOIN tag_categories c ON t.category_id = c.id
-            WHERE t.id IN (
-                SELECT tag_id FROM item_tags
-                WHERE item_id IN ({placeholders})
-                GROUP BY tag_id
-                HAVING COUNT(DISTINCT item_id) = ?
-            )
-            ORDER BY t.name
-        """, tuple(item_ids) + (len(item_ids),))
+            WHERE it.item_id IN ({placeholders}) AND it.is_explicit = 1
+            GROUP BY t.id
+            ORDER BY c.sort_order, t.name
+        """, tuple(item_ids))
         return [dict(row) for row in cursor.fetchall()]
 
     # ========================================================================
