@@ -367,6 +367,7 @@
     window.updateSelectionUI = function() {
         const selectionMenu = document.getElementById('selection-menu');
         const selectionCount = document.getElementById('selection-count');
+        const gallery = document.getElementById('gallery');
         const total = selectedPhotos.size + selectedAlbums.size;
 
         document.querySelectorAll('.gallery-item').forEach(item => {
@@ -379,6 +380,11 @@
         if (selectionCount) selectionCount.textContent = total;
         if (selectionMenu) {
             selectionMenu.classList.toggle('hidden', total === 0);
+        }
+
+        // Toggle selection-active class on gallery for indicator visibility
+        if (gallery) {
+            gallery.classList.toggle('selection-active', total > 0);
         }
 
         // Clear selection state when nothing is selected (exit selection mode)
@@ -401,6 +407,10 @@
         const selectionMenu = document.getElementById('selection-menu');
         if (selectionMenu) {
             selectionMenu.classList.add('hidden');
+        }
+        const gallery = document.getElementById('gallery');
+        if (gallery) {
+            gallery.classList.remove('selection-active');
         }
     };
 
