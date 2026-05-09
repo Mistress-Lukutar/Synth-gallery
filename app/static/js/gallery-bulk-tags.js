@@ -56,11 +56,38 @@
     }
 
     async function openModal() {
-        const ids = Array.from(window.selectedPhotos || []);
-        if (ids.length === 0) return;
+        const photos = Array.from(window.selectedPhotos || []);
+        const albums = Array.from(window.selectedAlbums || []);
 
-        currentItemIds = ids;
-        countLabel.textContent = ids.length;
+        if (photos.length === 0 && albums.length === 0) return;
+
+        // Collect all item IDs from selected photos and albums
+        const itemIdSet = new Set(photos);
+
+        // Fetch items from selected albums
+        if (albums.length > 0) {
+            const albumPromises = albums.map(albumId =>
+                fetch(`${getBaseUrl()}/api/albums/${albumId}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null)
+            );
+            const albumData = await Promise.all(albumPromises);
+            for (const album of albumData) {
+                if (album && album.items) {
+                    for (const item of album.items) {
+                        itemIdSet.add(item.id);
+                    }
+                }
+            }
+        }
+
+        currentItemIds = Array.from(itemIdSet);
+        if (currentItemIds.length === 0) {
+            showToast('No items to edit tags for', true);
+            return;
+        }
+
+        countLabel.textContent = currentItemIds.length;
         searchInput.value = '';
         resultsContainer.innerHTML = '';
         modal.classList.remove('hidden');
