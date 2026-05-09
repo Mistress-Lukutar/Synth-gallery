@@ -86,13 +86,16 @@
         for (const tag of tags) {
             const catName = tag.category_name || 'Other';
             if (!grouped[catName]) {
-                grouped[catName] = { tags: [], color: tag.category_color || '#6b7280' };
+                grouped[catName] = { tags: [], color: tag.category_color || '#6b7280', order: tag.category_order || 0 };
             }
             grouped[catName].tags.push(tag);
         }
 
+        // Sort groups by category order (as defined in DB)
+        const sortedGroups = Object.entries(grouped).sort((a, b) => a[1].order - b[1].order);
+
         let html = '<div class="tags-section">';
-        for (const [catName, group] of Object.entries(grouped)) {
+        for (const [catName, group] of sortedGroups) {
             html += `
                 <div class="tag-group">
                     <div class="tag-group-header" style="--tag-color: ${group.color}">
@@ -100,8 +103,9 @@
                     </div>
                     <div class="tags-list">
                         ${group.tags.map(tag => `
-                            <span class="tag-chip tag-chip-editable"
-                                  style="--tag-color: ${tag.category_color || '#6b7280'}">
+                            <span class="tag-chip ${tag.is_partial ? 'tag-chip-implied' : 'tag-chip-editable'}"
+                                  style="--tag-color: ${tag.category_color || '#6b7280'}"
+                                  ${tag.is_partial ? 'title="Present on some selected items"' : ''}>
                                 ${escapeHtml(tag.display_name || tag.name)}
                                 ${removable ? `<button class="tag-remove"
                                         onclick="window._tagEditorRemove && window._tagEditorRemove(${tag.id})"
