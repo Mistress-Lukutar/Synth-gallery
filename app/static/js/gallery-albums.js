@@ -76,12 +76,18 @@
             }
         }
         
+        // Check for tag search filter (matching items from search results)
+        let matchingItemIds = null;
+        if (albumItem && albumItem.dataset.matchingItems) {
+            matchingItemIds = albumItem.dataset.matchingItems.split(',').filter(Boolean);
+        }
+        
         // Access granted - open album
-        openAlbum(albumId);
+        openAlbum(albumId, false, matchingItemIds);
     };
 
     // Open album in lightbox (view mode)
-    window.openAlbum = async function(albumId, startFromEnd = false) {
+    window.openAlbum = async function(albumId, startFromEnd = false, matchingItemIds = null) {
         
         try {
             const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
@@ -89,7 +95,13 @@
             
             const album = await resp.json();
             // Support both new items array and legacy photos array
-            const albumItems = album.items || album.photos || [];
+            let albumItems = album.items || album.photos || [];
+            
+            // If coming from tag search, filter to only matching items
+            if (matchingItemIds && matchingItemIds.length > 0) {
+                const matchingSet = new Set(matchingItemIds);
+                albumItems = albumItems.filter(item => matchingSet.has(item.id));
+            }
             
             if (albumItems.length === 0) {
                 // Empty album: open lightbox with placeholder

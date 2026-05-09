@@ -418,7 +418,7 @@ class ItemService:
         self,
         folder_id: str,
         item_type: str = None,
-        sort_by: str = "created",
+        sort_by: str = "uploaded",
         standalone_only: bool = False
     ) -> List[Dict]:
         """Get items in folder with full data.
@@ -426,11 +426,11 @@ class ItemService:
         Args:
             folder_id: Folder ID
             item_type: Filter by type ('media', 'note') or None for all
-            sort_by: 'created' or 'title'
+            sort_by: 'uploaded', 'taken', or 'title'
             standalone_only: If True, exclude items that are in albums
         """
         if item_type == 'media' and not standalone_only:
-            return self.media_repo.get_by_folder(folder_id)
+            return self.media_repo.get_by_folder(folder_id, sort_by=sort_by)
         
         items = self.item_repo.get_by_folder(folder_id, item_type, sort_by)
         
