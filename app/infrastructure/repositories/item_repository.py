@@ -121,6 +121,8 @@ class ItemRepository(Repository):
         # Sort order
         if sort_by == "title":
             order_by = "COALESCE(title, id) ASC"
+        elif sort_by == "taken":
+            order_by = "uploaded_at DESC"
         else:
             order_by = "uploaded_at DESC"
         

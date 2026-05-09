@@ -159,16 +159,24 @@ class ItemMediaRepository(Repository):
         row = cursor.fetchone()
         return dict(row) if row else None
     
-    def get_by_folder(self, folder_id: str, media_type: str = None) -> list:
+    def get_by_folder(self, folder_id: str, media_type: str = None, sort_by: str = 'uploaded') -> list:
         """Get media items in folder.
         
         Args:
             folder_id: Folder ID
             media_type: 'image', 'video', or None for all
+            sort_by: 'uploaded', 'taken', or 'title'
         """
+        if sort_by == 'taken':
+            order_by = 'COALESCE(im.taken_at, i.uploaded_at) DESC'
+        elif sort_by == 'title':
+            order_by = 'COALESCE(im.original_name, i.title, i.id) ASC'
+        else:
+            order_by = 'i.uploaded_at DESC'
+
         if media_type:
             cursor = self._execute(
-                """SELECT 
+                f"""SELECT 
                     i.*,
                     im.media_type, im.original_name, im.content_type,
                     im.width, im.height, im.duration,
@@ -176,12 +184,12 @@ class ItemMediaRepository(Repository):
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    WHERE i.folder_id = ? AND i.type = 'media' AND im.media_type = ?
-                   ORDER BY i.uploaded_at DESC""",
+                   ORDER BY {order_by}""",
                 (folder_id, media_type)
             )
         else:
             cursor = self._execute(
-                """SELECT 
+                f"""SELECT 
                     i.*,
                     im.media_type, im.original_name, im.content_type,
                     im.width, im.height, im.duration,
@@ -189,7 +197,7 @@ class ItemMediaRepository(Repository):
                    FROM items i
                    JOIN item_media im ON i.id = im.item_id
                    WHERE i.folder_id = ? AND i.type = 'media'
-                   ORDER BY i.uploaded_at DESC""",
+                   ORDER BY {order_by}""",
                 (folder_id,)
             )
         return [dict(row) for row in cursor.fetchall()]

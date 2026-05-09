@@ -461,7 +461,8 @@ class TagsRepository(Repository):
         self,
         include_groups: list[set],
         exclude_ids: set,
-        folder_id: Optional[str] = None
+        folder_id: Optional[str] = None,
+        sort_by: str = 'uploaded'
     ) -> List[Dict]:
         """Search items by tags with include/exclude logic.
 
@@ -469,6 +470,7 @@ class TagsRepository(Repository):
             include_groups: List of sets, each set contains tag IDs for one search word (OR within group)
             exclude_ids: Set of tag IDs to exclude
             folder_id: Optional folder to filter by
+            sort_by: 'uploaded' or 'taken'
 
         Returns:
             List of items with media metadata
@@ -515,19 +517,56 @@ class TagsRepository(Repository):
         final_params.extend(params)
         final_params.extend(exclude_list)
 
+        order_col = 'i.uploaded_at' if sort_by == 'uploaded' else 'COALESCE(im.taken_at, i.uploaded_at)'
+
         sql = f"""
-            SELECT DISTINCT i.*, im.media_type, im.thumb_width, im.thumb_height
+            SELECT DISTINCT i.*, im.media_type, im.thumb_width, im.thumb_height, im.taken_at
             FROM items i
             LEFT JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'
               {'AND i.folder_id = ?' if folder_id else ''}
               AND ({include_sql})
               AND ({exclude_sql})
-            ORDER BY i.uploaded_at DESC
+            ORDER BY {order_col} DESC
         """
 
         cursor = self._execute(sql, final_params)
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_albums_for_tag_search(self, item_ids: List[str]) -> List[Dict]:
+        """Get albums that contain any of the given items, with matching item count.
+
+        Args:
+            item_ids: List of matching item IDs
+
+        Returns:
+            List of album dicts with matching_count and date fields
+        """
+        if not item_ids:
+            return []
+
+        placeholders = ','.join('?' * len(item_ids))
+        cursor = self._execute(f"""
+            SELECT a.id, a.name, a.folder_id, a.cover_item_id, a.safe_id, a.user_id,
+                   COUNT(DISTINCT ai.item_id) as matching_count,
+                   MAX(i.uploaded_at) as uploaded_at,
+                   MAX(im.taken_at) as taken_at
+            FROM albums a
+            JOIN album_items ai ON a.id = ai.album_id
+            JOIN items i ON ai.item_id = i.id
+            LEFT JOIN item_media im ON i.id = im.item_id
+            WHERE ai.item_id IN ({placeholders})
+            GROUP BY a.id
+        """, tuple(item_ids))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_album_item_ids(self, album_id: str) -> List[str]:
+        """Get all item IDs in an album."""
+        cursor = self._execute(
+            "SELECT item_id FROM album_items WHERE album_id = ? ORDER BY position",
+            (album_id,)
+        )
+        return [row["item_id"] for row in cursor.fetchall()]
 
     def get_all_items_with_explicit_tags(self):
         """Return all item IDs that have at least one explicit tag."""

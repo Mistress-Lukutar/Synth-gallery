@@ -216,7 +216,8 @@
         isSearchActive = true;
 
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/search?tags=${encodeURIComponent(query)}&folder_id=${encodeURIComponent(window.currentFolderId)}`);
+            const sort = window.currentSortMode || 'uploaded';
+            const resp = await fetch(`${getBaseUrl()}/api/search?tags=${encodeURIComponent(query)}&folder_id=${encodeURIComponent(window.currentFolderId)}&sort=${encodeURIComponent(sort)}`);
             if (!resp.ok) throw new Error('Search failed');
 
             const data = await resp.json();
@@ -278,11 +279,18 @@
                     `;
                 }
                 
+                const matchingItemsAttr = album.matching_item_ids ? `data-matching-items="${album.matching_item_ids.join(',')}"` : '';
+                const albumUploadedAt = album.uploaded_at || '';
+                const albumTakenAt = album.taken_at || '';
+                
                 html += `
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
-                         ${safeIdAttr}>
+                         ${safeIdAttr}
+                         ${matchingItemsAttr}
+                         data-uploaded-at="${escapeHtml(albumUploadedAt)}"
+                         data-taken-at="${escapeHtml(albumTakenAt)}">
                         <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
                             ${imgHtml}
                             <div class="album-badge">
@@ -317,6 +325,9 @@
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
+                const photoUploadedAt = photo.uploaded_at || '';
+                const photoTakenAt = photo.taken_at || '';
+                
                 // Unified template for all photos - uses data attributes for async resolution
                 html += `
                     <div class="gallery-item" 
@@ -324,7 +335,9 @@
                          data-item-type="photo"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
-                         ${safeIdAttr}>
+                         ${safeIdAttr}
+                         data-uploaded-at="${escapeHtml(photoUploadedAt)}"
+                         data-taken-at="${escapeHtml(photoTakenAt)}">
                         <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
                             <img data-item-id="${photo.id}"

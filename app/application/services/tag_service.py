@@ -497,12 +497,14 @@ class TagService:
 
         return include, exclude
 
-    def search_items(self, query: str, folder_id: Optional[str] = None) -> Dict:
+    def search_items(self, query: str, folder_id: Optional[str] = None,
+                     sort_by: str = 'uploaded') -> Dict:
         """Search items by tags with negative support (AND between words, OR within word group).
 
         Args:
             query: Query string like "fox night -wolf"
             folder_id: Optional folder to search in
+            sort_by: 'uploaded' or 'taken'
 
         Returns:
             Dict with items and search metadata
@@ -530,7 +532,7 @@ class TagService:
                 exclude_ids.add(tag['id'])
 
         # Build query
-        items = self._execute_tag_search(include_groups, exclude_ids, folder_id)
+        items = self._execute_tag_search(include_groups, exclude_ids, folder_id, sort_by)
 
         return {
             "items": items,
@@ -540,9 +542,9 @@ class TagService:
         }
 
     def _execute_tag_search(self, include_groups: list, exclude_ids: set,
-                           folder_id: Optional[str]) -> List[Dict]:
+                           folder_id: Optional[str], sort_by: str = 'uploaded') -> List[Dict]:
         """Execute tag search query with media metadata."""
-        items = self.tags.search_items_by_tags(include_groups, exclude_ids, folder_id)
+        items = self.tags.search_items_by_tags(include_groups, exclude_ids, folder_id, sort_by)
 
         for item in items:
             item['type'] = 'photo'

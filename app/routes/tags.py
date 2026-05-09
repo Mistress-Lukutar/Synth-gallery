@@ -16,6 +16,7 @@ from ..infrastructure.repositories import (
     FolderRepository,
     ItemRepository,
     SafeRepository,
+    AlbumRepository,
 )
 from ..application.services import TagService, TagSuggestionService, PermissionService
 
@@ -317,7 +318,8 @@ def submit_tag_feedback(data: TagFeedbackInput, request: Request):
 def search_by_tags(
     request: Request,
     tags: str = "",
-    folder_id: Optional[str] = None
+    folder_id: Optional[str] = None,
+    sort: str = Query("uploaded", pattern="^(uploaded|taken)$")
 ):
     """Search items by tags with negative support.
 
@@ -332,8 +334,43 @@ def search_by_tags(
 
     db = create_connection()
     try:
-        service = _tag_service(db)
-        result = service.search_items(tags, folder_id)
+        tag_service = _tag_service(db)
+        result = tag_service.search_items(tags, folder_id, sort)
+
+        # Merge albums that contain matching items
+        matching_items = result.get("items", [])
+        matching_ids = [item["id"] for item in matching_items]
+
+        tags_repo = TagsRepository(db)
+        albums = tags_repo.get_albums_for_tag_search(matching_ids)
+
+        album_item_ids = set()
+        album_results = []
+        for album in albums:
+            # Get all items in this album to know which matching items belong here
+            album_ids = tags_repo.get_album_item_ids(album["id"])
+            matching_in_album = [iid for iid in album_ids if iid in matching_ids]
+            album_item_ids.update(matching_in_album)
+
+            album_results.append({
+                "type": "album",
+                "id": album["id"],
+                "name": album["name"],
+                "photo_count": len(matching_in_album),
+                "cover_photo_id": album.get("cover_item_id"),
+                "cover_item_id": album.get("cover_item_id"),
+                "safe_id": album.get("safe_id"),
+                "matching_item_ids": matching_in_album,
+                "uploaded_at": album.get("uploaded_at"),
+                "taken_at": album.get("taken_at"),
+            })
+
+        # Standalone items = those not in any album
+        standalone_items = [item for item in matching_items if item["id"] not in album_item_ids]
+
+        # Combine: albums first, then standalone items
+        result["items"] = album_results + standalone_items
+        result["total"] = len(result["items"])
         return result
     finally:
         db.close()
