@@ -156,16 +156,20 @@
             // Get last word being typed
             const words = query.split(/\s+/);
             const currentWord = words[words.length - 1].toLowerCase();
-            
-            if (currentWord.length < 2) return;
+
+            // Strip leading minus for negative tag search (e.g. "-wat" -> "wat")
+            const isNegative = currentWord.startsWith('-');
+            const searchWord = isNegative ? currentWord.substring(1) : currentWord;
+
+            if (searchWord.length < 2) return;
 
             // Fetch matching tags from new API
-            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(currentWord)}&limit=50`);
+            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(searchWord)}&limit=50`);
             if (!resp.ok) return;
 
             const data = await resp.json();
             const matches = data.tags || [];
-            
+
             if (matches.length === 0) {
                 if (suggestions) suggestions.classList.add('hidden');
                 return;
@@ -174,7 +178,7 @@
             if (!suggestions) return;
 
             suggestions.innerHTML = matches.map(t => `
-                <div class="suggestion-item" data-tag="${escapeHtml(t.name)}" style="--tag-color: ${t.category_color || '#6b7280'}">
+                <div class="suggestion-item" data-tag="${escapeHtml(t.name)}" data-negative="${isNegative}" style="--tag-color: ${t.category_color || '#6b7280'}">
                     <span class="tag-dot" style="background-color: ${t.category_color || '#6b7280'}"></span>
                     <span>${escapeHtml(t.display_name || t.name)}</span>
                     <span class="tag-count">${t.count || 0}</span>
@@ -184,9 +188,10 @@
             suggestions.querySelectorAll('.suggestion-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const tag = item.dataset.tag.toLowerCase();
+                    const wasNegative = item.dataset.negative === 'true';
                     const value = searchInput.value.trim();
                     const words = value.split(/\s+/);
-                    words[words.length - 1] = tag;
+                    words[words.length - 1] = (wasNegative ? '-' : '') + tag;
                     searchInput.value = words.join(' ') + ' ';
                     suggestions.classList.add('hidden');
                     searchInput.focus();
