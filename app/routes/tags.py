@@ -15,6 +15,7 @@ from ..infrastructure.repositories import (
     PermissionRepository,
     FolderRepository,
     ItemRepository,
+    ItemMediaRepository,
     SafeRepository,
     AlbumRepository,
 )
@@ -344,28 +345,56 @@ def search_by_tags(
         tags_repo = TagsRepository(db)
         albums = tags_repo.get_albums_for_tag_search(matching_ids)
 
+        # Collect cover IDs and fetch thumbnail dimensions in batch
         album_item_ids = set()
-        album_results = []
+        album_builders = []
         for album in albums:
-            # Get all items in this album to know which matching items belong here
             album_ids = tags_repo.get_album_item_ids(album["id"])
             matching_in_album = [iid for iid in album_ids if iid in matching_ids]
             album_item_ids.update(matching_in_album)
 
-            # Choose cover: existing cover if it matches, otherwise first matching item
             cover_id = album.get("cover_item_id")
             if cover_id not in matching_in_album:
                 cover_id = matching_in_album[0] if matching_in_album else None
 
+            album_builders.append({
+                "album": album,
+                "matching_in_album": matching_in_album,
+                "cover_id": cover_id,
+            })
+
+        # Batch fetch cover thumbnail dimensions
+        cover_ids = [b["cover_id"] for b in album_builders if b["cover_id"]]
+        cover_dims = {}
+        if cover_ids:
+            media_repo = ItemMediaRepository(db)
+            placeholders = ','.join('?' * len(cover_ids))
+            cursor = db.execute(
+                f"SELECT item_id, thumb_width, thumb_height FROM item_media WHERE item_id IN ({placeholders})",
+                tuple(cover_ids)
+            )
+            for row in cursor.fetchall():
+                cover_dims[row["item_id"]] = {
+                    "thumb_width": row["thumb_width"],
+                    "thumb_height": row["thumb_height"],
+                }
+
+        album_results = []
+        for builder in album_builders:
+            album = builder["album"]
+            cover_id = builder["cover_id"]
+            dims = cover_dims.get(cover_id, {})
             album_results.append({
                 "type": "album",
                 "id": album["id"],
                 "name": album["name"],
-                "photo_count": len(matching_in_album),
+                "photo_count": len(builder["matching_in_album"]),
                 "cover_photo_id": cover_id,
                 "cover_item_id": cover_id,
+                "cover_thumb_width": dims.get("thumb_width"),
+                "cover_thumb_height": dims.get("thumb_height"),
                 "safe_id": album.get("safe_id"),
-                "matching_item_ids": matching_in_album,
+                "matching_item_ids": builder["matching_in_album"],
                 "uploaded_at": album.get("uploaded_at"),
                 "taken_at": album.get("taken_at"),
             })

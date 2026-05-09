@@ -71,22 +71,47 @@
     }
 
     function setupEventListeners() {
-        // Click to select
+        // Capturing phase: intercept clicks on gallery-link when in selection mode
         gallery.addEventListener('click', (e) => {
             const item = e.target.closest('.gallery-item');
-            if (!item || e.target.closest('.gallery-link')) return;
+            if (!item) return;
 
-            const photoId = item.dataset.itemId;
-            const albumId = item.dataset.albumId;
+            const total = selectedPhotos.size + selectedAlbums.size;
+            const isGalleryLink = e.target.closest('.gallery-link');
 
-            if (photoId) {
-                selectedPhotos.has(photoId) ? selectedPhotos.delete(photoId) : selectedPhotos.add(photoId);
-            } else if (albumId) {
-                selectedAlbums.has(albumId) ? selectedAlbums.delete(albumId) : selectedAlbums.add(albumId);
+            // When something is selected, any click on an item toggles selection
+            // and prevents opening the item
+            if (total > 0 && isGalleryLink) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+
+                const photoId = item.dataset.itemId;
+                const albumId = item.dataset.albumId;
+
+                if (photoId) {
+                    selectedPhotos.has(photoId) ? selectedPhotos.delete(photoId) : selectedPhotos.add(photoId);
+                } else if (albumId) {
+                    selectedAlbums.has(albumId) ? selectedAlbums.delete(albumId) : selectedAlbums.add(albumId);
+                }
+
+                window.updateSelectionUI();
+                return;
             }
 
-            window.updateSelectionUI();
-        });
+            // When nothing is selected, only clicks outside gallery-link toggle selection
+            if (!isGalleryLink) {
+                const photoId = item.dataset.itemId;
+                const albumId = item.dataset.albumId;
+
+                if (photoId) {
+                    selectedPhotos.has(photoId) ? selectedPhotos.delete(photoId) : selectedPhotos.add(photoId);
+                } else if (albumId) {
+                    selectedAlbums.has(albumId) ? selectedAlbums.delete(albumId) : selectedAlbums.add(albumId);
+                }
+
+                window.updateSelectionUI();
+            }
+        }, true); // capturing phase to intercept before inline onclick handlers
 
         // Select all
         const selectAllBtn = document.getElementById('select-all-btn');
@@ -354,6 +379,15 @@
         if (selectionCount) selectionCount.textContent = total;
         if (selectionMenu) {
             selectionMenu.classList.toggle('hidden', total === 0);
+        }
+
+        // Clear selection state when nothing is selected (exit selection mode)
+        if (total === 0) {
+            selectedPhotos.clear();
+            selectedAlbums.clear();
+            document.querySelectorAll('.gallery-item.selected').forEach(item => {
+                item.classList.remove('selected');
+            });
         }
     };
 

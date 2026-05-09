@@ -202,6 +202,11 @@
     }
 
     async function performSearch(query) {
+        // Clear any active selection before showing new search results
+        if (typeof window.clearSelection === 'function') {
+            window.clearSelection();
+        }
+
         if (!query) {
             isSearchActive = false;
             return;
