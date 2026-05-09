@@ -318,12 +318,12 @@ class TagsRepository(Repository):
         """Get only explicit (user-added) tags for an item."""
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color
+                   c.name as category_name, c.color as category_color, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE it.item_id = ? AND it.is_explicit = 1
-            ORDER BY t.name
+            ORDER BY c.sort_order, t.name
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
 
@@ -331,12 +331,12 @@ class TagsRepository(Repository):
         """Get only implied (auto-resolved) tags for an item."""
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color
+                   c.name as category_name, c.color as category_color, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE it.item_id = ? AND it.is_explicit = 0
-            ORDER BY t.name
+            ORDER BY c.sort_order, t.name
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
 
@@ -344,12 +344,12 @@ class TagsRepository(Repository):
         """Get all tags for item (explicit + implied) with flag."""
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color, it.is_explicit
+                   c.name as category_name, c.color as category_color, it.is_explicit, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE it.item_id = ?
-            ORDER BY it.is_explicit DESC, t.name
+            ORDER BY c.sort_order, it.is_explicit DESC, t.name
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
 

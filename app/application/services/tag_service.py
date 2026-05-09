@@ -151,9 +151,10 @@ class TagService:
                 current_depth += 1
 
             def sort_key(tag):
+                cat_order = tag.get("category_order", 0) or 0
                 if tag["is_explicit"]:
-                    return (0, 0, tag["name"])
-                return (1, depth_map.get(tag["id"], 999), tag["name"])
+                    return (cat_order, 0, 0, tag["name"])
+                return (cat_order, 1, depth_map.get(tag["id"], 999), tag["name"])
 
             all_tags = sorted(all_tags, key=sort_key)
 
