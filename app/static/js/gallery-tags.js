@@ -589,13 +589,16 @@
         for (const tag of currentTags) {
             const catName = tag.category_name || 'Other';
             if (!grouped[catName]) {
-                grouped[catName] = { tags: [], color: tag.category_color || '#6b7280' };
+                grouped[catName] = { tags: [], color: tag.category_color || '#6b7280', order: tag.category_order || 0 };
             }
             grouped[catName].tags.push(tag);
         }
 
+        // Sort groups by category order (as defined in DB)
+        const sortedGroups = Object.entries(grouped).sort((a, b) => a[1].order - b[1].order);
+
         let html = '<div class="tags-section">';
-        for (const [catName, group] of Object.entries(grouped)) {
+        for (const [catName, group] of sortedGroups) {
             const explicit = group.tags.filter(t => t.is_explicit);
             const implied = group.tags.filter(t => !t.is_explicit);
 
