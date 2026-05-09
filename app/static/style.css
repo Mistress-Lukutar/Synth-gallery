@@ -554,7 +554,7 @@ main {
 .select-indicator svg {
     width: 14px;
     height: 14px;
-    opacity: 0;
+    opacity: 1;
     color: white;
     transition: opacity 0.15s;
 }
@@ -574,6 +574,10 @@ main {
     opacity: 1;
     background: var(--accent);
     border-color: var(--accent);
+}
+
+.gallery-item .select-indicator {
+    opacity: 1;
 }
 
 .gallery-item.selected .select-indicator svg {
