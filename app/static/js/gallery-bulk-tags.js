@@ -72,8 +72,17 @@
                     .catch(() => null)
             );
             const albumData = await Promise.all(albumPromises);
-            for (const album of albumData) {
-                if (album && album.items) {
+            for (let i = 0; i < albums.length; i++) {
+                const albumId = albums[i];
+                const album = albumData[i];
+                // Check if album is from search results with filtered items
+                const albumEl = document.querySelector(`.gallery-item[data-album-id="${albumId}"]`);
+                const matchingItems = albumEl?.dataset.matchingItems;
+                if (matchingItems) {
+                    // Use only matching items from search results
+                    matchingItems.split(',').forEach(id => itemIdSet.add(id));
+                } else if (album && album.items) {
+                    // Use all album items
                     for (const item of album.items) {
                         itemIdSet.add(item.id);
                     }
