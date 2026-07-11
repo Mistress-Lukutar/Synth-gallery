@@ -94,3 +94,18 @@ def test_detects_jpeg_from_magic_bytes(jpeg_with_exif: bytes) -> None:
 
     with Image.open(io.BytesIO(jxl_bytes)) as decoded:
         assert decoded.size == (80, 60)
+
+
+def test_jpeg_transcode_is_pixel_exact(jpeg_with_exif: bytes) -> None:
+    '''Lossless JPEG transcode should decode to the same pixels.'''
+    if not is_jxl_encoding_available():
+        pytest.skip('JPEG XL encoder is not available')
+
+    jxl_bytes = encode_to_lossless_jxl(jpeg_with_exif, is_jpeg=True)
+
+    with Image.open(io.BytesIO(jpeg_with_exif)) as original:
+        original_pixels = list(original.get_flattened_data())
+    with Image.open(io.BytesIO(jxl_bytes)) as decoded:
+        decoded_pixels = list(decoded.get_flattened_data())
+
+    assert original_pixels == decoded_pixels
