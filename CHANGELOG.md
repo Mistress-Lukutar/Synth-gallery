@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **JPEG XL tooling**: switched from `pillow-jxl-plugin` to the official libjxl binaries (`cjxl` / `djxl`)
+  - Removed `pillow-jxl-plugin` dependency
+  - Encoding now requires `cjxl`; missing binary fails fast when `USE_JXL=true`
+  - Decoding and fallback generation now use `djxl`
+  - Added progressive encoding flags: `JXL_PROGRESSIVE_AC`, `JXL_QPROGRESSIVE_AC`, `JXL_PROGRESSIVE_DC`
+  - Removed `JXL_DECODING_SPEED` (was only used by the Pillow plugin)
+  - `Start.bat` now skips downloading libjxl when `cjxl.exe` and `djxl.exe` are already on `PATH`
+
 ## [1.3.2] - 2026-05-04
 
 ### Added

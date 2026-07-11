@@ -228,7 +228,7 @@ DEK (Data Encryption Key) ◄──┘
 
 **JPEG XL Experimental Storage:**
 - Set `USE_JXL=true` to transcode new image uploads to lossless JPEG XL
-- The official `cjxl` CLI is preferred for progressive encoding; `Start.bat` adds it to PATH automatically
+- Encoding and decoding require the official `cjxl` / `djxl` binaries from libjxl; `Start.bat` adds them to PATH automatically
 - If `cjxl` is not found, `Start.bat` downloads the latest Windows static build to `.venv\jxl-tools`
 - JPEG sources are transcoded losslessly when possible; other raster formats are re-encoded losslessly
 - EXIF and embedded metadata are preserved inside the JXL container
@@ -360,7 +360,9 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `JXL_LOSSLESS_TRANSCODE_JPEG` | Use lossless JPEG transcode for JPEG sources | `true` |
 | `JXL_EFFORT` | Encoder effort: 1 (fast/large) to 9 (slow/small) | `7` |
 | `JXL_THREADS` | Encoder threads: -1 auto, 0 single-threaded | `-1` |
-| `JXL_DECODING_SPEED` | Progressive decode: 0 best, 4 fastest | `0` |
+| `JXL_PROGRESSIVE_AC` | Enable `--progressive_ac` for perceived loading speed | `true` |
+| `JXL_QPROGRESSIVE_AC` | Enable `--qprogressive_ac` for perceived loading speed | `true` |
+| `JXL_PROGRESSIVE_DC` | Extra low-resolution pass (`--progressive_dc`), `-1` disables | `1` |
 
 ## Git Commits
 
