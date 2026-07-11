@@ -97,6 +97,47 @@ if errorlevel 1 (
 )
 echo      OK: Virtual environment activated
 
+:: ----------------------------------------------------------------
+:: JPEG XL TOOLS (cjxl / djxl)
+:: ----------------------------------------------------------------
+:: The application can use the official libjxl CLI for progressive
+:: JXL encoding. Check common locations and download if missing.
+:: ----------------------------------------------------------------
+set JXL_TOOLS_DIR=
+
+where cjxl.exe >nul 2>nul
+if %errorlevel% == 0 (
+    echo      OK: cjxl.exe found in PATH
+    goto jxl_done
+)
+
+if exist "C:\jxl-x64-windows-static\bin\cjxl.exe" (
+    echo      OK: Found local JPEG XL tools at C:\jxl-x64-windows-static\bin
+    set JXL_TOOLS_DIR=C:\jxl-x64-windows-static
+    set PATH=%PATH%;C:\jxl-x64-windows-static\bin
+    goto jxl_done
+)
+
+if exist ".venv\jxl-tools\bin\cjxl.exe" (
+    echo      OK: Found project JPEG XL tools at .venv\jxl-tools
+    set JXL_TOOLS_DIR=%CD%\.venv\jxl-tools
+    set PATH=%PATH%;%CD%\.venv\jxl-tools\bin
+    goto jxl_done
+)
+
+echo      Downloading JPEG XL tools, please wait...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/libjxl/libjxl/releases/latest' -TimeoutSec 60; $asset = $rel.assets | Where-Object { $_.name -like '*x64-windows-static*.zip' } | Select-Object -First 1; if (-not $asset) { throw 'No Windows static asset found' }; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile '.venv\jxl-tools.zip' -TimeoutSec 300; Expand-Archive -Path '.venv\jxl-tools.zip' -DestinationPath '.venv\jxl-tools-tmp' -Force; $src = Get-ChildItem -Path '.venv\jxl-tools-tmp' -Directory | Select-Object -First 1; Move-Item -Path $src.FullName -Destination '.venv\jxl-tools' -Force; Remove-Item -Path '.venv\jxl-tools.zip' -Force; Remove-Item -Path '.venv\jxl-tools-tmp' -Force } catch { Write-Error $_; exit 1 }"
+if errorlevel 1 (
+    echo WARNING: Failed to download JPEG XL tools. Progressive JXL encoding will be unavailable.
+    goto jxl_done
+)
+
+set JXL_TOOLS_DIR=%CD%\.venv\jxl-tools
+set PATH=%PATH%;%CD%\.venv\jxl-tools\bin
+echo      OK: JPEG XL tools downloaded to .venv\jxl-tools
+
+:jxl_done
+
 :: Check Python version
 echo      Python version:
 for /f "tokens=*" %%a in ('python --version 2^>^&1') do echo        %%a
