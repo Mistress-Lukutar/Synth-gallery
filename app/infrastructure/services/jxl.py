@@ -35,8 +35,10 @@ def _get_jxl_binary(name: str) -> Optional[Path]:
 
     Resolution order:
     1. Explicit ``JXL_TOOL_DIR`` environment variable.
-    2. Bundled copy next to this module (``../bin/jxl``).
-    3. Binary available on ``PATH``.
+    2. Project-local copy downloaded by Start.bat (``.venv/jxl-tools``).
+    3. Common local installation path (``C:/jxl-x64-windows-static``).
+    4. Bundled copy next to this module (``../bin/jxl``).
+    5. Binary available on ``PATH``.
 
     Returns the absolute path or ``None`` if not found.
     """
@@ -46,6 +48,18 @@ def _get_jxl_binary(name: str) -> Optional[Path]:
         candidate = Path(tool_dir) / name
         if candidate.is_file():
             return candidate.resolve()
+
+    # Project-local copy downloaded by Start.bat
+    venv_tool_dir = Path(__file__).resolve().parent.parent.parent.parent / ".venv" / "jxl-tools"
+    candidate = venv_tool_dir / "bin" / name
+    if candidate.is_file():
+        return candidate.resolve()
+
+    # Common local installation path on Windows
+    local_install = Path(r"C:\jxl-x64-windows-static")
+    candidate = local_install / "bin" / name
+    if candidate.is_file():
+        return candidate.resolve()
 
     # Bundled copy shipped with the application
     bundled_dir = Path(__file__).resolve().parent.parent / "bin" / "jxl"
