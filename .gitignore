@@ -8,6 +8,7 @@ venv/
 uploads/
 thumbnails/
 backups/
+fallbacks/
 logs/
 .claude/
 *.db
