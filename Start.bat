@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableDelayedExpansion
 echo ================================================================
 echo                  Synth Gallery - Startup Script
 echo ================================================================
@@ -45,13 +46,17 @@ set JXL_FALLBACK_QUALITY=85
 set JXL_LOSSLESS_TRANSCODE_JPEG=true
 
 :: Encoder effort: 1 (fastest, larger) to 9 (slowest, smaller). Default 7.
-set JXL_EFFORT=7
+set JXL_EFFORT=9
 
 :: Encoder threads: -1 lets the encoder decide, 0 disables threading.
 set JXL_THREADS=-1
 
-:: Decoding speed / progressive rendering: 0 best progressive, 4 fastest decode.
-set JXL_DECODING_SPEED=0
+:: Progressive encoding settings for cjxl.
+:: --progressive_ac and --qprogressive_ac improve perceived loading speed.
+:: --progressive_dc=1 adds an extra 64x64 low-resolution pass.
+set JXL_PROGRESSIVE_AC=true
+set JXL_QPROGRESSIVE_AC=true
+set JXL_PROGRESSIVE_DC=0
 
 :: Set the environment variable for the application
 set SYNTH_BASE_URL=%BASE_PATH%
@@ -101,54 +106,76 @@ echo      OK: Virtual environment activated
 :: JPEG XL TOOLS (cjxl / djxl)
 :: ----------------------------------------------------------------
 :: The application can use the official libjxl CLI for progressive
-:: JXL encoding. Check common locations and download if missing.
+:: JXL encoding. Download into .venv\jxl-tools if missing.
+:: The upstream zip uses Deflate64, so a standalone 7-Zip console
+:: binary is used for extraction.
 :: ----------------------------------------------------------------
 set JXL_TOOLS_DIR=
 
-where cjxl.exe >nul 2>nul
-if %errorlevel% == 0 (
-    echo      OK: cjxl.exe found in PATH
-    goto jxl_done
-)
-
-if exist "C:\jxl-x64-windows-static\bin\cjxl.exe" (
-    echo      OK: Found local JPEG XL tools at C:\jxl-x64-windows-static\bin
-    set JXL_TOOLS_DIR=C:\jxl-x64-windows-static
-    set PATH=%PATH%;C:\jxl-x64-windows-static\bin
+:: Use globally installed libjxl tools when both cjxl and djxl are on PATH.
+where cjxl.exe >nul 2>&1 && where djxl.exe >nul 2>&1
+if !errorlevel! equ 0 (
+    echo      OK: Found JPEG XL tools on PATH
     goto jxl_done
 )
 
 if exist ".venv\jxl-tools\bin\cjxl.exe" (
     echo      OK: Found project JPEG XL tools at .venv\jxl-tools
-    set JXL_TOOLS_DIR=%CD%\.venv\jxl-tools
-    set PATH=%PATH%;%CD%\.venv\jxl-tools\bin
+    set JXL_TOOLS_DIR=!CD!\.venv\jxl-tools
+    set PATH=!PATH!;!CD!\.venv\jxl-tools\bin
     goto jxl_done
+)
+
+:: Ensure 7za.exe is available for extracting Deflate64 zips
+if not exist ".venv\7z\7za.exe" (
+    echo      Downloading 7-Zip console tool, please wait...
+    if not exist ".venv\7z" mkdir ".venv\7z"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -Uri 'https://github.com/develar/7zip-bin/raw/master/win/x64/7za.exe' -OutFile '.venv\7z\7za.exe' -TimeoutSec 120 } catch { Write-Error $_; exit 1 }"
+    if !errorlevel! neq 0 (
+        echo WARNING: Failed to download 7-Zip console tool. JPEG XL support will be unavailable.
+        goto jxl_done
+    )
+    echo      OK: 7-Zip console tool downloaded
 )
 
 echo      Downloading JPEG XL tools, please wait...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/libjxl/libjxl/releases/latest' -TimeoutSec 60; $asset = $rel.assets | Where-Object { $_.name -like '*x64-windows-static*.zip' } | Select-Object -First 1; if (-not $asset) { throw 'No Windows static asset found' }; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile '.venv\jxl-tools.zip' -TimeoutSec 300; Expand-Archive -Path '.venv\jxl-tools.zip' -DestinationPath '.venv\jxl-tools-tmp' -Force; $src = Get-ChildItem -Path '.venv\jxl-tools-tmp' -Directory | Select-Object -First 1; Move-Item -Path $src.FullName -Destination '.venv\jxl-tools' -Force; Remove-Item -Path '.venv\jxl-tools.zip' -Force; Remove-Item -Path '.venv\jxl-tools-tmp' -Force } catch { Write-Error $_; exit 1 }"
-if errorlevel 1 (
-    echo WARNING: Failed to download JPEG XL tools. Progressive JXL encoding will be unavailable.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/libjxl/libjxl/releases/latest' -TimeoutSec 60; $asset = $rel.assets | Where-Object { $_.name -like '*x64-windows-static*.zip' } | Select-Object -First 1; if (-not $asset) { throw 'No Windows static asset found' }; Invoke-WebRequest -Uri $asset.browser_download_url -OutFile '.venv\jxl-tools.zip' -TimeoutSec 300 } catch { Write-Error $_; exit 1 }"
+if !errorlevel! neq 0 (
+    echo WARNING: Failed to download JPEG XL tools. JPEG XL support will be unavailable.
     goto jxl_done
 )
 
-set JXL_TOOLS_DIR=%CD%\.venv\jxl-tools
-set PATH=%PATH%;%CD%\.venv\jxl-tools\bin
-echo      OK: JPEG XL tools downloaded to .venv\jxl-tools
+echo      Extracting JPEG XL tools...
+if exist ".venv\jxl-tools-tmp" rd /s /q ".venv\jxl-tools-tmp"
+.venv\7z\7za.exe x -y -o".venv\jxl-tools-tmp" ".venv\jxl-tools.zip"
+if !errorlevel! neq 0 (
+    echo WARNING: Failed to extract JPEG XL tools. JPEG XL support will be unavailable.
+    goto jxl_done
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $src = Get-ChildItem -Path '.venv\jxl-tools-tmp' -Directory | Select-Object -First 1; if (-not $src) { throw 'No extracted directory found' }; if (Test-Path '.venv\jxl-tools') { Remove-Item -Path '.venv\jxl-tools' -Recurse -Force }; Move-Item -Path $src.FullName -Destination '.venv\jxl-tools' -Force; Remove-Item -Path '.venv\jxl-tools.zip' -Force; Remove-Item -Path '.venv\jxl-tools-tmp' -Force } catch { Write-Error $_; exit 1 }"
+if !errorlevel! neq 0 (
+    echo WARNING: Failed to install JPEG XL tools. JPEG XL support will be unavailable.
+    goto jxl_done
+)
+
+set JXL_TOOLS_DIR=!CD!\.venv\jxl-tools
+set PATH=!PATH!;!CD!\.venv\jxl-tools\bin
+echo      OK: JPEG XL tools installed to .venv\jxl-tools
 
 :jxl_done
 
 :: Check Python version
 echo      Python version:
-for /f "tokens=*" %%a in ('python --version 2^>^&1') do echo        %%a
+for /f "tokens=*" %%a in ('.venv\Scripts\python.exe --version 2^>^&1') do echo        %%a
 
 :: Install/update dependencies
 echo [3/3] Installing dependencies...
 echo      Pip version:
-for /f "tokens=*" %%a in ('pip --version 2^>^&1') do echo        %%a
+for /f "tokens=*" %%a in ('.venv\Scripts\pip.exe --version 2^>^&1') do echo        %%a
 echo.
 echo      Installing packages (this may take a minute)...
-pip install -e .
+.venv\Scripts\pip.exe install -e .
 if errorlevel 1 (
     echo ERROR: Failed to install dependencies
     pause
@@ -174,7 +201,7 @@ echo ----------------------------------------------------------------
 echo.
 
 :: Start the server
-uvicorn app.main:app --reload --port %PORT% --host %HOST%
+.venv\Scripts\uvicorn.exe app.main:app --reload --port %PORT% --host %HOST%
 
 :: Pause if server stops
 echo.
