@@ -356,6 +356,8 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `USE_JXL` | Transcode new image uploads to lossless JPEG XL | `false` |
 | `JXL_FALLBACK_QUALITY` | JPEG quality for generated fallbacks | `85` |
 | `JXL_LOSSLESS_TRANSCODE_JPEG` | Use lossless JPEG transcode for JPEG sources | `true` |
+| `JXL_EFFORT` | Encoder effort: 1 (fast/large) to 9 (slow/small) | `7` |
+| `JXL_THREADS` | Encoder threads: -1 auto, 0 single-threaded | `-1` |
 
 ## Git Commits
 
