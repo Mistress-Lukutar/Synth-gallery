@@ -211,19 +211,17 @@
                 let imgHtml;
                 if (coverId) {
                     const thumbBase = `${getBaseUrl()}/files/${coverId}/thumbnail`;
+                    // Thumbnails are always JPEG; do not wrap them in a JXL source.
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <picture>
-                            <source srcset="${thumbBase}" type="image/jxl">
-                            <img data-item-id="${coverId}"
-                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
-                                 alt="${escapeHtml(album.name)}"
-                                 loading="lazy"
-                                 onload="this.parentElement.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
-                                 style="opacity: 0;"
-                                 ${safeId ? '' : `src="${thumbBase}?format=jpeg"`}>
-                        </picture>
+                        <img data-item-id="${coverId}"
+                             ${safeId ? `data-safe-id="${safeId}"` : ''}
+                             alt="${escapeHtml(album.name)}"
+                             loading="lazy"
+                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                             style="opacity: 0;"
+                             ${safeId ? '' : `src="${thumbBase}"`}>
                     `;
                 } else {
                     imgHtml = `
@@ -289,6 +287,7 @@
                 const thumbBase = `${getBaseUrl()}/files/${media.id}/thumbnail`;
 
                 // Unified template for all media - uses data attributes for async resolution
+                // Thumbnails are always JPEG, so no JXL <source> is needed here.
                 html += `
                     <div class="gallery-item" 
                          data-item-id="${media.id}"
@@ -299,17 +298,14 @@
                          ${dateAttrs}>
                         <div class="gallery-link" onclick="openItem('${media.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
-                            <picture>
-                                <source srcset="${thumbBase}" type="image/jxl">
-                                <img data-item-id="${media.id}"
-                                     ${safeId ? `data-safe-id="${safeId}"` : ''}
-                                     alt="${escapeHtml(displayName)}"
-                                     loading="lazy"
-                                     onload="this.parentElement.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                     onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
-                                     style="opacity: 0;"
-                                     ${safeId ? '' : `src="${thumbBase}?format=jpeg"`}>
-                            </picture>
+                            <img data-item-id="${media.id}"
+                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
+                                 alt="${escapeHtml(displayName)}"
+                                 loading="lazy"
+                                 onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 style="opacity: 0;"
+                                 ${safeId ? '' : `src="${thumbBase}"`}>
                             ${mediaType === 'video' ? `
                                 <div class="video-badge">
                                     <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">

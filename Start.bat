@@ -56,7 +56,7 @@ set JXL_THREADS=-1
 :: --progressive_dc=1 adds an extra 64x64 low-resolution pass.
 set JXL_PROGRESSIVE_AC=true
 set JXL_QPROGRESSIVE_AC=true
-set JXL_PROGRESSIVE_DC=0
+set JXL_PROGRESSIVE_DC=1
 
 :: Set the environment variable for the application
 set SYNTH_BASE_URL=%BASE_PATH%

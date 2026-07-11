@@ -160,3 +160,17 @@ class TestJxlFallbackServing:
         assert response.status_code == 200
         assert response.headers['content-type'] == 'image/jpeg'
         assert response.content.startswith(b'\xff\xd8')
+
+    def test_thumbnail_is_served_as_jpeg(
+        self,
+        authenticated_client: TestClient,
+        jxl_photo_id: str,
+    ) -> None:
+        '''Thumbnails are always JPEG, even when the original is JXL.'''
+        response = authenticated_client.get(
+            f'/files/{jxl_photo_id}/thumbnail',
+        )
+
+        assert response.status_code == 200
+        assert response.headers['content-type'] == 'image/jpeg'
+        assert response.content.startswith(b'\xff\xd8')

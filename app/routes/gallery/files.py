@@ -243,7 +243,10 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                 raise HTTPException(status_code=404, detail="Thumbnail unavailable")
         
         encryption = _get_encryption_type(photo)
-        content_type = photo.get("content_type", "image/jpeg")
+        # Thumbnails are always generated as JPEG, regardless of the original
+        # content type (e.g. image/jxl). Serving the original MIME here breaks
+        # preview loading in browsers because the bytes are JPEG.
+        thumbnail_content_type = "image/jpeg"
         
         # E2E files: serve as-is
         if encryption == "e2e":
@@ -251,7 +254,7 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                 file_path = storage.get_path(photo_id, "thumbnails")
                 return FileResponse(
                     file_path,
-                    media_type=content_type,
+                    media_type=thumbnail_content_type,
                     headers={
                         "X-Encryption": "e2e",
                         "X-Safe-Id": photo["safe_id"]
@@ -290,12 +293,12 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                     decrypted_data = data
                 else:
                     raise HTTPException(status_code=500, detail="Decryption failed")
-            return Response(content=decrypted_data, media_type=content_type)
+            return Response(content=decrypted_data, media_type=thumbnail_content_type)
         
         # Regular files
         if isinstance(storage, LocalStorage):
             file_path = storage.get_path(photo_id, "thumbnails")
-            return FileResponse(file_path, media_type=content_type)
+            return FileResponse(file_path, media_type=thumbnail_content_type)
         else:
             url = storage.get_url(photo_id, "thumbnails", expires=3600)
             return RedirectResponse(url=url)
