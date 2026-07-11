@@ -14,7 +14,11 @@ from typing import BinaryIO
 
 from PIL import Image
 
-from ...config import JXL_LOSSLESS_TRANSCODE_JPEG
+from ...config import (
+    JXL_EFFORT,
+    JXL_LOSSLESS_TRANSCODE_JPEG,
+    JXL_THREADS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +121,8 @@ def encode_to_lossless_jxl(
 
             save_options: dict[str, object] = {
                 'format': 'JXL',
+                'effort': JXL_EFFORT,
+                'num_threads': JXL_THREADS,
             }
 
             if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
