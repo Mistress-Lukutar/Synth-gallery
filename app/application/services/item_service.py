@@ -2,6 +2,7 @@
 
 Uses Strategy Pattern for type-specific operations.
 """
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -10,7 +11,7 @@ from typing import Optional, Dict, List, Any
 
 from fastapi import UploadFile, HTTPException
 
-from ...config import ALLOWED_MEDIA_TYPES
+from ...config import ALLOWED_MEDIA_TYPES, USE_JXL
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.services.media import (
@@ -18,8 +19,12 @@ from ...infrastructure.services.media import (
     get_image_dimensions, get_video_info
 )
 from ...infrastructure.services.jxl import is_jxl_content
+from ...infrastructure.services.jxl_encoder import encode_to_lossless_jxl, JxlEncodeError
 from ...infrastructure.services.metadata import extract_taken_date
 from ...infrastructure.storage import get_storage
+
+
+logger = logging.getLogger(__name__)
 
 
 class ItemRenderer(ABC):
@@ -158,6 +163,51 @@ class ItemService:
         
         return False
     
+    def _maybe_transcode_to_jxl(
+        self,
+        content: bytes,
+        media_type: str,
+        content_type: str,
+    ) -> tuple[bytes, str]:
+        """Transcode image uploads to lossless JPEG XL when enabled.
+        
+        Falls back to the original content if encoding fails.
+        
+        Args:
+            content: Raw file bytes.
+            media_type: 'image' or 'video'.
+            content_type: Original MIME type.
+            
+        Returns:
+            Tuple of (content, content_type). Content type becomes image/jxl
+            when transcoding succeeds.
+        """
+        if not USE_JXL:
+            return content, content_type
+        
+        if media_type != 'image':
+            return content, content_type
+        
+        if content_type == 'image/jxl':
+            return content, content_type
+        
+        if not content_type or not content_type.startswith('image/'):
+            return content, content_type
+        
+        try:
+            is_jpeg = content_type == 'image/jpeg'
+            transcoded = encode_to_lossless_jxl(content, is_jpeg=is_jpeg)
+            logger.info(
+                'Transcoded upload to JXL: %s bytes (%s) -> %s bytes (image/jxl)',
+                len(content),
+                content_type,
+                len(transcoded),
+            )
+            return transcoded, 'image/jxl'
+        except JxlEncodeError as exc:
+            logger.warning('JXL transcode failed, keeping original: %s', exc)
+            return content, content_type
+    
     # ========================================================================
     # Async Upload Processing (consolidated business logic)
     # ========================================================================
@@ -209,8 +259,10 @@ class ItemService:
         if not file.filename:
             raise HTTPException(400, "No filename")
         
-        if not is_e2e and file.content_type not in ALLOWED_MEDIA_TYPES:
-            raise HTTPException(400, f"Invalid file type: {file.content_type}")
+        content_type = file.content_type or "application/octet-stream"
+        
+        if not is_e2e and content_type not in ALLOWED_MEDIA_TYPES:
+            raise HTTPException(400, f"Invalid file type: {content_type}")
         
         # Generate item ID
         item_id = str(uuid.uuid4())
@@ -223,11 +275,11 @@ class ItemService:
             raise HTTPException(400, "Empty file")
         
         # Determine media type
-        media_type = get_media_type(file.content_type)
+        media_type = get_media_type(content_type)
 
         # Validate file content by magic bytes (security: prevent spoofing)
         if not is_e2e and not self._validate_content(content, media_type):
-            raise HTTPException(400, f"Invalid file content for type: {file.content_type}")
+            raise HTTPException(400, f"Invalid file content for type: {content_type}")
 
         # Extract dimensions and metadata
         orig_width, orig_height = None, None
@@ -242,7 +294,7 @@ class ItemService:
                     orig_width, orig_height = dims
                 # Get EXIF date
                 try:
-                    suffix = '.jxl' if file.content_type == 'image/jxl' else None
+                    suffix = '.jxl' if content_type == 'image/jxl' else None
                     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                         tmp.write(content)
                         tmp.flush()
@@ -255,6 +307,19 @@ class ItemService:
                 if info:
                     orig_width, orig_height, duration_sec = info
                     duration = int(round(duration_sec))
+        
+        # Transcode images to lossless JXL when the feature is enabled.
+        # This happens after metadata extraction so that EXIF data is
+        # preserved inside the JXL container.
+        if not is_e2e:
+            content, content_type = self._maybe_transcode_to_jxl(
+                content, media_type, content_type
+            )
+            size = len(content)
+            if content_type == 'image/jxl' and media_type == 'image':
+                dims = get_image_dimensions(content)
+                if dims:
+                    orig_width, orig_height = dims
         
         # Handle thumbnail
         thumb_w, thumb_h = thumb_width, thumb_height
@@ -294,7 +359,7 @@ class ItemService:
             item_id=item_id,
             file_data={
                 "filename": file.filename,
-                "content_type": file.content_type or "application/octet-stream",
+                "content_type": content_type,
                 "size": size,
                 "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "user_id": user_id,
