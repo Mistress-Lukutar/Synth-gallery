@@ -228,6 +228,8 @@ DEK (Data Encryption Key) ◄──┘
 
 **JPEG XL Experimental Storage:**
 - Set `USE_JXL=true` to transcode new image uploads to lossless JPEG XL
+- The official `cjxl` CLI is preferred for progressive encoding; `Start.bat` adds it to PATH automatically
+- If `cjxl` is not found, `Start.bat` downloads the latest Windows static build to `.venv\jxl-tools`
 - JPEG sources are transcoded losslessly when possible; other raster formats are re-encoded losslessly
 - EXIF and embedded metadata are preserved inside the JXL container
 - Thumbnails continue to be generated as JPEG
