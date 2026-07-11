@@ -3,11 +3,14 @@ import json
 import re
 import subprocess
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Optional, Any
 
 from PIL import Image
 from PIL.ExifTags import TAGS
+
+from .jxl import decode_jxl
 
 
 def extract_taken_date(file_path: Path) -> Optional[datetime]:
@@ -33,7 +36,13 @@ def extract_taken_date(file_path: Path) -> Optional[datetime]:
 
     # Image files
     try:
-        with Image.open(file_path) as img:
+        if suffix == '.jxl':
+            decoded = decode_jxl(file_path.read_bytes())
+            img = Image.open(BytesIO(decoded))
+        else:
+            img = Image.open(file_path)
+
+        with img:
             # Try EXIF data first (works for JPEG, WebP, some PNG, TIFF)
             exif_date = _extract_exif_date(img)
             if exif_date:
@@ -247,7 +256,13 @@ def get_metadata_summary(file_path: Path) -> dict[str, Any]:
     }
 
     try:
-        with Image.open(file_path) as img:
+        if file_path.suffix.lower() == '.jxl':
+            decoded = decode_jxl(file_path.read_bytes())
+            img = Image.open(BytesIO(decoded))
+        else:
+            img = Image.open(file_path)
+
+        with img:
             result['dimensions'] = f"{img.width}x{img.height}"
 
             # Get EXIF data

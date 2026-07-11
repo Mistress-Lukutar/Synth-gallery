@@ -358,6 +358,7 @@ var FileCrypto = (function() {
                 'png': 'image/png',
                 'gif': 'image/gif',
                 'webp': 'image/webp',
+                'jxl': 'image/jxl',
                 'mp4': 'video/mp4',
                 'webm': 'video/webm'
             };

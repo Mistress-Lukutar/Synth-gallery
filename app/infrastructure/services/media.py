@@ -9,6 +9,7 @@ import cv2
 from PIL import Image, ImageOps
 
 from ...config import ALLOWED_VIDEO_TYPES
+from .jxl import decode_jxl, get_jxl_dimensions
 
 
 def create_thumbnail(source_path: Path, thumb_path: Path, size: tuple[int, int] = (400, 400)):
@@ -49,7 +50,14 @@ def get_media_type(content_type: str) -> str:
 
 def create_thumbnail_bytes(image_data: bytes, size: tuple[int, int] = (400, 400)) -> tuple[bytes, int, int]:
     """Create thumbnail from image bytes, return (JPEG bytes, width, height)."""
-    with Image.open(BytesIO(image_data)) as img:
+    try:
+        img = Image.open(BytesIO(image_data))
+    except Exception:
+        # Pillow cannot open this directly; try JPEG XL decoding
+        image_data = decode_jxl(image_data)
+        img = Image.open(BytesIO(image_data))
+
+    with img:
         # Apply EXIF orientation to fix rotated images from cameras/phones
         img = ImageOps.exif_transpose(img)
         img.thumbnail(size, Image.Resampling.LANCZOS)
@@ -99,6 +107,12 @@ def get_image_dimensions(image_data: bytes) -> Optional[Tuple[int, int]]:
     try:
         with Image.open(BytesIO(image_data)) as img:
             return img.size
+    except Exception:
+        # Pillow cannot open this directly; try JPEG XL decoding
+        pass
+
+    try:
+        return get_jxl_dimensions(image_data)
     except Exception:
         return None
 

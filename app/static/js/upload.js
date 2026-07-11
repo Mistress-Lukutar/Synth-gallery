@@ -222,9 +222,14 @@
 
     // Check valid media file
     function isValidMedia(file) {
-        return file.type.startsWith('image/') ||
-               file.type === 'video/mp4' ||
-               file.type === 'video/webm';
+        if (file.type) {
+            return file.type.startsWith('image/') ||
+                   file.type === 'video/mp4' ||
+                   file.type === 'video/webm';
+        }
+        // Fallback to extension when the browser doesn't report a MIME type
+        const ext = file.name.split('.').pop().toLowerCase();
+        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jxl', 'mp4', 'webm'].includes(ext);
     }
 
     // Add files to selection (accumulates)

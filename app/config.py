@@ -22,7 +22,7 @@ BASE_URL = os.environ.get("SYNTH_BASE_URL", "").strip("/")
 ROOT_PATH = f"/{BASE_URL}" if BASE_URL else ""
 
 # Allowed media types
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/jxl"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 

@@ -302,7 +302,8 @@ async def upload_chunk(
                                 exif_content = EncryptionService.decrypt_file(assembled_content, user_dek)
                             except Exception:
                                 pass
-                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                    suffix = '.jxl' if chunk.content_type == 'image/jxl' else None
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                         tmp.write(exif_content)
                         tmp.flush()
                         taken_at = extract_taken_date(Path(tmp.name))

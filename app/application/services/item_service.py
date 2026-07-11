@@ -17,6 +17,7 @@ from ...infrastructure.services.media import (
     create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type,
     get_image_dimensions, get_video_info
 )
+from ...infrastructure.services.jxl import is_jxl_content
 from ...infrastructure.services.metadata import extract_taken_date
 from ...infrastructure.storage import get_storage
 
@@ -145,6 +146,9 @@ class ItemService:
         # WebP
         if header[4:8] == b'WEBP':
             return expected_media_type in ('image', 'photo')
+        # JPEG XL
+        if is_jxl_content(header):
+            return expected_media_type in ('image', 'photo')
         # MP4
         if header[4:8] in (b'ftyp', b'moov'):
             return expected_media_type == 'video'
@@ -238,7 +242,8 @@ class ItemService:
                     orig_width, orig_height = dims
                 # Get EXIF date
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                    suffix = '.jxl' if file.content_type == 'image/jxl' else None
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                         tmp.write(content)
                         tmp.flush()
                         taken_at = extract_taken_date(Path(tmp.name))
