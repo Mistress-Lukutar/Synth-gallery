@@ -885,24 +885,36 @@
                 // Load full image in background
                 try {
                     const fullUrl = await FileAccessService.getFileUrl(photoId, { photo });
-                    const fullImg = new Image();
-                    currentFullImageLoader = fullImg;
-                    
-                    fullImg.onload = () => {
-                        if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
-                            currentFullImageLoader = null;
-                            mediaContainer.innerHTML = `
-                                <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                            `;
-                        }
-                    };
-                    fullImg.onerror = () => {
-                        if (currentFullImageLoader === fullImg) {
-                            currentFullImageLoader = null;
-                        }
-                        console.warn('[lightbox] Failed to load full image, keeping thumbnail');
-                    };
-                    fullImg.src = fullUrl;
+
+                    if (isE2E) {
+                        // E2E files use a Blob URL; preload before replacing thumbnail
+                        const fullImg = new Image();
+                        currentFullImageLoader = fullImg;
+
+                        fullImg.onload = () => {
+                            if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
+                                currentFullImageLoader = null;
+                                mediaContainer.innerHTML = `
+                                    <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                                `;
+                            }
+                        };
+                        fullImg.onerror = () => {
+                            if (currentFullImageLoader === fullImg) {
+                                currentFullImageLoader = null;
+                            }
+                            console.warn('[lightbox] Failed to load full image, keeping thumbnail');
+                        };
+                        fullImg.src = fullUrl;
+                    } else {
+                        // Server-side files: let the browser pick JXL or JPEG fallback
+                        mediaContainer.innerHTML = `
+                            <picture>
+                                <source srcset="${fullUrl}" type="image/jxl">
+                                <img class="lightbox-image" src="${fullUrl}?format=jpeg" alt="${escapeHtml(photo.original_name || '')}">
+                            </picture>
+                        `;
+                    }
                 } catch (err) {
                     console.warn('[lightbox] Failed to start full image load:', err);
                 }

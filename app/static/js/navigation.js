@@ -210,15 +210,20 @@
                 // Unified image handling - use data attributes for async resolution
                 let imgHtml;
                 if (coverId) {
+                    const thumbBase = `${getBaseUrl()}/files/${coverId}/thumbnail`;
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
-                        <img data-item-id="${coverId}"
-                             ${safeId ? `data-safe-id="${safeId}"` : ''}
-                             alt="${escapeHtml(album.name)}"
-                             loading="lazy"
-                             onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
-                             style="opacity: 0;">
+                        <picture>
+                            <source srcset="${thumbBase}" type="image/jxl">
+                            <img data-item-id="${coverId}"
+                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
+                                 alt="${escapeHtml(album.name)}"
+                                 loading="lazy"
+                                 onload="this.parentElement.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 style="opacity: 0;"
+                                 ${safeId ? '' : `src="${thumbBase}?format=jpeg"`}>
+                        </picture>
                     `;
                 } else {
                     imgHtml = `
@@ -281,6 +286,8 @@
                 const takenAt = media.taken_at || '';
                 const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
                 
+                const thumbBase = `${getBaseUrl()}/files/${media.id}/thumbnail`;
+
                 // Unified template for all media - uses data attributes for async resolution
                 html += `
                     <div class="gallery-item" 
@@ -292,13 +299,17 @@
                          ${dateAttrs}>
                         <div class="gallery-link" onclick="openItem('${media.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
-                            <img data-item-id="${media.id}"
-                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
-                                 alt="${escapeHtml(displayName)}"
-                                 loading="lazy"
-                                 onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
-                                 style="opacity: 0;">
+                            <picture>
+                                <source srcset="${thumbBase}" type="image/jxl">
+                                <img data-item-id="${media.id}"
+                                     ${safeId ? `data-safe-id="${safeId}"` : ''}
+                                     alt="${escapeHtml(displayName)}"
+                                     loading="lazy"
+                                     onload="this.parentElement.previousElementSibling.style.display='none'; this.style.opacity='1';"
+                                     onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                     style="opacity: 0;"
+                                     ${safeId ? '' : `src="${thumbBase}?format=jpeg"`}>
+                            </picture>
                             ${mediaType === 'video' ? `
                                 <div class="video-badge">
                                     <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
