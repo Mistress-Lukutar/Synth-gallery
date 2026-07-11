@@ -25,8 +25,8 @@ set SYNTH_ENV=development
 :: ----------------------------------------------------------------
 :: ADVANCED CONFIGURATION
 :: ----------------------------------------------------------------
-set PORT=8000
-set HOST=127.0.0.1
+set PORT=8008
+set HOST=0.0.0.0
 
 set BACKUP_ROTATION_COUNT=3
 
@@ -35,20 +35,20 @@ set BACKUP_ROTATION_COUNT=3
 :: ----------------------------------------------------------------
 :: Uncomment the next line to transcode new image uploads to lossless JPEG XL.
 :: Existing files and videos are not affected.
-:: set USE_JXL=true
+set USE_JXL=true
 
 :: JPEG fallback quality for browsers without JXL support (1-100).
-:: set JXL_FALLBACK_QUALITY=85
+set JXL_FALLBACK_QUALITY=85
 
 :: Use lossless JPEG transcode for JPEG sources when USE_JXL is enabled.
 :: Disable this to re-encode JPEGs as lossless pixel data instead.
-:: set JXL_LOSSLESS_TRANSCODE_JPEG=true
+set JXL_LOSSLESS_TRANSCODE_JPEG=true
 
 :: Encoder effort: 1 (fastest, larger) to 9 (slowest, smaller). Default 7.
-:: set JXL_EFFORT=7
+set JXL_EFFORT=7
 
 :: Encoder threads: -1 lets the encoder decide, 0 disables threading.
-:: set JXL_THREADS=-1
+set JXL_THREADS=-1
 
 :: Set the environment variable for the application
 set SYNTH_BASE_URL=%BASE_PATH%
