@@ -74,6 +74,13 @@ JXL_LOSSLESS_TRANSCODE_JPEG = (
     os.environ.get("JXL_LOSSLESS_TRANSCODE_JPEG", "true").lower() == "true"
 )
 
+# JPEG XL encoder tuning.
+# effort: 1 (fastest/largest) to 9 (slowest/smallest). Default 7.
+JXL_EFFORT = int(os.environ.get("JXL_EFFORT", "7"))
+
+# num_threads passed to the JXL encoder. -1 lets the encoder decide.
+JXL_THREADS = int(os.environ.get("JXL_THREADS", "-1"))
+
 # Cache directory for on-demand JPEG fallbacks generated from JXL originals
 FALLBACKS_DIR = BASE_DIR / "fallbacks"
 FALLBACKS_DIR.mkdir(exist_ok=True)
