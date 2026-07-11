@@ -866,28 +866,42 @@
                     mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load video'}</p>`;
                 }
             } else {
-                // Images: progressive loading with thumbnail, then full image
+                // Images
                 const loadId = Date.now();
                 mediaContainer.dataset.loadingId = loadId;
-                
-                // Start with thumbnail
-                try {
-                    const thumbUrl = await FileAccessService.getThumbnailUrl(photoId, { photo });
-                    mediaContainer.innerHTML = `
-                        <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                    `;
-                } catch (err) {
-                    console.error('[lightbox] Failed to load thumbnail:', err);
-                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load thumbnail'}</p>`;
-                    return; // Don't try to load full image if thumbnail failed
-                }
-                
-                // Load full image in background
-                try {
-                    const fullUrl = await FileAccessService.getFileUrl(photoId, { photo });
+                const isJxl = photo.content_type === 'image/jxl';
 
-                    if (isE2E) {
-                        // E2E files use a Blob URL; preload before replacing thumbnail
+                if (!isE2E && isJxl) {
+                    // JXL (server-side): load the full progressive image directly.
+                    // No thumbnail — the browser decodes progressively and quality improves.
+                    try {
+                        const fullUrl = await FileAccessService.getFileUrl(photoId, { photo });
+                        mediaContainer.innerHTML = `
+                            <picture>
+                                <source srcset="${fullUrl}" type="image/jxl">
+                                <img class="lightbox-image" src="${fullUrl}?format=jpeg" alt="${escapeHtml(photo.original_name || '')}">
+                            </picture>
+                        `;
+                    } catch (err) {
+                        console.warn('[lightbox] Failed to start full image load:', err);
+                    }
+                } else {
+                    // All other images (E2E files and non-JXL server-side files):
+                    // start with the thumbnail, preload the full image, and swap once ready.
+                    try {
+                        const thumbUrl = await FileAccessService.getThumbnailUrl(photoId, { photo });
+                        mediaContainer.innerHTML = `
+                            <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                        `;
+                    } catch (err) {
+                        console.error('[lightbox] Failed to load thumbnail:', err);
+                        mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load thumbnail'}</p>`;
+                        return; // Don't try to load full image if thumbnail failed
+                    }
+
+                    // Load full image in background
+                    try {
+                        const fullUrl = await FileAccessService.getFileUrl(photoId, { photo });
                         const fullImg = new Image();
                         currentFullImageLoader = fullImg;
 
@@ -906,17 +920,9 @@
                             console.warn('[lightbox] Failed to load full image, keeping thumbnail');
                         };
                         fullImg.src = fullUrl;
-                    } else {
-                        // Server-side files: let the browser pick JXL or JPEG fallback
-                        mediaContainer.innerHTML = `
-                            <picture>
-                                <source srcset="${fullUrl}" type="image/jxl">
-                                <img class="lightbox-image" src="${fullUrl}?format=jpeg" alt="${escapeHtml(photo.original_name || '')}">
-                            </picture>
-                        `;
+                    } catch (err) {
+                        console.warn('[lightbox] Failed to start full image load:', err);
                     }
-                } catch (err) {
-                    console.warn('[lightbox] Failed to start full image load:', err);
                 }
             }
 
