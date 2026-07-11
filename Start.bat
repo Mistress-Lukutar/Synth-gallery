@@ -50,6 +50,9 @@ set JXL_EFFORT=7
 :: Encoder threads: -1 lets the encoder decide, 0 disables threading.
 set JXL_THREADS=-1
 
+:: Decoding speed / progressive rendering: 0 best progressive, 4 fastest decode.
+set JXL_DECODING_SPEED=0
+
 :: Set the environment variable for the application
 set SYNTH_BASE_URL=%BASE_PATH%
 
