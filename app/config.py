@@ -81,6 +81,10 @@ JXL_EFFORT = int(os.environ.get("JXL_EFFORT", "7"))
 # num_threads passed to the JXL encoder. -1 lets the encoder decide.
 JXL_THREADS = int(os.environ.get("JXL_THREADS", "-1"))
 
+# decoding_speed: 0 (best progressive experience) to 4 (fastest decode).
+# Lower values produce data that renders progressively in browsers.
+JXL_DECODING_SPEED = int(os.environ.get("JXL_DECODING_SPEED", "0"))
+
 # Cache directory for on-demand JPEG fallbacks generated from JXL originals
 FALLBACKS_DIR = BASE_DIR / "fallbacks"
 FALLBACKS_DIR.mkdir(exist_ok=True)
