@@ -65,3 +65,15 @@ WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
 # Cookie security settings
 # Default is secure (HTTPS only). Set COOKIE_SECURE=false for HTTP dev environments.
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+
+# JPEG XL experimental storage settings
+# Set USE_JXL=true to transcode new image uploads to lossless JPEG XL.
+USE_JXL = os.environ.get("USE_JXL", "false").lower() == "true"
+JXL_FALLBACK_QUALITY = int(os.environ.get("JXL_FALLBACK_QUALITY", "85"))
+JXL_LOSSLESS_TRANSCODE_JPEG = (
+    os.environ.get("JXL_LOSSLESS_TRANSCODE_JPEG", "true").lower() == "true"
+)
+
+# Cache directory for on-demand JPEG fallbacks generated from JXL originals
+FALLBACKS_DIR = BASE_DIR / "fallbacks"
+FALLBACKS_DIR.mkdir(exist_ok=True)
