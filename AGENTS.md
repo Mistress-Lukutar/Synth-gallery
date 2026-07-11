@@ -226,6 +226,17 @@ DEK (Data Encryption Key) ◄──┘
 - Non-safe files are decrypted on-the-fly using the owner's DEK
 - If decryption fails and the file matches plaintext magic bytes, it is served raw for backward compatibility
 
+**JPEG XL Experimental Storage:**
+- Set `USE_JXL=true` to transcode new image uploads to lossless JPEG XL
+- JPEG sources are transcoded losslessly when possible; other raster formats are re-encoded losslessly
+- EXIF and embedded metadata are preserved inside the JXL container
+- Thumbnails continue to be generated as JPEG
+- Files with `content_type == image/jxl` are served as JXL when the client sends `Accept: image/jxl`
+- Browsers without JXL support receive an on-demand JPEG fallback, cached under `fallbacks/`
+- The frontend uses `<picture>` with `<source type="image/jxl">` and a JPEG fallback `img`
+- E2E / Safe uploads are not transcoded (client controls the format)
+- Existing files and videos are not affected
+
 ### 6. Storage Abstraction Layer
 
 All file operations go through the storage abstraction layer (`app/infrastructure/storage/`):
@@ -342,6 +353,9 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `BACKUP_PATH` | Backup directory path | `./backups` |
 | `BACKUP_SCHEDULE` | `daily`, `weekly`, or `disabled` | `daily` |
 | `BACKUP_ROTATION_COUNT` | Number of backups to keep | 5 |
+| `USE_JXL` | Transcode new image uploads to lossless JPEG XL | `false` |
+| `JXL_FALLBACK_QUALITY` | JPEG quality for generated fallbacks | `85` |
+| `JXL_LOSSLESS_TRANSCODE_JPEG` | Use lossless JPEG transcode for JPEG sources | `true` |
 
 ## Git Commits
 
