@@ -18,6 +18,7 @@ from typing import BinaryIO
 from PIL import Image
 
 from ...config import (
+    JXL_DECODING_SPEED,
     JXL_EFFORT,
     JXL_LOSSLESS_TRANSCODE_JPEG,
     JXL_THREADS,
@@ -109,6 +110,8 @@ def _encode_jpeg_transcode(jpeg_bytes: bytes) -> bytes:
                 output,
                 format='JXL',
                 lossless_jpeg=True,
+                use_container=True,
+                decoding_speed=JXL_DECODING_SPEED,
                 effort=JXL_EFFORT,
                 num_threads=JXL_THREADS,
             )
@@ -144,6 +147,8 @@ def _encode_lossless_reencode(image_bytes: bytes) -> bytes:
             save_options: dict[str, object] = {
                 'format': 'JXL',
                 'lossless': True,
+                'use_container': True,
+                'decoding_speed': JXL_DECODING_SPEED,
                 'effort': JXL_EFFORT,
                 'num_threads': JXL_THREADS,
             }
