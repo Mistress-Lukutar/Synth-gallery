@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import io
 import logging
+import os
+import tempfile
+from pathlib import Path
 from typing import BinaryIO
 
 from PIL import Image
@@ -78,6 +81,84 @@ def _normalize_image_mode(img: Image.Image) -> Image.Image:
     return img.convert('RGB')
 
 
+def _encode_jpeg_transcode(jpeg_bytes: bytes) -> bytes:
+    '''Transcode a JPEG file to lossless JPEG XL via a temporary file.
+
+    pillow_jxl performs true lossless JPEG transcode only when the source
+    image is opened from a named file. This helper writes the bytes to a
+    temporary file, encodes it, and cleans up afterwards.
+
+    Args:
+        jpeg_bytes: Raw JPEG file bytes.
+
+    Returns:
+        Lossless JXL bytes preserving the original JPEG bitstream.
+
+    Raises:
+        JxlEncodeError: If transcode fails.
+    '''
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+            tmp.write(jpeg_bytes)
+            tmp_path = Path(tmp.name)
+
+        with Image.open(tmp_path) as img:
+            output = io.BytesIO()
+            img.save(
+                output,
+                format='JXL',
+                lossless_jpeg=True,
+                effort=JXL_EFFORT,
+                num_threads=JXL_THREADS,
+            )
+            return output.getvalue()
+    except Exception as exc:
+        logger.exception('Failed to transcode JPEG to JPEG XL')
+        raise JxlEncodeError(f'JPEG XL transcode failed: {exc}') from exc
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _encode_lossless_reencode(image_bytes: bytes) -> bytes:
+    '''Re-encode raster image bytes to lossless JPEG XL.
+
+    Args:
+        image_bytes: Raw image file bytes.
+
+    Returns:
+        Lossless JXL bytes.
+
+    Raises:
+        JxlEncodeError: If encoding fails.
+    '''
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img = _normalize_image_mode(img)
+            output = io.BytesIO()
+
+            save_options: dict[str, object] = {
+                'format': 'JXL',
+                'lossless': True,
+                'effort': JXL_EFFORT,
+                'num_threads': JXL_THREADS,
+            }
+
+            exif = img.getexif()
+            if exif:
+                save_options['exif'] = exif.tobytes()
+
+            img.save(output, **save_options)
+            return output.getvalue()
+    except Exception as exc:
+        logger.exception('Failed to encode image to JPEG XL')
+        raise JxlEncodeError(f'JPEG XL encoding failed: {exc}') from exc
+
+
 def encode_to_lossless_jxl(
     source: bytes | BinaryIO,
     is_jpeg: bool | None = None,
@@ -106,38 +187,18 @@ def encode_to_lossless_jxl(
     if isinstance(source, bytes):
         if len(source) == 0:
             raise JxlEncodeError('Cannot encode empty image data')
+        image_bytes = source
         if is_jpeg is None:
-            is_jpeg = _is_jpeg_content(source)
-        source = io.BytesIO(source)
-    elif is_jpeg is None:
-        start = source.read(2)
+            is_jpeg = _is_jpeg_content(image_bytes)
+    else:
+        image_bytes = source.read()
         source.seek(0)
-        is_jpeg = start == b'\xff\xd8'
+        if len(image_bytes) == 0:
+            raise JxlEncodeError('Cannot encode empty image data')
+        if is_jpeg is None:
+            is_jpeg = _is_jpeg_content(image_bytes)
 
-    try:
-        with Image.open(source) as img:
-            img = _normalize_image_mode(img)
-            output = io.BytesIO()
+    if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
+        return _encode_jpeg_transcode(image_bytes)
 
-            save_options: dict[str, object] = {
-                'format': 'JXL',
-                'effort': JXL_EFFORT,
-                'num_threads': JXL_THREADS,
-            }
-
-            if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
-                save_options['lossless_jpeg'] = True
-            else:
-                save_options['lossless'] = True
-
-            exif = img.getexif()
-            if exif:
-                save_options['exif'] = exif.tobytes()
-
-            img.save(output, **save_options)
-            return output.getvalue()
-    except JxlEncodeError:
-        raise
-    except Exception as exc:
-        logger.exception('Failed to encode image to JPEG XL')
-        raise JxlEncodeError(f'JPEG XL encoding failed: {exc}') from exc
+    return _encode_lossless_reencode(image_bytes)
