@@ -191,6 +191,78 @@
         // Show/hide media-specific rows
         document.getElementById('detail-dimensions-row').classList.toggle('hidden', !metadata.width);
         document.getElementById('detail-duration-row').classList.toggle('hidden', !metadata.duration);
+
+        renderPngTextChunks(metadata.png_text_chunks);
+    }
+
+    function renderPngTextChunks(chunks) {
+        const section = document.getElementById('png-text-section');
+        const grid = document.getElementById('png-text-grid');
+        if (!section || !grid) return;
+
+        if (!chunks || Object.keys(chunks).length === 0) {
+            section.classList.add('hidden');
+            grid.innerHTML = '';
+            return;
+        }
+
+        section.classList.remove('hidden');
+        grid.innerHTML = Object.entries(chunks).map(([key, value]) => {
+            const displayValue = String(value).replace(/\s+/g, ' ').trim();
+            return `
+                <div class="png-text-card" draggable="true"
+                     data-key="${escapeHtml(key)}"
+                     data-value="${escapeHtml(displayValue)}"
+                     title="${escapeHtml(key)}: ${escapeHtml(displayValue)}">
+                    <div class="png-text-card-header">
+                        <span class="png-text-card-key">${escapeHtml(key)}</span>
+                        <button class="png-text-card-copy" title="Copy value" tabindex="-1">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="png-text-card-value">${escapeHtml(displayValue)}</div>
+                </div>
+            `;
+        }).join('');
+
+        grid.querySelectorAll('.png-text-card').forEach(card => {
+            let dragStarted = false;
+            card.addEventListener('dragstart', (e) => {
+                dragStarted = true;
+                handlePngTextDragStart(e);
+            });
+            card.addEventListener('dragend', () => {
+                setTimeout(() => { dragStarted = false; }, 50);
+            });
+            card.addEventListener('click', (e) => {
+                if (dragStarted) return;
+                // Allow copy button click to also trigger copy
+                handlePngTextClick(e);
+            });
+        });
+    }
+
+    function handlePngTextDragStart(e) {
+        const card = e.currentTarget;
+        const value = card.dataset.value || '';
+        e.dataTransfer.setData('text/plain', value);
+        e.dataTransfer.effectAllowed = 'copy';
+    }
+
+    async function handlePngTextClick(e) {
+        const card = e.currentTarget.closest('.png-text-card');
+        if (!card) return;
+        const value = card.dataset.value || '';
+        const copied = await _copyToClipboard(value);
+        if (copied) {
+            card.classList.add('copied');
+            setTimeout(() => card.classList.remove('copied'), 1200);
+        } else {
+            window.prompt('Copy value manually:', value);
+        }
     }
 
     function formatDateTime(dateStr) {
@@ -862,6 +934,11 @@
         searchResults = [];
         relatedSuggestions = [];
         originalValues = {}; // Reset dirty check
+
+        const pngSection = document.getElementById('png-text-section');
+        const pngGrid = document.getElementById('png-text-grid');
+        if (pngSection) pngSection.classList.add('hidden');
+        if (pngGrid) pngGrid.innerHTML = '';
 
         // Destroy editor instance
         if (descriptionEditor) {

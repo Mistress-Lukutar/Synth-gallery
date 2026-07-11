@@ -533,6 +533,8 @@ def init_db():
     media_columns = [row['name'] for row in cursor.fetchall()]
     if 'file_size' not in media_columns:
         db.execute("ALTER TABLE item_media ADD COLUMN file_size INTEGER")
+    if 'png_text_chunks' not in media_columns:
+        db.execute("ALTER TABLE item_media ADD COLUMN png_text_chunks TEXT")
 
     # AI Tagging Jobs table
     db.execute("""

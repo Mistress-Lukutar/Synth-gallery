@@ -8,6 +8,7 @@ Version: v0.1.0
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from abc import ABC, abstractmethod
@@ -33,7 +34,7 @@ from app.infrastructure.services.media import (
     get_media_type,
     get_video_info,
 )
-from app.infrastructure.services.metadata import extract_taken_date
+from app.infrastructure.services.metadata import extract_taken_date, extract_png_text_chunks
 from app.infrastructure.storage import get_storage
 
 
@@ -302,6 +303,7 @@ class ItemService:
         orig_width, orig_height = None, None
         duration = None
         taken_at = None
+        png_text_chunks = None
 
         if not is_e2e:
             if media_type == 'image':
@@ -309,13 +311,15 @@ class ItemService:
                 dims = get_image_dimensions(content)
                 if dims:
                     orig_width, orig_height = dims
-                # Get EXIF date
+                # Get EXIF date and PNG text chunks
                 try:
                     suffix = '.jxl' if content_type == 'image/jxl' else None
                     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                         tmp.write(content)
                         tmp.flush()
                         taken_at = extract_taken_date(Path(tmp.name))
+                    # Capture PNG text chunks before any transcoding can strip them.
+                    png_text_chunks = extract_png_text_chunks(content) or None
                 except Exception:
                     pass
             elif media_type == 'video':
@@ -391,6 +395,7 @@ class ItemService:
                 "width": orig_width,
                 "height": orig_height,
                 "duration": duration,
+                "png_text_chunks": png_text_chunks,
             },
             folder_id=folder_id,
             safe_id=safe_id,
@@ -451,7 +456,8 @@ class ItemService:
             thumb_width=media_data.get('thumb_width', 0),
             thumb_height=media_data.get('thumb_height', 0),
             taken_at=taken_at,
-            file_size=file_data.get('size')
+            file_size=file_data.get('size'),
+            png_text_chunks=media_data.get('png_text_chunks')
         )
         
         return {
@@ -694,7 +700,8 @@ class ItemService:
             thumb_width=media["thumb_width"],
             thumb_height=media["thumb_height"],
             taken_at=media["taken_at"],
-            file_size=media.get("file_size")
+            file_size=media.get("file_size"),
+            png_text_chunks=media.get("png_text_chunks")
         )
         
         # Copy tags
@@ -748,7 +755,8 @@ class ItemService:
                 i.id, i.type, i.title, i.description, i.user_id,
                 i.uploaded_at, i.updated_at,
                 im.media_type, im.original_name, im.content_type,
-                im.width, im.height, im.duration, im.taken_at, im.file_size
+                im.width, im.height, im.duration, im.taken_at, im.file_size,
+                im.png_text_chunks
                FROM items i
                LEFT JOIN item_media im ON i.id = im.item_id
                WHERE i.id = ?""",
@@ -758,7 +766,13 @@ class ItemService:
         if not row:
             return None
         
-        return dict(row)
+        metadata = dict(row)
+        if metadata.get('png_text_chunks'):
+            try:
+                metadata['png_text_chunks'] = json.loads(metadata['png_text_chunks'])
+            except json.JSONDecodeError:
+                metadata['png_text_chunks'] = None
+        return metadata
     
     def update_metadata(
         self,

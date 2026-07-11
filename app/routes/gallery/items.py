@@ -148,6 +148,7 @@ def get_item_metadata(item_id: str, request: Request):
             "height": metadata.get("height"),
             "duration": metadata.get("duration"),
             "taken_at": metadata.get("taken_at"),
+            "png_text_chunks": metadata.get("png_text_chunks"),
             "can_edit": can_edit,
         }
     finally:
