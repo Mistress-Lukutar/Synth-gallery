@@ -1,27 +1,40 @@
-"""Item service - unified handling for all content types.
+'''
+File:   item_service.py
+Brief:  Item service - unified handling for all content types.
+Author: Mistress-Lukutar
+Date:   2026-07-11
+Version: v0.1.0
+'''
 
-Uses Strategy Pattern for type-specific operations.
-"""
+from __future__ import annotations
+
 import logging
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional
 
-from fastapi import UploadFile, HTTPException
+from fastapi import HTTPException, UploadFile
 
-from ...config import ALLOWED_MEDIA_TYPES, USE_JXL
-from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
-from ...infrastructure.services.encryption import EncryptionService
-from ...infrastructure.services.media import (
-    create_thumbnail_bytes, create_video_thumbnail_bytes, get_media_type,
-    get_image_dimensions, get_video_info
+from app.config import ALLOWED_MEDIA_TYPES, USE_JXL
+from app.infrastructure.repositories import ItemMediaRepository, ItemRepository
+from app.infrastructure.services.encryption import EncryptionService
+from app.infrastructure.services.jxl import is_jxl_content
+from app.infrastructure.services.jxl_encoder import (
+    encode_to_lossless_jxl,
+    is_jxl_encoding_available,
+    JxlEncodeError,
 )
-from ...infrastructure.services.jxl import is_jxl_content
-from ...infrastructure.services.jxl_encoder import encode_to_lossless_jxl, JxlEncodeError
-from ...infrastructure.services.metadata import extract_taken_date
-from ...infrastructure.storage import get_storage
+from app.infrastructure.services.media import (
+    create_thumbnail_bytes,
+    create_video_thumbnail_bytes,
+    get_image_dimensions,
+    get_media_type,
+    get_video_info,
+)
+from app.infrastructure.services.metadata import extract_taken_date
+from app.infrastructure.storage import get_storage
 
 
 logger = logging.getLogger(__name__)
@@ -63,11 +76,11 @@ class MediaRenderer(ItemRenderer):
     """Renderer for photos and videos."""
     
     def get_thumbnail_url(self, item: Dict) -> str:
-        from ...config import BASE_URL
+        from app.config import BASE_URL
         return f"{BASE_URL}/files/{item['id']}/thumbnail"
-    
+
     def get_full_url(self, item: Dict) -> str:
-        from ...config import BASE_URL
+        from app.config import BASE_URL
         return f"{BASE_URL}/files/{item['id']}"
     
     def get_dimensions(self, item: Dict) -> tuple:
@@ -276,6 +289,10 @@ class ItemService:
         
         # Determine media type
         media_type = get_media_type(content_type)
+
+        # Fail fast when JXL transcoding is requested but the encoder is missing.
+        if USE_JXL and not is_jxl_encoding_available():
+            raise HTTPException(503, "JPEG XL encoder (cjxl) is not available")
 
         # Validate file content by magic bytes (security: prevent spoofing)
         if not is_e2e and not self._validate_content(content, media_type):
@@ -528,7 +545,7 @@ class ItemService:
     
     def _get_album_item_ids(self, folder_id: str) -> set:
         """Get IDs of all items that are in albums for a given folder."""
-        from ...infrastructure.repositories import AlbumRepository
+        from app.infrastructure.repositories import AlbumRepository
         album_repo = AlbumRepository(self.item_repo._conn)
         return album_repo.get_item_ids_by_folder(folder_id)
     
@@ -574,8 +591,8 @@ class ItemService:
         Returns:
             New item ID
         """
-        from ...config import UPLOADS_DIR, THUMBNAILS_DIR
-        from ...infrastructure.services.encryption import EncryptionService, dek_cache
+        from app.config import UPLOADS_DIR, THUMBNAILS_DIR
+        from app.infrastructure.services.encryption import EncryptionService, dek_cache
         
         item = self.item_repo.get_by_id(item_id)
         if not item:
@@ -778,7 +795,7 @@ class ItemService:
             raise HTTPException(404, "Item not found")
         
         # Validate ownership or editor permission
-        from ...infrastructure.repositories import PermissionRepository
+        from app.infrastructure.repositories import PermissionRepository
         perm_repo = PermissionRepository(self.item_repo._conn)
         
         is_owner = item.get('user_id') == user_id
