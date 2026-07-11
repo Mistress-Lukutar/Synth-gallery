@@ -11,6 +11,8 @@ from __future__ import annotations
 import io
 import logging
 import os
+import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import BinaryIO
@@ -23,6 +25,7 @@ from ...config import (
     JXL_LOSSLESS_TRANSCODE_JPEG,
     JXL_THREADS,
 )
+from .jxl import _get_jxl_binary
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +35,17 @@ class JxlEncodeError(Exception):
 
 
 def is_jxl_encoding_available() -> bool:
-    '''Return True if Pillow can encode images to JPEG XL.
+    '''Return True if a JPEG XL encoder is available.
+
+    Prefer the official ``cjxl`` CLI (required for progressive encoding);
+    fall back to the pillow_jxl plugin.
 
     Returns:
-        True when the pillow_jxl plugin is installed and registered
-        a save handler for the JXL format.
+        True when either cjxl or the pillow_jxl save handler is available.
     '''
+    if _get_jxl_binary('cjxl.exe' if os.name == 'nt' else 'cjxl') is not None:
+        return True
+
     try:
         import pillow_jxl  # noqa: F401
         return 'JXL' in Image.SAVE
@@ -55,6 +63,84 @@ def _is_jpeg_content(data: bytes) -> bool:
         True if the data starts with the JPEG SOI marker.
     '''
     return data.startswith(b'\xff\xd8')
+
+
+def _extension_for_content_type(is_jpeg: bool) -> str:
+    '''Return a file extension for the source image type.'''
+    return '.jpg' if is_jpeg else '.png'
+
+
+def _encode_with_cjxl(image_bytes: bytes, is_jpeg: bool) -> bytes:
+    '''Encode image bytes to lossless progressive JPEG XL using the cjxl CLI.
+
+    Args:
+        image_bytes: Raw image file bytes.
+        is_jpeg: Whether the source is a JPEG file.
+
+    Returns:
+        Lossless progressive JXL bytes.
+
+    Raises:
+        JxlEncodeError: If cjxl is unavailable or encoding fails.
+    '''
+    binary = _get_jxl_binary('cjxl.exe' if os.name == 'nt' else 'cjxl')
+    if binary is None:
+        raise JxlEncodeError('cjxl encoder not found')
+
+    source_path: Path | None = None
+    output_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=_extension_for_content_type(is_jpeg),
+            delete=False,
+        ) as source_tmp:
+            source_tmp.write(image_bytes)
+            source_path = Path(source_tmp.name)
+
+        with tempfile.NamedTemporaryFile(suffix='.jxl', delete=False) as output_tmp:
+            output_path = Path(output_tmp.name)
+
+        cmd: list[str | Path] = [
+            binary,
+            source_path,
+            output_path,
+            '--progressive',
+            '-e', str(JXL_EFFORT),
+            '--num_threads', str(JXL_THREADS),
+            '--container=1',
+        ]
+
+        if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
+            cmd.append('--lossless_jpeg=1')
+        else:
+            cmd.extend(['-d', '0'])
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            check=False,
+            text=True,
+            encoding='utf-8',
+            errors='ignore',
+        )
+        if result.returncode != 0:
+            raise JxlEncodeError(
+                f'cjxl failed (code {result.returncode}): {result.stderr}'
+            )
+
+        return output_path.read_bytes()
+    except JxlEncodeError:
+        raise
+    except Exception as exc:
+        logger.exception('Failed to encode with cjxl')
+        raise JxlEncodeError(f'cjxl encoding failed: {exc}') from exc
+    finally:
+        for path in (source_path, output_path):
+            if path is not None:
+                try:
+                    path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
 
 def _normalize_image_mode(img: Image.Image) -> Image.Image:
@@ -82,56 +168,12 @@ def _normalize_image_mode(img: Image.Image) -> Image.Image:
     return img.convert('RGB')
 
 
-def _encode_jpeg_transcode(jpeg_bytes: bytes) -> bytes:
-    '''Transcode a JPEG file to lossless JPEG XL via a temporary file.
-
-    pillow_jxl performs true lossless JPEG transcode only when the source
-    image is opened from a named file. This helper writes the bytes to a
-    temporary file, encodes it, and cleans up afterwards.
-
-    Args:
-        jpeg_bytes: Raw JPEG file bytes.
-
-    Returns:
-        Lossless JXL bytes preserving the original JPEG bitstream.
-
-    Raises:
-        JxlEncodeError: If transcode fails.
-    '''
-    tmp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-            tmp.write(jpeg_bytes)
-            tmp_path = Path(tmp.name)
-
-        with Image.open(tmp_path) as img:
-            output = io.BytesIO()
-            img.save(
-                output,
-                format='JXL',
-                lossless_jpeg=True,
-                use_container=True,
-                decoding_speed=JXL_DECODING_SPEED,
-                effort=JXL_EFFORT,
-                num_threads=JXL_THREADS,
-            )
-            return output.getvalue()
-    except Exception as exc:
-        logger.exception('Failed to transcode JPEG to JPEG XL')
-        raise JxlEncodeError(f'JPEG XL transcode failed: {exc}') from exc
-    finally:
-        if tmp_path is not None:
-            try:
-                tmp_path.unlink(missing_ok=True)
-            except Exception:
-                pass
-
-
-def _encode_lossless_reencode(image_bytes: bytes) -> bytes:
-    '''Re-encode raster image bytes to lossless JPEG XL.
+def _encode_with_pillow(image_bytes: bytes, is_jpeg: bool) -> bytes:
+    '''Fallback encoding using pillow_jxl.
 
     Args:
         image_bytes: Raw image file bytes.
+        is_jpeg: Whether the source is a JPEG file.
 
     Returns:
         Lossless JXL bytes.
@@ -140,6 +182,32 @@ def _encode_lossless_reencode(image_bytes: bytes) -> bytes:
         JxlEncodeError: If encoding fails.
     '''
     try:
+        import pillow_jxl  # noqa: F401
+    except ImportError as exc:
+        raise JxlEncodeError('No JPEG XL encoder available') from exc
+
+    tmp_path: Path | None = None
+    try:
+        if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
+            # pillow_jxl performs true lossless JPEG transcode only when the
+            # source image is opened from a named file.
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp.write(image_bytes)
+                tmp_path = Path(tmp.name)
+
+            with Image.open(tmp_path) as img:
+                output = io.BytesIO()
+                img.save(
+                    output,
+                    format='JXL',
+                    lossless_jpeg=True,
+                    use_container=True,
+                    decoding_speed=JXL_DECODING_SPEED,
+                    effort=JXL_EFFORT,
+                    num_threads=JXL_THREADS,
+                )
+                return output.getvalue()
+
         with Image.open(io.BytesIO(image_bytes)) as img:
             img = _normalize_image_mode(img)
             output = io.BytesIO()
@@ -159,9 +227,17 @@ def _encode_lossless_reencode(image_bytes: bytes) -> bytes:
 
             img.save(output, **save_options)
             return output.getvalue()
+    except JxlEncodeError:
+        raise
     except Exception as exc:
         logger.exception('Failed to encode image to JPEG XL')
         raise JxlEncodeError(f'JPEG XL encoding failed: {exc}') from exc
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def encode_to_lossless_jxl(
@@ -175,6 +251,9 @@ def encode_to_lossless_jxl(
     re-encoded losslessly. EXIF metadata is preserved inside the
     JXL container.
 
+    Prefer the official ``cjxl`` CLI for progressive encoding; fall back
+    to the pillow_jxl plugin when cjxl is unavailable.
+
     Args:
         source: Raw image bytes or file-like object.
         is_jpeg: Whether the source is a JPEG file. If None, the
@@ -186,9 +265,6 @@ def encode_to_lossless_jxl(
     Raises:
         JxlEncodeError: If the encoder is unavailable or encoding fails.
     '''
-    if not is_jxl_encoding_available():
-        raise JxlEncodeError('JPEG XL encoder is not available')
-
     if isinstance(source, bytes):
         if len(source) == 0:
             raise JxlEncodeError('Cannot encode empty image data')
@@ -203,7 +279,11 @@ def encode_to_lossless_jxl(
         if is_jpeg is None:
             is_jpeg = _is_jpeg_content(image_bytes)
 
-    if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
-        return _encode_jpeg_transcode(image_bytes)
+    binary = _get_jxl_binary('cjxl.exe' if os.name == 'nt' else 'cjxl')
+    if binary is not None:
+        try:
+            return _encode_with_cjxl(image_bytes, is_jpeg)
+        except JxlEncodeError:
+            logger.warning('cjxl encode failed, falling back to pillow_jxl')
 
-    return _encode_lossless_reencode(image_bytes)
+    return _encode_with_pillow(image_bytes, is_jpeg)
