@@ -1,8 +1,15 @@
-"""Application configuration and constants."""
+'''
+File:   config.py
+Brief:  Application configuration and constants.
+Author: Mistress-Lukutar
+Date:   2026-07-11
+Version: v0.1.0
+'''
+
 import os
 from pathlib import Path
 
-from .logging_config import setup_logging
+from app.logging_config import setup_logging
 
 # Initialize logging configuration
 setup_logging()
@@ -81,9 +88,16 @@ JXL_EFFORT = int(os.environ.get("JXL_EFFORT", "7"))
 # num_threads passed to the JXL encoder. -1 lets the encoder decide.
 JXL_THREADS = int(os.environ.get("JXL_THREADS", "-1"))
 
-# decoding_speed: 0 (best progressive experience) to 4 (fastest decode).
-# Lower values produce data that renders progressively in browsers.
-JXL_DECODING_SPEED = int(os.environ.get("JXL_DECODING_SPEED", "0"))
+# Progressive encoding flags for cjxl.
+# --progressive_ac and --qprogressive_ac improve perceived loading speed.
+# --progressive_dc=1 adds an extra 64x64 low-resolution pass; -1 disables it.
+JXL_PROGRESSIVE_AC = (
+    os.environ.get("JXL_PROGRESSIVE_AC", "true").lower() == "true"
+)
+JXL_QPROGRESSIVE_AC = (
+    os.environ.get("JXL_QPROGRESSIVE_AC", "true").lower() == "true"
+)
+JXL_PROGRESSIVE_DC = int(os.environ.get("JXL_PROGRESSIVE_DC", "1"))
 
 # Cache directory for on-demand JPEG fallbacks generated from JXL originals
 FALLBACKS_DIR = BASE_DIR / "fallbacks"
