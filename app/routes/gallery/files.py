@@ -14,6 +14,7 @@ from ...database import create_connection
 from ...dependencies import require_user
 from ...infrastructure.repositories import ItemRepository, ItemMediaRepository
 from ...infrastructure.services.encryption import EncryptionService, dek_cache
+from ...infrastructure.services.jxl_fallback_service import JxlFallbackService
 from ...infrastructure.storage import get_storage, LocalStorage
 from .deps import get_permission_service
 from ...logging_config import get_logger
@@ -42,26 +43,34 @@ def _is_plaintext_media(content: bytes) -> bool:
     return False
 
 
-def _decrypt_file_response(file_path: Path, dek: bytes, content_type: str = None) -> Response:
-    """Decrypt server-side encrypted file and return as Response.
-    
-    Falls back to serving raw bytes if the file appears to be an old
-    plaintext upload (backward compatibility during migration).
-    """
-    with open(file_path, "rb") as f:
-        data = f.read()
+def _client_accepts_jxl(request: Request) -> bool:
+    """Return True if the request explicitly accepts image/jxl."""
+    accept = request.headers.get("Accept", "")
+    return "image/jxl" in accept
 
-    try:
-        decrypted_data = EncryptionService.decrypt_file(data, dek)
-        return Response(content=decrypted_data, media_type=content_type or "image/jpeg")
-    except Exception:
-        if _is_plaintext_media(data):
-            logger.warning(
-                "Serving plaintext file (not encrypted): %s. Run encrypt_existing_uploads.py",
-                file_path.name
-            )
-            return Response(content=data, media_type=content_type or "image/jpeg")
-        raise HTTPException(status_code=500, detail="Decryption failed")
+
+def _force_jpeg_fallback(request: Request) -> bool:
+    """Return True when the format=jpeg query parameter is present."""
+    return request.query_params.get("format") == "jpeg"
+
+
+async def _serve_jxl_or_fallback(
+    request: Request,
+    photo_id: str,
+    jxl_bytes: bytes,
+    dek: bytes,
+) -> Response:
+    """Serve JXL directly or generate a JPEG fallback when needed.
+
+    Uses the Accept header and the ``format=jpeg`` query parameter to decide
+    which representation to return. Generated fallbacks are encrypted and
+    cached with the same DEK as the original.
+    """
+    if _force_jpeg_fallback(request) or not _client_accepts_jxl(request):
+        fallback_service = JxlFallbackService()
+        jpeg_bytes = await fallback_service.get_fallback(photo_id, jxl_bytes, dek)
+        return Response(content=jpeg_bytes, media_type="image/jpeg")
+    return Response(content=jxl_bytes, media_type="image/jxl")
 
 
 def _get_encryption_type(photo: dict) -> str:
@@ -173,18 +182,24 @@ async def get_file(photo_id: str, request: Request):
             
             if isinstance(storage, LocalStorage):
                 file_path = storage.get_path(filename, "uploads")
-                return _decrypt_file_response(file_path, dek, content_type)
+                with open(file_path, "rb") as f:
+                    data = f.read()
             else:
                 data = await storage.download(filename, "uploads")
-                try:
-                    decrypted_data = EncryptionService.decrypt_file(data, dek)
-                except Exception:
-                    if _is_plaintext_media(data):
-                        logger.warning("Serving plaintext file from S3: %s", filename)
-                        decrypted_data = data
-                    else:
-                        raise HTTPException(status_code=500, detail="Decryption failed")
-                return Response(content=decrypted_data, media_type=content_type)
+            
+            try:
+                decrypted_data = EncryptionService.decrypt_file(data, dek)
+            except Exception:
+                if _is_plaintext_media(data):
+                    logger.warning("Serving plaintext file: %s", filename)
+                    decrypted_data = data
+                else:
+                    raise HTTPException(status_code=500, detail="Decryption failed")
+            
+            if content_type == "image/jxl":
+                return await _serve_jxl_or_fallback(request, photo_id, decrypted_data, dek)
+            
+            return Response(content=decrypted_data, media_type=content_type)
         
         # Regular files: serve directly
         if isinstance(storage, LocalStorage):
