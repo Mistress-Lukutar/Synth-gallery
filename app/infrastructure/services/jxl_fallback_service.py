@@ -3,7 +3,7 @@ File:   jxl_fallback_service.py
 Brief:  Generate and cache JPEG fallbacks for JXL originals.
 Author: Mistress-Lukutar
 Date:   2026-07-11
-Version: v0.1.0
+Version: v0.2.0
 '''
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ from __future__ import annotations
 import io
 import logging
 
-import pillow_jxl  # noqa: F401
 from PIL import Image
 
-from ...config import JXL_FALLBACK_QUALITY
-from ...infrastructure.services.encryption import EncryptionService
-from ...infrastructure.storage import get_storage
-from ...infrastructure.storage.base import StorageInterface
+from app.config import JXL_FALLBACK_QUALITY
+from app.infrastructure.services.encryption import EncryptionService
+from app.infrastructure.services.jxl import decode_jxl
+from app.infrastructure.storage import get_storage
+from app.infrastructure.storage.base import StorageInterface
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,8 @@ class JxlFallbackService:
             JxlFallbackError: If the image cannot be decoded or encoded.
         '''
         try:
-            with Image.open(io.BytesIO(jxl_bytes)) as img:
+            png_bytes = decode_jxl(jxl_bytes)
+            with Image.open(io.BytesIO(png_bytes)) as img:
                 if img.mode in ('RGBA', 'P'):
                     img = img.convert('RGB')
                 output = io.BytesIO()
