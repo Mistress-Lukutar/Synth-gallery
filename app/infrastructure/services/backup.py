@@ -89,8 +89,8 @@ def _prepare_db_copy(src_path: Path, dest_path: Path) -> None:
             conn.execute("DELETE FROM sessions")
         if "ai_api_keys" in existing_tables:
             conn.execute("DELETE FROM ai_api_keys")
-        conn.execute("VACUUM")
         conn.commit()
+        conn.execute("VACUUM")
     finally:
         conn.close()
 
