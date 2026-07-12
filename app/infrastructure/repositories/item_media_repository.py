@@ -101,7 +101,7 @@ class ItemMediaRepository(Repository):
             'original_name', 'content_type',
             'width', 'height', 'duration',
             'thumb_width', 'thumb_height', 'taken_at',
-            'png_text_chunks'
+            'file_size', 'png_text_chunks'
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         

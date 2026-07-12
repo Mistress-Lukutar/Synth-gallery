@@ -248,7 +248,25 @@
     function handlePngTextDragStart(e) {
         const card = e.currentTarget;
         const value = card.dataset.value || '';
+        const key = card.dataset.key || 'metadata';
+
+        // Plain text for inputs / textareas (e.g. ComfyUI prompt field)
         e.dataTransfer.setData('text/plain', value);
+        e.dataTransfer.setData('text/html', `<pre>${escapeHtml(value)}</pre>`);
+
+        // Also expose the value as a virtual file so apps that expect a file
+        // drop (messengers, ComfyUI canvas, etc.) can accept it.
+        try {
+            const safeName = String(key).replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 64) || 'metadata';
+            const file = new File([value], `${safeName}.json`, { type: 'application/json' });
+            if (e.dataTransfer.items && typeof e.dataTransfer.items.add === 'function') {
+                e.dataTransfer.items.add(file);
+            }
+        } catch (err) {
+            // Fallback to text-only drag if the browser doesn't support adding files.
+            console.warn('[png-text] Could not attach file to drag:', err);
+        }
+
         e.dataTransfer.effectAllowed = 'copy';
     }
 
@@ -733,9 +751,12 @@
 
     function escapeHtml(text) {
         if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
     }
 
     // ========================================================================

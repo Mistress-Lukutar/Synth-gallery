@@ -37,9 +37,12 @@ async function csrfFetch(url, options = {}) {
 // Escape HTML to prevent XSS
 function escapeHtml(text) {
     if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 // Get base URL from global or compute
