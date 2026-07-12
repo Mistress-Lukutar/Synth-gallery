@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from PIL import Image
 
+from app.infrastructure.services import jxl_encoder
 from app.infrastructure.services.jxl_encoder import (
     encode_to_lossless_jxl,
     is_jxl_encoding_available,
@@ -91,6 +92,46 @@ def test_encode_passes_progressive_flags(jpeg_bytes: bytes, fake_jxl_output: byt
     assert '--qprogressive_ac' in cmd
     assert '--progressive_dc' in cmd
     assert '1' in cmd  # JXL_PROGRESSIVE_DC default
+    assert '--lossless_jpeg=1' in cmd
+
+
+def test_encode_respects_disabled_progressive_flags(
+    jpeg_bytes: bytes, fake_jxl_output: bytes
+) -> None:
+    '''When all progressive flags are disabled, --progressive must not be used.'''
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stderr = ''
+
+    def fake_run(cmd: list[str | Path], **kwargs: object) -> MagicMock:
+        output_path = Path(str(cmd[2]))
+        output_path.write_bytes(fake_jxl_output)
+        return mock_result
+
+    with patch(
+        'app.infrastructure.services.jxl_encoder._get_jxl_binary',
+        return_value=Path('/usr/bin/cjxl'),
+    ):
+        with patch(
+            'app.infrastructure.services.jxl_encoder.subprocess.run',
+            side_effect=fake_run,
+        ) as run_mock:
+            with patch.object(
+                jxl_encoder, 'JXL_PROGRESSIVE_AC', False
+            ), patch.object(
+                jxl_encoder, 'JXL_QPROGRESSIVE_AC', False
+            ), patch.object(
+                jxl_encoder, 'JXL_PROGRESSIVE_DC', 0
+            ):
+                result = encode_to_lossless_jxl(jpeg_bytes, is_jpeg=True)
+
+    assert result == fake_jxl_output
+
+    cmd = [str(arg) for arg in run_mock.call_args[0][0]]
+    assert '--progressive' not in cmd
+    assert '--progressive_ac' not in cmd
+    assert '--qprogressive_ac' not in cmd
+    assert '--progressive_dc' not in cmd
     assert '--lossless_jpeg=1' in cmd
 
 

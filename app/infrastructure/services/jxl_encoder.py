@@ -91,21 +91,27 @@ def _encode_with_cjxl(image_bytes: bytes, is_jpeg: bool) -> bytes:
         with tempfile.NamedTemporaryFile(suffix='.jxl', delete=False) as output_tmp:
             output_path = Path(output_tmp.name)
 
+        progressive_dc_enabled = JXL_PROGRESSIVE_DC > 0
+        use_progressive = (
+            JXL_PROGRESSIVE_AC or JXL_QPROGRESSIVE_AC or progressive_dc_enabled
+        )
+
         cmd: list[str | Path] = [
             binary,
             source_path,
             output_path,
-            '--progressive',
             '-e', str(JXL_EFFORT),
             '--num_threads', str(JXL_THREADS),
             '--container=1',
         ]
 
+        if use_progressive:
+            cmd.append('--progressive')
         if JXL_PROGRESSIVE_AC:
             cmd.append('--progressive_ac')
         if JXL_QPROGRESSIVE_AC:
             cmd.append('--qprogressive_ac')
-        if JXL_PROGRESSIVE_DC != -1:
+        if progressive_dc_enabled:
             cmd.extend(['--progressive_dc', str(JXL_PROGRESSIVE_DC)])
 
         if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
