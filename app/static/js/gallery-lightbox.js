@@ -117,7 +117,6 @@
             const albumPhotos = albumItems.map(p => ({
                 type: 'item',  // Phase 5: polymorphic item
                 id: p.id,
-                safeId: p.safe_id,
                 albumId: albumId
             }));
             
@@ -351,7 +350,6 @@
         flatNavOrder = photos.map(p => ({
             type: 'item',  // Phase 5: polymorphic item
             id: p.id,
-            safeId: p.safeId,
             albumId: p.albumId || null
         }));
         currentNavIndex = startIndex;
@@ -371,7 +369,6 @@
         const expandedPhotos = albumPhotos.map(p => ({
             type: 'item',  // Phase 5: polymorphic item
             id: p.id,
-            safeId: p.safeId,
             albumId: albumId
         }));
         
@@ -457,7 +454,6 @@
                             flatOrder.push({
                                 type: 'item',  // Phase 5: polymorphic item
                                 id: photo.id,
-                                safeId: photo.safe_id || item.dataset.safeId, // Fallback to album's safeId
                                 albumId: albumId
                             });
                         }
@@ -475,8 +471,7 @@
                 const itemId = item.dataset.itemId || item.dataset.photoId;
                 flatOrder.push({
                     type: 'item',  // Phase 5: polymorphic item
-                    id: itemId,
-                    safeId: item.dataset.safeId
+                    id: itemId
                 });
             }
         }
@@ -500,29 +495,8 @@
         
         if (galleryItem) {
             const access = galleryItem.dataset.access;
-            const safeId = galleryItem.dataset.safeId;
             
             if (access === 'denied') {
-                return;
-            }
-            
-            if (access === 'locked' && safeId) {
-                
-                let safeName = 'Safe';
-                let unlockType = 'password';
-                if (window.userSafes) {
-                    const safe = window.userSafes.find(s => s.id === safeId);
-                    if (safe) {
-                        safeName = safe.name;
-                        unlockType = safe.unlock_type;
-                    }
-                }
-                
-                if (typeof openSafeUnlock === 'function') {
-                    openSafeUnlock(safeId, safeName, unlockType);
-                } else {
-                    console.error('[openPhoto] openSafeUnlock not available');
-                }
                 return;
             }
         }
@@ -561,7 +535,7 @@
         
         // If still not found, add as standalone - Phase 5: polymorphic item
         if (currentNavIndex === -1) {
-            flatNavOrder = [{ type: 'item', id: photoId, safeId: galleryItem?.dataset.safeId }];  // Phase 5
+            flatNavOrder = [{ type: 'item', id: photoId }];  // Phase 5
             currentNavIndex = 0;
             window.clearAlbumContext();
         } else {
@@ -851,10 +825,8 @@
             currentPhotoId = photoId;
             window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
             
-            // Render media using unified FileAccessService
-            // This handles all encryption types (none, server-side, E2E/Safe) uniformly
+            // Render media using FileAccessService (handles server-side encrypted files)
             const mimeType = photo.content_type || (photo.media_type === 'video' ? 'video/mp4' : 'image/jpeg');
-            const isE2E = !!photo.safe_id;
             
             if (photo.media_type === 'video') {
                 // Videos: load directly via FileAccessService
@@ -863,7 +835,7 @@
                     mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${videoUrl}"></video>`;
                 } catch (err) {
                     console.error('[lightbox] Failed to load video:', err);
-                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load video'}</p>`;
+                    mediaContainer.innerHTML = `<p>Error: Failed to load video</p>`;
                 }
             } else {
                 // Images
@@ -879,7 +851,7 @@
                     `;
                 } catch (err) {
                     console.error('[lightbox] Failed to load thumbnail:', err);
-                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load thumbnail'}</p>`;
+                    mediaContainer.innerHTML = `<p>Error: Failed to load thumbnail</p>`;
                     return; // Don't try to load full image if thumbnail failed
                 }
 

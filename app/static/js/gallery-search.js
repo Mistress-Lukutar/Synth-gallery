@@ -257,8 +257,6 @@
             if (item.type === 'album') {
                 const album = item;
                 const coverId = album.cover_photo_id;
-                const safeId = album.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 
                 const rawWidth = album.cover_thumb_width || 280;
                 const rawHeight = album.cover_thumb_height || 280;
@@ -274,11 +272,10 @@
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
                         <img data-item-id="${coverId}"
-                             ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                             onerror="handleImageError(this, 'access')"
                              style="opacity: 0;">
                     `;
                 } else {
@@ -297,7 +294,6 @@
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
-                         ${safeIdAttr}
                          ${matchingItemsAttr}
                          data-uploaded-at="${escapeHtml(albumUploadedAt)}"
                          data-taken-at="${escapeHtml(albumTakenAt)}">
@@ -322,8 +318,6 @@
                 `;
             } else if (item.type === 'photo') {
                 const photo = item;
-                const safeId = photo.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const mediaType = photo.media_type || 'image';
                 
                 const hasDims = photo.thumb_width && photo.thumb_height;
@@ -345,17 +339,15 @@
                          data-item-type="photo"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
-                         ${safeIdAttr}
                          data-uploaded-at="${escapeHtml(photoUploadedAt)}"
                          data-taken-at="${escapeHtml(photoTakenAt)}">
                         <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
                             <img data-item-id="${photo.id}"
-                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
                                  alt="${escapeHtml(photo.original_name)}"
                                  loading="lazy"
                                  onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 onerror="handleImageError(this, 'access')"
                                  style="opacity: 0;">
                             ${mediaType === 'video' ? `
                                 <div class="video-badge">

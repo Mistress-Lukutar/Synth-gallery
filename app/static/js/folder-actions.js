@@ -7,7 +7,6 @@
     // === Folder Modal State ===
     let editingFolderId = null;
     let userDefaultFolderId = null;
-    let creatingFolderSafeId = null;  // For creating folders inside safes
 
     // === Share Modal State ===
     let shareModalFolderId = null;
@@ -139,10 +138,9 @@
 
     // === Folder Modal Functions ===
 
-    window.openCreateFolder = function(parentId = null, safeId = null) {
+    window.openCreateFolder = function(parentId = null) {
         editingFolderId = null;
-        creatingFolderSafeId = safeId;  // Store safe_id for creating folder inside safe
-        if (folderModalTitle) folderModalTitle.textContent = safeId ? 'Create Folder in Safe' : 'Create Folder';
+        if (folderModalTitle) folderModalTitle.textContent = 'Create Folder';
         if (folderSubmitBtn) folderSubmitBtn.textContent = 'Create';
         if (folderNameInput) folderNameInput.value = '';
         
@@ -217,7 +215,6 @@
         
         if (folderModal) folderModal.classList.add('hidden');
         editingFolderId = null;
-        creatingFolderSafeId = null;  // Reset safe context
     }
 
     async function submitFolderForm() {
@@ -236,15 +233,11 @@
                     body: JSON.stringify({ name })
                 });
             } else {
-                // Create new folder (regular or inside safe)
-                const payload = { name };
-                if (creatingFolderSafeId) {
-                    payload.safe_id = creatingFolderSafeId;
-                }
+                // Create new folder
                 const resp = await csrfFetch(`${getBaseUrl()}/api/folders`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify({ name })
                 });
                 if (!resp.ok) {
                     const errorText = await resp.text();

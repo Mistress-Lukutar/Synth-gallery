@@ -6,7 +6,6 @@
 (function() {
     let folderTree = [];
     let collapsedFolders = new Set();
-    let userSafes = [];
 
     // folderTreeContainer will be looked up dynamically
 
@@ -68,28 +67,14 @@
         }
 
         try {
-            // Load folders and safes in parallel
-            const [foldersResp, safesResp] = await Promise.all([
-                fetch(`${getBaseUrl()}/api/folders`),
-                fetch(`${getBaseUrl()}/api/safes`).catch(() => null)
-            ]);
-            
+            const foldersResp = await fetch(`${getBaseUrl()}/api/folders`);
             const freshData = await foldersResp.json();
             sessionStorage.setItem('folderTreeCache', JSON.stringify(freshData));
-
-            // Parse safes response
-            if (safesResp && safesResp.ok) {
-                const safesData = await safesResp.json();
-                userSafes = safesData.safes || [];
-            } else {
-                userSafes = [];
-            }
 
             const dataChanged = JSON.stringify(freshData) !== JSON.stringify(folderTree);
             folderTree = freshData;
             
-            // Render if: no cache, or data changed, or no safes rendered yet
-            if (!hasCache || dataChanged || userSafes.length > 0) {
+            if (!hasCache || dataChanged) {
                 renderFolderTree();
             }
         } catch (err) {
@@ -125,8 +110,7 @@
             return;
         }
 
-        // Filter folders: exclude those in safes (safe_id != null)
-        const myFolders = folderTree.filter(f => f.permission === 'owner' && !f.safe_id);
+        const myFolders = folderTree.filter(f => f.permission === 'owner');
         
         let html = '';
         
@@ -149,75 +133,6 @@
                         <line x1="9" y1="14" x2="15" y2="14"/>
                     </svg>
                     <span class="folder-name">add folder</span>
-                </div>
-            </div>
-        `;
-        html += '</div>';
-        
-        // Safes section (always show, even if empty)
-        html += '<div class="folder-section">';
-        html += '<div class="folder-section-header">Safes</div>';
-        
-        if (userSafes.length > 0) {
-            userSafes.forEach(safe => {
-                // Check if really unlocked - server says unlocked AND client has the key
-                const serverUnlocked = safe.is_unlocked;
-                const clientHasKey = typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(safe.id);
-                const isUnlocked = serverUnlocked && clientHasKey;
-                
-                html += `
-                    <div class="folder-item-wrapper">
-                        <span class="folder-expand-placeholder"></span>
-                        <div class="folder-item safe-item ${isUnlocked ? 'unlocked' : 'locked'}"
-                             data-safe-id="${safe.id}"
-                             onclick="${isUnlocked ? `openSafeEditModal('${safe.id}')` : `openSafeUnlock('${safe.id}', '${escapeHtml(safe.name)}', '${safe.unlock_type}', '${escapeHtml(safe.credential_name || '')}')`}">
-                            <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="5" y="11" width="14" height="10" rx="2"/>
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                            </svg>
-                            <span class="folder-name">${escapeHtml(safe.name)}</span>
-                            <span class="folder-count">${safe.photo_count || 0}</span>
-                        </div>
-                    </div>
-                `;
-                
-                // Show folders inside safe when unlocked
-                if (isUnlocked) {
-
-                    const safeFolders = folderTree.filter(f => f.safe_id === safe.id && !f.parent_id);
-                    if (safeFolders.length > 0) {
-                        html += buildTreeHTML(null, 1, safeFolders);
-                    }
-                    // Add "Create Folder" button inside unlocked safe
-                    html += `
-                        <div class="folder-item-wrapper" style="padding-left: 20px;">
-                            <span class="folder-expand-placeholder"></span>
-                            <div class="folder-item add-folder-item" onclick="openCreateFolder(null, '${safe.id}')">
-                                <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                                    <line x1="12" y1="11" x2="12" y2="17"/>
-                                    <line x1="9" y1="14" x2="15" y2="14"/>
-                                </svg>
-                                <span class="folder-name">add folder</span>
-                            </div>
-                        </div>
-                    `;
-                }
-            });
-        }
-        
-        // Create safe button (always show)
-        html += `
-            <div class="folder-item-wrapper">
-                <span class="folder-expand-placeholder"></span>
-                <div class="folder-item add-folder-item" onclick="openCreateSafe()">
-                    <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="5" y="11" width="14" height="10" rx="2"/>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                        <line x1="12" y1="14" x2="12" y2="17"/>
-                        <line x1="9" y1="15.5" x2="15" y2="15.5"/>
-                    </svg>
-                    <span class="folder-name">create safe</span>
                 </div>
             </div>
         `;
@@ -372,11 +287,6 @@
     
     // For manual testing via console
     window.renderFolderTree = renderFolderTree;
-
-    // Getter for userSafes (returns current value, not snapshot)
-    Object.defineProperty(window, 'userSafes', {
-        get: function() { return userSafes; }
-    });
 
     // Export - use getter for folderTree to always return current value
     Object.defineProperty(window, 'folderTree', {

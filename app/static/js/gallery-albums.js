@@ -47,31 +47,9 @@
         
         if (albumItem) {
             const access = albumItem.dataset.access;
-            const safeId = albumItem.dataset.safeId;
             
             if (access === 'denied') {
                 // Shared content without access - do nothing
-                return;
-            }
-            
-            if (access === 'locked' && safeId) {
-                // Safe is locked - show unlock modal
-                
-                let safeName = 'Safe';
-                let unlockType = 'password';
-                if (window.userSafes) {
-                    const safe = window.userSafes.find(s => s.id === safeId);
-                    if (safe) {
-                        safeName = safe.name;
-                        unlockType = safe.unlock_type;
-                    }
-                }
-                
-                if (typeof openSafeUnlock === 'function') {
-                    openSafeUnlock(safeId, safeName, unlockType);
-                } else {
-                    console.error('[handleAlbumClick] openSafeUnlock not available');
-                }
                 return;
             }
         }
@@ -150,9 +128,7 @@
             // Store album items for navigation
             currentAlbumPhotos = albumItems.map(item => ({
                 id: item.id,
-                safeId: item.safe_id,
                 original_name: item.original_name || item.title || '',
-
                 albumId: albumId
             }));
             currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
@@ -607,17 +583,6 @@
     };
 
     window.deleteAlbum = async function(albumId) {
-        // Check if album is in a locked safe (E2E - client-side only!)
-        const gallery = document.getElementById('gallery');
-        const albumItem = gallery?.querySelector(`.gallery-item[data-album-id="${albumId}"]`);
-        if (albumItem) {
-            const safeId = albumItem.dataset.safeId;
-            if (safeId && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
-                alert('Cannot delete: this album is in a locked safe. Please unlock the safe first.');
-                return;
-            }
-        }
-        
         if (!confirm('Delete this album? Photos will not be deleted.')) return;
 
         try {

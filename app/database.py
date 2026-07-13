@@ -1,13 +1,10 @@
-"""Database module for v2.0 - clean schema, no migrations.
-
-This module contains only essential database utilities:
-- Connection management (sync)
-- Password hashing (bcrypt only)
-- Database initialization with current schema
-- Session cleanup
-
-All CRUD operations have been moved to repositories in infrastructure/repositories/.
-"""
+'''
+File:   database.py
+Brief:  Database connection, schema initialization and password hashing.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
 import sqlite3
 import threading
 from datetime import datetime
@@ -111,6 +108,122 @@ def cleanup_expired_sessions():
 
 
 # =============================================================================
+# Schema Migration Helpers
+# =============================================================================
+def _column_exists(db: sqlite3.Connection, table: str, column: str) -> bool:
+    """Check whether a column exists in a table."""
+    cursor = db.execute(f"PRAGMA table_info({table})")
+    return any(row["name"] == column for row in cursor.fetchall())
+
+
+def _column_exists(db: sqlite3.Connection, table: str, column: str) -> bool:
+    """Check whether a column exists in a table."""
+    cursor = db.execute(f"PRAGMA table_info({table})")
+    return any(row["name"] == column for row in cursor.fetchall())
+
+
+def _table_exists(db: sqlite3.Connection, table: str) -> bool:
+    """Check whether a table exists in the database."""
+    cursor = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _recreate_table_without_column(
+    db: sqlite3.Connection,
+    table: str,
+    column: str,
+) -> None:
+    """Recreate a table without the given column.
+
+    SQLite cannot drop a column that is referenced by a table-level foreign
+    key constraint, so we build the new schema dynamically and copy data over.
+    """
+    # Preserve foreign-key behaviour while we rewrite the table.
+    db.execute("PRAGMA foreign_keys = OFF")
+
+    cursor = db.execute(f"PRAGMA table_info({table})")
+    columns = [row for row in cursor.fetchall() if row["name"] != column]
+    column_names = [c["name"] for c in columns]
+
+    # Build column definitions from PRAGMA output.
+    col_defs = []
+    for col in columns:
+        parts = [f'"{col["name"]}"', col["type"]]
+        if col["notnull"]:
+            parts.append("NOT NULL")
+        if col["dflt_value"] is not None:
+            parts.append(f"DEFAULT ({col['dflt_value']})")
+        if col["pk"]:
+            parts.append("PRIMARY KEY")
+        col_defs.append(" ".join(parts))
+
+    # Keep foreign keys that do not involve the dropped column.
+    cursor = db.execute(f"PRAGMA foreign_key_list({table})")
+    fks = [
+        row for row in cursor.fetchall()
+        if row["from"] != column and row["to"] != column
+    ]
+    # Group by constraint id so multi-column FKs stay intact.
+    fk_groups: dict[int, list[dict]] = {}
+    for fk in fks:
+        fk_groups.setdefault(fk["id"], []).append(fk)
+    for group in fk_groups.values():
+        from_cols = ", ".join(f'"{fk["from"]}"' for fk in group)
+        to_table = group[0]["table"]
+        to_cols = ", ".join(f'"{fk["to"]}"' for fk in group)
+        on_update = group[0]["on_update"]
+        on_delete = group[0]["on_delete"]
+        clause = f"FOREIGN KEY ({from_cols}) REFERENCES {to_table} ({to_cols})"
+        if on_update and on_update != "NO ACTION":
+            clause += f" ON UPDATE {on_update}"
+        if on_delete and on_delete != "NO ACTION":
+            clause += f" ON DELETE {on_delete}"
+        col_defs.append(clause)
+
+    new_table = f"{table}_new"
+    db.execute(f"DROP TABLE IF EXISTS {new_table}")
+    db.execute(f"CREATE TABLE {new_table} ({', '.join(col_defs)})")
+
+    placeholders = ", ".join("?" for _ in column_names)
+    quoted_names = ", ".join(f'"{name}"' for name in column_names)
+    db.execute(
+        f"INSERT INTO {new_table} ({quoted_names}) SELECT {quoted_names} FROM {table}"
+    )
+
+    db.execute(f"DROP TABLE {table}")
+    db.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+
+    db.execute("PRAGMA foreign_keys = ON")
+
+
+def _drop_safe_columns(db: sqlite3.Connection) -> None:
+    """Remove safe_id columns from folders, albums and items.
+
+    Existing rows that belonged to a safe are deleted first because their
+    files are encrypted with a client-side key the server no longer stores.
+    """
+    tables = ("folders", "albums", "items")
+    for table in tables:
+        if not _column_exists(db, table, "safe_id"):
+            continue
+
+        db.execute(f"DELETE FROM {table} WHERE safe_id IS NOT NULL")
+        _recreate_table_without_column(db, table, "safe_id")
+    db.commit()
+
+
+def _drop_safe_tables(db: sqlite3.Connection) -> None:
+    """Drop safe and safe session tables if they still exist."""
+    for table in ("safe_sessions", "safes"):
+        if _table_exists(db, table):
+            db.execute(f"DROP TABLE {table}")
+    db.commit()
+
+
+# =============================================================================
 # Database Schema Initialization
 # =============================================================================
 def init_db():
@@ -193,11 +306,9 @@ def init_db():
             name TEXT NOT NULL,
             parent_id TEXT,
             user_id INTEGER NOT NULL,
-            safe_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """)
 
@@ -225,12 +336,10 @@ def init_db():
             folder_id TEXT,
             user_id INTEGER,
             cover_item_id TEXT,
-            safe_id TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (cover_item_id) REFERENCES items(id) ON DELETE SET NULL,
-            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL
+            FOREIGN KEY (cover_item_id) REFERENCES items(id) ON DELETE SET NULL
         )
     """)
 
@@ -368,13 +477,11 @@ def init_db():
             id TEXT PRIMARY KEY,
             type TEXT NOT NULL,
             folder_id TEXT,
-            safe_id TEXT,
             user_id INTEGER,
             uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
             title TEXT,
             metadata TEXT,
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE SET NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         )
     """)
@@ -414,7 +521,6 @@ def init_db():
     # Indexes
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_type ON items(type)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_items_folder ON items(folder_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_items_safe ON items(safe_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
     db.execute("DROP INDEX IF EXISTS idx_tags_path")
@@ -460,40 +566,9 @@ def init_db():
         )
     """)
 
-    # Safes table - encrypted vaults
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS safes (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            encrypted_dek BLOB NOT NULL,
-            unlock_type TEXT NOT NULL CHECK(unlock_type IN ('password', 'webauthn')),
-            credential_id BLOB,
-            salt BLOB,
-            recovery_encrypted_dek BLOB,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    db.execute("CREATE INDEX IF NOT EXISTS idx_safes_user_id ON safes(user_id)")
-
-    # Safe sessions - temporary unlocked safe keys
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS safe_sessions (
-            id TEXT PRIMARY KEY,
-            safe_id TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            encrypted_dek BLOB NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP NOT NULL,
-            FOREIGN KEY (safe_id) REFERENCES safes(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    db.execute("CREATE INDEX IF NOT EXISTS idx_safe_sessions_safe_id ON safe_sessions(safe_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_safe_sessions_user_id ON safe_sessions(user_id)")
+    # Migration: remove legacy safe/safe-session tables and safe_id columns.
+    _drop_safe_tables(db)
+    _drop_safe_columns(db)
 
     # Envelope encryption tables
     db.execute("""

@@ -1,7 +1,10 @@
-"""Item routes - unified API for all content types.
-
-Replaces the old photos.py with polymorphic item handling.
-"""
+'''
+File:   items.py
+Brief:  Item routes - unified API for all content types.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
 import uuid
 from pathlib import Path
 from typing import Optional, List
@@ -10,14 +13,14 @@ from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, field_validator
 
-from .deps import get_permission_service, get_album_service
-from ...application.services import ItemService, AlbumService
-from ...database import create_connection
-from ...dependencies import require_user
-from ...infrastructure.repositories import (
+from app.routes.gallery.deps import get_permission_service, get_album_service
+from app.application.services import ItemService, AlbumService
+from app.database import create_connection
+from app.dependencies import require_user
+from app.infrastructure.repositories import (
     ItemRepository, ItemMediaRepository, AlbumRepository, FolderRepository
 )
-from ...infrastructure.services.encryption import EncryptionService, dek_cache
+from app.infrastructure.services.encryption import EncryptionService, dek_cache
 
 router = APIRouter()
 
@@ -314,9 +317,8 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
             raise HTTPException(status_code=404, detail="Item not found")
         
         source_owner_id = item["user_id"]
-        is_e2e = item.get("safe_id") is not None
-        
-        if not is_e2e and source_owner_id != user["id"]:
+
+        if source_owner_id != user["id"]:
             if not dek_cache.get(source_owner_id) or not user_dek:
                 raise HTTPException(status_code=403, detail="Cannot re-encrypt without DEK")
         
@@ -336,11 +338,6 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
         }
     finally:
         db.close()
-
-
-class ItemMoveInput(BaseModel):
-    """Input for moving a single item."""
-    folder_id: str
 
 
 @router.put("/api/items/{item_id}/move")
@@ -409,7 +406,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get from items + item_media tables
             item = db.execute(
-                """SELECT i.id, i.title, i.safe_id, i.user_id 
+                """SELECT i.id, i.title, i.user_id
                    FROM items i
                    WHERE i.id = ?""",
                 (item_id,)
@@ -423,7 +420,6 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                     files_to_download.append((
                         archive_path,
                         file_path,
-                        item["safe_id"] is not None,
                         item["user_id"]
                     ))
 
@@ -442,7 +438,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
             # Phase 5: Get items from album via album_items
             album_items = db.execute(
-                """SELECT i.id, i.title, i.safe_id, i.user_id
+                """SELECT i.id, i.title, i.user_id
                    FROM items i
                    JOIN album_items ai ON i.id = ai.item_id
                    WHERE ai.album_id = ?
@@ -450,19 +446,18 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 (album_id,)
             ).fetchall()
 
-            safe_album_name = "".join(c for c in album["name"] if c.isalnum() or c in (' ', '-', '_')).strip()
-            if not safe_album_name:
-                safe_album_name = "album"
+            sanitized_album_name = "".join(c for c in album["name"] if c.isalnum() or c in (' ', '-', '_')).strip()
+            if not sanitized_album_name:
+                sanitized_album_name = "album"
 
             for item in album_items:
                 # Extension-less storage: filename = item_id
                 file_path = UPLOADS_DIR / item["id"]
                 if file_path.exists():
-                    archive_path = f"{date_folder}/{safe_album_name}/{item['title']}"
+                    archive_path = f"{date_folder}/{sanitized_album_name}/{item['title']}"
                     files_to_download.append((
                         archive_path,
                         file_path,
-                        item["safe_id"] is not None,
                         item["user_id"]
                     ))
 
@@ -472,20 +467,16 @@ async def batch_download(data: BatchDownloadInput, request: Request):
         # Create ZIP file
         zip_buffer = BytesIO()
         with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for archive_path, file_path, is_e2e, owner_id in files_to_download:
-                if is_e2e:
-                    # E2E files: include as-is, client decrypts
-                    zf.write(file_path, archive_path)
-                else:
-                    # Server-side encrypted: decrypt before adding to ZIP
-                    dek = user_dek if owner_id == user["id"] else dek_cache.get(owner_id)
-                    if dek:
-                        try:
-                            encrypted_data = file_path.read_bytes()
-                            plaintext = EncryptionService.decrypt_file(encrypted_data, dek)
-                            zf.writestr(archive_path, plaintext)
-                        except Exception:
-                            continue
+            for archive_path, file_path, owner_id in files_to_download:
+                # Server-side encrypted: decrypt before adding to ZIP
+                dek = user_dek if owner_id == user["id"] else dek_cache.get(owner_id)
+                if dek:
+                    try:
+                        encrypted_data = file_path.read_bytes()
+                        plaintext = EncryptionService.decrypt_file(encrypted_data, dek)
+                        zf.writestr(archive_path, plaintext)
+                    except Exception:
+                        continue
 
         zip_buffer.seek(0)
         
@@ -528,7 +519,13 @@ def create_album(data: AlbumCreateInput, request: Request):
             item_ids=item_ids
         )
         
-        return {"status": "ok", "album": album}
+        return {
+            "status": "ok",
+            "album_id": album["id"],
+            "photo_count": album["photo_count"],
+            "item_count": album["item_count"],
+            "album": album
+        }
     finally:
         db.close()
 

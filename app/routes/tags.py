@@ -1,12 +1,18 @@
-"""Tag management routes - Flat Tags v3 with implications."""
+'''
+File:   tags.py
+Brief:  Tag management routes - Flat Tags v3 with implications.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
 from typing import List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
 
-from ..database import create_connection
-from ..dependencies import require_user, require_admin
-from ..infrastructure.repositories import (
+from app.database import create_connection
+from app.dependencies import require_user, require_admin
+from app.infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
     TagCooccurrenceRepository,
@@ -16,10 +22,9 @@ from ..infrastructure.repositories import (
     FolderRepository,
     ItemRepository,
     ItemMediaRepository,
-    SafeRepository,
     AlbumRepository,
 )
-from ..application.services import TagService, TagSuggestionService, PermissionService
+from app.application.services import TagService, TagSuggestionService, PermissionService
 
 router = APIRouter(tags=["tags"])
 
@@ -70,7 +75,6 @@ def _permission_service(db):
         PermissionRepository(db),
         FolderRepository(db),
         ItemRepository(db),
-        safe_repository=SafeRepository(db),
     )
 
 
@@ -393,7 +397,6 @@ def search_by_tags(
                 "cover_item_id": cover_id,
                 "cover_thumb_width": dims.get("thumb_width"),
                 "cover_thumb_height": dims.get("thumb_height"),
-                "safe_id": album.get("safe_id"),
                 "matching_item_ids": builder["matching_in_album"],
                 "uploaded_at": album.get("uploaded_at"),
                 "taken_at": album.get("taken_at"),

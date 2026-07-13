@@ -95,7 +95,7 @@ window.FolderTreeUtils = {
     },
 
     /**
-     * Filter folders for picker (owner only, no safes, exclude specific folder)
+     * Filter folders for picker (owner only, exclude specific folder)
      * @param {Array} folders - all folders
      * @param {string} excludeFolderId - folder to exclude
      * @returns {Array} filtered folders
@@ -103,7 +103,6 @@ window.FolderTreeUtils = {
     filterFoldersForPicker(folders, excludeFolderId = null) {
         return folders.filter(f => 
             f.permission === 'owner' && 
-            !f.safe_id &&
             f.id !== excludeFolderId
         );
     },
@@ -140,7 +139,6 @@ window.FolderTreeUtils = {
             children = folders.filter(f => 
                 f.parent_id === parentId && 
                 f.permission === 'owner' && 
-                !f.safe_id &&
                 f.id !== excludeFolderId
             );
         } else {

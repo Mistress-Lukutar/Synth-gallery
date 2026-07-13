@@ -1,20 +1,28 @@
-"""Main gallery routes - page view and folder content API."""
+'''
+File:   main.py
+Brief:  Main gallery routes - page view and folder content API.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from .deps import get_folder_service, get_permission_service
-from ...application.services import UserSettingsService, ItemService
-from ...infrastructure.repositories import UserRepository
-from ...config import ROOT_PATH, BASE_DIR, EXTERNAL_HOST
-from ...database import create_connection
-from ...dependencies import get_current_user
-from ...infrastructure.repositories import (
-    FolderRepository, SafeRepository, UserRepository,
-    ItemRepository, ItemMediaRepository, AlbumRepository
+from app.routes.gallery.deps import get_folder_service, get_permission_service
+from app.application.services import UserSettingsService, ItemService
+from app.infrastructure.repositories import UserRepository
+from app.config import ROOT_PATH, BASE_DIR, EXTERNAL_HOST
+from app.database import create_connection
+from app.dependencies import get_current_user
+from app.infrastructure.repositories import (
+    FolderRepository,
+    ItemRepository,
+    ItemMediaRepository,
+    AlbumRepository,
 )
-from ...infrastructure.services.encryption import dek_cache
+from app.infrastructure.services.encryption import dek_cache
 
 router = APIRouter()
 
@@ -36,14 +44,13 @@ def gallery(request: Request, folder_id: str = None):
         folder_repo = FolderRepository(db)
         folder_service = get_folder_service(db)
         perm_service = get_permission_service(db)
-        safe_repo = SafeRepository(db)
         user_repo = UserRepository(db)
         user_settings_service = UserSettingsService(
             folder_repository=folder_repo,
-            permission_repository=perm_service.perm_repo if hasattr(perm_service, 'perm_repo') else None,
+            permission_repository=perm_service.perm_repo,
             user_repository=user_repo
         )
-        
+
         enc_keys = user_settings_service.get_encryption_keys(user["id"])
         if enc_keys and not dek_cache.get(user["id"]):
             return RedirectResponse(url=f"{ROOT_PATH}/login", status_code=302)
@@ -52,41 +59,25 @@ def gallery(request: Request, folder_id: str = None):
 
         # Determine initial folder to load
         initial_folder_id = folder_id
-        
+
         # Check permission if folder_id provided
         if initial_folder_id and not perm_service.can_access(initial_folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         if not initial_folder_id:
             default_folder_id = user_settings_service.get_default_folder(user["id"])
             if default_folder_id:
                 folder = folder_repo.get_by_id(default_folder_id)
                 if folder and perm_service.can_access(default_folder_id, user["id"]):
                     initial_folder_id = default_folder_id
-            
-            if not initial_folder_id:
-                user_settings_service = UserSettingsService(
-                    folder_repository=folder_repo,
-                    permission_repository=perm_service.perm_repo,
-                    user_repository=UserRepository(db)
-                )
-                initial_folder_id = user_settings_service.create_default_folder(user["id"])
 
-        # Build safe_folders for sidebar
-        safe_folders = {}
-        for folder in folder_tree:
-            if folder.get("safe_id"):
-                safe = safe_repo.get_by_id(folder["safe_id"])
-                safe_folders[folder["id"]] = {
-                    "safe_name": safe["name"] if safe else "Unknown Safe",
-                    "is_unlocked": safe_repo.is_unlocked(folder["safe_id"], user["id"])
-                }
+            if not initial_folder_id:
+                initial_folder_id = user_settings_service.create_default_folder(user["id"])
 
         return templates.TemplateResponse("gallery.html", {
             "request": request,
             "user": user,
             "folder_tree": folder_tree,
-            "safe_folders": safe_folders,
             "dek_in_cache": dek_cache.get(user["id"]) is not None,
             "initial_folder_id": initial_folder_id,
         })
@@ -112,7 +103,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
         user_repo = UserRepository(db)
         user_settings_service = UserSettingsService(
             folder_repository=folder_repo,
-            permission_repository=perm_service.perm_repo if hasattr(perm_service, 'perm_repo') else None,
+            permission_repository=perm_service.perm_repo,
             user_repository=user_repo
         )
         album_repo = AlbumRepository(db)
@@ -168,7 +159,6 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "cover_item_id": cover_item_id,   # New name
                 "cover_thumb_width": album.get("cover_thumb_width"),
                 "cover_thumb_height": album.get("cover_thumb_height"),
-                "safe_id": album.get("safe_id"),
                 "uploaded_at": album.get("max_uploaded_at"),
                 "taken_at": album.get("max_taken_at"),
             })
@@ -187,7 +177,6 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "content_type": item.get("content_type"),
                 "thumb_width": item.get("thumb_width"),
                 "thumb_height": item.get("thumb_height"),
-                "safe_id": item.get("safe_id"),
                 "uploaded_at": item.get("uploaded_at"),
                 "taken_at": item.get("taken_at"),
                 # Rendered properties for gallery display
@@ -259,10 +248,10 @@ def get_default_folder_api(request: Request):
         perm_service = get_permission_service(db)
         user_settings_service = UserSettingsService(
             folder_repository=folder_repo,
-            permission_repository=perm_service.perm_repo if hasattr(perm_service, 'perm_repo') else None,
+            permission_repository=perm_service.perm_repo,
             user_repository=UserRepository(db)
         )
-        
+
         folder_id = user_settings_service.get_default_folder(user["id"])
 
         if folder_id:
@@ -270,11 +259,6 @@ def get_default_folder_api(request: Request):
             if folder and perm_service.can_access(folder_id, user["id"]):
                 return {"folder_id": folder_id}
 
-        user_settings_service = UserSettingsService(
-            folder_repository=folder_repo,
-            permission_repository=perm_service.perm_repo,
-            user_repository=UserRepository(db)
-        )
         folder_id = user_settings_service.create_default_folder(user["id"])
         return {"folder_id": folder_id}
     finally:

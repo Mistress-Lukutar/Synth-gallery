@@ -1,12 +1,17 @@
-"""Shared dependencies for gallery routes.
-
-This module contains factory functions for creating services
-used across all gallery sub-modules.
-"""
-from ...application.services import FolderService, PermissionService, AlbumService
-from ...infrastructure.repositories import (
-    FolderRepository, PermissionRepository,
-    SafeRepository, ItemRepository, AlbumRepository, ItemMediaRepository
+'''
+File:   deps.py
+Brief:  Shared dependencies for gallery routes.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
+from app.application.services import FolderService, PermissionService, AlbumService
+from app.infrastructure.repositories import (
+    FolderRepository,
+    PermissionRepository,
+    ItemRepository,
+    AlbumRepository,
+    ItemMediaRepository,
 )
 
 
@@ -14,7 +19,6 @@ def get_folder_service(db) -> FolderService:
     """Create FolderService with repositories."""
     return FolderService(
         folder_repository=FolderRepository(db),
-        safe_repository=SafeRepository(db),
         permission_repository=PermissionRepository(db)
     )
 
@@ -25,8 +29,7 @@ def get_permission_service(db) -> PermissionService:
         permission_repository=PermissionRepository(db),
         folder_repository=FolderRepository(db),
         item_repository=ItemRepository(db),
-        album_repository=AlbumRepository(db),
-        safe_repository=SafeRepository(db)
+        album_repository=AlbumRepository(db)
     )
 
 

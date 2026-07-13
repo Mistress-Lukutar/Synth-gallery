@@ -7,8 +7,7 @@
 Synth Gallery is a **personal media vault** with end-to-end encryption, hardware key authentication, and multi-user support. It allows users to securely store, organize, and share photos and videos.
 
 ### Key Features
-- **Universal Server-side Encryption**: ALL non-safe media files are encrypted with AES-256-GCM using the owner's DEK on upload
-- **Encrypted Vaults (Safes)**: Independent E2E-encrypted containers with separate keys (client-side encryption); detected by `safe_id` only
+- **Universal Server-side Encryption**: All media files are encrypted with AES-256-GCM using the owner's DEK on upload
 - **Hardware Key Login**: WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Folder Hierarchy**: Nested folders with sharing support (Viewer/Editor permissions)
 - **Albums**: Group related media with drag-and-drop reordering
@@ -50,8 +49,6 @@ Synth-Gallery/
 │   │       ├── permission_service.py # Access control logic
 │   │       ├── item_service.py       # Item (photo/video) operations
 │   │       ├── album_service.py      # Album CRUD and operations
-│   │       ├── safe_service.py       # Encrypted vault operations
-│   │       ├── safe_file_service.py  # File access in safes
 │   │       └── user_settings_service.py # User preferences
 │   ├── infrastructure/           # Infrastructure layer
 │   │   ├── repositories/         # Repository pattern (DB operations)
@@ -63,7 +60,6 @@ Synth-Gallery/
 │   │   │   ├── item_repository.py    # Polymorphic items (photos, videos, etc.)
 │   │   │   ├── item_media_repository.py  # Media-specific data
 │   │   │   ├── album_repository.py
-│   │   │   ├── safe_repository.py
 │   │   │   └── webauthn_repository.py
 │   │   ├── services/             # Infrastructure services
 │   │   │   ├── encryption.py         # AES-256-GCM encryption, DEK cache
@@ -76,7 +72,6 @@ Synth-Gallery/
 │   │       ├── base.py               # StorageInterface
 │   │       ├── local_storage.py      # Filesystem backend
 │   │       ├── s3_storage.py         # S3/MinIO backend
-│   │       ├── encrypted_storage.py  # E2E encryption wrapper
 │   │       └── factory.py            # get_storage() factory
 │   ├── routes/                   # API routes
 │   │   ├── auth.py                   # Login/logout
@@ -85,13 +80,10 @@ Synth-Gallery/
 │   │   ├── folders.py                # Folder management
 │   │   ├── tags.py                   # Tag management
 │   │   ├── webauthn.py               # Hardware key registration/auth
-│   │   ├── safes.py                  # Safe (vault) management
-│   │   ├── safe_files.py             # File operations in safes
 │   │   ├── envelope.py               # Envelope encryption
 │   │   ├── user_settings.py          # User profile settings
 │   │   └── gallery/                  # Gallery routes
 │   │       ├── main.py               # Main gallery view
-│   │       ├── albums.py             # Album operations
 │   │       ├── items.py              # Item (photo/video) operations
 │   │       ├── files.py              # File serving
 │   │       ├── uploads.py            # Upload handling
@@ -103,7 +95,6 @@ Synth-Gallery/
 │   │       ├── init.js               # Initialization
 │   │       ├── navigation.js         # Navigation
 │   │       ├── upload.js             # Upload handling
-│   │       ├── crypto/               # Client-side crypto (Safes)
 │   │       └── gallery-*.js          # Gallery features
 │   └── templates/                # Jinja2 templates
 │       ├── base.html
@@ -207,23 +198,17 @@ DEK (Data Encryption Key) ◄──┘
 - **DEK (Data Encryption Key)**: Per-user, 256-bit random, cached in memory during session
 - **KEK (Key Encryption Key)**: Derived from password via PBKDF2
 - **Files**: Encrypted with AES-256-GCM (nonce + ciphertext stored)
-- **E2E Detection**: Safe (vault) files are identified exclusively by `safe_id` on the item; the legacy `is_encrypted` column has been removed
 - **Migration Fallback**: File serving routes detect old plaintext uploads by magic bytes and serve them directly (with a log warning) until the migration script is run
 
 ### 5. Encryption Behavior
 
-**Uploads (normal / non-safe):**
+**Uploads:**
 - `process_media_upload()` encrypts the file bytes with the owner's DEK before writing to storage
 - Thumbnails are also encrypted with the same DEK
 - Upload fails with 403 if the user's DEK is not available
 
-**Uploads (E2E / Safe):**
-- Files are stored as-is (already client-encrypted)
-- No server-side encryption is applied
-- Client-provided thumbnail is stored as-is
-
 **File Serving:**
-- Non-safe files are decrypted on-the-fly using the owner's DEK
+- Files are decrypted on-the-fly using the owner's DEK
 - If decryption fails and the file matches plaintext magic bytes, it is served raw for backward compatibility
 
 **JPEG XL Experimental Storage:**
@@ -236,7 +221,6 @@ DEK (Data Encryption Key) ◄──┘
 - Files with `content_type == image/jxl` are served as JXL when the client sends `Accept: image/jxl`
 - Browsers without JXL support receive an on-demand JPEG fallback, cached under `fallbacks/`
 - The frontend uses `<picture>` with `<source type="image/jxl">` and a JPEG fallback `img`
-- E2E / Safe uploads are not transcoded (client controls the format)
 - Existing files and videos are not affected
 
 ### 6. Storage Abstraction Layer
@@ -484,7 +468,6 @@ style: update lightbox styling - transparent nav buttons
 - All files are encrypted with AES-256-GCM
 - DEKs are never stored plaintext (encrypted with KEK)
 - PBKDF2 uses 600,000 iterations (OWASP recommendation)
-- Safes use client-side encryption (true E2E)
 
 ### Session Management
 - HTTP-only cookies for session tokens
@@ -505,9 +488,8 @@ style: update lightbox styling - transparent nav buttons
 ### Important Security Notes
 
 1. **HTTPS Required**: Web Crypto API requires secure context (HTTPS or localhost)
-2. **Safe Passwords**: Safe passwords are independent of account passwords
-3. **Recovery Keys**: Generate and store offline - lost key = lost data
-4. **Backup Security**: Backups contain encrypted content but plaintext metadata
+2. **Recovery Keys**: Generate and store offline - lost key = lost data
+3. **Backup Security**: Backups contain encrypted content but plaintext metadata
 
 ## Common Tasks
 

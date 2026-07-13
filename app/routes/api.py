@@ -1,4 +1,10 @@
-"""AI service API routes - job queue for external AI agents."""
+'''
+File:   api.py
+Brief:  AI service API routes - job queue for external AI agents.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
 import asyncio
 import json
 from datetime import datetime
@@ -8,9 +14,9 @@ from fastapi import APIRouter, Request, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..database import create_connection
-from ..dependencies import require_user, require_api_key, require_admin, _check_rate_limit
-from ..infrastructure.repositories import (
+from app.database import create_connection
+from app.dependencies import require_user, require_api_key, require_admin, _check_rate_limit
+from app.infrastructure.repositories import (
     AIJobRepository,
     TagsRepository,
     TagImplicationRepository,
@@ -18,10 +24,10 @@ from ..infrastructure.repositories import (
     ItemRepository,
     ItemMediaRepository,
 )
-from ..infrastructure.storage import get_storage, LocalStorage
-from ..infrastructure.services.encryption import EncryptionService, dek_cache
-from ..application.services import TagService, AITaggingService
-from ..infrastructure.services.audit_log import log_ai_job_claimed
+from app.infrastructure.storage import get_storage, LocalStorage
+from app.infrastructure.services.encryption import EncryptionService, dek_cache
+from app.application.services import TagService, AITaggingService
+from app.infrastructure.services.audit_log import log_ai_job_claimed
 import logging
 
 router = APIRouter(tags=["ai"])
@@ -346,8 +352,7 @@ def release_job(job_id: int, request: Request):
 async def get_item_file_api(item_id: str, request: Request):
     """Get file for AI agent analysis.
 
-    Returns decrypted file bytes for non-encrypted items.
-    Server-side encrypted items are not accessible via API key.
+    Returns decrypted file bytes for server-side encrypted items.
     """
     api_key_info = require_api_key(request)
 
@@ -392,21 +397,11 @@ async def get_item_file_api(item_id: str, request: Request):
 
         # Detailed logging for access debugging
         logger.info(
-            "AI file access check: item_id=%s, user_id=%s, safe_id=%s, api_user_id=%s",
+            "AI file access check: item_id=%s, user_id=%s, api_user_id=%s",
             item_id,
             item.get("user_id"),
-            item.get("safe_id"),
             api_user_id,
         )
-
-        # Block E2E (safe) files — API cannot decrypt client-side encryption
-        if item.get("safe_id"):
-            logger.warning(
-                "AI file access: E2E item blocked (safe_id set). item_id=%s, safe_id=%s",
-                item_id,
-                item.get("safe_id"),
-            )
-            raise HTTPException(status_code=403, detail="E2E encrypted items not accessible via API")
 
         # Server-side encrypted files: decrypt with owner's DEK if available
         owner_id = item.get("user_id")

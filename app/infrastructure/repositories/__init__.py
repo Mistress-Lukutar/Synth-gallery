@@ -16,7 +16,6 @@ from .session_repository import SessionRepository
 from .folder_repository import FolderRepository
 from .permission_repository import PermissionRepository
 
-from .safe_repository import SafeRepository
 from .webauthn_repository import WebAuthnRepository
 from .item_repository import ItemRepository
 from .item_media_repository import ItemMediaRepository
@@ -35,8 +34,6 @@ __all__ = [
     "SessionRepository",
     "FolderRepository",
     "PermissionRepository",
-
-    "SafeRepository",
     "WebAuthnRepository",
     "ItemRepository",
     "ItemMediaRepository",

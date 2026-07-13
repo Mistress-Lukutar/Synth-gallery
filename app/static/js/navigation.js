@@ -90,8 +90,6 @@
                 if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${folderId}')`);
             }
             
-            window.currentSafeId = null;
-            
         } catch (err) {
             console.error('[SPA] Navigation failed:', err);
             window.location.href = `${getBaseUrl()}/?folder_id=${folderId}`;
@@ -190,8 +188,6 @@
             if (item.type === 'album') {
                 const album = item;
                 const coverId = album.cover_photo_id || album.effective_cover_photo_id;
-                const safeId = album.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 
                 // Use cover_thumb dimensions if available (v0.8.5 style), otherwise fallback to thumb dimensions
                 const thumbWidth = album.cover_thumb_width || album.thumb_width;
@@ -215,13 +211,12 @@
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
                         <img data-item-id="${coverId}"
-                             ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                             onerror="handleImageError(this, 'access')"
                              style="opacity: 0;"
-                             ${safeId ? '' : `src="${thumbBase}"`}>
+                             src="${thumbBase}">
                     `;
                 } else {
                     imgHtml = `
@@ -239,7 +234,6 @@
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
-                         ${safeIdAttr}
                          data-uploaded-at="${uploadedAt}"
                          data-taken-at="${takenAt}">
                         <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
@@ -264,8 +258,6 @@
             } else if (isMedia) {
                 // Unified media item handling (polymorphic items or legacy photos)
                 const media = item;
-                const safeId = media.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const mediaType = media.media_type || 'image';
                 const displayName = media.original_name || 'Untitled';
                 
@@ -294,18 +286,16 @@
                          data-item-type="item"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
-                         ${safeIdAttr}
                          ${dateAttrs}>
                         <div class="gallery-link" onclick="openItem('${media.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
                             <img data-item-id="${media.id}"
-                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
                                  alt="${escapeHtml(displayName)}"
                                  loading="lazy"
                                  onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 onerror="handleImageError(this, 'access')"
                                  style="opacity: 0;"
-                                 ${safeId ? '' : `src="${thumbBase}"`}>
+                                 src="${thumbBase}">
                             ${mediaType === 'video' ? `
                                 <div class="video-badge">
                                     <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -349,11 +339,6 @@
                 }
             }, 50);
         }
-        
-        // Load safe thumbnails (will be defined in safes.js Phase 6)
-        if (typeof window.loadSafeThumbnails === 'function') {
-            window.loadSafeThumbnails();
-        }
     };
 
     // Update sort UI - update tooltip only, SVG icon stays unchanged
@@ -387,20 +372,9 @@
         
         for (const img of images) {
             const itemId = img.dataset.itemId || img.dataset.photoId;
-            const safeId = img.dataset.safeId;
             
             try {
-                let url;
-                if (safeId) {
-                    // E2E file - use FileAccessService to decrypt
-                    url = await FileAccessService.getThumbnailUrl(itemId, {
-                        photo: { safe_id: safeId }
-                    });
-                } else {
-                    // Regular file - direct URL
-                    url = `${getBaseUrl()}/files/${itemId}/thumbnail`;
-                }
-                
+                const url = `${getBaseUrl()}/files/${itemId}/thumbnail`;
                 img.src = url;
             } catch (err) {
                 console.error(`[navigation] Failed to resolve thumbnail for ${itemId}:`, err);

@@ -1,6 +1,6 @@
 /**
  * Upload module - File upload functionality
- * Handles file/folder upload, drag & drop, encryption for safes, tags, albums
+ * Handles file/folder upload, drag & drop, tags, albums
  */
 
 (function() {
@@ -470,70 +470,12 @@
         albumCheckbox.closest('.upload-option').style.display = 'none';
     }
 
-    // Get safe_id for folder
-    function getFolderSafeId(folderId) {
-        if (!folderId || typeof folderTree === 'undefined') return null;
-        const folder = folderTree.find(f => f.id === folderId);
-        return folder ? folder.safe_id : null;
-    }
-
-    // Encrypt file for safe
-    async function encryptFileForSafeUpload(file, safeId) {
-        if (!SafeCrypto.isUnlocked(safeId)) {
-            throw new Error('Safe is locked. Please unlock it first.');
-        }
-        return await SafeCrypto.encryptFileForSafe(file, safeId);
-    }
-
-    // Get or create root folder for safe
-    async function getSafeRootFolder(safeId) {
-        const safeFolders = folderTree.filter(f => f.safe_id === safeId && !f.parent_id);
-        if (safeFolders.length > 0) {
-            return safeFolders[0].id;
-        }
-
-        const resp = await csrfFetch(`${getBaseUrl()}/api/folders`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: 'Root', safe_id: safeId })
-        });
-
-        if (!resp.ok) {
-            throw new Error('Failed to create safe root folder');
-        }
-
-        const data = await resp.json();
-        if (typeof loadFolderTree === 'function') {
-            await loadFolderTree();
-        }
-        return data.folder_id;
-    }
-
     // Main upload handler
     async function handleUpload() {
-        let targetFolderId = window.currentFolderId;
-        let targetSafeId = null;
-
-        if (!targetFolderId && window.currentSafeId) {
-            try {
-                targetFolderId = await getSafeRootFolder(window.currentSafeId);
-                targetSafeId = window.currentSafeId;
-            } catch (e) {
-                alert('Failed to prepare safe folder: ' + e.message);
-                return;
-            }
-        }
+        const targetFolderId = window.currentFolderId;
 
         if (!targetFolderId) {
             alert('No folder selected. Please navigate to a folder first.');
-            return;
-        }
-
-        if (!targetSafeId) {
-            targetSafeId = getFolderSafeId(targetFolderId);
-        }
-        if (targetSafeId && !SafeCrypto.isUnlocked(targetSafeId)) {
-            alert('This folder is in a locked safe. Please unlock the safe first.');
             return;
         }
 
@@ -557,11 +499,6 @@
                     const fileNames = oversizedFiles.map(({ file }) => file.name).join(', ');
                     alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
                     throw new Error('Files too large');
-                }
-
-                if (targetSafeId) {
-                    alert('Folder upload is not supported in safes. Please upload files individually.');
-                    throw new Error('Folder upload not supported in safes');
                 }
 
                 progressText.textContent = `Uploading ${folderFiles.length} files...`;
@@ -628,11 +565,6 @@
                 const isAlbum = albumCheckbox.checked && files.length > 1;
 
                 if (isAlbum) {
-                    if (targetSafeId) {
-                        alert('Albums are not supported in safes. Please upload files individually or uncheck "Create album".');
-                        throw new Error('Albums not supported in safes');
-                    }
-
                     progressText.textContent = 'Uploading album...';
                     progressFill.style.width = '50%';
 
@@ -671,35 +603,8 @@
                         progressFill.style.width = `${((i + 1) / selectedFiles.length) * 100}%`;
 
                         const formData = new FormData();
-
-                        if (targetSafeId) {
-                            try {
-                                const encrypted = await encryptFileForSafeUpload(file, targetSafeId);
-                                const encryptedFile = new File([encrypted.encryptedFile], file.name, {
-                                    type: 'application/octet-stream'
-                                });
-                                formData.append('file', encryptedFile);
-                                formData.append('encrypted_ck', 'safe');
-
-                                if (encrypted.encryptedThumbnail) {
-                                    const thumbFile = new File([encrypted.encryptedThumbnail], 'thumb.jpg.encrypted', {
-                                        type: 'application/octet-stream'
-                                    });
-                                    formData.append('thumbnail', thumbFile);
-                                    formData.append('thumb_width', encrypted.thumbWidth || 0);
-                                    formData.append('thumb_height', encrypted.thumbHeight || 0);
-                                }
-                            } catch (encryptErr) {
-                                throw new Error(`Encryption failed: ${encryptErr.message}`);
-                            }
-                        } else {
-                            formData.append('file', file);
-                        }
-
+                        formData.append('file', file);
                         formData.append('folder_id', targetFolderId);
-                        if (targetSafeId) {
-                            formData.append('safe_id', targetSafeId);
-                        }
 
                         const resp = await csrfFetch(`${getBaseUrl()}/upload`, {
                             method: 'POST',
@@ -740,8 +645,6 @@
                 closeModal();
                 if (targetFolderId && typeof navigateToFolder === 'function') {
                     navigateToFolder(targetFolderId, false);
-                } else if (window.currentSafeId && typeof navigateToSafe === 'function') {
-                    navigateToSafe(window.currentSafeId, false);
                 } else {
                     location.reload();
                 }

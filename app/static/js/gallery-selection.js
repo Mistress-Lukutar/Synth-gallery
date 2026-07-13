@@ -13,55 +13,6 @@
     window.selectedPhotos = selectedPhotos;
     window.selectedAlbums = selectedAlbums;
 
-    // Check if any selected item is from a safe (encrypted content)
-    function checkSafeContent(photos, albums) {
-        // Check photos
-        for (const photoId of photos) {
-            const item = gallery.querySelector(`[data-item-id="${photoId}"]`);
-            if (item && item.dataset.safeId) {
-                return true;
-            }
-        }
-        // Check albums
-        for (const albumId of albums) {
-            const item = gallery.querySelector(`[data-album-id="${albumId}"]`);
-            if (item && item.dataset.safeId) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Check if any selected item is from a LOCKED safe (no client-side key)
-    // This is the critical check - E2E safes lock on client, not server!
-    function checkLockedSafeContent(photos, albums) {
-        const lockedSafeIds = new Set();
-        
-        // Check photos
-        for (const photoId of photos) {
-            const item = gallery.querySelector(`[data-item-id="${photoId}"]`);
-            if (item && item.dataset.safeId) {
-                const safeId = item.dataset.safeId;
-                // Check if we have the key in memory (SafeCrypto.isUnlocked)
-                if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
-                    lockedSafeIds.add(safeId);
-                }
-            }
-        }
-        // Check albums
-        for (const albumId of albums) {
-            const item = gallery.querySelector(`[data-album-id="${albumId}"]`);
-            if (item && item.dataset.safeId) {
-                const safeId = item.dataset.safeId;
-                // Check if we have the key in memory
-                if (typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
-                    lockedSafeIds.add(safeId);
-                }
-            }
-        }
-        return lockedSafeIds;
-    }
-
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
@@ -186,13 +137,6 @@
                 const total = selectedPhotos.size + selectedAlbums.size;
                 if (total === 0) return;
                 
-                // Check for safe content - block move for encrypted items
-                const hasSafeContent = checkSafeContent(selectedPhotos, selectedAlbums);
-                if (hasSafeContent) {
-                    alert('Cannot move encrypted content. Moving files from safes is not supported in this version.');
-                    return;
-                }
-                
                 const destination = await showFolderPicker('Move to');
                 if (!destination) return;
 
@@ -249,13 +193,6 @@
                 const total = selectedPhotos.size + selectedAlbums.size;
                 if (total === 0) return;
                 
-                // Check for safe content - block copy for encrypted items
-                const hasSafeContent = checkSafeContent(selectedPhotos, selectedAlbums);
-                if (hasSafeContent) {
-                    alert('Cannot copy encrypted content. Copying files from safes is not supported in this version.');
-                    return;
-                }
-                
                 const destination = await showFolderPicker('Copy to');
                 if (!destination) return;
 
@@ -311,13 +248,6 @@
             deleteBtn.addEventListener('click', async () => {
                 const total = selectedPhotos.size + selectedAlbums.size;
                 if (total === 0) return;
-                
-                // CRITICAL: Check for locked safes (E2E - client-side only!)
-                const lockedSafeIds = checkLockedSafeContent(selectedPhotos, selectedAlbums);
-                if (lockedSafeIds.size > 0) {
-                    alert(`Cannot delete: selected items are in locked safe(s). Please unlock the safe(s) first.`);
-                    return;
-                }
                 
                 if (!confirm(`Delete ${total} items?`)) return;
 
@@ -453,7 +383,7 @@
         });
     }
 
-    // Show folder picker modal with both folders and safes
+    // Show folder picker modal
     // excludeFolderId - folder to exclude from picker (for move folder operation)
     async function showFolderPicker(title, operation = 'move', excludeFolderId = null) {
         // Create modal if not exists
@@ -481,24 +411,16 @@
         modal.classList.remove('hidden');
 
         try {
-            // Load folders and safes in parallel
-            const [foldersResp, safesResp] = await Promise.all([
-                fetch(`${getBaseUrl()}/api/folders`),
-                fetch(`${getBaseUrl()}/api/safes`)
-            ]);
+            const foldersResp = await fetch(`${getBaseUrl()}/api/folders`);
             
-            if (!foldersResp.ok || !safesResp.ok) throw new Error('Failed to load destinations');
+            if (!foldersResp.ok) throw new Error('Failed to load destinations');
             
             const folders = await foldersResp.json();
-            const safesData = await safesResp.json();
-            const safes = safesData.safes || [];
-            
 
             // Store for later use
             window._pickerFolders = folders;
-            window._pickerSafes = safes;
             
-            // Build HTML - for now only regular folders (safes not supported for move/copy yet)
+            // Build HTML
             let html = '';
             
             // Root level option (for move folder operation)
@@ -526,8 +448,6 @@
             }
             html += '</div>';
             
-            // Note: Safes excluded from picker - cross-storage operations need encryption handling
-            
             listEl.innerHTML = html;
         } catch (err) {
             console.error('Failed to load destinations:', err);
@@ -539,42 +459,6 @@
             window._folderPickerResolve = resolve;
         });
     }
-
-    // Build safe picker HTML (only unlocked safes)
-    function buildSafePickerHTML(safes) {
-        const unlockedSafes = safes.filter(s => {
-            const serverUnlocked = s.is_unlocked;
-            const clientHasKey = typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && SafeCrypto.isUnlocked(s.id);
-            return serverUnlocked && clientHasKey;
-        });
-        
-        if (unlockedSafes.length === 0) return '';
-        
-        return unlockedSafes.map(safe => `
-            <div class="folder-item-wrapper picker-folder-item" onclick="selectSafeForPicker('${safe.id}')">
-                <span class="folder-expand-placeholder"></span>
-                <div class="folder-item safe-item unlocked">
-                    <svg class="folder-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="5" y="11" width="14" height="10" rx="2"/>
-                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                    </svg>
-                    <span class="folder-name">${escapeHtml(safe.name)}</span>
-                    <span class="folder-count">${safe.photo_count || 0}</span>
-                </div>
-            </div>
-        `).join('');
-    }
-
-    // Select safe as destination (not used yet - needs server support for cross-storage encryption)
-    window.selectSafeForPicker = function(safeId) {
-        alert('Moving/Copying to safes is not yet supported. Please use regular folders.');
-        if (window._folderPickerResolve) {
-            window._folderPickerResolve(null);
-            window._folderPickerResolve = null;
-        }
-        const modal = document.getElementById('folder-picker-modal');
-        if (modal) modal.classList.add('hidden');
-    };
 
     window.closeFolderPicker = function() {
         const modal = document.getElementById('folder-picker-modal');

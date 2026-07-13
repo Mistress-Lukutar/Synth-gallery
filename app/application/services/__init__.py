@@ -2,8 +2,6 @@
 
 from .folder_service import FolderService
 from .permission_service import PermissionService
-from .safe_service import SafeService
-from .safe_file_service import SafeFileService
 from .user_settings_service import UserSettingsService
 from .auth_service import AuthService
 from .item_service import ItemService
@@ -16,8 +14,6 @@ from .ai_tagging_service import AITaggingService
 __all__ = [
     "FolderService",
     "PermissionService",
-    "SafeService",
-    "SafeFileService",
     "UserSettingsService",
     "AuthService",
     "ItemService",

@@ -1,5 +1,10 @@
-"""Thumbnail management service - regeneration, cleanup, statistics."""
-
+'''
+File:   thumbnail.py
+Brief:  Thumbnail management service - regeneration, cleanup, statistics.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+Version: v1.0.0
+'''
 from pathlib import Path
 
 from .encryption import EncryptionService, dek_cache
@@ -25,7 +30,7 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     db = get_db()
     # Phase 5: Get from item_media + items tables
     photo = db.execute(
-        """SELECT im.filename, im.media_type, i.safe_id, i.user_id 
+        """SELECT im.filename, im.media_type, i.user_id
             FROM item_media im
             JOIN items i ON im.item_id = i.id
             WHERE i.id = ?""",
@@ -41,10 +46,6 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
         return False
 
     thumb_path = THUMBNAILS_DIR / photo_id  # Extension-less storage
-
-    # E2E files: cannot regenerate thumbnail server-side
-    if photo["safe_id"]:
-        return False
 
     # Server-side encrypted files: decrypt, generate thumbnail, re-encrypt
     dek = None
@@ -245,7 +246,7 @@ def regenerate_missing_thumbnails() -> dict:
     # Get all photos including current dimension status
     # Phase 5: Get from item_media + items tables
     photos = db.execute(
-        """SELECT i.id, im.filename, im.media_type, i.safe_id, i.user_id, im.thumb_width 
+        """SELECT i.id, im.filename, im.media_type, i.user_id, im.thumb_width
             FROM items i
             JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""
@@ -264,12 +265,6 @@ def regenerate_missing_thumbnails() -> dict:
 
         if not original_path.exists():
             skipped += 1
-            continue
-
-        # E2E files: skip thumbnail regeneration (client-provided)
-        if photo["safe_id"]:
-            if thumb_path.exists() and photo["thumb_width"] is not None:
-                already_exists_with_dims += 1
             continue
 
         # Check if thumbnail exists
@@ -371,7 +366,7 @@ def get_thumbnail_stats() -> dict:
 
     # Get all photos with their dimension status
     photos = db.execute(
-        """SELECT i.id, im.filename, im.thumb_width, i.safe_id, i.user_id
+        """SELECT i.id, im.filename, im.thumb_width, i.user_id
             FROM items i
             JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""
@@ -400,10 +395,9 @@ def get_thumbnail_stats() -> dict:
             # File exists but no dimensions in DB
             missing_dimensions += 1
             missing_thumbnails += 1  # Count as missing for regeneration purposes
-            if not photo["safe_id"]:
-                # Server-side encrypted thumbnail: need DEK to measure
-                if not dek_cache.get(photo["user_id"]):
-                    encrypted_no_dek += 1
+            # Server-side encrypted thumbnail: need DEK to measure
+            if not dek_cache.get(photo["user_id"]):
+                encrypted_no_dek += 1
         else:
             healthy += 1
 

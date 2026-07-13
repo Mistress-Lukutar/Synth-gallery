@@ -8,8 +8,7 @@ import pytest
 
 from app.application.services import (
     FolderService,
-    PermissionService,
-    SafeService
+    PermissionService
 )
 
 
@@ -23,17 +22,11 @@ class TestFolderService:
         return repo
     
     @pytest.fixture
-    def mock_safe_repo(self):
-        """Create a mock SafeRepository."""
-        repo = Mock()
-        return repo
-    
-    @pytest.fixture
-    def folder_service(self, mock_folder_repo, mock_safe_repo):
+    def folder_service(self, mock_folder_repo):
         """Create FolderService with mocked dependencies."""
         return FolderService(
             folder_repository=mock_folder_repo,
-            safe_repository=mock_safe_repo
+            permission_repository=Mock()
         )
     
     def test_create_regular_folder(self, folder_service, mock_folder_repo):
@@ -65,12 +58,11 @@ class TestFolderService:
         mock_folder_repo.get_by_id.return_value = {
             "id": "parent-uuid",
             "name": "Parent",
-            "user_id": 1,
-            "safe_id": None
+            "user_id": 1
         }
         mock_folder_repo.create.return_value = "child-uuid"
         mock_folder_repo.get_by_id.side_effect = [
-            {"id": "parent-uuid", "name": "Parent", "user_id": 1, "safe_id": None},
+            {"id": "parent-uuid", "name": "Parent", "user_id": 1},
             {"id": "child-uuid", "name": "Child", "user_id": 1, "parent_id": "parent-uuid"}
         ]
         
@@ -91,8 +83,7 @@ class TestFolderService:
         mock_folder_repo.get_by_id.return_value = {
             "id": "parent-uuid",
             "name": "Parent",
-            "user_id": 2,  # Different user
-            "safe_id": None
+            "user_id": 2  # Different user
         }
         
         # Act & Assert
@@ -295,80 +286,4 @@ class TestPermissionService:
         perm_service.has_permission.assert_called_with("folder", 1, "editor")
 
 
-class TestSafeService:
-    """Test SafeService business logic."""
-    
-    @pytest.fixture
-    def mock_safe_repo(self):
-        """Create a mock SafeRepository."""
-        return Mock()
-    
-    @pytest.fixture
-    def mock_folder_repo(self):
-        """Create a mock FolderRepository."""
-        return Mock()
-    
-    @pytest.fixture
-    def safe_service(self, mock_safe_repo, mock_folder_repo):
-        """Create SafeService with mocked dependencies."""
-        return SafeService(
-            safe_repository=mock_safe_repo,
-            folder_repository=mock_folder_repo
-        )
-    
-    def test_is_safe_folder(self, safe_service, mock_safe_repo):
-        """Test checking if folder is a safe."""
-        # Arrange
-        mock_safe_repo.is_safe_folder.return_value = True
-        
-        # Act
-        result = safe_service.is_safe_folder("folder-uuid")
-        
-        # Assert
-        assert result is True
-        mock_safe_repo.is_safe_folder.assert_called_once_with("folder-uuid")
-    
-    def test_get_safe_by_folder(self, safe_service, mock_safe_repo):
-        """Test getting safe by folder ID."""
-        # Arrange
-        mock_safe_repo.get_by_folder_id.return_value = {
-            "id": "safe-uuid",
-            "folder_id": "folder-uuid"
-        }
-        
-        # Act
-        result = safe_service.get_safe_by_folder("folder-uuid")
-        
-        # Assert
-        assert result["id"] == "safe-uuid"
-    
-    def test_configure_safe(self, safe_service, mock_safe_repo):
-        """Test configuring safe unlock methods."""
-        # Arrange
-        mock_safe_repo.get_by_folder_id.return_value = {
-            "id": "safe-uuid",
-            "folder_id": "folder-uuid",
-            "password_enabled": False
-        }
-        
-        # Act
-        result = safe_service.configure_safe(
-            "folder-uuid",
-            user_id=1,
-            password_enabled=True
-        )
-        
-        # Assert
-        mock_safe_repo.set_password_enabled.assert_called_once_with("folder-uuid", True)
-    
-    def test_configure_nonexistent_safe_fails(self, safe_service, mock_safe_repo):
-        """Test that configuring non-existent safe fails."""
-        # Arrange
-        mock_safe_repo.get_by_folder_id.return_value = None
-        
-        # Act & Assert
-        from fastapi import HTTPException
-        with pytest.raises(HTTPException) as exc_info:
-            safe_service.configure_safe("folder-uuid", user_id=1)
-        
-        assert exc_info.value.status_code == 404
+
