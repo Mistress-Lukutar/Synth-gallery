@@ -8,7 +8,6 @@ Version: v1.0.0
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -33,7 +32,6 @@ class ItemRepository(Repository):
         item_id: Optional[str] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
-        metadata: Optional[dict] = None,
         uploaded_at: Optional[datetime] = None,
     ) -> str:
         '''Create a new item.
@@ -45,7 +43,6 @@ class ItemRepository(Repository):
             item_id: Optional UUID (generated if not provided)
             title: Item title/name
             description: Item description
-            metadata: Type-specific metadata dict (stored as JSON)
             uploaded_at: Upload timestamp
 
         Returns:
@@ -57,8 +54,8 @@ class ItemRepository(Repository):
         self._execute(
             '''INSERT INTO items
                (id, type, folder_id, user_id, uploaded_at,
-                title, description, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                title, description)
+               VALUES (?, ?, ?, ?, ?, ?, ?)''',
             (
                 item_id,
                 item_type,
@@ -67,7 +64,6 @@ class ItemRepository(Repository):
                 uploaded_at or datetime.now(),
                 title,
                 description,
-                json.dumps(metadata) if metadata else None,
             ),
         )
         self._commit()
@@ -81,10 +77,7 @@ class ItemRepository(Repository):
         )
         row = cursor.fetchone()
         if row:
-            item = dict(row)
-            if item.get('metadata'):
-                item['metadata'] = json.loads(item['metadata'])
-            return item
+            return dict(row)
         return None
 
     def get_by_folder(
@@ -136,29 +129,20 @@ class ItemRepository(Repository):
                 ORDER BY {order_by}''',
             tuple(params),
         )
-        items = []
-        for row in cursor.fetchall():
-            item = dict(row)
-            if item.get('metadata'):
-                item['metadata'] = json.loads(item['metadata'])
-            items.append(item)
-        return items
+        return [dict(row) for row in cursor.fetchall()]
 
     def update(self, item_id: str, **kwargs) -> bool:
         '''Update item fields.
 
         Args:
             item_id: Item ID
-            **kwargs: Fields to update (title, metadata, folder_id, etc.)
+            **kwargs: Fields to update (title, folder_id, description)
         '''
-        allowed_fields = {'title', 'metadata', 'folder_id', 'description'}
+        allowed_fields = {'title', 'folder_id', 'description'}
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
 
         if not updates:
             return False
-
-        if 'metadata' in updates and updates['metadata'] is not None:
-            updates['metadata'] = json.dumps(updates['metadata'])
 
         set_clause = ', '.join(f'{k} = ?' for k in updates.keys())
         values = list(updates.values()) + [item_id]

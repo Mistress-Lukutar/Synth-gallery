@@ -480,7 +480,6 @@ def init_db():
             user_id INTEGER,
             uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
             title TEXT,
-            metadata TEXT,
             FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         )
@@ -602,6 +601,10 @@ def init_db():
         db.execute("ALTER TABLE items ADD COLUMN updated_at TIMESTAMP")
         # Set default for existing rows
         db.execute("UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+
+    # Migration: Drop unused metadata column from items
+    if 'metadata' in columns:
+        _recreate_table_without_column(db, 'items', 'metadata')
     
     # Migration: Add file_size to item_media table
     cursor = db.execute("PRAGMA table_info(item_media)")
