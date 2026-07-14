@@ -166,6 +166,7 @@ class MetadataUpdateInput(BaseModel):
     width: Optional[int] = None
     height: Optional[int] = None
     duration: Optional[int] = None
+    png_text_chunks: Optional[dict] = None
     
     @field_validator('taken_at', mode='before')
     @classmethod
@@ -219,7 +220,8 @@ def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Reque
             taken_at=data.taken_at,
             width=data.width,
             height=data.height,
-            duration=data.duration
+            duration=data.duration,
+            png_text_chunks=data.png_text_chunks
         )
         
         return result

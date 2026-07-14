@@ -64,6 +64,10 @@
     let hasMetadataChanges = false;
     let isEditMode = false;
 
+    // PNG text chunks state
+    let pngTextChunks = {};
+    let editingPngTextKey = null;
+
     function init() {
         itemDetailsPanel = document.getElementById('item-details-panel');
         if (!itemDetailsPanel) return;
@@ -200,49 +204,186 @@
         const grid = document.getElementById('png-text-grid');
         if (!section || !grid) return;
 
-        if (!chunks || Object.keys(chunks).length === 0) {
-            section.classList.add('hidden');
+        pngTextChunks = chunks || {};
+        const hasChunks = Object.keys(pngTextChunks).length > 0;
+
+        if (!hasChunks && !isEditMode) {
+            grid.classList.add('hidden');
             grid.innerHTML = '';
             return;
         }
 
-        section.classList.remove('hidden');
-        grid.innerHTML = Object.entries(chunks).map(([key, value]) => {
+        grid.classList.remove('hidden');
+
+        const entries = Object.entries(pngTextChunks);
+        const cardsHtml = entries.map(([key, value]) => {
             const displayValue = String(value).replace(/\s+/g, ' ').trim();
+            const actions = isEditMode ? `
+                <div class="png-text-card-actions">
+                    <button class="png-text-card-action png-text-card-edit" title="Edit" data-key="${escapeHtml(key)}" tabindex="-1">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+                        </svg>
+                    </button>
+                    <button class="png-text-card-action png-text-card-delete" title="Delete" data-key="${escapeHtml(key)}" tabindex="-1">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            ` : `
+                <button class="png-text-card-copy" title="Copy value" tabindex="-1">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            `;
             return `
-                <div class="png-text-card" draggable="true"
+                <div class="png-text-card" draggable="${isEditMode ? 'false' : 'true'}"
                      data-key="${escapeHtml(key)}"
                      data-value="${escapeHtml(displayValue)}"
                      title="${escapeHtml(key)}: ${escapeHtml(displayValue)}">
                     <div class="png-text-card-header">
                         <span class="png-text-card-key">${escapeHtml(key)}</span>
-                        <button class="png-text-card-copy" title="Copy value" tabindex="-1">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                            </svg>
-                        </button>
+                        ${actions}
                     </div>
                     <div class="png-text-card-value">${escapeHtml(displayValue)}</div>
                 </div>
             `;
         }).join('');
 
-        grid.querySelectorAll('.png-text-card').forEach(card => {
-            let dragStarted = false;
-            card.addEventListener('dragstart', (e) => {
-                dragStarted = true;
-                handlePngTextDragStart(e);
+        const addCardHtml = isEditMode ? `
+            <div class="png-text-card png-text-add-card" title="Add metadata block">
+                <div class="png-text-add-card-content">
+                    <span class="png-text-add-icon">+</span>
+                    <span class="png-text-add-label">Add metadata</span>
+                </div>
+            </div>
+        ` : '';
+
+        grid.innerHTML = cardsHtml + addCardHtml;
+
+        if (isEditMode) {
+            const addCard = grid.querySelector('.png-text-add-card');
+            if (addCard) {
+                addCard.addEventListener('click', () => openPngTextModal(null));
+            }
+            grid.querySelectorAll('.png-text-card-edit').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openPngTextModal(btn.dataset.key);
+                });
             });
-            card.addEventListener('dragend', () => {
-                setTimeout(() => { dragStarted = false; }, 50);
+            grid.querySelectorAll('.png-text-card-delete').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deletePngTextChunk(btn.dataset.key);
+                });
             });
-            card.addEventListener('click', (e) => {
-                if (dragStarted) return;
-                // Allow copy button click to also trigger copy
-                handlePngTextClick(e);
+        } else {
+            grid.querySelectorAll('.png-text-card').forEach(card => {
+                let dragStarted = false;
+                card.addEventListener('dragstart', (e) => {
+                    dragStarted = true;
+                    handlePngTextDragStart(e);
+                });
+                card.addEventListener('dragend', () => {
+                    setTimeout(() => { dragStarted = false; }, 50);
+                });
+                card.addEventListener('click', (e) => {
+                    if (dragStarted) return;
+                    handlePngTextClick(e);
+                });
             });
-        });
+        }
+    }
+
+    function openPngTextModal(key = null) {
+        const modal = document.getElementById('png-text-modal');
+        const titleEl = document.getElementById('png-text-modal-title');
+        const nameInput = document.getElementById('png-text-name');
+        const contentInput = document.getElementById('png-text-content');
+        if (!modal || !nameInput || !contentInput) return;
+
+        editingPngTextKey = key;
+        titleEl.textContent = key === null ? 'Add Metadata' : 'Edit Metadata';
+        nameInput.value = key === null ? '' : key;
+        contentInput.value = key === null ? '' : (pngTextChunks[key] ?? '');
+
+        modal.classList.remove('hidden');
+        setTimeout(() => nameInput.focus(), 0);
+    }
+
+    function closePngTextModal() {
+        const modal = document.getElementById('png-text-modal');
+        if (modal) modal.classList.add('hidden');
+        editingPngTextKey = null;
+    }
+
+    async function savePngTextChunk() {
+        const nameInput = document.getElementById('png-text-name');
+        const contentInput = document.getElementById('png-text-content');
+        if (!nameInput || !contentInput) return;
+
+        const key = nameInput.value.trim();
+        const value = contentInput.value;
+
+        if (!key) {
+            nameInput.focus();
+            return;
+        }
+
+        const newChunks = { ...pngTextChunks };
+        // If renaming, remove old key
+        if (editingPngTextKey !== null && editingPngTextKey !== key) {
+            delete newChunks[editingPngTextKey];
+        }
+        newChunks[key] = value;
+
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/${editingItemId}/metadata`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ png_text_chunks: newChunks })
+            });
+
+            if (resp.ok) {
+                pngTextChunks = newChunks;
+                renderPngTextChunks(pngTextChunks);
+                closePngTextModal();
+            } else {
+                console.error('[png-text] Failed to save chunk');
+            }
+        } catch (e) {
+            console.error('[png-text] Save chunk error:', e);
+        }
+    }
+
+    async function deletePngTextChunk(key) {
+        if (!key || !(key in pngTextChunks)) return;
+        if (!confirm(`Delete metadata block "${key}"?`)) return;
+
+        const newChunks = { ...pngTextChunks };
+        delete newChunks[key];
+
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/${editingItemId}/metadata`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ png_text_chunks: newChunks })
+            });
+
+            if (resp.ok) {
+                pngTextChunks = newChunks;
+                renderPngTextChunks(pngTextChunks);
+            } else {
+                console.error('[png-text] Failed to delete chunk');
+            }
+        } catch (e) {
+            console.error('[png-text] Delete chunk error:', e);
+        }
     }
 
     function handlePngTextDragStart(e) {
@@ -457,6 +598,7 @@
         }
 
         renderCurrentTags();
+        renderPngTextChunks(pngTextChunks);
     }
 
     window.toggleEditMode = function() {
@@ -956,10 +1098,11 @@
         relatedSuggestions = [];
         originalValues = {}; // Reset dirty check
 
-        const pngSection = document.getElementById('png-text-section');
         const pngGrid = document.getElementById('png-text-grid');
-        if (pngSection) pngSection.classList.add('hidden');
-        if (pngGrid) pngGrid.innerHTML = '';
+        if (pngGrid) {
+            pngGrid.innerHTML = '';
+            pngGrid.classList.add('hidden');
+        }
 
         // Destroy editor instance
         if (descriptionEditor) {
@@ -982,6 +1125,11 @@
     window.removeTag = removeTag;
     window.rejectSuggestion = rejectSuggestion;
     window.saveTagChanges = window.closeItemDetails;
+
+    window.openPngTextModal = openPngTextModal;
+    window.closePngTextModal = closePngTextModal;
+    window.savePngTextChunk = savePngTextChunk;
+    window.deletePngTextChunk = deletePngTextChunk;
 
     // Initialize on DOM ready
     if (document.readyState === 'loading') {

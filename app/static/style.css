@@ -4402,10 +4402,19 @@ main {
 /* PNG Text Metadata Section */
 .png-text-section {
     margin-top: 16px;
-    padding: 12px 16px;
-    border: 1px solid var(--border-color, #333);
-    border-radius: 6px;
-    background: var(--bg-primary, #1a1a1a);
+}
+
+.png-text-section .field-group {
+    margin-bottom: 12px;
+}
+
+.png-text-section .field-group label {
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
 }
 
 .png-text-section.hidden {
@@ -4434,6 +4443,15 @@ main {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 8px;
+    margin-top: 15px;
+}
+
+.png-text-grid + .detail-row {
+    margin-top: 12px;
+}
+
+.png-text-grid.hidden {
+    display: none !important;
 }
 
 .png-text-card {
@@ -4513,7 +4531,125 @@ main {
     background: rgba(255, 255, 255, 0.08);
 }
 
-/* Divider */
+.png-text-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.png-text-card-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 3px;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+}
+
+.png-text-card-action:hover {
+    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.png-text-card-action.delete:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.png-text-add-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 64px;
+    padding: 8px 10px;
+    background: transparent;
+    border: 1px dashed var(--border-color, #444);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    user-select: none;
+}
+
+.png-text-add-card:hover {
+    border-color: var(--accent, #3b82f6);
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.png-text-add-card-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+    transition: color 0.15s;
+}
+
+.png-text-add-card:hover .png-text-add-card-content {
+    color: var(--accent, #3b82f6);
+}
+
+.png-text-add-icon {
+    font-size: 24px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.png-text-add-label {
+    font-size: 11px;
+}
+
+.png-text-form-group {
+    margin-bottom: 1rem;
+}
+
+.png-text-form-group label {
+    display: block;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.png-text-form-group input,
+.png-text-form-group textarea {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--input-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    color: var(--text-color, #fff);
+    font-size: 14px;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+
+.png-text-form-group textarea {
+    resize: vertical;
+    min-height: 120px;
+}
+
+.png-text-form-group input:focus,
+.png-text-form-group textarea:focus {
+    outline: none;
+    border-color: var(--accent, #3b82f6);
+}
+
+/* PNG text modal title spacing */
+#png-text-modal .modal-header {
+    margin-bottom: 1rem;
+}
+
+#png-text-modal .modal-header h3 {
+    margin: 0;
+    padding-right: 2rem;
+}
 .details-divider {
     height: 1px;
     background: var(--border-color, #333);

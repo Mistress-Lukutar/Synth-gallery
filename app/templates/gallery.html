@@ -120,10 +120,13 @@
                 <div id="related-tags-container" class="related-tags-container"></div>
             </div>
             
-            <div class="details-divider"></div>
-            
-            <!-- Details Section -->
-            <div class="metadata-details">
+            <!-- PNG Text Chunks Section -->
+            <div class="png-text-section" id="png-text-section">
+                <div class="field-group">
+                    <label>Metadata</label>
+                    <div class="png-text-grid" id="png-text-grid"></div>
+                </div>
+                
                 <div class="detail-row">
                     <span class="detail-label">Filename</span>
                     <span class="detail-value" id="detail-filename">-</span>
@@ -156,15 +159,6 @@
                     <span class="detail-label">Date Taken</span>
                     <span class="detail-value" id="detail-taken-at">-</span>
                 </div>
-            </div>
-
-            <!-- PNG Text Chunks Section -->
-            <div class="png-text-section hidden" id="png-text-section">
-                <div class="png-text-section-header">
-                    <span class="png-text-section-title">Additional Metadata</span>
-                    <span class="png-text-section-hint">Click to copy</span>
-                </div>
-                <div class="png-text-grid" id="png-text-grid"></div>
             </div>
         </div>
     </div>
@@ -364,6 +358,30 @@
         </div>
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeBulkTagsModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- PNG Text Chunk Modal -->
+<div id="png-text-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-header">
+            <h3 id="png-text-modal-title">Add Metadata</h3>
+            <button class="btn-close" onclick="closePngTextModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="png-text-form-group">
+                <label for="png-text-name">Name</label>
+                <input type="text" id="png-text-name" placeholder="e.g. prompt, workflow..." autocomplete="off">
+            </div>
+            <div class="png-text-form-group">
+                <label for="png-text-content">Content</label>
+                <textarea id="png-text-content" rows="8" placeholder="Enter value..."></textarea>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closePngTextModal()">Cancel</button>
+            <button class="btn" id="png-text-save-btn" onclick="savePngTextChunk()">Save</button>
         </div>
     </div>
 </div>

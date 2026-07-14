@@ -698,6 +698,7 @@ class ItemService:
         width: Optional[int] = None,
         height: Optional[int] = None,
         duration: Optional[int] = None,
+        png_text_chunks: Optional[dict] = None,
     ) -> Dict:
         '''Update item metadata.
 
@@ -710,6 +711,7 @@ class ItemService:
             width: New width in pixels (optional)
             height: New height in pixels (optional)
             duration: Duration in seconds for video (optional)
+            png_text_chunks: New PNG text chunks dict (optional)
 
         Returns:
             Dict with update status
@@ -745,6 +747,8 @@ class ItemService:
             media_updates['height'] = height
         if duration is not None:
             media_updates['duration'] = duration
+        if png_text_chunks is not None:
+            media_updates['png_text_chunks'] = png_text_chunks
 
         if media_updates:
             if self.media_repo.update(item_id, **media_updates):
