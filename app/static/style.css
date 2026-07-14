@@ -2767,6 +2767,16 @@ main {
     flex: 1;
     min-height: 0;
     position: relative;
+    overflow: hidden;
+    cursor: default;
+}
+
+.lightbox-media.can-pan {
+    cursor: grab;
+}
+
+.lightbox-media.can-pan.panning {
+    cursor: grabbing;
 }
 
 .lightbox-media picture {
@@ -2778,11 +2788,18 @@ main {
 }
 
 .lightbox-image {
-    width: 100%;
-    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
     object-fit: contain;
     border-radius: 4px;
     will-change: transform;
+    transition: transform 0.1s ease-out;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.lightbox-image.no-transition {
+    transition: none;
 }
 
 .lightbox-video {
@@ -2791,6 +2808,33 @@ main {
     object-fit: contain;
     border-radius: 4px;
     will-change: transform;
+}
+
+.lightbox-zoom-hint {
+    position: absolute;
+    bottom: 5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1003;
+    background: rgba(0, 0, 0, 0.6);
+    color: rgba(255, 255, 255, 0.85);
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    white-space: nowrap;
+}
+
+.lightbox-zoom-hint.visible {
+    opacity: 1;
+}
+
+@media (max-width: 768px) {
+    .lightbox-zoom-hint {
+        bottom: 4.5rem;
+    }
 }
 
 /* Loading state for safe files */

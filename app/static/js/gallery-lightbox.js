@@ -52,6 +52,19 @@
     let currentImageLoadController = null;
     let currentFullImageLoader = null;
     
+    // Zoom / pan state
+    let zoomState = {
+        scale: 1,
+        translateX: 0,
+        translateY: 0,
+        isDragging: false,
+        lastMouseX: 0,
+        lastMouseY: 0,
+        minScale: 1,
+        maxScale: 10,
+        hintTimeout: null
+    };
+    
     // Cancel any pending image loads for lightbox only (does not affect gallery thumbnails)
     function cancelImageLoading() {
         if (currentImageLoadController) {
@@ -190,6 +203,211 @@
         
         // Touch swipe navigation for mobile
         setupTouchNavigation();
+        
+        // Desktop wheel zoom + drag pan
+        setupZoomHandlers();
+    }
+    
+    // ---------- Zoom / Pan ----------
+    
+    function getZoomImage() {
+        const mediaContainer = lightbox?.querySelector('.lightbox-media');
+        if (!mediaContainer) return null;
+        return mediaContainer.querySelector('img.lightbox-image');
+    }
+    
+    function isFullQualityImage() {
+        const img = getZoomImage();
+        return img && img.dataset.quality === 'full';
+    }
+    
+    function getZoomContainer() {
+        return lightbox?.querySelector('.lightbox-media');
+    }
+    
+    function getZoomHint() {
+        let hint = lightbox?.querySelector('.lightbox-zoom-hint');
+        if (!hint && lightbox) {
+            hint = document.createElement('div');
+            hint.className = 'lightbox-zoom-hint';
+            lightbox.appendChild(hint);
+        }
+        return hint;
+    }
+    
+    function showZoomHint(text) {
+        const hint = getZoomHint();
+        if (!hint) return;
+        hint.textContent = text;
+        hint.classList.add('visible');
+        if (zoomState.hintTimeout) {
+            clearTimeout(zoomState.hintTimeout);
+        }
+        zoomState.hintTimeout = setTimeout(() => {
+            hint.classList.remove('visible');
+        }, 1200);
+    }
+    
+    function resetZoom(animate = false) {
+        zoomState.scale = 1;
+        zoomState.translateX = 0;
+        zoomState.translateY = 0;
+        zoomState.isDragging = false;
+        applyZoom(!animate);
+        const container = getZoomContainer();
+        if (container) container.classList.remove('panning');
+    }
+    
+    function applyZoom(noTransition = false) {
+        const img = getZoomImage();
+        const container = getZoomContainer();
+        if (!img) {
+            if (container) container.classList.remove('can-pan');
+            return;
+        }
+        if (noTransition) {
+            img.classList.add('no-transition');
+        } else {
+            img.classList.remove('no-transition');
+        }
+        img.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
+        if (container) {
+            if (zoomState.scale > 1 && isFullQualityImage()) {
+                container.classList.add('can-pan');
+            } else {
+                container.classList.remove('can-pan');
+            }
+        }
+        if (noTransition) {
+            // Force reflow then re-enable transitions
+            img.offsetHeight;
+            img.classList.remove('no-transition');
+        }
+    }
+    
+    function getImageBaseScale(img, containerRect) {
+        if (!img.naturalWidth || !img.naturalHeight) return 1;
+        const scaleX = containerRect.width / img.naturalWidth;
+        const scaleY = containerRect.height / img.naturalHeight;
+        // object-fit: contain -> fit inside container, never upscale beyond natural size
+        return Math.min(scaleX, scaleY, 1);
+    }
+    
+    function clampPan() {
+        const img = getZoomImage();
+        const container = getZoomContainer();
+        if (!img || !container) return;
+        const rect = container.getBoundingClientRect();
+        const baseScale = getImageBaseScale(img, rect);
+        const scaledWidth = img.naturalWidth * baseScale * zoomState.scale;
+        const scaledHeight = img.naturalHeight * baseScale * zoomState.scale;
+        const maxTranslateX = Math.max(0, (scaledWidth - rect.width) / 2);
+        const maxTranslateY = Math.max(0, (scaledHeight - rect.height) / 2);
+        zoomState.translateX = Math.max(-maxTranslateX, Math.min(maxTranslateX, zoomState.translateX));
+        zoomState.translateY = Math.max(-maxTranslateY, Math.min(maxTranslateY, zoomState.translateY));
+    }
+    
+    function zoomAt(clientX, clientY, newScale) {
+        const img = getZoomImage();
+        const container = getZoomContainer();
+        if (!img || !container) return;
+        const rect = container.getBoundingClientRect();
+        const mouseX = clientX - rect.left - rect.width / 2;
+        const mouseY = clientY - rect.top - rect.height / 2;
+        
+        const oldScale = zoomState.scale;
+        newScale = Math.max(zoomState.minScale, Math.min(zoomState.maxScale, newScale));
+        if (newScale === oldScale) return;
+        
+        // Keep the point under the cursor stable during the zoom
+        const ratio = newScale / oldScale;
+        zoomState.translateX = mouseX - (mouseX - zoomState.translateX) * ratio;
+        zoomState.translateY = mouseY - (mouseY - zoomState.translateY) * ratio;
+        zoomState.scale = newScale;
+        
+        // When zooming out to 1, always re-center
+        if (zoomState.scale <= 1) {
+            zoomState.scale = 1;
+            zoomState.translateX = 0;
+            zoomState.translateY = 0;
+        }
+        
+        clampPan();
+        applyZoom(false);
+        showZoomHint(`${Math.round(zoomState.scale * 100)}%`);
+    }
+    
+    function onWheel(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        if (!isFullQualityImage()) return;
+        e.preventDefault();
+        // Support both vertical mouse wheel and horizontal trackpad gestures
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        const factor = delta < 0 ? 1.15 : 0.87;
+        zoomAt(e.clientX, e.clientY, zoomState.scale * factor);
+    }
+    
+    function onMouseDown(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        // Only left button; ignore if clicking overlay/buttons
+        if (e.button !== 0) return;
+        if (!isFullQualityImage() || zoomState.scale <= 1) return;
+        // Don't start panning when clicking controls or panels
+        if (e.target.closest('.lightbox-nav, .lightbox-close, .lightbox-bottom-bar, .lightbox-top-bar, .item-details-panel, .album-editor-panel')) {
+            return;
+        }
+        e.preventDefault();
+        zoomState.isDragging = true;
+        zoomState.lastMouseX = e.clientX;
+        zoomState.lastMouseY = e.clientY;
+        const container = getZoomContainer();
+        if (container) container.classList.add('panning');
+    }
+    
+    function onMouseMove(e) {
+        if (!zoomState.isDragging) return;
+        e.preventDefault();
+        const dx = e.clientX - zoomState.lastMouseX;
+        const dy = e.clientY - zoomState.lastMouseY;
+        zoomState.lastMouseX = e.clientX;
+        zoomState.lastMouseY = e.clientY;
+        zoomState.translateX += dx;
+        zoomState.translateY += dy;
+        clampPan();
+        applyZoom(true);
+    }
+    
+    function onMouseUp(e) {
+        if (!zoomState.isDragging) return;
+        zoomState.isDragging = false;
+        const container = getZoomContainer();
+        if (container) container.classList.remove('panning');
+    }
+    
+    function onDoubleClick(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        if (!isFullQualityImage()) return;
+        // Ignore on controls
+        if (e.target.closest('.lightbox-nav, .lightbox-close, .lightbox-bottom-bar, .lightbox-top-bar, .item-details-panel, .album-editor-panel')) {
+            return;
+        }
+        e.preventDefault();
+        if (zoomState.scale > 1.05) {
+            resetZoom(true);
+            showZoomHint('Fit');
+        } else {
+            zoomAt(e.clientX, e.clientY, 2.5);
+        }
+    }
+    
+    function setupZoomHandlers() {
+        const container = getZoomContainer();
+        if (!container) return;
+        container.addEventListener('wheel', onWheel, { passive: false });
+        container.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        container.addEventListener('dblclick', onDoubleClick);
     }
     
     // Touch swipe navigation
@@ -600,6 +818,17 @@
         // Cancel any pending image loads (including all network requests)
         cancelAllLoading();
         
+        // Reset zoom so the next opened photo starts unzoomed
+        resetZoom(false);
+        
+        // Remove zoom hint and clear its timeout
+        const hint = lightbox.querySelector('.lightbox-zoom-hint');
+        if (hint) hint.remove();
+        if (zoomState.hintTimeout) {
+            clearTimeout(zoomState.hintTimeout);
+            zoomState.hintTimeout = null;
+        }
+        
         lightbox.classList.add('hidden');
         document.body.style.overflow = '';
         // Also close any open panels (skip refresh since lightbox is closing)
@@ -620,6 +849,9 @@
 
     window.closeLightboxWithAnimation = async function(direction = 'down') {
         if (!lightbox) return;
+        
+        // Reset zoom before sliding so the animation uses the base transform
+        resetZoom(false);
         
         const mediaContainer = lightbox.querySelector('.lightbox-media');
         const currentImg = mediaContainer?.querySelector('img, video');
@@ -722,6 +954,9 @@
         
         // Phase 5: support polymorphic items (type: 'item') and legacy (type: 'photo')
         if (!item || (item.type !== 'item' && item.type !== 'photo')) return;
+        
+        // Reset zoom before navigating so slide animations aren't affected by transforms
+        resetZoom(false);
         
         // Animation setup
         let currentImg = null;
@@ -847,8 +1082,9 @@
                 try {
                     const thumbUrl = await FileAccessService.getThumbnailUrl(photoId, { photo });
                     mediaContainer.innerHTML = `
-                        <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                        <img class="lightbox-image" data-quality="thumbnail" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
                     `;
+                    resetZoom(false);
                 } catch (err) {
                     console.error('[lightbox] Failed to load thumbnail:', err);
                     mediaContainer.innerHTML = `<p>Error: Failed to load thumbnail</p>`;
@@ -874,9 +1110,10 @@
                                 mediaContainer.innerHTML = `
                                     <picture>
                                         <source srcset="${fullUrl}" type="image/jxl">
-                                        <img class="lightbox-image" src="${fullUrl}?format=jpeg" alt="${escapeHtml(photo.original_name || '')}">
+                                        <img class="lightbox-image" data-quality="full" src="${fullUrl}?format=jpeg" alt="${escapeHtml(photo.original_name || '')}">
                                     </picture>
                                 `;
+                                resetZoom(false);
                             }
                         };
 
@@ -896,9 +1133,10 @@
                                     mediaContainer.innerHTML = `
                                         <picture>
                                             <source srcset="${fullUrl}" type="image/jxl">
-                                            <img class="lightbox-image" src="${jpegUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                                            <img class="lightbox-image" data-quality="full" src="${jpegUrl}" alt="${escapeHtml(photo.original_name || '')}">
                                         </picture>
                                     `;
+                                    resetZoom(false);
                                 }
                             };
 
@@ -921,8 +1159,9 @@
                             if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
                                 currentFullImageLoader = null;
                                 mediaContainer.innerHTML = `
-                                    <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
+                                    <img class="lightbox-image" data-quality="full" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
                                 `;
+                                resetZoom(false);
                             }
                         };
                         fullImg.onerror = () => {
