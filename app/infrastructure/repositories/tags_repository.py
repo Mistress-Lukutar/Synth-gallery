@@ -547,7 +547,7 @@ class TagsRepository(Repository):
 
         placeholders = ','.join('?' * len(item_ids))
         cursor = self._execute(f"""
-            SELECT a.id, a.name, a.folder_id, a.cover_item_id, a.safe_id, a.user_id,
+            SELECT a.id, a.name, a.folder_id, a.cover_item_id, a.user_id,
                    COUNT(DISTINCT ai.item_id) as matching_count,
                    MAX(i.uploaded_at) as uploaded_at,
                    MAX(im.taken_at) as taken_at

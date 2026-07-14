@@ -101,8 +101,8 @@ class S3Storage(StorageInterface):
     def _get_key(self, file_id: str, folder: str) -> str:
         """Get S3 object key."""
         # Sanitize file_id
-        safe_id = Path(file_id).name
-        return f"{folder}/{safe_id}"
+        sanitized_id = Path(file_id).name
+        return f"{folder}/{sanitized_id}"
     
     async def upload(
         self,

@@ -48,8 +48,8 @@ class LocalStorage(StorageInterface):
     def _get_path(self, file_id: str, folder: str) -> Path:
         """Get full filesystem path for a file."""
         # Sanitize file_id to prevent directory traversal
-        safe_id = Path(file_id).name
-        return self.base_path / folder / safe_id
+        sanitized_id = Path(file_id).name
+        return self.base_path / folder / sanitized_id
     
     async def upload(
         self,
