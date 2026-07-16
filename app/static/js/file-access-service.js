@@ -68,6 +68,18 @@ var FileAccessService = (function() {
         },
 
         /**
+         * Get URL for a screen-fitted preview image.
+         *
+         * @param {string} photoId - Photo ID
+         * @param {number} w - Viewport width
+         * @param {number} h - Viewport height
+         * @returns {Promise<string>} - Direct URL for the preview
+         */
+        async getPreviewUrl(photoId, w, h) {
+            return `${getBaseUrl()}/files/${photoId}/preview?w=${w}&h=${h}`;
+        },
+
+        /**
          * Get thumbnail URL synchronously (for initial render).
          * 
          * @param {string} photoId - Photo ID

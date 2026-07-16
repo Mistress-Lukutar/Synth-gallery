@@ -218,7 +218,7 @@
     
     function isFullQualityImage() {
         const img = getZoomImage();
-        return img && img.dataset.quality === 'full';
+        return !!(img && img.dataset.quality === 'full' && img.complete && img.naturalWidth > 0);
     }
     
     function getZoomContainer() {
@@ -262,7 +262,7 @@
         const img = getZoomImage();
         const container = getZoomContainer();
         if (!img) {
-            if (container) container.classList.remove('can-pan');
+            if (container) container.classList.remove('can-pan', 'zoomed');
             return;
         }
         if (noTransition) {
@@ -273,9 +273,9 @@
         img.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
         if (container) {
             if (zoomState.scale > 1 && isFullQualityImage()) {
-                container.classList.add('can-pan');
+                container.classList.add('can-pan', 'zoomed');
             } else {
-                container.classList.remove('can-pan');
+                container.classList.remove('can-pan', 'zoomed');
             }
         }
         if (noTransition) {
@@ -1028,6 +1028,25 @@
         window.history.pushState({ photoId: newPhotoId }, '', url.toString());
     };
 
+    // Render a single lightbox image. For JXL, use <picture> so capable browsers
+    // load the JXL original while others fall back to the server-rendered JPEG.
+    function renderLightboxImage(mediaContainer, src, isJxl, photoName, quality = 'fit') {
+        const alt = escapeHtml(photoName || '');
+        if (isJxl) {
+            mediaContainer.innerHTML = `
+                <picture>
+                    <source srcset="${src}" type="image/jxl">
+                    <img class="lightbox-image" data-quality="${quality}" src="${src}?format=jpeg" alt="${alt}">
+                </picture>
+            `;
+        } else {
+            mediaContainer.innerHTML = `
+                <img class="lightbox-image" data-quality="${quality}" src="${src}" alt="${alt}">
+            `;
+        }
+        resetZoom(false);
+    }
+
     window.loadPhoto = async function(photoId) {
         if (!lightbox) return;
         
@@ -1078,13 +1097,12 @@
                 mediaContainer.dataset.loadingId = loadId;
                 const isJxl = photo.content_type === 'image/jxl';
 
-                // All images: start with the thumbnail, preload the full image, and swap once ready.
+                // All images: start with the thumbnail, then load the full image in the
+                // background and swap to it once ready. A single <img> element is used;
+                // zoom switches it from fit CSS to natural-size CSS so detail is preserved.
                 try {
                     const thumbUrl = await FileAccessService.getThumbnailUrl(photoId, { photo });
-                    mediaContainer.innerHTML = `
-                        <img class="lightbox-image" data-quality="thumbnail" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                    `;
-                    resetZoom(false);
+                    renderLightboxImage(mediaContainer, thumbUrl, false, photo.original_name, 'thumbnail');
                 } catch (err) {
                     console.error('[lightbox] Failed to load thumbnail:', err);
                     mediaContainer.innerHTML = `<p>Error: Failed to load thumbnail</p>`;
@@ -1105,15 +1123,7 @@
                         jxlImg.onload = () => {
                             if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === jxlImg) {
                                 currentFullImageLoader = null;
-                                // JXL is ready; use <picture> so the browser keeps selecting
-                                // the JXL source (already cached) and non-JXL browsers have a fallback.
-                                mediaContainer.innerHTML = `
-                                    <picture>
-                                        <source srcset="${fullUrl}" type="image/jxl">
-                                        <img class="lightbox-image" data-quality="full" src="${fullUrl}?format=jpeg" alt="${escapeHtml(photo.original_name || '')}">
-                                    </picture>
-                                `;
-                                resetZoom(false);
+                                renderLightboxImage(mediaContainer, fullUrl, true, photo.original_name, 'full');
                             }
                         };
 
@@ -1130,13 +1140,7 @@
                             jpegImg.onload = () => {
                                 if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === jpegImg) {
                                     currentFullImageLoader = null;
-                                    mediaContainer.innerHTML = `
-                                        <picture>
-                                            <source srcset="${fullUrl}" type="image/jxl">
-                                            <img class="lightbox-image" data-quality="full" src="${jpegUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                                        </picture>
-                                    `;
-                                    resetZoom(false);
+                                    renderLightboxImage(mediaContainer, fullUrl, true, photo.original_name, 'full');
                                 }
                             };
 
@@ -1158,10 +1162,7 @@
                         fullImg.onload = () => {
                             if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
                                 currentFullImageLoader = null;
-                                mediaContainer.innerHTML = `
-                                    <img class="lightbox-image" data-quality="full" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                                `;
-                                resetZoom(false);
+                                renderLightboxImage(mediaContainer, fullUrl, false, photo.original_name, 'full');
                             }
                         };
                         fullImg.onerror = () => {
