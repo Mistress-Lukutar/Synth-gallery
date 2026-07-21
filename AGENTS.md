@@ -26,8 +26,8 @@ Synth Gallery is a **personal media vault** with end-to-end encryption, hardware
 | Styling | Vanilla CSS |
 | Frontend JS | Vanilla JavaScript (modular) |
 | Image Processing | Pillow 12.1.1 |
-| Video Processing | OpenCV 4.13.0.92 |
-| Encryption | cryptography (AES-256-GCM) |
+| Video Processing | ffmpeg / ffprobe (external binary; gyan.dev full build) |
+| Encryption | cryptography (AES-256-GCM, chunked streaming envelope) |
 | Password Hashing | bcrypt via passlib |
 | Hardware Keys | webauthn >=2.0.0 (FIDO2) |
 
@@ -62,11 +62,12 @@ Synth-Gallery/
 │   │   │   ├── album_repository.py
 │   │   │   └── webauthn_repository.py
 │   │   ├── services/             # Infrastructure services
-│   │   │   ├── encryption.py         # AES-256-GCM encryption, DEK cache
+│   │   │   ├── encryption.py         # Chunked AES-256-GCM streaming envelope, DEK cache
 │   │   │   ├── backup.py             # Backup/restore service + scheduler
-│   │   │   ├── media.py              # Media processing
+│   │   │   ├── ffmpeg.py             # ffmpeg/ffprobe wrappers (probe + thumbnail)
+│   │   │   ├── media.py              # Image processing (Pillow only)
 │   │   │   ├── metadata.py           # EXIF/metadata extraction
-│   │   │   ├── thumbnail.py          # Thumbnail generation
+│   │   │   ├── thumbnail.py          # Thumbnail generation/regeneration
 │   │   │   └── webauthn.py           # Hardware key support
 │   │   └── storage/              # Storage abstraction layer
 │   │       ├── base.py               # StorageInterface
@@ -111,7 +112,8 @@ Synth-Gallery/
 ├── uploads/                      # Uploaded files (server-side encrypted by default)
 ├── thumbnails/                   # Generated thumbnails (server-side encrypted by default)
 ├── .agents/                      # Maintenance scripts and plans
-│   └── encrypt_existing_uploads.py   # Migration: encrypt legacy plaintext files
+│   ├── encrypt_existing_uploads.py   # Migration: encrypt legacy plaintext files
+│   └── reencrypt_to_chunked.py       # Migration: legacy whole-file GCM → SGE1 chunked envelope
 ├── backups/                      # Backup storage
 ├── gallery.db                    # SQLite database
 ├── pyproject.toml                # Project configuration and dependencies (PEP 621)
@@ -191,25 +193,58 @@ KEK (Key Encryption Key) ───┐
     ▼                        │
 DEK (Data Encryption Key) ◄──┘
     │
-    ├──► File 1: CK encrypted with DEK
-    └──► File 2: CK encrypted with DEK
+    ├──► File 1: chunked AEAD envelope encrypted with DEK
+    └──► File 2: chunked AEAD envelope encrypted with DEK
 ```
 
 - **DEK (Data Encryption Key)**: Per-user, 256-bit random, cached in memory during session
-- **KEK (Key Encryption Key)**: Derived from password via PBKDF2
-- **Files**: Encrypted with AES-256-GCM (nonce + ciphertext stored)
-- **Migration Fallback**: File serving routes detect old plaintext uploads by magic bytes and serve them directly (with a log warning) until the migration script is run
+- **KEK (Key Encryption Key)**: Derived from password via PBKDF2; wraps the DEK via a single whole-file AES-256-GCM envelope (small payload, no streaming needed)
+- **Files**: Encrypted with the **chunked streaming AEAD envelope** described below; supports arbitrary file sizes and HTTP Range serving
+- **Legacy format**: The old whole-file `[12B nonce][ciphertext+tag]` envelope was removed. Run `.agents/reencrypt_to_chunked.py` once before starting the new service to migrate existing files
+
+#### Chunked AEAD Envelope (SGE1)
+
+Every media file (uploads, thumbnails, JXL fallbacks) is stored on disk in the
+same chunked format so a single code path handles small thumbnails and
+multi-GiB videos:
+
+```
+[MAGIC "SGE1" 4B][VERSION 1B][RESERVED 1B][CHUNK_SIZE 4B BE]
+for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
+    [NONCE 12B][CIPHERTEXT + 16B GCM TAG]
+```
+
+- Each chunk is independently decryptable (own nonce + tag), so HTTP Range
+  requests decrypt only the chunks overlapping `[start, end]`
+- Memory usage is O(CHUNK_SIZE) regardless of file size — full plaintext is
+  never held in memory
+- Default `CHUNK_SIZE` is 1 MiB (configurable via `SYNTH_ENCRYPTION_CHUNK_SIZE`)
+- Envelope helpers live in `app/infrastructure/services/encryption.py`:
+  - `encrypt_to_stream(reader, writer, dek)` / `decrypt_to_stream(...)`
+  - `iter_decrypt(reader, dek)` — lazy plaintext iterator (for `StreamingResponse`)
+  - `decrypt_range(reader, dek, start, end)` — for HTTP Range serving
+  - `get_plaintext_size(encrypted_size)` — for `Content-Length` / `Content-Range`
+  - `encrypt_bytes` / `decrypt_bytes` — convenience for small objects (thumbnails, JXL fallbacks)
 
 ### 5. Encryption Behavior
 
 **Uploads:**
-- `process_media_upload()` encrypts the file bytes with the owner's DEK before writing to storage
-- Thumbnails are also encrypted with the same DEK
+- `process_media_upload()` streams the incoming upload to a plaintext temp file, probes metadata, generates a thumbnail, and stream-encrypts directly into storage. Memory usage is bounded by the chunk size regardless of file size
+- Thumbnails are also encrypted with the same DEK via `encrypt_bytes`
 - Upload fails with 403 if the user's DEK is not available
 
 **File Serving:**
-- Files are decrypted on-the-fly using the owner's DEK
-- If decryption fails and the file matches plaintext magic bytes, it is served raw for backward compatibility
+- `GET /files/{photo_id}` streams the plaintext on the fly via `iter_decrypt` (full file) or `decrypt_range` (HTTP Range, returns 206 Partial Content with `Content-Range` / `Accept-Ranges`)
+- `HEAD /files/{photo_id}` returns `Content-Length` and `Accept-Ranges` so browsers can probe before requesting byte ranges
+- The old plaintext-fallback branch was removed; all files are expected to be in SGE1 format after migration
+
+### 5b. MKV / Large File Support
+
+- **Allowed MIME types**: `video/x-matroska`, `video/x-mkv`, plus the existing `video/mp4`, `video/webm`
+- **No upload size cap**: the streaming pipeline handles multi-GiB files. Any hard limit is the responsibility of a fronting reverse proxy (e.g. nginx `client_max_body_size`)
+- **ffmpeg / ffprobe** are required for video probing and thumbnail generation. They must be on `PATH` (or pointed at via `FFMPEG_TOOL_DIR`). The gyan.dev full build (libx264/libvpx/libaom) supports MKV natively
+- OpenCV (`opencv-python-headless`) was removed; all video work goes through ffmpeg
+- **MKV playback in browsers**: most browsers cannot decode MKV in `<video>`. The lightbox renders a `<video>` element regardless; if it fires an `error` event (typically for MKV), an overlay is shown with a download link. Playback-capable formats (MP4 H.264/AAC, WebM) continue to play inline
 
 **JPEG XL Experimental Storage:**
 - Set `USE_JXL=true` to transcode new image uploads to lossless JPEG XL
@@ -347,6 +382,8 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `JXL_PROGRESSIVE_AC` | Enable `--progressive_ac` for perceived loading speed | `true` |
 | `JXL_QPROGRESSIVE_AC` | Enable `--qprogressive_ac` for perceived loading speed | `true` |
 | `JXL_PROGRESSIVE_DC` | Extra low-resolution pass (`--progressive_dc`), `-1` disables | `1` |
+| `SYNTH_ENCRYPTION_CHUNK_SIZE` | Plaintext chunk size for the chunked AEAD envelope (bytes) | `1048576` (1 MiB) |
+| `FFMPEG_TOOL_DIR` | Directory containing `ffmpeg`/`ffprobe` binaries; overrides PATH lookup | - |
 
 ## Git Commits
 
