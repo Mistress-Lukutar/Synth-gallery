@@ -2,25 +2,26 @@
 File:   uploads.py
 Brief:  Upload routes - unified upload handling for all media types.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-21
+Version: v1.1.0
 '''
-import os
-import tempfile
+import json
 import uuid
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 
-from app.application.services import ItemService
-from app.config import UPLOADS_DIR
+from app.application.services import FolderService, ItemService
+from app.application.services.item_service import ItemService as _ItemService
 from app.database import create_connection
 from app.dependencies import require_user
-from app.infrastructure.repositories import ItemRepository, ItemMediaRepository
-from app.infrastructure.services.encryption import EncryptionService, dek_cache
-from app.infrastructure.services.media import get_media_type
-from app.infrastructure.services.metadata import extract_taken_date
+from app.infrastructure.repositories import (
+    AlbumRepository,
+    FolderRepository,
+    ItemMediaRepository,
+    ItemRepository,
+)
+from app.infrastructure.services.encryption import dek_cache
 from app.logging_config import get_logger
 
 router = APIRouter()
@@ -28,101 +29,94 @@ logger = get_logger(__name__)
 
 
 def get_item_service(db) -> ItemService:
-    """Get configured ItemService."""
+    '''Get configured ItemService.'''
     return ItemService(
         item_repository=ItemRepository(db),
-        item_media_repository=ItemMediaRepository(db)
+        item_media_repository=ItemMediaRepository(db),
     )
 
 
 async def _process_upload(
     file: UploadFile,
     folder_id: str,
-    user: dict
+    user: dict,
 ) -> dict:
-    """Process single file upload.
+    '''Process a single file upload.
 
-    Delegates to ItemService.process_media_upload for all business logic.
-    """
+    Delegates to :meth:`ItemService.process_media_upload` for all business
+    logic. Memory usage is bounded by the streaming pipeline; arbitrarily
+    large files (multi-GiB MKVs) are supported.
+    '''
     db = create_connection()
     try:
         item_service = get_item_service(db)
-        user_dek = dek_cache.get(user["id"])
+        user_dek = dek_cache.get(user['id'])
         return await item_service.process_media_upload(
             file=file,
             folder_id=folder_id,
-            user_id=user["id"],
-            user_dek=user_dek
+            user_id=user['id'],
+            user_dek=user_dek,
         )
     finally:
         db.close()
 
 
-@router.post("/api/uploads")
-@router.post("/upload")  # Legacy endpoint for backward compatibility
+@router.post('/api/uploads')
+@router.post('/upload')  # Legacy endpoint for backward compatibility
 async def upload_file(
     request: Request,
     file: UploadFile = File(...),
-    folder_id: str = Form(...)
+    folder_id: str = Form(...),
 ):
-    """Upload single file.
+    '''Upload a single file.
 
-    Creates Item record with type='media' and associated ItemMedia.
-    Legacy endpoint returns backward-compatible response format.
-    """
+    Creates an Item record with type='media' and the associated ItemMedia
+    row. The legacy endpoint returns a backward-compatible response format.
+    '''
     user = require_user(request)
 
-    # Check permissions
+    # Permission check.
     from .deps import get_permission_service
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        if not perm_service.can_edit(folder_id, user["id"]):
-            raise HTTPException(403, "Cannot upload to this folder")
+        if not perm_service.can_edit(folder_id, user['id']):
+            raise HTTPException(403, 'Cannot upload to this folder')
     finally:
         db.close()
 
-    item = await _process_upload(
-        file=file,
-        folder_id=folder_id,
-        user=user
-    )
+    item = await _process_upload(file=file, folder_id=folder_id, user=user)
 
-    # Clean response structure (use id as filename in extension-less storage)
     return {
-        "id": item["id"],
-        "type": "media",
-        "folder_id": folder_id,
-        "media_type": item.get("media_type", "image"),
-        "title": item.get("title", ""),
-        "filename": item["id"],  # Extension-less: filename = item_id
-        "content_type": item.get("content_type"),
-        "thumb_width": item.get("thumb_width", 0),
-        "thumb_height": item.get("thumb_height", 0),
-        "taken_at": item.get("taken_at"),
-        "status": "ok"
+        'id': item['id'],
+        'type': 'media',
+        'folder_id': folder_id,
+        'media_type': item.get('media_type', 'image'),
+        'title': item.get('title', ''),
+        'filename': item['id'],  # Extension-less: filename = item_id
+        'content_type': item.get('content_type'),
+        'thumb_width': item.get('thumb_width', 0),
+        'thumb_height': item.get('thumb_height', 0),
+        'taken_at': item.get('taken_at'),
+        'status': 'ok',
     }
 
 
-@router.post("/api/uploads/batch")
+@router.post('/api/uploads/batch')
 async def upload_batch(
     request: Request,
     files: list[UploadFile] = File(...),
-    folder_id: str = Form(...)
+    folder_id: str = Form(...),
 ):
-    """Upload multiple files.
-
-    Creates Item records for each file.
-    """
+    '''Upload multiple files. Creates one Item per file.'''
     user = require_user(request)
 
-    # Check permissions once
     from .deps import get_permission_service
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        if not perm_service.can_edit(folder_id, user["id"]):
-            raise HTTPException(403, "Cannot upload to this folder")
+        if not perm_service.can_edit(folder_id, user['id']):
+            raise HTTPException(403, 'Cannot upload to this folder')
     finally:
         db.close()
 
@@ -132,232 +126,80 @@ async def upload_batch(
     for file in files:
         try:
             item = await _process_upload(
-                file=file,
-                folder_id=folder_id,
-                user=user
+                file=file, folder_id=folder_id, user=user
             )
-            # Clean response structure (use id as filename)
             results.append({
-                "id": item["id"],
-                "type": "media",
-                "folder_id": folder_id,
-                "media_type": item.get("media_type", "image"),
-                "title": item.get("title", "")
+                'id': item['id'],
+                'type': 'media',
+                'folder_id': folder_id,
+                'media_type': item.get('media_type', 'image'),
+                'title': item.get('title', ''),
             })
-        except Exception as e:
-            errors.append({
-                "filename": file.filename,
-                "error": str(e)
-            })
+        except Exception as exc:
+            errors.append({'filename': file.filename, 'error': str(exc)})
 
     return {
-        "status": "ok" if not errors else "partial",
-        "items": results,
-        "errors": errors,
-        "total": len(files),
-        "successful": len(results),
-        "failed": len(errors)
+        'status': 'ok' if not errors else 'partial',
+        'items': results,
+        'errors': errors,
+        'total': len(files),
+        'successful': len(results),
+        'failed': len(errors),
     }
 
 
-@router.post("/api/uploads/chunk")
-async def upload_chunk(
-    request: Request,
-    chunk: UploadFile = File(...),
-    upload_id: str = Form(...),
-    chunk_index: int = Form(...),
-    total_chunks: int = Form(...),
-    folder_id: str = Form(...),
-    filename: str = Form(...)
-):
-    """Upload file chunk for resumable uploads.
-
-    Stores chunks in temporary location, assembles on last chunk.
-    """
-    user = require_user(request)
-
-    # Check permissions
-    from .deps import get_permission_service
-    db = create_connection()
-    try:
-        perm_service = get_permission_service(db)
-        if not perm_service.can_edit(folder_id, user["id"]):
-            raise HTTPException(403, "Cannot upload to this folder")
-    finally:
-        db.close()
-
-    # Store chunk
-    chunk_dir = os.path.join(UPLOADS_DIR, "chunks", upload_id)
-    os.makedirs(chunk_dir, exist_ok=True)
-
-    chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_index}")
-    content = await chunk.read()
-
-    with open(chunk_path, "wb") as f:
-        f.write(content)
-
-    # Check if all chunks received
-    received = len([f for f in os.listdir(chunk_dir) if f.startswith("chunk_")])
-
-    if received >= total_chunks:
-        # Assemble file
-        item_id = str(uuid.uuid4())
-        final_path = os.path.join(UPLOADS_DIR, item_id)  # Extension-less storage
-
-        with open(final_path, "wb") as outfile:
-            for i in range(total_chunks):
-                chunk_file = os.path.join(chunk_dir, f"chunk_{i}")
-                with open(chunk_file, "rb") as infile:
-                    outfile.write(infile.read())
-
-        # Clean up chunks
-        import shutil
-        shutil.rmtree(chunk_dir)
-
-        # Read assembled file
-        with open(final_path, "rb") as f:
-            assembled_content = f.read()
-
-        size = len(assembled_content)
-
-        # Server-side encryption with user's DEK
-        user_dek = dek_cache.get(user["id"])
-        if user_dek:
-            assembled_content = EncryptionService.encrypt_file(assembled_content, user_dek)
-            # Overwrite assembled file with encrypted version
-            with open(final_path, "wb") as f:
-                f.write(assembled_content)
-        else:
-            raise HTTPException(403, "Encryption key not available")
-
-        # Create Item + ItemMedia
-        db = create_connection()
-        try:
-            item_service = get_item_service(db)
-            storage = get_storage()
-
-            # Upload to storage
-            await storage.upload(item_id, assembled_content, folder="uploads")
-
-            # Determine media type
-            media_type = get_media_type(chunk.content_type)
-
-            # Extract taken_at from EXIF for images
-            taken_at = None
-            if media_type == 'image':
-                try:
-                    user_dek = dek_cache.get(user["id"])
-                    exif_content = EncryptionService.decrypt_file(assembled_content, user_dek)
-                    suffix = '.jxl' if chunk.content_type == 'image/jxl' else None
-                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                        tmp.write(exif_content)
-                        tmp.flush()
-                        taken_at = extract_taken_date(Path(tmp.name))
-                except Exception:
-                    pass
-
-            item = item_service.create_db_records(
-                item_id=item_id,
-                file_data={
-                    "filename": filename,
-                    "content_type": chunk.content_type or "application/octet-stream",
-                    "size": size,
-                    "uploaded_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
-                    "user_id": user["id"],
-                    "taken_at": taken_at,
-                },
-                media_data={
-                    "media_type": media_type,
-                    "storage_path": f"uploads/{item_id}_{filename}",
-                },
-                folder_id=folder_id,
-                user_id=user["id"]
-            )
-
-            return {
-                "status": "ok",
-                "item": item,
-                "complete": True
-            }
-        finally:
-            db.close()
-
-    return {
-        "status": "ok",
-        "chunk": chunk_index,
-        "received": received,
-        "total": total_chunks,
-        "complete": False
-    }
-
-
-@router.post("/upload-bulk")
+@router.post('/upload-bulk')
 async def upload_bulk(
     request: Request,
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
-    paths: str = Form(...)
+    paths: str = Form(...),
 ):
-    """Bulk upload folder structure with files.
+    '''Bulk upload a folder structure with files.
 
-    Creates subfolders and albums from directory structure.
-    Files in root go to target folder, files in subfolders create albums.
-    """
-    import json
-    from app.infrastructure.repositories import FolderRepository, AlbumRepository
-    from app.application.services import FolderService
-
+    Creates subfolders and albums from the directory structure. Files in the
+    root go to the target folder; files in subfolders create albums.
+    '''
     user = require_user(request)
 
-    # Parse paths
     try:
         file_paths = json.loads(paths)
     except json.JSONDecodeError:
-        raise HTTPException(400, "Invalid paths JSON")
+        raise HTTPException(400, 'Invalid paths JSON')
 
     if len(files) != len(file_paths):
-        raise HTTPException(400, "Files and paths count mismatch")
+        raise HTTPException(400, 'Files and paths count mismatch')
 
-    # Check permissions on target folder
     from .deps import get_permission_service
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        if not perm_service.can_edit(folder_id, user["id"]):
-            raise HTTPException(403, "Cannot upload to this folder")
+        if not perm_service.can_edit(folder_id, user['id']):
+            raise HTTPException(403, 'Cannot upload to this folder')
     finally:
         db.close()
 
-    # Group files by their parent directory
-    root_files = []  # Files to upload directly to target folder
-    album_groups = {}  # folder_name -> list of (file, filename)
+    # Group files by their parent directory.
+    root_files = []
+    album_groups: dict[str, list[tuple[UploadFile, str]]] = {}
     skipped_nested = 0
 
     for file, relative_path in zip(files, file_paths):
-        # Normalize path separators
         relative_path = relative_path.replace('\\', '/')
         parts = relative_path.split('/')
 
         if len(parts) == 1:
-            # Root level file
             root_files.append((file, parts[0]))
         elif len(parts) == 2:
-            # One level deep - create album
-            folder_name = parts[0]
-            filename = parts[1]
-            if folder_name not in album_groups:
-                album_groups[folder_name] = []
-            album_groups[folder_name].append((file, filename))
+            album_groups.setdefault(parts[0], []).append((file, parts[1]))
         else:
-            # Nested too deep - skip
             skipped_nested += 1
 
-    # Track results
     individual_photos = 0
     albums_created = 0
     photos_in_albums = 0
     failed = 0
-    errors = []
+    errors: list[str] = []
 
     db = create_connection()
     try:
@@ -365,164 +207,145 @@ async def upload_bulk(
         album_repo = AlbumRepository(db)
         folder_service = FolderService(folder_repo)
 
-        # Upload root level files directly
+        # Root-level files go straight into the target folder.
         for file, filename in root_files:
             try:
                 await _process_upload(
-                    file=file,
-                    folder_id=folder_id,
-                    user=user
+                    file=file, folder_id=folder_id, user=user
                 )
                 individual_photos += 1
-            except Exception as e:
+            except Exception as exc:
                 failed += 1
-                errors.append(f"{filename}: {str(e)}")
+                errors.append(f'{filename}: {exc}')
 
-        # Create albums from subfolders
+        # Subfolders become albums.
         for album_name, album_files in album_groups.items():
             try:
-                # Create subfolder for the album
                 subfolder = folder_service.create_folder(
                     name=album_name,
-                    user_id=user["id"],
-                    parent_id=folder_id
+                    user_id=user['id'],
+                    parent_id=folder_id,
                 )
 
-                # Upload files to subfolder
                 item_ids = []
                 for file, _ in album_files:
                     try:
                         item = await _process_upload(
                             file=file,
-                            folder_id=subfolder["id"],
-                            user=user
+                            folder_id=subfolder['id'],
+                            user=user,
                         )
-                        item_ids.append(item["id"])
+                        item_ids.append(item['id'])
                         photos_in_albums += 1
-                    except Exception as e:
+                    except Exception as exc:
                         failed += 1
-                        errors.append(f"{file.filename}: {str(e)}")
+                        errors.append(f'{file.filename}: {exc}')
 
-                # Create album with uploaded items
                 if item_ids:
                     album_id = album_repo.create(
-                        folder_id=subfolder["id"],
-                        user_id=user["id"],
-                        name=album_name
+                        folder_id=subfolder['id'],
+                        user_id=user['id'],
+                        name=album_name,
                     )
                     for position, item_id in enumerate(item_ids):
                         album_repo.add_item(album_id, item_id, position)
                     albums_created += 1
-
-            except Exception as e:
+            except Exception as exc:
                 failed += len(album_files)
-                errors.append(f"Album {album_name}: {str(e)}")
+                errors.append(f'Album {album_name}: {exc}')
     finally:
         db.close()
 
     return {
-        "status": "ok" if failed == 0 else "partial",
-        "summary": {
-            "total_files": len(files),
-            "individual_photos": individual_photos,
-            "albums_created": albums_created,
-            "photos_in_albums": photos_in_albums,
-            "failed": failed,
-            "skipped_nested": skipped_nested
+        'status': 'ok' if failed == 0 else 'partial',
+        'summary': {
+            'total_files': len(files),
+            'individual_photos': individual_photos,
+            'albums_created': albums_created,
+            'photos_in_albums': photos_in_albums,
+            'failed': failed,
+            'skipped_nested': skipped_nested,
         },
-        "errors": errors if errors else None
+        'errors': errors if errors else None,
     }
 
 
-@router.post("/upload-album")
+@router.post('/upload-album')
 async def upload_album(
     request: Request,
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
-    album_name: str = Form("")
+    album_name: str = Form(''),
 ):
-    """Upload multiple files as an album (legacy endpoint for backward compatibility).
+    '''Upload multiple files as an album (legacy endpoint).
 
     Creates items and an album containing them.
-    """
+    '''
     user = require_user(request)
 
-    # Check minimum files for album
     if len(files) < 2:
-        raise HTTPException(400, "Album requires at least 2 files")
+        raise HTTPException(400, 'Album requires at least 2 files')
 
-    # Check permissions
     from .deps import get_permission_service
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        if not perm_service.can_edit(folder_id, user["id"]):
-            raise HTTPException(403, "Cannot upload to this folder")
+        if not perm_service.can_edit(folder_id, user['id']):
+            raise HTTPException(403, 'Cannot upload to this folder')
     finally:
         db.close()
 
-    # Upload all files
     item_ids = []
     for file in files:
         try:
             item = await _process_upload(
-                file=file,
-                folder_id=folder_id,
-                user=user
+                file=file, folder_id=folder_id, user=user
             )
-            item_ids.append(item["id"])
+            item_ids.append(item['id'])
         except Exception:
-            logger.exception("Failed to upload %s", file.filename)
+            logger.exception('Failed to upload %s', file.filename)
 
-    # Create album with uploaded items
     db = create_connection()
     try:
-        from app.infrastructure.repositories import AlbumRepository, ItemRepository, ItemMediaRepository
-        from app.application.services import ItemService
-
         album_repo = AlbumRepository(db)
-        item_service = ItemService(
+        item_service = _ItemService(
             item_repository=ItemRepository(db),
-            item_media_repository=ItemMediaRepository(db)
+            item_media_repository=ItemMediaRepository(db),
         )
 
-        # Generate default album name if not provided
         if not album_name:
-            from datetime import datetime
             album_name = f"Album {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
         album_id = album_repo.create(
             folder_id=folder_id,
-            user_id=user["id"],
-            name=album_name
+            user_id=user['id'],
+            name=album_name,
         )
 
-        # Add items to album
-        for position, item_id in enumerate(item_ids):
-            album_repo.add_item(album_id, item_id, position)
+        for position, new_item_id in enumerate(item_ids):
+            album_repo.add_item(album_id, new_item_id, position)
 
-        # Get uploaded items for response (Phase 5: polymorphic items)
         uploaded_items = []
-        for item_id in item_ids:
-            item = item_service.get_item(item_id)
+        for new_item_id in item_ids:
+            item = item_service.get_item(new_item_id)
             if item:
                 uploaded_items.append({
-                    "id": item["id"],
-                    "title": item.get("title", ""),
-                    "media_type": item.get("media_type", "image"),
-                    "content_type": item.get("content_type"),
-                    "thumb_width": item.get("thumb_width"),
-                    "thumb_height": item.get("thumb_height"),
-                    "taken_at": item.get("taken_at"),
+                    'id': item['id'],
+                    'title': item.get('title', ''),
+                    'media_type': item.get('media_type', 'image'),
+                    'content_type': item.get('content_type'),
+                    'thumb_width': item.get('thumb_width'),
+                    'thumb_height': item.get('thumb_height'),
+                    'taken_at': item.get('taken_at'),
                 })
 
         return {
-            "status": "ok",
-            "album_id": album_id,
-            "photo_count": len(item_ids),
-            "item_count": len(item_ids),
-            "items": uploaded_items,      # Phase 5: new format
-            "photos": uploaded_items      # Legacy alias for backward compatibility
+            'status': 'ok',
+            'album_id': album_id,
+            'photo_count': len(item_ids),
+            'item_count': len(item_ids),
+            'items': uploaded_items,
+            'photos': uploaded_items,  # Legacy alias
         }
     finally:
         db.close()

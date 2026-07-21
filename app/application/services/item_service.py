@@ -2,25 +2,32 @@
 File:   item_service.py
 Brief:  Item service - unified handling for all content types.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-21
+Version: v1.1.0
 '''
 
 from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
+import tempfile
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, BinaryIO, Dict, List, Optional
 
 from fastapi import HTTPException, UploadFile
 
 from app.config import ALLOWED_MEDIA_TYPES, USE_JXL
 from app.infrastructure.repositories import ItemMediaRepository, ItemRepository
 from app.infrastructure.services.encryption import EncryptionService
+from app.infrastructure.services.ffmpeg import (
+    extract_video_thumbnail_bytes,
+    probe_media,
+)
 from app.infrastructure.services.jxl import is_jxl_content
 from app.infrastructure.services.jxl_encoder import (
     JxlEncodeError,
@@ -29,10 +36,8 @@ from app.infrastructure.services.jxl_encoder import (
 )
 from app.infrastructure.services.media import (
     create_thumbnail_bytes,
-    create_video_thumbnail_bytes,
     get_image_dimensions,
     get_media_type,
-    get_video_info,
 )
 from app.infrastructure.services.metadata import (
     extract_png_text_chunks,
@@ -42,6 +47,11 @@ from app.infrastructure.storage import get_storage
 
 
 logger = logging.getLogger(__name__)
+
+
+# Magic bytes used by :meth:`ItemService._validate_content`.
+# Matroska/WebM files start with the EBML header magic ``1A 45 DF A3``.
+_EBML_MAGIC = b"\x1a\x45\xdf\xa3"
 
 
 class ItemRenderer(ABC):
@@ -141,7 +151,11 @@ class ItemService:
     # ========================================================================
 
     def _validate_content(self, content: bytes, expected_media_type: str) -> bool:
-        '''Validate file content by magic bytes.'''
+        '''Validate file content by magic bytes.
+
+        Recognizes JPEG, PNG, GIF, WEBP, JXL images; MP4/MOV (ftyp/moov) and
+        Matroska/WebM (EBML magic) video containers.
+        '''
         if len(content) < 4:
             return False
 
@@ -159,55 +173,104 @@ class ItemService:
             return expected_media_type in ('image', 'photo')
         if header[4:8] in (b'ftyp', b'moov'):
             return expected_media_type == 'video'
+        # Matroska/WebM and other EBML-based containers (MKV, WebM).
+        if header[:4] == _EBML_MAGIC:
+            return expected_media_type == 'video'
         if expected_media_type == 'video':
             return len(content) > 1000
 
         return False
 
-    def _maybe_transcode_to_jxl(
+    def _maybe_transcode_to_jxl_file(
         self,
-        content: bytes,
+        source_path: Path,
         media_type: str,
         content_type: str,
-    ) -> tuple[bytes, str]:
+    ) -> tuple[Path, str, bool]:
         '''Transcode image uploads to lossless JPEG XL when enabled.
 
-        Falls back to the original content if encoding fails.
-
         Args:
-            content: Raw file bytes.
-            media_type: 'image' or 'video'.
+            source_path: Path to the original plaintext image file.
+            media_type: ``'image'`` or ``'video'``.
             content_type: Original MIME type.
 
         Returns:
-            Tuple of (content, content_type). Content type becomes image/jxl
-            when transcoding succeeds.
+            Tuple of ``(path, content_type, produced_tmp)``. When transcoding
+            succeeds, ``path`` is a fresh temp file and ``produced_tmp`` is
+            True (caller must clean up). Otherwise ``path`` equals the input
+            and ``produced_tmp`` is False.
         '''
         if not USE_JXL:
-            return content, content_type
-
+            return source_path, content_type, False
         if media_type != 'image':
-            return content, content_type
-
+            return source_path, content_type, False
         if content_type == 'image/jxl':
-            return content, content_type
-
+            return source_path, content_type, False
         if not content_type or not content_type.startswith('image/'):
-            return content, content_type
+            return source_path, content_type, False
 
         try:
+            content = source_path.read_bytes()
             is_jpeg = content_type == 'image/jpeg'
             transcoded = encode_to_lossless_jxl(content, is_jpeg=is_jpeg)
-            logger.info(
-                'Transcoded upload to JXL: %s bytes (%s) -> %s bytes (image/jxl)',
-                len(content),
-                content_type,
-                len(transcoded),
-            )
-            return transcoded, 'image/jxl'
         except JxlEncodeError as exc:
             logger.warning('JXL transcode failed, keeping original: %s', exc)
-            return content, content_type
+            return source_path, content_type, False
+
+        fd, name = tempfile.mkstemp(suffix='.jxl')
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                out.write(transcoded)
+        except Exception:
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
+            raise
+        logger.info(
+            'Transcoded upload to JXL: %s bytes (%s) -> %s bytes (image/jxl)',
+            len(content),
+            content_type,
+            len(transcoded),
+        )
+        return Path(name), 'image/jxl', True
+
+    @staticmethod
+    def _suggest_suffix(content_type: str) -> str:
+        '''Return a file suffix matching ``content_type`` for ffmpeg/ffprobe.'''
+        mapping = {
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'image/webp': '.webp',
+            'image/jxl': '.jxl',
+            'video/mp4': '.mp4',
+            'video/webm': '.webm',
+            'video/x-matroska': '.mkv',
+            'video/x-mkv': '.mkv',
+        }
+        return mapping.get(content_type, '')
+
+    @staticmethod
+    async def _spool_upload(file: UploadFile, dest: Path) -> int:
+        '''Stream an :class:`UploadFile` to ``dest`` in fixed-size chunks.
+
+        Returns the total number of bytes written. Memory usage is bounded
+        by the chunk size regardless of upload size.
+        '''
+        chunk_size = 1 << 20  # 1 MiB
+        total = 0
+        src = file.file
+        with dest.open('wb') as out:
+            while True:
+                buf = src.read(chunk_size)
+                if not buf:
+                    break
+                if isinstance(buf, str):
+                    buf = buf.encode('utf-8')
+                out.write(buf)
+                total += len(buf)
+        return total
 
     # ========================================================================
     # Async Upload Processing
@@ -220,19 +283,23 @@ class ItemService:
         user_id: int,
         user_dek: Optional[bytes] = None,
     ) -> Dict:
-        '''Process complete media upload: validation, thumbnail, storage, DB.
+        '''Process a media upload with bounded memory usage.
+
+        Streams the incoming :class:`UploadFile` to a plaintext temp file,
+        probes it for metadata, generates a thumbnail, then streams the
+        encryption envelope directly into storage. The full plaintext is
+        never held in memory all at once, so arbitrarily large files
+        (including multi-GiB MKVs) can be processed.
 
         Args:
-            file: Uploaded file
-            folder_id: Target folder
-            user_id: Owner user ID
-            user_dek: User's DEK for server-side encryption
+            file: Uploaded file.
+            folder_id: Target folder.
+            user_id: Owner user ID.
+            user_dek: User's DEK for server-side encryption.
 
         Returns:
-            Created item dict
+            Created item dict.
         '''
-        import tempfile
-
         if not file.filename:
             raise HTTPException(400, 'No filename')
 
@@ -241,102 +308,180 @@ class ItemService:
         if content_type not in ALLOWED_MEDIA_TYPES:
             raise HTTPException(400, f'Invalid file type: {content_type}')
 
-        item_id = str(uuid.uuid4())
-
-        content = await file.read()
-        size = len(content)
-
-        if size == 0:
-            raise HTTPException(400, 'Empty file')
-
-        media_type = get_media_type(content_type)
+        if user_dek is None:
+            raise HTTPException(403, 'Encryption key not available')
 
         if USE_JXL and not is_jxl_encoding_available():
             raise HTTPException(503, 'JPEG XL encoder (cjxl) is not available')
 
-        if not self._validate_content(content, media_type):
-            raise HTTPException(400, f'Invalid file content for type: {content_type}')
+        media_type = get_media_type(content_type)
 
-        orig_width, orig_height = None, None
-        duration = None
-        taken_at = None
-        png_text_chunks = None
+        item_id = str(uuid.uuid4())
+        suffix = self._suggest_suffix(content_type)
 
-        if media_type == 'image':
-            dims = get_image_dimensions(content)
-            if dims:
-                orig_width, orig_height = dims
+        # Stage 1: stream the raw upload to a plaintext temp file.
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False
+        ) as tmp:
+            plain_path = Path(tmp.name)
+        try:
+            size = await self._spool_upload(file, plain_path)
+            if size == 0:
+                raise HTTPException(400, 'Empty file')
+
+            # Validate by magic bytes.
+            with plain_path.open('rb') as f:
+                head = f.read(12)
+            if not self._validate_content(head, media_type):
+                raise HTTPException(
+                    400, f'Invalid file content for type: {content_type}'
+                )
+
+            # Stage 2: probe metadata + thumbnail from the plaintext file.
+            orig_width: Optional[int] = None
+            orig_height: Optional[int] = None
+            duration: Optional[int] = None
+            taken_at: Optional[str] = None
+            png_text_chunks: Optional[str] = None
+            thumb_w = 0
+            thumb_h = 0
+            thumb_bytes: Optional[bytes] = None
+
+            if media_type == 'image':
+                content_bytes = plain_path.read_bytes()
+                dims = get_image_dimensions(content_bytes)
+                if dims:
+                    orig_width, orig_height = dims
+                try:
+                    taken_at = extract_taken_date(plain_path)
+                except Exception:
+                    pass
+                png_text_chunks = extract_png_text_chunks(content_bytes) or None
+                try:
+                    thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(
+                        content_bytes
+                    )
+                except Exception:
+                    pass
+                # Hand off content_bytes to the optional JXL transcode path.
+                # _maybe_transcode_to_jxl_file expects a path; we have one.
+            elif media_type == 'video':
+                info = probe_media(plain_path)
+                if info:
+                    orig_width = info.get('width') or None
+                    orig_height = info.get('height') or None
+                    if info.get('duration') is not None:
+                        duration = int(round(info['duration']))
+                try:
+                    taken_at = extract_taken_date(plain_path)
+                except Exception:
+                    pass
+                try:
+                    thumb = extract_video_thumbnail_bytes(plain_path)
+                    if thumb is not None:
+                        thumb_bytes, thumb_w, thumb_h = thumb
+                except Exception:
+                    pass
+
+            # Stage 3: optional JXL transcode (image only).
+            final_path, final_content_type, produced_tmp = (
+                self._maybe_transcode_to_jxl_file(
+                    plain_path, media_type, content_type
+                )
+            )
+            content_type = final_content_type
             try:
-                suffix = '.jxl' if content_type == 'image/jxl' else None
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                    tmp.write(content)
-                    tmp.flush()
-                    taken_at = extract_taken_date(Path(tmp.name))
-                png_text_chunks = extract_png_text_chunks(content) or None
-            except Exception:
-                pass
-        elif media_type == 'video':
-            info = get_video_info(content)
-            if info:
-                orig_width, orig_height, duration_sec = info
-                duration = int(round(duration_sec))
+                # Recompute image dimensions if we transcoded.
+                if (
+                    content_type == 'image/jxl'
+                    and media_type == 'image'
+                    and produced_tmp
+                ):
+                    data = final_path.read_bytes()
+                    dims = get_image_dimensions(data)
+                    if dims:
+                        orig_width, orig_height = dims
 
-        content, content_type = self._maybe_transcode_to_jxl(
-            content, media_type, content_type
-        )
-        size = len(content)
-        if content_type == 'image/jxl' and media_type == 'image':
-            dims = get_image_dimensions(content)
-            if dims:
-                orig_width, orig_height = dims
+                # Re-measure final size from disk (post-transcode).
+                size = final_path.stat().st_size
 
-        thumb_w, thumb_h = 0, 0
-        thumb_bytes = None
-        if media_type == 'image':
+                # Stage 4: stream-encrypt into storage.
+                with final_path.open('rb') as plaintext_reader:
+                    await self._encrypt_and_upload(
+                        item_id, plaintext_reader, user_dek
+                    )
+
+                if thumb_bytes:
+                    enc_thumb = EncryptionService.encrypt_bytes(thumb_bytes, user_dek)
+                    await self.storage.upload(
+                        item_id, enc_thumb, folder='thumbnails'
+                    )
+
+                return self.create_db_records(
+                    item_id=item_id,
+                    file_data={
+                        'filename': file.filename,
+                        'content_type': content_type,
+                        'size': size,
+                        'uploaded_at': datetime.utcnow().strftime(
+                            '%Y-%m-%d %H:%M:%S.%f'
+                        ),
+                        'user_id': user_id,
+                        'taken_at': taken_at,
+                    },
+                    media_data={
+                        'media_type': media_type,
+                        'storage_path': f'uploads/{item_id}',
+                        'thumb_width': thumb_w,
+                        'thumb_height': thumb_h,
+                        'width': orig_width,
+                        'height': orig_height,
+                        'duration': duration,
+                        'png_text_chunks': png_text_chunks,
+                    },
+                    folder_id=folder_id,
+                    user_id=user_id,
+                )
+            finally:
+                if produced_tmp:
+                    try:
+                        final_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+        finally:
             try:
-                thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(content)
-            except Exception:
+                plain_path.unlink(missing_ok=True)
+            except OSError:
                 pass
-        elif media_type == 'video':
+
+    async def _encrypt_and_upload(
+        self,
+        item_id: str,
+        plaintext_reader: BinaryIO,
+        dek: bytes,
+    ) -> None:
+        '''Stream-encrypt ``plaintext_reader`` into storage as ``item_id``.
+
+        Writes the encrypted envelope to a temp file first (so storage.upload
+        sees a normal seekable file), then hands the temp file to the storage
+        backend.
+        '''
+        # Storage.upload accepts BinaryIO and streams it; we pipe plaintext
+        # through an in-process encryption stream into another temp file, then
+        # pass that temp file to storage.
+        fd, tmp_name = tempfile.mkstemp(prefix=item_id + '.', suffix='.enc')
+        try:
+            with os.fdopen(fd, 'wb') as enc_writer:
+                EncryptionService.encrypt_to_stream(
+                    plaintext_reader, enc_writer, dek
+                )
+            with open(tmp_name, 'rb') as enc_reader:
+                await self.storage.upload(item_id, enc_reader, folder='uploads')
+        finally:
             try:
-                thumb_bytes, thumb_w, thumb_h = create_video_thumbnail_bytes(content)
-            except Exception:
+                os.unlink(tmp_name)
+            except OSError:
                 pass
-
-        if user_dek:
-            content = EncryptionService.encrypt_file(content, user_dek)
-            if thumb_bytes:
-                thumb_bytes = EncryptionService.encrypt_file(thumb_bytes, user_dek)
-        else:
-            raise HTTPException(403, 'Encryption key not available')
-
-        await self.storage.upload(item_id, content, folder='uploads')
-        if thumb_bytes:
-            await self.storage.upload(item_id, thumb_bytes, folder='thumbnails')
-
-        return self.create_db_records(
-            item_id=item_id,
-            file_data={
-                'filename': file.filename,
-                'content_type': content_type,
-                'size': size,
-                'uploaded_at': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f'),
-                'user_id': user_id,
-                'taken_at': taken_at,
-            },
-            media_data={
-                'media_type': media_type,
-                'storage_path': f'uploads/{item_id}',
-                'thumb_width': thumb_w,
-                'thumb_height': thumb_h,
-                'width': orig_width,
-                'height': orig_height,
-                'duration': duration,
-                'png_text_chunks': png_text_chunks,
-            },
-            folder_id=folder_id,
-            user_id=user_id,
-        )
 
     # ========================================================================
     # Sync Item Creation
@@ -540,7 +685,7 @@ class ItemService:
             dest_owner_id: int,
         ) -> bool:
             import os
-            import shutil
+            import tempfile
 
             if not old_path.exists():
                 return False
@@ -552,38 +697,41 @@ class ItemService:
 
             try:
                 if source_owner_id == dest_owner_id:
-                    data = old_path.read_bytes()
-                    new_path.write_bytes(data)
+                    # Same owner: the envelope is already valid for the dest
+                    # DEK, so a byte-exact copy is sufficient.
+                    shutil.copyfile(old_path, new_path)
                     return new_path.exists()
 
                 source_dek = dek_cache.get(source_owner_id)
                 dest_dek = dek_cache.get(dest_owner_id)
-
                 if not source_dek or not dest_dek:
                     return False
 
-                encrypted_data = old_path.read_bytes()
+                # Decrypt source -> temp plaintext, then re-encrypt temp ->
+                # dest. Bounded memory; works for arbitrarily large files.
+                plain_fd, plain_name = tempfile.mkstemp(prefix='copy-plain-')
+                enc_fd, enc_name = tempfile.mkstemp(prefix='copy-enc-')
                 try:
-                    plaintext = EncryptionService.decrypt_file(encrypted_data, source_dek)
-                except Exception:
-                    if (
-                        len(encrypted_data) > 12
-                        and (
-                            encrypted_data.startswith(b'\xff\xd8')
-                            or encrypted_data.startswith(b'\x89PNG')
-                            or encrypted_data[:4] in (b'GIF8', b'GIF9')
-                            or encrypted_data[8:12] == b'WEBP'
-                            or encrypted_data[4:8] in (b'ftyp', b'moov')
+                    with os.fdopen(plain_fd, 'wb') as plain_writer, \
+                            old_path.open('rb') as src_reader:
+                        EncryptionService.decrypt_to_stream(
+                            src_reader, plain_writer, source_dek
                         )
-                    ):
-                        plaintext = encrypted_data
-                    else:
-                        return False
-
-                new_encrypted = EncryptionService.encrypt_file(plaintext, dest_dek)
-                new_path.write_bytes(new_encrypted)
-                return new_path.exists()
-            except Exception:
+                    with open(plain_name, 'rb') as plain_reader, \
+                            os.fdopen(enc_fd, 'wb') as enc_writer:
+                        EncryptionService.encrypt_to_stream(
+                            plain_reader, enc_writer, dest_dek
+                        )
+                    shutil.copyfile(enc_name, new_path)
+                    return new_path.exists()
+                finally:
+                    for name in (plain_name, enc_name):
+                        try:
+                            os.unlink(name)
+                        except OSError:
+                            pass
+            except Exception as exc:
+                logger.warning('copy_item: re-encrypt failed: %s', exc)
                 return False
 
         if not _copy_and_reencrypt_file(

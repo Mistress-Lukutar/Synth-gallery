@@ -25,7 +25,11 @@ from app.infrastructure.repositories import (
     ItemMediaRepository,
 )
 from app.infrastructure.storage import get_storage, LocalStorage
-from app.infrastructure.services.encryption import EncryptionService, dek_cache
+from app.infrastructure.services.encryption import (
+    EncryptionError,
+    EncryptionService,
+    dek_cache,
+)
 from app.application.services import TagService, AITaggingService
 from app.infrastructure.services.audit_log import log_ai_job_claimed
 import logging
@@ -431,10 +435,9 @@ async def get_item_file_api(item_id: str, request: Request):
             data = await storage.download(item_id, "uploads")
 
         try:
-            decrypted_data = EncryptionService.decrypt_file(data, user_dek)
-        except Exception:
-            # Fallback for legacy plaintext files
-            decrypted_data = data
+            decrypted_data = EncryptionService.decrypt_bytes(data, user_dek)
+        except EncryptionError:
+            raise HTTPException(status_code=500, detail="Decryption failed")
         return Response(content=decrypted_data, media_type=content_type)
     finally:
         db.close()

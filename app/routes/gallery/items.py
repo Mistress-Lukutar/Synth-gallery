@@ -384,109 +384,139 @@ class BatchDownloadInput(BaseModel):
 
 @router.post("/api/items/batch-download")
 async def batch_download(data: BatchDownloadInput, request: Request):
-    """Download multiple items and albums as a ZIP file."""
-    from datetime import datetime
-    from io import BytesIO
+    """Download multiple items and albums as a streaming ZIP file.
+
+    Writes decrypted plaintext into a spooled temp file one file at a time
+    via :meth:`zipfile.ZipFile.open`, so memory use stays bounded regardless
+    of total batch size.
+    """
+    import os
+    import tempfile
     import zipfile
+    from datetime import datetime
     from fastapi.responses import StreamingResponse
     from ...config import UPLOADS_DIR
-    
+
     user = require_user(request)
     user_dek = dek_cache.get(user["id"])
-    
+
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        
+
         files_to_download = []
         date_folder = datetime.now().strftime("%Y-%m-%d")
 
-        # Process individual items
+        # Individual items.
         for item_id in data.photo_ids:
             if not perm_service.can_access_photo(item_id, user["id"]):
                 continue
-
-            # Phase 5: Get from items + item_media tables
             item = db.execute(
                 """SELECT i.id, i.title, i.user_id
                    FROM items i
                    WHERE i.id = ?""",
-                (item_id,)
+                (item_id,),
             ).fetchone()
-
             if item:
-                # Extension-less storage: filename = item_id
                 file_path = UPLOADS_DIR / item_id
                 if file_path.exists():
-                    archive_path = f"{date_folder}/{item['title']}"
                     files_to_download.append((
-                        archive_path,
+                        f"{date_folder}/{item['title']}",
                         file_path,
-                        item["user_id"]
+                        item["user_id"],
                     ))
 
-        # Process albums
+        # Albums.
         for album_id in data.album_ids:
             if not perm_service.can_access_album(album_id, user["id"]):
                 continue
-
             album = db.execute(
                 "SELECT id, name FROM albums WHERE id = ?",
-                (album_id,)
+                (album_id,),
             ).fetchone()
-
             if not album:
                 continue
-
-            # Phase 5: Get items from album via album_items
             album_items = db.execute(
                 """SELECT i.id, i.title, i.user_id
                    FROM items i
                    JOIN album_items ai ON i.id = ai.item_id
                    WHERE ai.album_id = ?
                    ORDER BY ai.position""",
-                (album_id,)
+                (album_id,),
             ).fetchall()
-
-            sanitized_album_name = "".join(c for c in album["name"] if c.isalnum() or c in (' ', '-', '_')).strip()
-            if not sanitized_album_name:
-                sanitized_album_name = "album"
-
+            sanitized_album_name = "".join(
+                c
+                for c in album["name"]
+                if c.isalnum() or c in (" ", "-", "_")
+            ).strip() or "album"
             for item in album_items:
-                # Extension-less storage: filename = item_id
                 file_path = UPLOADS_DIR / item["id"]
                 if file_path.exists():
-                    archive_path = f"{date_folder}/{sanitized_album_name}/{item['title']}"
                     files_to_download.append((
-                        archive_path,
+                        f"{date_folder}/{sanitized_album_name}/{item['title']}",
                         file_path,
-                        item["user_id"]
+                        item["user_id"],
                     ))
 
         if not files_to_download:
             raise HTTPException(status_code=404, detail="No files to download")
 
-        # Create ZIP file
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for archive_path, file_path, owner_id in files_to_download:
-                # Server-side encrypted: decrypt before adding to ZIP
-                dek = user_dek if owner_id == user["id"] else dek_cache.get(owner_id)
-                if dek:
+        # Spooled temp file: rolls to disk if it exceeds 64 MiB.
+        spool = tempfile.SpooledTemporaryFile(
+            max_size=64 * 1024 * 1024, suffix=".zip"
+        )
+        try:
+            with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
+                for archive_path, file_path, owner_id in files_to_download:
+                    dek = (
+                        user_dek
+                        if owner_id == user["id"]
+                        else dek_cache.get(owner_id)
+                    )
+                    if not dek:
+                        continue
                     try:
-                        encrypted_data = file_path.read_bytes()
-                        plaintext = EncryptionService.decrypt_file(encrypted_data, dek)
-                        zf.writestr(archive_path, plaintext)
-                    except Exception:
+                        with file_path.open("rb") as enc_reader, \
+                                zf.open(archive_path, "w") as zip_writer:
+                            EncryptionService.decrypt_to_stream(
+                                enc_reader, zip_writer, dek
+                            )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "batch-download: skip %s (%s)", archive_path, exc
+                        )
                         continue
 
-        zip_buffer.seek(0)
-        
-        return StreamingResponse(
-            zip_buffer,
-            media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename=synth-download-{date_folder}.zip"}
-        )
+            spool.seek(0)
+
+            def _stream():
+                try:
+                    while True:
+                        buf = spool.read(1 << 20)
+                        if not buf:
+                            break
+                        yield buf
+                finally:
+                    try:
+                        spool.close()
+                    except Exception:
+                        pass
+
+            return StreamingResponse(
+                _stream(),
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": (
+                        f"attachment; filename=synth-download-{date_folder}.zip"
+                    )
+                },
+            )
+        except Exception:
+            try:
+                spool.close()
+            except Exception:
+                pass
+            raise
     finally:
         db.close()
 

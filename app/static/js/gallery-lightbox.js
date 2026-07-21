@@ -93,6 +93,31 @@
         }
     }
 
+    // Show an overlay explaining the video cannot be played inline, with a
+    // download link. Used when <video> fires 'error' (e.g. MKV in a browser
+    // that has no decoder for that container).
+    function showVideoUnsupportedOverlay(
+        mediaContainer,
+        downloadUrl,
+        downloadName,
+        isMkv
+    ) {
+        const reason = isMkv
+            ? 'MKV is not playable in browsers.'
+            : 'This video could not be played in the browser.';
+        const sizeText = downloadName ? `<div class="video-fallback-name">${downloadName}</div>` : '';
+        mediaContainer.innerHTML =
+            `<div class="video-fallback">
+                <div class="video-fallback-icon" aria-hidden="true">▶</div>
+                <div class="video-fallback-title">Video not playable inline</div>
+                ${sizeText}
+                <div class="video-fallback-reason">${reason}</div>
+                <a class="video-fallback-download" href="${downloadUrl}" download="${downloadName}">
+                    Download
+                </a>
+            </div>`;
+    }
+
     function init() {
         lightbox = document.getElementById('lightbox');
         if (!lightbox) {
@@ -1083,10 +1108,29 @@
             const mimeType = photo.content_type || (photo.media_type === 'video' ? 'video/mp4' : 'image/jpeg');
             
             if (photo.media_type === 'video') {
-                // Videos: load directly via FileAccessService
+                // Videos: load directly via FileAccessService.
+                // Browsers cannot decode MKV (and some other containers) in
+                // <video>; on error we fall back to a download overlay so the
+                // user can still retrieve the file.
                 try {
                     const videoUrl = await FileAccessService.getFileUrl(photoId, { photo });
-                    mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${videoUrl}"></video>`;
+                    const downloadName = photo.original_name || photo.title || `${photoId}.bin`;
+
+                    mediaContainer.innerHTML =
+                        `<video class="lightbox-video" controls autoplay preload="metadata" src="${videoUrl}"></video>`;
+
+                    const videoEl = mediaContainer.querySelector('video');
+                    videoEl.addEventListener('error', () => {
+                        const isMkv = (photo.content_type || '').includes('matroska')
+                            || (photo.content_type || '').includes('mkv')
+                            || /\.(mkv)$/i.test(downloadName);
+                        showVideoUnsupportedOverlay(
+                            mediaContainer,
+                            videoUrl,
+                            downloadName,
+                            isMkv
+                        );
+                    });
                 } catch (err) {
                     console.error('[lightbox] Failed to load video:', err);
                     mediaContainer.innerHTML = `<p>Error: Failed to load video</p>`;

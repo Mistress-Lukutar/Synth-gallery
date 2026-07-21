@@ -117,7 +117,7 @@ class JxlFallbackService:
 
         try:
             encrypted = await self.storage.download(photo_id, self._FOLDER)
-            return EncryptionService.decrypt_file(encrypted, dek)
+            return EncryptionService.decrypt_bytes(encrypted, dek)
         except Exception as exc:
             logger.warning('Cached fallback for %s is unusable: %s', photo_id, exc)
             await self.invalidate(photo_id)
@@ -137,7 +137,7 @@ class JxlFallbackService:
             dek: Data encryption key.
         '''
         try:
-            encrypted = EncryptionService.encrypt_file(jpeg_bytes, dek)
+            encrypted = EncryptionService.encrypt_bytes(jpeg_bytes, dek)
             await self.storage.upload(
                 photo_id,
                 encrypted,

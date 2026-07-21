@@ -11,7 +11,8 @@
     let selectedFiles = [];
     let uploadedFileIds = []; // Track uploaded files for potential deletion
     let abortController = null; // For cancelling uploads
-    const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
+    // No fixed client-side upload size cap: the server uses a streaming
+    // pipeline and supports arbitrarily large files (e.g. multi-GiB MKVs).
     
     // Element references (populated on init)
     let modal, closeBtn, dropZone, fileInput, folderInput;
@@ -225,11 +226,14 @@
         if (file.type) {
             return file.type.startsWith('image/') ||
                    file.type === 'video/mp4' ||
-                   file.type === 'video/webm';
+                   file.type === 'video/webm' ||
+                   file.type === 'video/x-matroska' ||
+                   file.type === 'video/x-mkv' ||
+                   file.type === 'video/matroska';
         }
         // Fallback to extension when the browser doesn't report a MIME type
         const ext = file.name.split('.').pop().toLowerCase();
-        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jxl', 'mp4', 'webm'].includes(ext);
+        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jxl', 'mp4', 'webm', 'mkv'].includes(ext);
     }
 
     // Add files to selection (accumulates)
@@ -493,12 +497,13 @@
                 // Bulk folder upload
                 if (!folderFiles.length) return;
 
-                const oversizedFiles = folderFiles.filter(({ file }) => file.size > MAX_FILE_SIZE);
-                if (oversizedFiles.length > 0) {
-                    const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
-                    const fileNames = oversizedFiles.map(({ file }) => file.name).join(', ');
-                    alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
-                    throw new Error('Files too large');
+                // Reject empty files early; size is otherwise uncapped
+                // (server pipeline streams regardless of file size).
+                const emptyFiles = folderFiles.filter(({ file }) => !file.size);
+                if (emptyFiles.length > 0) {
+                    const fileNames = emptyFiles.map(({ file }) => file.name).join(', ');
+                    alert(`Empty file(s) cannot be uploaded: ${fileNames}`);
+                    throw new Error('Empty files');
                 }
 
                 progressText.textContent = `Uploading ${folderFiles.length} files...`;
@@ -554,12 +559,13 @@
                 const files = selectedFiles;
                 if (!files.length) return;
 
-                const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE);
-                if (oversizedFiles.length > 0) {
-                    const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
-                    const fileNames = oversizedFiles.map(f => f.name).join(', ');
-                    alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
-                    throw new Error('Files too large');
+                // Reject empty files early; size is otherwise uncapped
+                // (server pipeline streams regardless of file size).
+                const emptyFiles = files.filter(f => !f.size);
+                if (emptyFiles.length > 0) {
+                    const fileNames = emptyFiles.map(f => f.name).join(', ');
+                    alert(`Empty file(s) cannot be uploaded: ${fileNames}`);
+                    throw new Error('Empty files');
                 }
 
                 const isAlbum = albumCheckbox.checked && files.length > 1;
