@@ -2,8 +2,8 @@
 File:   config.py
 Brief:  Application configuration and constants.
 Author: Mistress-Lukutar
-Date:   2026-07-11
-Version: v0.1.0
+Date:   2026-07-21
+Version: v0.2.0
 '''
 
 import os
@@ -11,27 +11,45 @@ from pathlib import Path
 
 from app.logging_config import setup_logging
 
-# Initialize logging configuration
+# Initialize logging configuration.
 setup_logging()
 
-# Directory paths
+# Directory paths.
 BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOADS_DIR = BASE_DIR / "uploads"
 THUMBNAILS_DIR = BASE_DIR / "thumbnails"
 
-# Create directories if they don't exist
+# Create directories if they don't exist.
 UPLOADS_DIR.mkdir(exist_ok=True)
 THUMBNAILS_DIR.mkdir(exist_ok=True)
 
-# Base URL configuration (for running under a subpath like /synth)
-# Set via environment variable SYNTH_BASE_URL, e.g., "synth" or "/synth"
+# Base URL configuration (for running under a subpath like /synth).
+# Set via environment variable SYNTH_BASE_URL, e.g. "synth" or "/synth".
 BASE_URL = os.environ.get("SYNTH_BASE_URL", "").strip("/")
 ROOT_PATH = f"/{BASE_URL}" if BASE_URL else ""
 
-# Allowed media types
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/jxl"}
-ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
+# Allowed media types.
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/jxl",
+}
+ALLOWED_VIDEO_TYPES = {
+    "video/mp4",
+    "video/webm",
+    "video/x-matroska",  # MKV container
+    "video/x-mkv",       # Common MKV MIME variant
+}
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
+
+# Encryption (chunked AES-256-GCM streaming format).
+# Each chunk carries its own 12-byte nonce and 16-byte GCM tag, enabling
+# O(1) memory encryption/decryption and HTTP Range serving.
+ENCRYPTION_CHUNK_SIZE = int(
+    os.environ.get("SYNTH_ENCRYPTION_CHUNK_SIZE", str(1 << 20))
+)  # 1 MiB default
 
 # Session configuration
 # __Host- prefix enforces Secure, Path=/ and no Domain attribute at browser level
