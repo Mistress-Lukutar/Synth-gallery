@@ -165,6 +165,31 @@ echo      OK: JPEG XL tools installed to .venv\jxl-tools
 
 :jxl_done
 
+:: ----------------------------------------------------------------
+:: FFMPEG / FFPROBE
+:: ----------------------------------------------------------------
+:: Required for video metadata probing and thumbnail generation
+:: (including MKV support). The application resolves them via
+:: FFMPEG_TOOL_DIR, .venv\ffmpeg, bundled bin/, or PATH.
+:: ----------------------------------------------------------------
+where ffmpeg.exe >nul 2>&1 && where ffprobe.exe >nul 2>&1
+if !errorlevel! equ 0 (
+    echo      OK: Found ffmpeg/ffprobe on PATH
+    goto ffmpeg_done
+)
+
+if exist ".venv\ffmpeg\bin\ffmpeg.exe" if exist ".venv\ffmpeg\bin\ffprobe.exe" (
+    echo      OK: Found ffmpeg/ffprobe at .venv\ffmpeg
+    set PATH=!PATH!;!CD!\.venv\ffmpeg\bin
+    goto ffmpeg_done
+)
+
+echo WARNING: ffmpeg/ffprobe not found. Video probing and thumbnail
+echo         generation will be disabled. Install ffmpeg (e.g. via
+echo         winget install Gyan.FFmpeg) and ensure it is on PATH.
+
+:ffmpeg_done
+
 :: Check Python version
 echo      Python version:
 for /f "tokens=*" %%a in ('.venv\Scripts\python.exe --version 2^>^&1') do echo        %%a
