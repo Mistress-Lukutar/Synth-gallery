@@ -342,37 +342,6 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
         db.close()
 
 
-@router.put("/api/items/{item_id}/move")
-def move_item(item_id: str, data: ItemMoveInput, request: Request):
-    """Move a single item to another folder."""
-    user = require_user(request)
-    
-    db = create_connection()
-    try:
-        item_service = get_item_service(db)
-        perm_service = get_permission_service(db)
-        
-        # Check access to source item
-        item = item_service.get_item(item_id)
-        if not item:
-            raise HTTPException(status_code=404, detail="Item not found")
-        
-        if item.get("user_id") != user["id"]:
-            raise HTTPException(status_code=403, detail="Not owner")
-        
-        # Check can edit destination folder
-        if not perm_service.can_edit(data.folder_id, user["id"]):
-            raise HTTPException(status_code=403, detail="Cannot move to this folder")
-        
-        # Perform move
-        if item_service.move_item(item_id, data.folder_id, user["id"]):
-            return {"status": "ok", "id": item_id}
-        else:
-            raise HTTPException(status_code=400, detail="Move failed")
-    finally:
-        db.close()
-
-
 # =============================================================================
 # Batch Download
 # =============================================================================
