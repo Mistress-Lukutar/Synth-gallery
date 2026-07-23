@@ -59,6 +59,8 @@ def _suggest_suffix(media_type: str, content_type: str | None) -> str:
             return '.mkv'
         if content_type and 'webm' in content_type:
             return '.webm'
+        if content_type and 'webp' in content_type:
+            return '.webp'
         return '.mp4'
     return ''
 
@@ -126,7 +128,7 @@ def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     try:
         if photo['media_type'] == 'video':
             # Video: decrypt to temp file (ffmpeg needs a path).
-            suffix = _suggest_suffix('video', photo.get('content_type'))
+            suffix = _suggest_suffix('video', photo['content_type'])
             temp_plain = _decrypt_to_temp_file(original_path, dek, suffix=suffix)
             result = _make_thumbnail_for(temp_plain, 'video')
         else:
@@ -294,7 +296,7 @@ def regenerate_missing_thumbnails() -> dict:
                 temp_plain: Path | None = None
                 try:
                     if photo['media_type'] == 'video':
-                        suffix = _suggest_suffix('video', photo.get('content_type'))
+                        suffix = _suggest_suffix('video', photo['content_type'])
                         temp_plain = _decrypt_to_temp_file(
                             original_path, dek, suffix=suffix
                         )
@@ -338,7 +340,7 @@ def regenerate_missing_thumbnails() -> dict:
         temp_plain = None
         try:
             if photo['media_type'] == 'video':
-                suffix = _suggest_suffix('video', photo.get('content_type'))
+                suffix = _suggest_suffix('video', photo['content_type'])
                 temp_plain = _decrypt_to_temp_file(
                     original_path, dek, suffix=suffix
                 )
