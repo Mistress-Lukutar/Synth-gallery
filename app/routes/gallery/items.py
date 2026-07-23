@@ -324,7 +324,7 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
             if not dek_cache.get(source_owner_id) or not user_dek:
                 raise HTTPException(status_code=403, detail="Cannot re-encrypt without DEK")
         
-        new_item_id = item_service.copy_item(
+        new_item_id = await item_service.copy_item(
             item_id=item_id,
             dest_folder_id=data.folder_id,
             user_id=user["id"],
@@ -357,17 +357,18 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 
     Writes decrypted plaintext into a spooled temp file one file at a time
     via :meth:`zipfile.ZipFile.open`, so memory use stays bounded regardless
-    of total batch size.
+    of total batch size. Encrypted objects are streamed through the storage
+    abstraction (``storage.get_stream``) so this works for any backend.
     """
-    import os
     import tempfile
     import zipfile
     from datetime import datetime
     from fastapi.responses import StreamingResponse
-    from ...config import UPLOADS_DIR
+    from app.infrastructure.storage import get_storage
 
     user = require_user(request)
     user_dek = dek_cache.get(user["id"])
+    storage = get_storage()
 
     db = create_connection()
     try:
@@ -387,11 +388,10 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 (item_id,),
             ).fetchone()
             if item:
-                file_path = UPLOADS_DIR / item_id
-                if file_path.exists():
+                if storage.exists(item_id, "uploads"):
                     files_to_download.append((
                         f"{date_folder}/{item['title']}",
-                        file_path,
+                        item_id,
                         item["user_id"],
                     ))
 
@@ -419,11 +419,10 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 if c.isalnum() or c in (" ", "-", "_")
             ).strip() or "album"
             for item in album_items:
-                file_path = UPLOADS_DIR / item["id"]
-                if file_path.exists():
+                if storage.exists(item["id"], "uploads"):
                     files_to_download.append((
                         f"{date_folder}/{sanitized_album_name}/{item['title']}",
-                        file_path,
+                        item["id"],
                         item["user_id"],
                     ))
 
@@ -436,7 +435,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
         )
         try:
             with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
-                for archive_path, file_path, owner_id in files_to_download:
+                for archive_path, item_id, owner_id in files_to_download:
                     dek = (
                         user_dek
                         if owner_id == user["id"]
@@ -445,11 +444,19 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                     if not dek:
                         continue
                     try:
-                        with file_path.open("rb") as enc_reader, \
-                                zf.open(archive_path, "w") as zip_writer:
-                            EncryptionService.decrypt_to_stream(
-                                enc_reader, zip_writer, dek
-                            )
+                        enc_reader = await storage.get_stream(
+                            item_id, "uploads"
+                        )
+                        try:
+                            with zf.open(archive_path, "w") as zip_writer:
+                                EncryptionService.decrypt_to_stream(
+                                    enc_reader, zip_writer, dek
+                                )
+                        finally:
+                            try:
+                                enc_reader.close()
+                            except Exception:
+                                pass
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
                             "batch-download: skip %s (%s)", archive_path, exc
@@ -623,20 +630,20 @@ class AlbumCopyInput(BaseModel):
 
 
 @router.post("/api/albums/{album_id}/copy")
-def copy_album(album_id: str, data: AlbumCopyInput, request: Request):
+async def copy_album(album_id: str, data: AlbumCopyInput, request: Request):
     """Copy album and all its items to a different folder."""
     user = require_user(request)
-    
+
     db = create_connection()
     try:
         album_service = get_album_service(db)
-        
-        new_album_id = album_service.copy_album(
+
+        new_album_id = await album_service.copy_album(
             album_id, data.folder_id, user["id"]
         )
-        
+
         db.commit()
-        
+
         return {"status": "ok", "album_id": new_album_id}
     finally:
         db.close()

@@ -182,7 +182,7 @@ class AlbumService:
 
         return self.album_repo.move_to_folder(album_id, dest_folder_id)
 
-    def copy_album(self, album_id: str, dest_folder_id: str, user_id: int) -> str:
+    async def copy_album(self, album_id: str, dest_folder_id: str, user_id: int) -> str:
         '''Copy album and all its items to a different folder.
 
         Returns:
@@ -215,7 +215,7 @@ class AlbumService:
         item_id_map = {}
         for item in album_items:
             try:
-                new_item_id = item_service.copy_item(
+                new_item_id = await item_service.copy_item(
                     item_id=item['id'],
                     dest_folder_id=dest_folder_id,
                     user_id=user_id,

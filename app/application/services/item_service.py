@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import tempfile
 import uuid
 from datetime import datetime
@@ -607,7 +606,7 @@ class ItemService:
         await self.storage.delete(item_id, folder='uploads')
         await self.storage.delete(item_id, folder='thumbnails')
 
-    def copy_item(
+    async def copy_item(
         self,
         item_id: str,
         dest_folder_id: str,
@@ -616,11 +615,19 @@ class ItemService:
     ) -> str:
         '''Copy a single item to another folder.
 
+        File copying goes through the storage abstraction:
+
+        - same owner: a backend-native byte-exact copy
+          (``storage.copy`` — ``shutil.copy2`` locally, ``copy_object`` on
+          S3), since the envelope is already valid for the destination DEK.
+        - cross owner: decrypt the source stream and re-encrypt into the
+          destination via two temp files, then ``storage.upload``. Memory
+          usage stays bounded by the chunk size for arbitrarily large files.
+
         Returns:
             New item ID
         '''
-        from app.config import THUMBNAILS_DIR, UPLOADS_DIR
-        from app.infrastructure.services.encryption import EncryptionService, dek_cache
+        from app.infrastructure.services.encryption import dek_cache
 
         item = self.item_repo.get_by_id(item_id)
         if not item:
@@ -631,79 +638,70 @@ class ItemService:
             raise HTTPException(404, 'Media not found')
 
         source_owner_id = source_owner_id or item['user_id']
-
         new_item_id = str(uuid.uuid4())
 
-        old_upload = UPLOADS_DIR / item_id
-        new_upload = UPLOADS_DIR / new_item_id
-        old_thumb = THUMBNAILS_DIR / item_id
-        new_thumb = THUMBNAILS_DIR / new_item_id
-
-        def _copy_and_reencrypt_file(
-            old_path: Path,
-            new_path: Path,
+        async def _copy_storage_object(
+            folder: str,
             source_owner_id: int,
             dest_owner_id: int,
         ) -> bool:
-            import os
-            import tempfile
-
-            if not old_path.exists():
+            '''Copy one encrypted object (uploads or thumbnails) via storage.'''
+            if not self.storage.exists(item_id, folder):
                 return False
 
-            try:
-                new_path.parent.mkdir(parents=True, exist_ok=True)
-            except Exception:
+            if source_owner_id == dest_owner_id:
+                # Envelope already valid for the dest DEK: native copy.
+                await self.storage.copy(
+                    item_id, new_item_id, folder, folder
+                )
+                return True
+
+            source_dek = dek_cache.get(source_owner_id)
+            dest_dek = dek_cache.get(dest_owner_id)
+            if not source_dek or not dest_dek:
                 return False
 
+            # Decrypt source -> temp plaintext, then re-encrypt -> temp cipher,
+            # then upload. Bounded memory; works for arbitrarily large files.
+            plain_fd, plain_name = tempfile.mkstemp(prefix='copy-plain-')
+            enc_fd, enc_name = tempfile.mkstemp(prefix='copy-enc-')
             try:
-                if source_owner_id == dest_owner_id:
-                    # Same owner: the envelope is already valid for the dest
-                    # DEK, so a byte-exact copy is sufficient.
-                    shutil.copyfile(old_path, new_path)
-                    return new_path.exists()
-
-                source_dek = dek_cache.get(source_owner_id)
-                dest_dek = dek_cache.get(dest_owner_id)
-                if not source_dek or not dest_dek:
-                    return False
-
-                # Decrypt source -> temp plaintext, then re-encrypt temp ->
-                # dest. Bounded memory; works for arbitrarily large files.
-                plain_fd, plain_name = tempfile.mkstemp(prefix='copy-plain-')
-                enc_fd, enc_name = tempfile.mkstemp(prefix='copy-enc-')
+                src_stream = await self.storage.get_stream(item_id, folder)
                 try:
-                    with os.fdopen(plain_fd, 'wb') as plain_writer, \
-                            old_path.open('rb') as src_reader:
+                    with os.fdopen(plain_fd, 'wb') as plain_writer:
                         EncryptionService.decrypt_to_stream(
-                            src_reader, plain_writer, source_dek
+                            src_stream, plain_writer, source_dek
                         )
-                    with open(plain_name, 'rb') as plain_reader, \
-                            os.fdopen(enc_fd, 'wb') as enc_writer:
-                        EncryptionService.encrypt_to_stream(
-                            plain_reader, enc_writer, dest_dek
-                        )
-                    shutil.copyfile(enc_name, new_path)
-                    return new_path.exists()
                 finally:
-                    for name in (plain_name, enc_name):
-                        try:
-                            os.unlink(name)
-                        except OSError:
-                            pass
+                    try:
+                        src_stream.close()
+                    except Exception:
+                        pass
+                with open(plain_name, 'rb') as plain_reader, \
+                        os.fdopen(enc_fd, 'wb') as enc_writer:
+                    EncryptionService.encrypt_to_stream(
+                        plain_reader, enc_writer, dest_dek
+                    )
+                with open(enc_name, 'rb') as enc_reader:
+                    await self.storage.upload(
+                        new_item_id, enc_reader, folder=folder
+                    )
+                return True
             except Exception as exc:
-                logger.warning('copy_item: re-encrypt failed: %s', exc)
+                logger.warning('copy_item: re-encrypt failed (%s): %s', folder, exc)
                 return False
+            finally:
+                for name in (plain_name, enc_name):
+                    try:
+                        os.unlink(name)
+                    except OSError:
+                        pass
 
-        if not _copy_and_reencrypt_file(
-            old_upload, new_upload, source_owner_id, user_id
-        ):
+        if not await _copy_storage_object('uploads', source_owner_id, user_id):
             raise HTTPException(500, 'Failed to copy file')
 
-        if old_thumb.exists():
-            _copy_and_reencrypt_file(
-                old_thumb, new_thumb, source_owner_id, user_id
-            )
+        if self.storage.exists(item_id, 'thumbnails'):
+            await _copy_storage_object('thumbnails', source_owner_id, user_id)
 
         self.item_repo.create(
             item_type=ItemType.MEDIA.value,
