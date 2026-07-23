@@ -94,8 +94,8 @@
     }
 
     // Show an overlay explaining the video cannot be played inline, with a
-    // download link. Used when <video> fires 'error' (e.g. MKV in a browser
-    // that has no decoder for that container).
+    // download link. Used for MKV (audio codecs browsers can't decode) or when
+    // <video> fires 'error' for any other unsupported container/codec.
     function showVideoUnsupportedOverlay(
         mediaContainer,
         downloadUrl,
@@ -103,7 +103,7 @@
         isMkv
     ) {
         const reason = isMkv
-            ? 'MKV is not playable in browsers.'
+            ? 'MKV uses audio codecs (AC3/DTS/eAC3/FLAC) that browsers cannot decode, so inline playback would be silent. Download to watch with sound.'
             : 'This video could not be played in the browser.';
         const sizeText = downloadName ? `<div class="video-fallback-name">${downloadName}</div>` : '';
         mediaContainer.innerHTML =
@@ -1109,28 +1109,40 @@
             
             if (photo.media_type === 'video') {
                 // Videos: load directly via FileAccessService.
-                // Browsers cannot decode MKV (and some other containers) in
-                // <video>; on error we fall back to a download overlay so the
-                // user can still retrieve the file.
+                // Browsers cannot decode MKV reliably in <video> (most audio
+                // codecs in MKV — AC3/DTS/eAC3/FLAC — are unsupported, so the
+                // video plays muted). For MKV we skip <video> entirely and show
+                // a download overlay. Other containers (MP4/WebM/animated WebP)
+                // try to play inline and fall back to download on error.
                 try {
                     const videoUrl = await FileAccessService.getFileUrl(photoId, { photo });
                     const downloadName = photo.original_name || photo.title || `${photoId}.bin`;
+                    const ct = photo.content_type || '';
+                    const isMkv = ct.includes('matroska') || ct.includes('mkv')
+                        || /\.(mkv)$/i.test(downloadName);
 
-                    mediaContainer.innerHTML =
-                        `<video class="lightbox-video" controls autoplay preload="metadata" src="${videoUrl}"></video>`;
-
-                    const videoEl = mediaContainer.querySelector('video');
-                    videoEl.addEventListener('error', () => {
-                        const isMkv = (photo.content_type || '').includes('matroska')
-                            || (photo.content_type || '').includes('mkv')
-                            || /\.(mkv)$/i.test(downloadName);
+                    if (isMkv) {
+                        // Skip <video> entirely: MKV audio codecs are typically
+                        // unsupported, so inline playback would be silent.
                         showVideoUnsupportedOverlay(
                             mediaContainer,
                             videoUrl,
                             downloadName,
-                            isMkv
+                            true
                         );
-                    });
+                    } else {
+                        mediaContainer.innerHTML =
+                            `<video class="lightbox-video" controls autoplay preload="metadata" src="${videoUrl}"></video>`;
+                        const videoEl = mediaContainer.querySelector('video');
+                        videoEl.addEventListener('error', () => {
+                            showVideoUnsupportedOverlay(
+                                mediaContainer,
+                                videoUrl,
+                                downloadName,
+                                false
+                            );
+                        });
+                    }
                 } catch (err) {
                     console.error('[lightbox] Failed to load video:', err);
                     mediaContainer.innerHTML = `<p>Error: Failed to load video</p>`;

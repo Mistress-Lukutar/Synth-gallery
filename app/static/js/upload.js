@@ -229,7 +229,8 @@
                    file.type === 'video/webm' ||
                    file.type === 'video/x-matroska' ||
                    file.type === 'video/x-mkv' ||
-                   file.type === 'video/matroska';
+                   file.type === 'video/matroska' ||
+                   file.type === 'video/webp';
         }
         // Fallback to extension when the browser doesn't report a MIME type
         const ext = file.name.split('.').pop().toLowerCase();

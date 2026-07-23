@@ -41,6 +41,7 @@ ALLOWED_VIDEO_TYPES = {
     "video/webm",
     "video/x-matroska",  # MKV container
     "video/x-mkv",       # Common MKV MIME variant
+    "video/webp",        # Animated WebP reclassified as video at upload
 }
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 

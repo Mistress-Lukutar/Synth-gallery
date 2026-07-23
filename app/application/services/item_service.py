@@ -153,8 +153,10 @@ class ItemService:
     def _validate_content(self, content: bytes, expected_media_type: str) -> bool:
         '''Validate file content by magic bytes.
 
-        Recognizes JPEG, PNG, GIF, WEBP, JXL images; MP4/MOV (ftyp/moov) and
-        Matroska/WebM (EBML magic) video containers.
+        Recognizes JPEG, PNG, GIF, WebP (static and animated), JXL images;
+        MP4/MOV (ftyp/moov) and Matroska/WebM (EBML magic) video containers.
+        Animated WebP is accepted under either image or video expectation
+        because the upload pipeline reclassifies it to ``video``.
         '''
         if len(content) < 4:
             return False
@@ -167,8 +169,9 @@ class ItemService:
             return expected_media_type in ('image', 'photo')
         if header[:3] in (b'GIF87', b'GIF89') or header[:4] == b'GIF8':
             return expected_media_type in ('image', 'photo')
-        if header[4:8] == b'WEBP':
-            return expected_media_type in ('image', 'photo')
+        # WebP container: "RIFF"<size>"WEBP" — signature lives at bytes 8..12.
+        if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+            return expected_media_type in ('image', 'photo', 'video')
         if is_jxl_content(header):
             return expected_media_type in ('image', 'photo')
         if header[4:8] in (b'ftyp', b'moov'):
@@ -248,8 +251,23 @@ class ItemService:
             'video/webm': '.webm',
             'video/x-matroska': '.mkv',
             'video/x-mkv': '.mkv',
+            'video/webp': '.webp',
         }
         return mapping.get(content_type, '')
+
+    @staticmethod
+    def _is_animated_webp(path: Path) -> bool:
+        '''Return True if ``path`` is an animated WebP (more than one frame).
+
+        Used to reclassify heavy/animated WebP uploads as ``video`` so they
+        are thumbnailed via ffmpeg and shown with a video badge.
+        '''
+        try:
+            from PIL import Image
+            with Image.open(path) as img:
+                return getattr(img, 'n_frames', 1) > 1
+        except Exception:
+            return False
 
     @staticmethod
     async def _spool_upload(file: UploadFile, dest: Path) -> int:
@@ -336,6 +354,13 @@ class ItemService:
                 raise HTTPException(
                     400, f'Invalid file content for type: {content_type}'
                 )
+
+            # Reclassify animated WebP as video so it is thumbnailed via ffmpeg
+            # and shown with a video badge. Static WebP stays an image.
+            if media_type == 'image' and content_type == 'image/webp':
+                if self._is_animated_webp(plain_path):
+                    media_type = 'video'
+                    content_type = 'video/webp'
 
             # Stage 2: probe metadata + thumbnail from the plaintext file.
             orig_width: Optional[int] = None
