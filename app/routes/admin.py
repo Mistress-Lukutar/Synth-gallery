@@ -377,11 +377,11 @@ def set_admin_endpoint(request: Request, user_id: int, data: SetAdminRequest):
 # === Maintenance Page ===
 
 @router.get("/admin/maintenance")
-def maintenance_page(request: Request):
+async def maintenance_page(request: Request):
     """Maintenance tasks page - thumbnail management."""
     user = require_admin(request)
 
-    stats = get_thumbnail_stats()
+    stats = await get_thumbnail_stats()
 
     return templates.TemplateResponse(
         "admin_maintenance.html",
@@ -398,37 +398,37 @@ def maintenance_page(request: Request):
 # === Thumbnail Management API ===
 
 @router.get("/api/admin/thumbnails/stats")
-def thumbnail_stats_endpoint(request: Request):
+async def thumbnail_stats_endpoint(request: Request):
     """Get thumbnail statistics."""
     require_admin(request)
 
-    return get_thumbnail_stats()
+    return await get_thumbnail_stats()
 
 
 @router.post("/api/admin/thumbnails/cleanup")
-def cleanup_thumbnails_endpoint(request: Request):
+async def cleanup_thumbnails_endpoint(request: Request):
     """Remove orphaned thumbnails (thumbnails without photos in database)."""
     require_admin(request)
 
-    result = cleanup_orphaned_thumbnails()
+    result = await cleanup_orphaned_thumbnails()
     return {"status": "ok", **result}
 
 
 @router.post("/api/admin/uploads/cleanup")
-def cleanup_uploads_endpoint(request: Request):
+async def cleanup_uploads_endpoint(request: Request):
     """Remove orphaned uploads (files not registered in database)."""
     require_admin(request)
 
-    result = cleanup_orphaned_uploads()
+    result = await cleanup_orphaned_uploads()
     return {"status": "ok", **result}
 
 
 @router.post("/api/admin/thumbnails/regenerate")
-def regenerate_thumbnails_endpoint(request: Request):
+async def regenerate_thumbnails_endpoint(request: Request):
     """Regenerate all missing thumbnails."""
     require_admin(request)
 
-    result = regenerate_missing_thumbnails()
+    result = await regenerate_missing_thumbnails()
     return {"status": "ok", **result}
 
 

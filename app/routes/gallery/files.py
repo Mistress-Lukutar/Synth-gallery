@@ -336,7 +336,7 @@ async def get_file_thumbnail(photo_id: str, request: Request):
         if not storage.exists(photo_id, 'thumbnails'):
             from app.infrastructure.services.thumbnail import regenerate_thumbnail
 
-            if not regenerate_thumbnail(photo_id, user['id']):
+            if not await regenerate_thumbnail(photo_id, user['id']):
                 raise HTTPException(status_code=404, detail='Thumbnail unavailable')
 
         # Thumbnails are always generated as JPEG, regardless of the original
