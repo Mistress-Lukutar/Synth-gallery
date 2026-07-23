@@ -2,9 +2,10 @@
 File:   database.py
 Brief:  Database connection, schema initialization and password hashing.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-23
+Version: v1.1.1
 '''
+import logging
 import sqlite3
 import threading
 from datetime import datetime
@@ -116,12 +117,6 @@ def _column_exists(db: sqlite3.Connection, table: str, column: str) -> bool:
     return any(row["name"] == column for row in cursor.fetchall())
 
 
-def _column_exists(db: sqlite3.Connection, table: str, column: str) -> bool:
-    """Check whether a column exists in a table."""
-    cursor = db.execute(f"PRAGMA table_info({table})")
-    return any(row["name"] == column for row in cursor.fetchall())
-
-
 def _table_exists(db: sqlite3.Connection, table: str) -> bool:
     """Check whether a table exists in the database."""
     cursor = db.execute(
@@ -221,6 +216,150 @@ def _drop_safe_tables(db: sqlite3.Connection) -> None:
         if _table_exists(db, table):
             db.execute(f"DROP TABLE {table}")
     db.commit()
+
+
+def _backup_database(db_path: Path, suffix: str) -> Path | None:
+    """Copy the database file to ``<db_path><suffix>`` before a breaking change.
+
+    Returns the backup path on success, or ``None`` if the source does not
+    exist (e.g. an in-memory ``:memory:`` database used by tests). The backup
+    is a best-effort safety net; failures are logged but do not abort the
+    migration.
+    """
+    import shutil
+
+    src = str(db_path)
+    if not db_path.exists():
+        return None
+    dest = Path(f"{src}{suffix}")
+    try:
+        shutil.copy2(src, dest)
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "Pre-migration backup of %s failed: %s", src, exc
+        )
+        return None
+    return dest
+
+
+def _rebuild_table(
+    db: sqlite3.Connection,
+    table: str,
+    create_ddl: str,
+    keep_columns: list[str],
+) -> None:
+    """Rebuild ``table`` with ``create_ddl``, copying ``keep_columns`` over.
+
+    SQLite cannot add/drop CHECK constraints or alter a column type in place,
+    so changing a table's shape requires a full rebuild: create a shadow table
+    with the new schema, copy the surviving columns, drop the original and
+    rename. ``create_ddl`` is the full ``CREATE TABLE`` statement for the new
+    shape; ``keep_columns`` lists columns that exist in both old and new
+    tables and must be preserved.
+    """
+    db.execute("PRAGMA foreign_keys = OFF")
+    new_table = f"{table}_new"
+    db.execute(f"DROP TABLE IF EXISTS {new_table}")
+    db.execute(create_ddl.replace(table, new_table, 1))
+
+    quoted = ", ".join(f'"{c}"' for c in keep_columns)
+    db.execute(
+        f"INSERT INTO {new_table} ({quoted}) SELECT {quoted} FROM {table}"
+    )
+
+    db.execute(f"DROP TABLE {table}")
+    db.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
+    db.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_v2_schema(db: sqlite3.Connection) -> None:
+    """One-time v2.0 schema migration for the polymorphic item tables.
+
+    - Drops the dead ``item_media.storage_mode`` column (never read).
+    - Drops the redundant ``item_media.filename`` column (always == item_id;
+      the storage key is derived from item_id everywhere).
+    - Adds ``CHECK (type IN ('media'))`` to ``items``.
+    - Adds ``CHECK (media_type IN ('image', 'video'))`` to ``item_media``.
+
+    All four are applied idempotently: a freshly created (v2) database has
+    the new shape already and this function is a no-op. Existing pre-v2
+    databases are rebuilt table-by-table with a pre-migration backup.
+    """
+    # ---- item_media: drop storage_mode + filename, add CHECK ----
+    media_cursor = db.execute("PRAGMA table_info(item_media)")
+    media_cols = [row["name"] for row in media_cursor.fetchall()]
+    if "storage_mode" in media_cols or "filename" in media_cols:
+        # Normalise legacy media_type values that predate the v2 image/video
+        # enum (e.g. '3d', which belongs to a future items.type, not a media
+        # sub-kind) so the new CHECK constraint does not reject existing rows.
+        db.execute(
+            "UPDATE item_media SET media_type = 'image' "
+            "WHERE media_type NOT IN ('image', 'video')"
+        )
+        # Surviving columns after dropping storage_mode and filename.
+        keep = [
+            c for c in media_cols if c not in ("storage_mode", "filename")
+        ]
+        _rebuild_table(
+            db,
+            "item_media",
+            """
+            CREATE TABLE item_media (
+                item_id TEXT PRIMARY KEY,
+                media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+                original_name TEXT,
+                content_type TEXT,
+                width INTEGER,
+                height INTEGER,
+                duration INTEGER,
+                thumb_width INTEGER,
+                thumb_height INTEGER,
+                taken_at TIMESTAMP,
+                file_size INTEGER,
+                png_text_chunks TEXT,
+                FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
+            )
+            """,
+            keep,
+        )
+
+    # ---- items: add CHECK (type IN ('media')) ----
+    # SQLite stores CHECK constraints only in the table's CREATE statement, so
+    # detect the pre-v2 shape by inspecting the original sql.
+    schema = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='items'"
+    ).fetchone()
+    if schema and "CHECK (type IN" not in (schema["sql"] or ""):
+        # Normalise legacy items.type values to 'media' before adding the
+        # CHECK constraint so existing rows are not rejected.
+        db.execute(
+            "UPDATE items SET type = 'media' "
+            "WHERE type NOT IN ('media')"
+        )
+        items_cursor = db.execute("PRAGMA table_info(items)")
+        items_keep = [row["name"] for row in items_cursor.fetchall()]
+        _rebuild_table(
+            db,
+            "items",
+            """
+            CREATE TABLE items (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL CHECK (type IN ('media')),
+                folder_id TEXT,
+                user_id INTEGER,
+                uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+                title TEXT,
+                description TEXT,
+                updated_at TIMESTAMP,
+                FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """,
+            items_keep,
+        )
+
+    db.commit()
+
 
 
 # =============================================================================
@@ -471,11 +610,13 @@ def init_db():
     # Polymorphic Items Architecture
     # =============================================================================
     
-    # Items table - polymorphic base for all content types
+    # Items table - polymorphic base for all content types.
+    # CHECK constraint guards items.type against typos; extend the allowed
+    # set as new polymorphic types (note, audio, model) land.
     db.execute("""
         CREATE TABLE IF NOT EXISTS items (
             id TEXT PRIMARY KEY,
-            type TEXT NOT NULL,
+            type TEXT NOT NULL CHECK (type IN ('media')),
             folder_id TEXT,
             user_id INTEGER,
             uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
@@ -484,13 +625,15 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
         )
     """)
-    
-    # Item media table - photo/video specific data
+
+    # Item media table - photo/video specific data.
+    # media_type is a sub-kind within the 'media' item type.
+    # ``filename`` was always equal to ``item_id`` and ``storage_mode`` was
+    # never read; both were dropped in the v2.0 schema migration.
     db.execute("""
         CREATE TABLE IF NOT EXISTS item_media (
             item_id TEXT PRIMARY KEY,
-            media_type TEXT NOT NULL,
-            filename TEXT NOT NULL,
+            media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
             original_name TEXT,
             content_type TEXT,
             width INTEGER,
@@ -499,7 +642,6 @@ def init_db():
             thumb_width INTEGER,
             thumb_height INTEGER,
             taken_at TIMESTAMP,
-            storage_mode TEXT DEFAULT 'standard',
             FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
         )
     """)
@@ -682,19 +824,19 @@ def init_db():
     cursor = db.execute("SELECT COUNT(*) as count FROM users")
     if cursor.fetchone()["count"] == 0:
         import bcrypt
-        
+
         default_username = "admin"
         default_password = "admin"
-        
+
         hashed = bcrypt.hashpw(default_password.encode('utf-8'), bcrypt.gensalt())
-        
+
         db.execute(
-            """INSERT INTO users 
-               (username, password_hash, password_salt, display_name, is_admin) 
+            """INSERT INTO users
+               (username, password_hash, password_salt, display_name, is_admin)
                VALUES (?, ?, ?, ?, ?)""",
             (default_username, hashed.decode('utf-8'), "", "Administrator", 1)
         )
-        
+
         print("=" * 70)
         print("FIRST RUN: Default admin account created")
         print("=" * 70)
@@ -704,6 +846,12 @@ def init_db():
         print("   Please log in and create a new admin user immediately,")
         print("   then delete this temporary account for security.")
         print("=" * 70)
+
+    # v2.0 schema migration (idempotent): drop dead item_media columns and
+    # add CHECK constraints on items.type / item_media.media_type. Take a
+    # pre-migration backup of the database file before any breaking rebuild.
+    _backup_database(DATABASE_PATH, ".v2migration-bak")
+    _migrate_v2_schema(db)
 
     db.commit()
 

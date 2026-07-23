@@ -3,7 +3,7 @@ File:   thumbnail.py
 Brief:  Thumbnail management service - regeneration, cleanup, statistics.
 Author: Mistress-Lukutar
 Date:   2026-07-23
-Version: v1.1.0
+Version: v1.1.1
 '''
 import io
 import os
@@ -204,7 +204,7 @@ async def cleanup_orphaned_uploads() -> dict:
     db = get_db()
 
     items = db.execute(
-        """SELECT i.id, im.filename
+        """SELECT i.id
             FROM items i
             JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""
@@ -395,7 +395,7 @@ async def get_thumbnail_stats() -> dict:
     db = get_db()
 
     photos = db.execute(
-        """SELECT i.id, im.filename, im.thumb_width, i.user_id
+        """SELECT i.id, im.thumb_width, i.user_id
             FROM items i
             JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'"""

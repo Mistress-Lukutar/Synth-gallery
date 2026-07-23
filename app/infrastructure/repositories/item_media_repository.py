@@ -53,16 +53,16 @@ class ItemMediaRepository(Repository):
             png_text_chunks: PNG tEXt/zTXt/iTXt chunks extracted from original upload
         """
         try:
-            # Extension-less storage: filename = item_id
-            filename = item_id
+            # Storage key is the item_id (extension-less); the redundant
+            # ``filename`` column was dropped in the v2.0 schema migration.
             self._execute(
-                """INSERT INTO item_media 
-                   (item_id, media_type, filename, original_name, content_type,
+                """INSERT INTO item_media
+                   (item_id, media_type, original_name, content_type,
                     width, height, duration, thumb_width, thumb_height, taken_at, file_size,
                     png_text_chunks)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    item_id, media_type, filename, original_name, content_type,
+                    item_id, media_type, original_name, content_type,
                     width, height, duration, thumb_width, thumb_height, taken_at, file_size,
                     json.dumps(png_text_chunks, ensure_ascii=False) if png_text_chunks else None
                 )
@@ -164,9 +164,9 @@ class ItemMediaRepository(Repository):
             Dict with both base item and media-specific fields
         """
         cursor = self._execute(
-            """SELECT 
+            """SELECT
                 i.*,
-                im.media_type, im.filename, im.original_name, im.content_type,
+                im.media_type, im.original_name, im.content_type,
                 im.width, im.height, im.duration,
                 im.thumb_width, im.thumb_height, im.taken_at
                FROM items i
