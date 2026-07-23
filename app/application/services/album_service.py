@@ -2,8 +2,8 @@
 File:   album_service.py
 Brief:  Album service - content-agnostic album management.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-23
+Version: v1.1.0
 '''
 
 from __future__ import annotations

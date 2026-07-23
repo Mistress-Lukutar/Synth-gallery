@@ -2,7 +2,7 @@
 File:   item_service.py
 Brief:  Item service - unified handling for all content types.
 Author: Mistress-Lukutar
-Date:   2026-07-21
+Date:   2026-07-23
 Version: v1.1.0
 '''
 
