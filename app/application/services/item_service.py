@@ -14,7 +14,6 @@ import os
 import shutil
 import tempfile
 import uuid
-from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional
@@ -45,6 +44,11 @@ from app.infrastructure.services.metadata import (
 )
 from app.infrastructure.storage import get_storage
 
+# Re-exported for backwards compatibility (callers import ItemRenderer /
+# MediaRenderer from item_service).
+from .item_renderers import ItemRenderer, MediaRenderer  # noqa: F401
+from .item_types import ItemType, get_renderer_for
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,81 +56,6 @@ logger = logging.getLogger(__name__)
 # Magic bytes used by :meth:`ItemService._validate_content`.
 # Matroska/WebM files start with the EBML header magic ``1A 45 DF A3``.
 _EBML_MAGIC = b"\x1a\x45\xdf\xa3"
-
-
-class ItemRenderer(ABC):
-    '''Abstract base for item type renderers.
-
-    Strategy Pattern: each item type implements its own rendering logic.
-    '''
-
-    @abstractmethod
-    def get_thumbnail_url(self, item: Dict) -> str:
-        '''Get URL for item thumbnail.'''
-
-    @abstractmethod
-    def get_full_url(self, item: Dict) -> str:
-        '''Get URL for full item view.'''
-
-    @abstractmethod
-    def get_dimensions(self, item: Dict) -> tuple:
-        '''Get display dimensions (width, height).'''
-
-    @abstractmethod
-    def render_gallery_item(self, item: Dict) -> Dict:
-        '''Render HTML for gallery grid.'''
-
-    @abstractmethod
-    def render_lightbox(self, item: Dict) -> Dict:
-        '''Render HTML for lightbox view.'''
-
-
-class MediaRenderer(ItemRenderer):
-    '''Renderer for photos and videos.'''
-
-    def get_thumbnail_url(self, item: Dict) -> str:
-        from app.config import BASE_URL
-        return f'{BASE_URL}/files/{item["id"]}/thumbnail'
-
-    def get_full_url(self, item: Dict) -> str:
-        from app.config import BASE_URL
-        return f'{BASE_URL}/files/{item["id"]}'
-
-    def get_dimensions(self, item: Dict) -> tuple:
-        thumb_w = item.get('thumb_width', 280)
-        thumb_h = item.get('thumb_height', 210)
-        return thumb_w, thumb_h
-
-    def render_gallery_item(self, item: Dict) -> Dict:
-        '''Render gallery-grid metadata.
-
-        Contract keys (consumed by ``gallery/main.py`` folder content API):
-        - ``type``: polymorphic item type (``'media'``).
-        - ``media_type``: ``'image'`` | ``'video'``.
-        - ``width`` / ``height``: thumbnail display dimensions.
-        - ``has_thumbnail``: whether a thumbnail is available for this item.
-        - ``thumbnail_url``: URL of the thumbnail endpoint.
-
-        The frontend currently derives thumbnail URLs itself from the item
-        id, but the contract is published so future renderers/consumers agree
-        on the shape.
-        '''
-        return {
-            'type': 'media',
-            'media_type': item.get('media_type', 'image'),
-            'width': item.get('thumb_width', 280),
-            'height': item.get('thumb_height', 210),
-            'has_thumbnail': True,
-            'thumbnail_url': self.get_thumbnail_url(item),
-        }
-
-    def render_lightbox(self, item: Dict) -> Dict:
-        return {
-            'type': 'media',
-            'media_type': item.get('media_type', 'image'),
-            'url': self.get_full_url(item),
-            'title': item.get('title', ''),
-        }
 
 
 class ItemService:
@@ -139,10 +68,6 @@ class ItemService:
     - Manage item metadata
     '''
 
-    RENDERERS = {
-        'media': MediaRenderer(),
-    }
-
     def __init__(
         self,
         item_repository: ItemRepository,
@@ -154,11 +79,8 @@ class ItemService:
         self.storage = storage or get_storage()
 
     def get_renderer(self, item_type: str) -> ItemRenderer:
-        '''Get renderer for item type.'''
-        renderer = self.RENDERERS.get(item_type)
-        if not renderer:
-            raise ValueError(f'Unknown item type: {item_type}')
-        return renderer
+        '''Get renderer for item type (delegates to the item-type registry).'''
+        return get_renderer_for(item_type)
 
     # ========================================================================
     # Media Item Creation (Photos/Videos)
@@ -547,7 +469,7 @@ class ItemService:
             Created item dict
         '''
         self.item_repo.create(
-            item_type='media',
+            item_type=ItemType.MEDIA.value,
             folder_id=folder_id,
             user_id=user_id,
             item_id=item_id,
@@ -573,7 +495,7 @@ class ItemService:
 
         return {
             'id': item_id,
-            'type': 'media',
+            'type': ItemType.MEDIA.value,
             'folder_id': folder_id,
             'user_id': user_id,
             'uploaded_at': file_data.get('uploaded_at'),
@@ -599,7 +521,7 @@ class ItemService:
         if not base:
             return None
 
-        if base['type'] == 'media':
+        if base['type'] == ItemType.MEDIA.value:
             media = self.media_repo.get_by_item_id(item_id)
             if media:
                 base.update({
@@ -627,7 +549,7 @@ class ItemService:
             sort_by: 'uploaded', 'taken', or 'title'
             standalone_only: If True, exclude items that are in albums
         '''
-        if item_type == 'media' and not standalone_only:
+        if item_type == ItemType.MEDIA.value and not standalone_only:
             return self.media_repo.get_by_folder(folder_id, sort_by=sort_by)
 
         items = self.item_repo.get_by_folder(folder_id, item_type, sort_by)
@@ -637,7 +559,7 @@ class ItemService:
             items = [item for item in items if item['id'] not in album_item_ids]
 
         for item in items:
-            if item['type'] == 'media':
+            if item['type'] == ItemType.MEDIA.value:
                 media = self.media_repo.get_by_item_id(item['id'])
                 if media:
                     item.update({
@@ -784,7 +706,7 @@ class ItemService:
             )
 
         self.item_repo.create(
-            item_type='media',
+            item_type=ItemType.MEDIA.value,
             folder_id=dest_folder_id,
             user_id=user_id,
             item_id=new_item_id,

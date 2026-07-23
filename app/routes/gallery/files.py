@@ -84,9 +84,16 @@ def _parse_range(header: str, total: int) -> tuple[int, int] | None:
 
 
 def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=None):
-    '''Build a photo-like dict for the requested item.'''
+    '''Build a photo-like dict for the requested item.
+
+    Dispatch is driven by the item-type registry: today only ``media`` items
+    serve files, but the registry check is the single extension point so a
+    future type can opt into file serving without reopening this route.
+    '''
+    from app.application.services.item_types import is_known_item_type
+
     item = item_repo.get_by_id(item_id)
-    if item and item.get('type') == 'media':
+    if item and is_known_item_type(item.get('type', '')):
         media = item_media_repo.get_by_item_id(item_id) if item_media_repo else None
         return {
             'id': item['id'],

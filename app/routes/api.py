@@ -376,7 +376,8 @@ async def get_item_file_api(item_id: str, request: Request):
         media_repo = ItemMediaRepository(db)
 
         item = item_repo.get_by_id(item_id)
-        if not item or item.get("type") != "media":
+        from app.application.services.item_types import is_known_item_type
+        if not item or not is_known_item_type(item.get("type", "")):
             logger.warning(
                 "AI file access: item not found. item_id=%s, found=%s, type=%s",
                 item_id,

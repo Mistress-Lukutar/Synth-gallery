@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 
 from app.application.services import FolderService, ItemService
 from app.application.services.item_service import ItemService as _ItemService
+from app.application.services.item_types import ItemType
 from app.database import create_connection
 from app.dependencies import require_user
 from app.infrastructure.repositories import (
@@ -89,7 +90,7 @@ async def upload_file(
 
     return {
         'id': item['id'],
-        'type': 'media',
+        'type': ItemType.MEDIA.value,
         'folder_id': folder_id,
         'media_type': item.get('media_type', 'image'),
         'title': item.get('title', ''),
@@ -130,7 +131,7 @@ async def upload_batch(
             )
             results.append({
                 'id': item['id'],
-                'type': 'media',
+                'type': ItemType.MEDIA.value,
                 'folder_id': folder_id,
                 'media_type': item.get('media_type', 'image'),
                 'title': item.get('title', ''),
