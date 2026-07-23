@@ -12,8 +12,42 @@ from .base import (
     FileNotFoundError as StorageFileNotFoundError,
     UploadError,
     DownloadError,
-    DeleteError
+    DeleteError,
+    RandomAccessReader,
 )
+
+
+class _LocalRandomAccessReader(RandomAccessReader):
+    """Seekable reader over a local encrypted file.
+
+    A thin wrapper around an open ``rb`` file handle plus the file size, so
+    HTTP Range serving and chunked-envelope decryption can ``seek``/``tell``
+    the same way they did when ``files.py`` opened the path directly.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._fh = open(path, "rb")
+        self._size = path.stat().st_size
+
+    def read(self, size: int = -1) -> bytes:
+        return self._fh.read(size)
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        return self._fh.seek(offset, whence)
+
+    def tell(self) -> int:
+        return self._fh.tell()
+
+    def close(self) -> None:
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+    @property
+    def size(self) -> int:
+        return self._size
 
 
 class LocalStorage(StorageInterface):
@@ -201,12 +235,21 @@ class LocalStorage(StorageInterface):
     async def get_size(self, file_id: str, folder: str = "uploads") -> int:
         """Get file size in bytes."""
         file_path = self._get_path(file_id, folder)
-        
+
         if not file_path.exists():
             raise StorageFileNotFoundError(f"File not found: {file_id}")
-        
+
         return file_path.stat().st_size
-    
+
+    def get_random_access_reader(
+        self, file_id: str, folder: str = "uploads"
+    ) -> RandomAccessReader:
+        """Return a seekable reader over the local file."""
+        file_path = self._get_path(file_id, folder)
+        if not file_path.exists():
+            raise StorageFileNotFoundError(f"File not found: {file_id}")
+        return _LocalRandomAccessReader(file_path)
+
     def get_absolute_path(self, file_id: str, folder: str = "uploads") -> Path:
         """Get absolute filesystem path (for local operations)."""
         return self._get_path(file_id, folder).resolve()

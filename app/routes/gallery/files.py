@@ -20,7 +20,7 @@ from app.infrastructure.services.encryption import (
     dek_cache,
 )
 from app.infrastructure.services.jxl_fallback_service import JxlFallbackService
-from app.infrastructure.storage import LocalStorage, get_storage
+from app.infrastructure.storage import get_storage
 from app.logging_config import get_logger
 from app.routes.gallery.deps import get_permission_service
 
@@ -108,32 +108,21 @@ def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=No
     return None
 
 
-def _open_encrypted_reader(filename: str, folder: str):
-    '''Open a seekable reader over the stored encrypted envelope.
+async def _open_encrypted_reader(filename: str, folder: str):
+    '''Return a seekable reader over the stored encrypted envelope.
 
-    For local storage we read the file directly so we can ``seek``. For other
-    backends we fall back to a full in-memory buffer (rare case; S3 streaming
-    with range support can be added later).
+    Goes through the storage abstraction's ``get_random_access_reader`` so
+    any backend that supports random access (local today) works identically.
+    Backends that cannot provide a seekable stream (e.g. S3) raise
+    ``NotImplementedError`` from the storage layer; range/JXL serving is not
+    supported for those until a range-GET reader is added.
     '''
-    if isinstance(storage, LocalStorage):
-        path = storage.get_path(filename, folder)
-        return open(path, 'rb')
-    # Fallback for non-local backends: download fully then wrap in BytesIO.
-    import asyncio
-
-    data = asyncio.run(storage.download(filename, folder))
-    return io.BytesIO(data)
+    return storage.get_random_access_reader(filename, folder)
 
 
-def _encrypted_size(filename: str, folder: str) -> int:
+async def _encrypted_size(filename: str, folder: str) -> int:
     '''Return on-disk encrypted envelope size in bytes.'''
-    if isinstance(storage, LocalStorage):
-        path = storage.get_path(filename, folder)
-        return path.stat().st_size
-    # Fall back via download (caller should prefer local storage path).
-    import asyncio
-
-    return len(asyncio.run(storage.download(filename, folder)))
+    return await storage.get_size(filename, folder)
 
 
 def _build_headers(
@@ -203,7 +192,7 @@ async def file_head(photo_id: str, request: Request):
         if not dek_cache.get(owner_id) if owner_id else True:
             raise HTTPException(status_code=403, detail='Encryption key not available')
 
-        enc_size = _encrypted_size(photo_id, 'uploads')
+        enc_size = await _encrypted_size(photo_id, 'uploads')
         content_type = record.get('content_type') or 'application/octet-stream'
         try:
             plaintext_size = EncryptionService.get_plaintext_size(enc_size)
@@ -250,7 +239,7 @@ async def get_file(photo_id: str, request: Request):
                 status_code=403, detail='Encryption key not available'
             )
 
-        enc_size = _encrypted_size(filename, 'uploads')
+        enc_size = await _encrypted_size(filename, 'uploads')
         try:
             plaintext_size = EncryptionService.get_plaintext_size(enc_size)
         except EncryptionError as exc:
@@ -260,7 +249,7 @@ async def get_file(photo_id: str, request: Request):
 
         # JXL path stays whole-file (small images; needs Accept negotiation).
         if content_type == 'image/jxl':
-            reader = _open_encrypted_reader(filename, 'uploads')
+            reader = await _open_encrypted_reader(filename, 'uploads')
             try:
                 buf = io.BytesIO()
                 EncryptionService.decrypt_to_stream(reader, buf, dek)
@@ -279,7 +268,10 @@ async def get_file(photo_id: str, request: Request):
 
         if parsed is not None:
             start, end = parsed
-            reader = _open_encrypted_reader(filename, 'uploads')
+            # Range serving needs a seekable reader so decrypt_range can skip
+            # to the chunks overlapping [start, end]. Open it here (awaitable)
+            # and hand it to the sync generator.
+            reader = await _open_encrypted_reader(filename, 'uploads')
 
             def _gen():
                 try:
@@ -298,15 +290,20 @@ async def get_file(photo_id: str, request: Request):
                 _gen(), status_code=206, headers=headers, media_type=content_type
             )
 
-        # Full-file streaming response.
+        # Full-file streaming response. iter_decrypt is sequential (no seek),
+        # so a plain storage stream works for any backend including S3.
+        stream = await storage.get_stream(filename, 'uploads')
+
         def _gen_full():
-            reader = _open_encrypted_reader(filename, 'uploads')
             try:
-                yield from EncryptionService.iter_decrypt(reader, dek)
+                yield from EncryptionService.iter_decrypt(stream, dek)
             except EncryptionError as exc:
                 logger.warning('Stream decrypt failed for %s: %s', filename, exc)
             finally:
-                reader.close()
+                try:
+                    stream.close()
+                except Exception:
+                    pass
 
         headers = _build_headers(content_type, plaintext_size)
         return StreamingResponse(

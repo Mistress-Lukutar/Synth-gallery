@@ -24,7 +24,7 @@ from app.infrastructure.repositories import (
     ItemRepository,
     ItemMediaRepository,
 )
-from app.infrastructure.storage import get_storage, LocalStorage
+from app.infrastructure.storage import get_storage
 from app.infrastructure.services.encryption import (
     EncryptionError,
     EncryptionService,
@@ -428,12 +428,7 @@ async def get_item_file_api(item_id: str, request: Request):
         if not storage.exists(item_id, "uploads"):
             raise HTTPException(status_code=404, detail="File not found")
 
-        if isinstance(storage, LocalStorage):
-            file_path = storage.get_path(item_id, "uploads")
-            with open(file_path, "rb") as f:
-                data = f.read()
-        else:
-            data = await storage.download(item_id, "uploads")
+        data = await storage.download(item_id, "uploads")
 
         try:
             decrypted_data = EncryptionService.decrypt_bytes(data, user_dek)
