@@ -57,10 +57,56 @@ def _make_mkv_bytes() -> bytes:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _make_animated_webp_bytes() -> bytes:
+    '''Generate an animated WebP via ffmpeg.'''
+    from app.infrastructure.services.ffmpeg import is_ffmpeg_available
+
+    if not is_ffmpeg_available():
+        pytest.skip('ffmpeg/ffprobe not available on PATH')
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    webp_path = tmp_dir / 'anim.webp'
+    try:
+        subprocess.run(
+            [
+                'ffmpeg', '-y', '-loglevel', 'error',
+                '-f', 'lavfi', '-i', 'testsrc=size=200x200:rate=10:duration=2',
+                '-loop', '0', '-frames:v', '20',
+                str(webp_path),
+            ],
+            check=True,
+            timeout=60,
+        )
+        return webp_path.read_bytes()
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _make_static_webp_bytes() -> bytes:
+    '''Generate a single-frame WebP via Pillow.'''
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new('RGB', (100, 100), color='blue').save(buf, 'WEBP')
+    return buf.getvalue()
+
+
 @pytest.fixture(scope='module')
 def mkv_bytes() -> bytes:
     '''Real MKV bytes shared across tests in this module.'''
     return _make_mkv_bytes()
+
+
+@pytest.fixture(scope='module')
+def animated_webp_bytes() -> bytes:
+    '''Animated WebP bytes shared across tests in this module.'''
+    return _make_animated_webp_bytes()
+
+
+@pytest.fixture
+def static_webp_bytes() -> bytes:
+    '''Single-frame WebP bytes (function-scoped; cheap).'''
+    return _make_static_webp_bytes()
 
 
 def test_mkv_upload_creates_video_item(
@@ -233,6 +279,71 @@ def test_mkv_thumbnail_is_jpeg(
         '/api/uploads',
         data={'folder_id': test_folder},
         files={'file': ('sample.mkv', mkv_bytes, 'video/x-matroska')},
+        headers={'X-CSRF-Token': csrf_token},
+    )
+    item_id = response.json()['id']
+
+    r = authenticated_client.get(f'/files/{item_id}/thumbnail')
+    assert r.status_code == 200
+    assert r.content[:3] == b'\xff\xd8\xff'  # JPEG magic
+
+
+# ---------------------------------------------------------------------------
+# Animated WebP reclassification + static WebP validation fix.
+# ---------------------------------------------------------------------------
+
+
+def test_static_webp_accepted_as_image(
+    authenticated_client: TestClient,
+    test_folder: str,
+    csrf_token: str,
+    static_webp_bytes: bytes,
+):
+    '''Static WebP uploads must be accepted (magic-byte fix) and stay images.'''
+    response = authenticated_client.post(
+        '/api/uploads',
+        data={'folder_id': test_folder},
+        files={'file': ('static.webp', static_webp_bytes, 'image/webp')},
+        headers={'X-CSRF-Token': csrf_token},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data['media_type'] == 'image'
+    assert data['content_type'] == 'image/webp'
+
+
+def test_animated_webp_reclassified_as_video(
+    authenticated_client: TestClient,
+    test_folder: str,
+    csrf_token: str,
+    animated_webp_bytes: bytes,
+):
+    '''Animated WebP uploads are reclassified to video and thumbnailed via ffmpeg.'''
+    response = authenticated_client.post(
+        '/api/uploads',
+        data={'folder_id': test_folder},
+        files={'file': ('anim.webp', animated_webp_bytes, 'image/webp')},
+        headers={'X-CSRF-Token': csrf_token},
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data['media_type'] == 'video'
+    assert data['content_type'] == 'video/webp'
+
+
+def test_animated_webp_thumbnail_is_jpeg(
+    authenticated_client: TestClient,
+    test_folder: str,
+    csrf_token: str,
+    animated_webp_bytes: bytes,
+):
+    '''Animated WebP produces a JPEG thumbnail through the ffmpeg path.'''
+    response = authenticated_client.post(
+        '/api/uploads',
+        data={'folder_id': test_folder},
+        files={'file': ('anim.webp', animated_webp_bytes, 'image/webp')},
         headers={'X-CSRF-Token': csrf_token},
     )
     item_id = response.json()['id']
