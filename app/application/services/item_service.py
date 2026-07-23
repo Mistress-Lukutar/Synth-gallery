@@ -98,12 +98,26 @@ class MediaRenderer(ItemRenderer):
         return thumb_w, thumb_h
 
     def render_gallery_item(self, item: Dict) -> Dict:
+        '''Render gallery-grid metadata.
+
+        Contract keys (consumed by ``gallery/main.py`` folder content API):
+        - ``type``: polymorphic item type (``'media'``).
+        - ``media_type``: ``'image'`` | ``'video'``.
+        - ``width`` / ``height``: thumbnail display dimensions.
+        - ``has_thumbnail``: whether a thumbnail is available for this item.
+        - ``thumbnail_url``: URL of the thumbnail endpoint.
+
+        The frontend currently derives thumbnail URLs itself from the item
+        id, but the contract is published so future renderers/consumers agree
+        on the shape.
+        '''
         return {
             'type': 'media',
             'media_type': item.get('media_type', 'image'),
-            'thumb_url': self.get_thumbnail_url(item),
             'width': item.get('thumb_width', 280),
             'height': item.get('thumb_height', 210),
+            'has_thumbnail': True,
+            'thumbnail_url': self.get_thumbnail_url(item),
         }
 
     def render_lightbox(self, item: Dict) -> Dict:

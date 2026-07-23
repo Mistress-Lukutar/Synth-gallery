@@ -173,6 +173,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "item_type": item["type"], # 'media', 'note', etc
                 "id": item["id"],
                 "title": item.get("title", ""),
+                "original_name": item.get("original_name"),
                 "media_type": item.get("media_type", "image"),
                 "content_type": item.get("content_type"),
                 "thumb_width": item.get("thumb_width"),
