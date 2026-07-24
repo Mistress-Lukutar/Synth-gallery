@@ -48,6 +48,8 @@ Synth-Gallery/
 │   │       ├── folder_service.py     # Folder CRUD, tree operations
 │   │       ├── permission_service.py # Access control logic
 │   │       ├── item_service.py       # Item (photo/video) operations
+│   │       ├── item_types.py         # Typed item-type registry (single source of truth)
+│   │       ├── item_renderers.py     # Strategy renderers per item type
 │   │       ├── album_service.py      # Album CRUD and operations
 │   │       └── user_settings_service.py # User preferences
 │   ├── infrastructure/           # Infrastructure layer
@@ -234,8 +236,8 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 - Upload fails with 403 if the user's DEK is not available
 
 **File Serving:**
-- `GET /files/{photo_id}` streams the plaintext on the fly via `iter_decrypt` (full file) or `decrypt_range` (HTTP Range, returns 206 Partial Content with `Content-Range` / `Accept-Ranges`)
-- `HEAD /files/{photo_id}` returns `Content-Length` and `Accept-Ranges` so browsers can probe before requesting byte ranges
+- `GET /files/{item_id}` streams the plaintext on the fly via `iter_decrypt` (full file) or `decrypt_range` (HTTP Range, returns 206 Partial Content with `Content-Range` / `Accept-Ranges`)
+- `HEAD /files/{item_id}` returns `Content-Length` and `Accept-Ranges` so browsers can probe before requesting byte ranges
 - The old plaintext-fallback branch was removed; all files are expected to be in SGE1 format after migration
 
 ### 5b. MKV / Large File Support
@@ -275,6 +277,12 @@ content = await storage.download(file_id, folder="uploads")
 - **LocalStorage**: Filesystem storage (default)
 - **S3Storage**: AWS S3 / MinIO / DigitalOcean Spaces
 
+**Random access (HTTP Range / chunked-envelope seek):**
+- `StorageInterface.get_random_access_reader(file_id, folder)` returns a seekable `RandomAccessReader` (read / seek / tell / close / `size`) for backends that support random access
+- **LocalStorage** provides full random access (backed by an open file handle), so HTTP Range serving for videos works
+- **S3Storage** currently raises `NotImplementedError` for random access — byte-range GET support is a v2.0 follow-up. Callers must fall back to whole-file streaming (`get_stream`) for S3
+- Never branch on `isinstance(storage, LocalStorage)`; always go through the interface
+
 **Configuration (Environment Variables):**
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -289,6 +297,39 @@ content = await storage.download(file_id, folder="uploads")
 - Existing files remain in `uploads/`/`thumbnails/` when switching backends
 - New files go to the configured backend
 - Backups work with any backend (downloads from S3 if needed)
+
+### 6b. Polymorphic Items (v2.0)
+
+Items use a **polymorphic base table** with **per-type detail tables**, driven by a **typed item-type registry** and **Strategy renderers**:
+
+```
+items (base)                          item_media (detail: type='media')
+├── id (PK, TEXT UUID)                ├── item_id (PK/FK → items.id)
+├── type (TEXT) ◄── 'media'           ├── media_type ('image'|'video')
+├── folder_id (FK)                    ├── content_type, original_name
+├── user_id (FK)                      ├── width, height, duration
+├── uploaded_at                       ├── thumb_width, thumb_height
+├── title, description                └── taken_at, file_size, png_text_chunks
+└── updated_at
+```
+
+- **`items.type`** → coarse polymorphic kind (`media`; future `note`/`audio`/`model`)
+- **`item_media.media_type`** → sub-kind within media (`image` | `video`). A 3D model is not "a kind of photo", but a video *is* "a kind of media"
+- **Typed registry** (`app/application/services/item_types.py`): `ITEM_TYPE_REGISTRY` maps each `items.type` to its detail table, renderer factory and allowed MIME set. Dispatch sites (file serving, upload validation, `ItemService` hydration) consult `get_item_type_spec()` / `is_known_item_type()` instead of hard-coding `'media'`. Adding a new type = a new detail table + a new renderer + one registry entry
+- **Renderers** (`app/application/services/item_renderers.py`): `ItemRenderer` ABC + `MediaRenderer`. `render_gallery_item()` publishes `type`, `media_type`, `width`, `height`, `has_thumbnail`, `thumbnail_url`. The gallery frontend derives thumbnail URLs from the item id itself, so the URL fields are informational
+- **Consolidated read model** (`ItemRepository.get_media_with_details`): the single `items JOIN item_media` query lives on the base repository; `ItemMediaRepository` no longer owns the JOIN
+
+**v2.0 schema migration** (idempotent, runs automatically in `init_db()` with a pre-migration backup at `gallery.db.v2migration-bak`):
+- Dropped the dead `item_media.storage_mode` column (never read)
+- Dropped the redundant `item_media.filename` column (always == `item_id`; the storage key is derived from `item_id`)
+- Added `CHECK (type IN ('media'))` to `items`
+- Added `CHECK (media_type IN ('image', 'video'))` to `item_media`
+- Legacy `media_type='3d'` rows are normalised to `'image'` (a 3D model belongs to a future `items.type`, not a media sub-kind)
+
+**Legacy `photo_*` purge (v2.0):**
+- Removed `can_access_photo`, `can_delete_photo`, `get_photo_count`, `get_standalone_photos` aliases
+- API response keys renamed: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, request bodies `photo_ids` → `item_ids`
+- File-serving path param renamed `photo_id` → `item_id` (URL is `/files/{item_id}`)
 
 ## Build and Run Commands
 
