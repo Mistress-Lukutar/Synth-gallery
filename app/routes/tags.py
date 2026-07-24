@@ -2,8 +2,8 @@
 File:   tags.py
 Brief:  Tag management routes - Flat Tags v3 with implications.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 from typing import List, Optional
 
@@ -392,8 +392,7 @@ def search_by_tags(
                 "type": "album",
                 "id": album["id"],
                 "name": album["name"],
-                "photo_count": len(builder["matching_in_album"]),
-                "cover_photo_id": cover_id,
+                "item_count": len(builder["matching_in_album"]),
                 "cover_item_id": cover_id,
                 "cover_thumb_width": dims.get("thumb_width"),
                 "cover_thumb_height": dims.get("thumb_height"),

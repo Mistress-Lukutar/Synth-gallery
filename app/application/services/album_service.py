@@ -2,8 +2,8 @@
 File:   album_service.py
 Brief:  Album service - content-agnostic album management.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 
 from __future__ import annotations
@@ -100,7 +100,6 @@ class AlbumService:
             'name': name,
             'folder_id': folder_id,
             'item_count': len(item_ids) if item_ids else 0,
-            'photo_count': len(item_ids) if item_ids else 0,  # Legacy alias
         }
 
     def get_album(self, album_id: str, user_id: int) -> Optional[Dict]:

@@ -1262,7 +1262,7 @@
                 // Photo is part of an album
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
                 if (albumBars) {
-                    albumBars.innerHTML = photo.album.photo_ids.map((id, i) => 
+                    albumBars.innerHTML = photo.album.item_ids.map((id, i) =>
                         `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}"></div>`
                     ).join('');
                 }

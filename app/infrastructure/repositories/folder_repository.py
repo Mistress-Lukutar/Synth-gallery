@@ -2,8 +2,8 @@
 File:   folder_repository.py
 Brief:  Folder repository - handles all folder-related database operations.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 
 from __future__ import annotations
@@ -168,7 +168,7 @@ class FolderRepository(Repository):
         if include_shared:
             cursor = self._execute(
                 '''SELECT f.*, u.display_name as owner_name,
-                       (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id) as photo_count
+                       (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id) as item_count
                    FROM folders f
                    JOIN users u ON f.user_id = u.id
                    WHERE f.user_id = ?
@@ -179,7 +179,7 @@ class FolderRepository(Repository):
         else:
             cursor = self._execute(
                 '''SELECT f.*, u.display_name as owner_name,
-                       (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id) as photo_count
+                       (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id) as item_count
                    FROM folders f
                    JOIN users u ON f.user_id = u.id
                    WHERE f.user_id = ?
@@ -394,7 +394,7 @@ class FolderRepository(Repository):
             user_id: User ID
 
         Returns:
-            List of subfolder dicts with photo_count
+            List of subfolder dicts with item_count
         '''
         cursor = self._execute('''
             SELECT f.*,
@@ -409,7 +409,7 @@ class FolderRepository(Repository):
                            )
                            SELECT id FROM subfolder_tree
                        )
-                   ) as photo_count
+                   ) as item_count
             FROM folders f
             WHERE f.parent_id = ? AND (
                 f.user_id = ?
@@ -420,18 +420,18 @@ class FolderRepository(Repository):
         return [dict(row) for row in cursor.fetchall()]
 
     def get_albums_in_folder(self, folder_id: str) -> list[dict]:
-        '''Get albums in folder with photo counts.
+        '''Get albums in folder with item counts.
 
         Args:
             folder_id: Folder ID
 
         Returns:
-            List of album dicts with photo_count, cover_photo_id, cover thumbnail
-            dimensions, and max photo dates for sorting
+            List of album dicts with item_count, cover_item_id, cover thumbnail
+            dimensions, and max item dates for sorting
         '''
         cursor = self._execute('''
             SELECT a.id, a.name, a.created_at as uploaded_at, a.folder_id, a.user_id,
-                   (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as photo_count,
+                   (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as item_count,
                    COALESCE(a.cover_item_id,
                        (SELECT item_id FROM album_items WHERE album_id = a.id ORDER BY position LIMIT 1)
                    ) as cover_item_id,
@@ -476,9 +476,6 @@ class FolderRepository(Repository):
         ''', (folder_id, folder_id))
         return [dict(row) for row in cursor.fetchall()]
 
-    # Legacy alias - will be removed after full migration
-    get_standalone_photos = get_standalone_items
-
     def get_item_count(self, folder_id: str) -> int:
         '''Get total item count in folder.
 
@@ -494,9 +491,6 @@ class FolderRepository(Repository):
         )
         row = cursor.fetchone()
         return row['count'] if row else 0
-
-    # Legacy alias - will be removed after full migration
-    get_photo_count = get_item_count
 
     def list_with_metadata(self, user_id: int) -> list[dict]:
         '''Get all folders accessible by user with metadata.
@@ -520,7 +514,7 @@ class FolderRepository(Repository):
                            )
                            SELECT id FROM subfolder_tree
                        )
-                   ) as photo_count,
+                   ) as item_count,
                    CASE
                        WHEN f.user_id = ? THEN 'owner'
                        ELSE (SELECT permission FROM folder_permissions WHERE folder_id = f.id AND user_id = ?)

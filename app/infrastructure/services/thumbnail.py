@@ -2,8 +2,8 @@
 File:   thumbnail.py
 Brief:  Thumbnail management service - regeneration, cleanup, statistics.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.1
+Date:   2026-07-24
+Version: v1.1.2
 '''
 import io
 import os
@@ -169,12 +169,12 @@ async def cleanup_orphaned_thumbnails() -> dict:
     db = get_db()
 
     photos = db.execute("SELECT id FROM items WHERE type = 'media'").fetchall()
-    valid_photo_ids = {p['id'] for p in photos}
+    valid_item_ids = {p['id'] for p in photos}
 
     orphaned = []
     kept = 0
     for thumb_id in storage.list_files('thumbnails'):
-        if thumb_id not in valid_photo_ids:
+        if thumb_id not in valid_item_ids:
             orphaned.append(thumb_id)
         else:
             kept += 1
@@ -425,7 +425,6 @@ async def get_thumbnail_stats() -> dict:
         else:
             healthy += 1
 
-    valid_photo_ids = valid_item_ids
     orphaned_thumbnails = 0
     orphaned_size = 0
     total_thumb_size = 0
@@ -435,7 +434,7 @@ async def get_thumbnail_stats() -> dict:
         except Exception:
             size = 0
         total_thumb_size += size
-        if thumb_id not in valid_photo_ids:
+        if thumb_id not in valid_item_ids:
             orphaned_thumbnails += 1
             orphaned_size += size
 

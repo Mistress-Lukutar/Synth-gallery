@@ -2,8 +2,8 @@
 File:   uploads.py
 Brief:  Upload routes - unified upload handling for all media types.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 import json
 import uuid
@@ -343,10 +343,8 @@ async def upload_album(
         return {
             'status': 'ok',
             'album_id': album_id,
-            'photo_count': len(item_ids),
             'item_count': len(item_ids),
             'items': uploaded_items,
-            'photos': uploaded_items,  # Legacy alias
         }
     finally:
         db.close()

@@ -106,7 +106,7 @@
                     const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-download`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ photo_ids: Array.from(selectedPhotos) })
+                        body: JSON.stringify({ item_ids: Array.from(selectedPhotos) })
                     });
 
                     if (!resp.ok) throw new Error('Download failed');

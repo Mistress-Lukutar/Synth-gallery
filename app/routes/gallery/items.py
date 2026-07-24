@@ -2,8 +2,8 @@
 File:   items.py
 Brief:  Item routes - unified API for all content types.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 import uuid
 from pathlib import Path
@@ -311,7 +311,7 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
         if not perm_service.can_edit(data.folder_id, user["id"]):
             raise HTTPException(status_code=403, detail="Cannot copy to this folder")
         
-        if not perm_service.can_access_photo(item_id, user["id"]):
+        if not perm_service.can_access_item(item_id, user["id"]):
             raise HTTPException(status_code=403, detail="Cannot access item")
         
         item = item_service.item_repo.get_by_id(item_id)
@@ -347,7 +347,7 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
 # =============================================================================
 
 class BatchDownloadInput(BaseModel):
-    photo_ids: list[str] = []  # Legacy: item IDs
+    item_ids: list[str] = []
     album_ids: list[str] = []
 
 
@@ -378,8 +378,8 @@ async def batch_download(data: BatchDownloadInput, request: Request):
         date_folder = datetime.now().strftime("%Y-%m-%d")
 
         # Individual items.
-        for item_id in data.photo_ids:
-            if not perm_service.can_access_photo(item_id, user["id"]):
+        for item_id in data.item_ids:
+            if not perm_service.can_access_item(item_id, user["id"]):
                 continue
             item = db.execute(
                 """SELECT i.id, i.title, i.user_id
@@ -505,16 +505,14 @@ class AlbumCreateInput(BaseModel):
     name: str
     folder_id: str
     item_ids: List[str] = []
-    photo_ids: List[str] = []  # Legacy alias for backward compatibility
 
 
 @router.post("/api/albums")
 def create_album(data: AlbumCreateInput, request: Request):
     """Create new album with items."""
     user = require_user(request)
-    
-    # Support both new (item_ids) and legacy (photo_ids) formats
-    item_ids = data.item_ids or data.photo_ids or []
+
+    item_ids = data.item_ids or []
     
     db = create_connection()
     try:
@@ -530,7 +528,6 @@ def create_album(data: AlbumCreateInput, request: Request):
         return {
             "status": "ok",
             "album_id": album["id"],
-            "photo_count": album["photo_count"],
             "item_count": album["item_count"],
             "album": album
         }
@@ -691,17 +688,15 @@ def remove_items_from_album(album_id: str, data: AlbumItemsInput, request: Reque
 
 class AlbumReorderInput(BaseModel):
     item_ids: List[str] = None  # New order
-    photo_ids: List[str] = None  # Legacy alias for backward compatibility
 
 
 @router.put("/api/albums/{album_id}/reorder")
 def reorder_album_items(album_id: str, data: AlbumReorderInput, request: Request):
     """Reorder items in album."""
     user = require_user(request)
-    
-    # Support both new (item_ids) and legacy (photo_ids) formats
-    item_ids = data.item_ids or data.photo_ids or []
-    
+
+    item_ids = data.item_ids or []
+
     db = create_connection()
     try:
         album_service = get_album_service(db)

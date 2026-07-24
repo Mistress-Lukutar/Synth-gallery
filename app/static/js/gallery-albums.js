@@ -248,7 +248,7 @@
             if (header) header.textContent = `Edit Album: ${album.name || 'Untitled'}`;
             
             // Load photos in album (includes cover selection logic)
-            await loadAlbumPhotos(albumId, album.cover_photo_id);
+            await loadAlbumPhotos(albumId, album.cover_item_id);
             
             albumEditorPanel.classList.add('open');
             
@@ -449,7 +449,7 @@
             // Refresh - need to get current cover from album
             const resp = await fetch(`${getBaseUrl()}/api/albums/${editingAlbumId}`);
             const album = resp.ok ? await resp.json() : { cover_item_id: null };
-            loadAlbumPhotos(editingAlbumId, album.cover_item_id || album.cover_photo_id);
+            loadAlbumPhotos(editingAlbumId, album.cover_item_id);
         } catch (err) {
             console.error('Failed to remove item:', err);
         }

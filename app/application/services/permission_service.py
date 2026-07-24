@@ -2,8 +2,8 @@
 File:   permission_service.py
 Brief:  Permission service - handles folder sharing and access control.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 
 from __future__ import annotations
@@ -320,9 +320,6 @@ class PermissionService:
 
         return False
 
-    # Legacy alias for backward compatibility
-    can_access_photo = can_access_item
-
     def can_delete_item(self, item_id: str, user_id: int) -> bool:
         '''Check if user can delete item.
 
@@ -360,9 +357,6 @@ class PermissionService:
                     return False  # Editor can't delete others' items
 
         return False
-
-    # Legacy alias for backward compatibility
-    can_delete_photo = can_delete_item
 
     def can_edit_item(self, item_id: str, user_id: int) -> bool:
         '''Check if user can edit item (tags, metadata).

@@ -256,7 +256,7 @@
         items.forEach(item => {
             if (item.type === 'album') {
                 const album = item;
-                const coverId = album.cover_photo_id;
+                const coverId = album.cover_item_id;
                 
                 const rawWidth = album.cover_thumb_width || 280;
                 const rawHeight = album.cover_thumb_height || 280;
@@ -306,7 +306,7 @@
                                     <rect x="3" y="14" width="7" height="7" rx="1"/>
                                     <rect x="14" y="14" width="7" height="7" rx="1"/>
                                 </svg>
-                                <span>${album.photo_count || 0}</span>
+                                <span>${album.item_count || 0}</span>
                             </div>
                         </div>
                         <div class="select-indicator" title="Select">

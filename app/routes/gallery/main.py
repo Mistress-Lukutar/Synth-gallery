@@ -2,8 +2,8 @@
 File:   main.py
 Brief:  Main gallery routes - page view and folder content API.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.0
+Date:   2026-07-24
+Version: v1.1.2
 '''
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
@@ -132,16 +132,16 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "type": "folder",
                 "id": folder["id"],
                 "name": folder["name"],
-                "photo_count": item_count,  # Renamed for backward compat
+                "item_count": item_count,
                 "user_id": folder.get("user_id"),
             })
-        
+
         # Add albums from legacy table (for now)
         for album in folder_contents["albums"]:
             # Get item count from album_items table
             album_items = album_repo.get_items(album["id"])
             item_count = len(album_items)
-            
+
             # Find cover - first image item with thumbnail
             cover_item_id = album.get("cover_item_id")
             if not cover_item_id and album_items:
@@ -149,14 +149,13 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                     if ai.get("has_thumbnail"):
                         cover_item_id = ai["item_id"]
                         break
-            
+
             items.append({
                 "type": "album",
                 "id": album["id"],
                 "name": album["name"],
-                "photo_count": item_count,
-                "cover_photo_id": cover_item_id,  # Legacy name
-                "cover_item_id": cover_item_id,   # New name
+                "item_count": item_count,
+                "cover_item_id": cover_item_id,
                 "cover_thumb_width": album.get("cover_thumb_width"),
                 "cover_thumb_height": album.get("cover_thumb_height"),
                 "uploaded_at": album.get("max_uploaded_at"),

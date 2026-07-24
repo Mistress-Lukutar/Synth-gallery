@@ -165,7 +165,7 @@
                             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                         </svg>
                         <span class="subfolder-name">${escapeHtml(folder.name)}</span>
-                        <span class="subfolder-count">${folder.photo_count || 0}</span>
+                        <span class="subfolder-count">${folder.item_count || 0}</span>
                     </a>
                 `;
             });
@@ -187,7 +187,7 @@
             
             if (item.type === 'album') {
                 const album = item;
-                const coverId = album.cover_photo_id || album.effective_cover_photo_id;
+                const coverId = album.cover_item_id || album.effective_cover_item_id;
                 
                 // Use cover_thumb dimensions if available (v0.8.5 style), otherwise fallback to thumb dimensions
                 const thumbWidth = album.cover_thumb_width || album.thumb_width;
@@ -245,7 +245,7 @@
                                     <rect x="3" y="14" width="7" height="7" rx="1"/>
                                     <rect x="14" y="14" width="7" height="7" rx="1"/>
                                 </svg>
-                                <span>${album.photo_count || 0}</span>
+                                <span>${album.item_count || 0}</span>
                             </div>
                         </div>
                         <div class="select-indicator" title="Select">
