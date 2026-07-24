@@ -2,8 +2,8 @@
 File:   item_repository.py
 Brief:  Item repository - polymorphic base for all content types.
 Author: Mistress-Lukutar
-Date:   2026-07-13
-Version: v1.0.0
+Date:   2026-07-24
+Version: v1.1.3
 '''
 
 from __future__ import annotations
@@ -186,6 +186,52 @@ class ItemRepository(Repository):
             )
         row = cursor.fetchone()
         return row['count'] if row else 0
+
+    def get_media_with_details(
+        self,
+        folder_id: str,
+        media_type: Optional[str] = None,
+        sort_by: str = 'uploaded',
+    ) -> list[dict]:
+        '''Get media items in folder with their ``item_media`` details.
+
+        This is the single read-model for the ``items JOIN item_media`` shape;
+        it consolidates the JOIN previously duplicated on
+        ``ItemMediaRepository``. Returns base item fields plus media specifics.
+
+        Args:
+            folder_id: Folder ID
+            media_type: 'image', 'video', or None for all media
+            sort_by: 'uploaded', 'taken', or 'title'
+
+        Returns:
+            List of dicts with base item + media detail fields.
+        '''
+        if sort_by == 'taken':
+            order_by = 'COALESCE(im.taken_at, i.uploaded_at) DESC'
+        elif sort_by == 'title':
+            order_by = 'COALESCE(im.original_name, i.title, i.id) ASC'
+        else:
+            order_by = 'i.uploaded_at DESC'
+
+        media_filter = 'AND im.media_type = ?' if media_type else ''
+        params = [folder_id]
+        if media_type:
+            params.append(media_type)
+
+        cursor = self._execute(
+            f'''SELECT
+                i.*,
+                im.media_type, im.original_name, im.content_type,
+                im.width, im.height, im.duration,
+                im.thumb_width, im.thumb_height, im.taken_at
+               FROM items i
+               JOIN item_media im ON i.id = im.item_id
+               WHERE i.folder_id = ? AND i.type = 'media' {media_filter}
+               ORDER BY {order_by}''',
+            tuple(params),
+        )
+        return [dict(row) for row in cursor.fetchall()]
 
     def update_metadata(
         self,

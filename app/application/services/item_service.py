@@ -2,8 +2,8 @@
 File:   item_service.py
 Brief:  Item service - unified handling for all content types.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.0
+Date:   2026-07-24
+Version: v1.1.3
 '''
 
 from __future__ import annotations
@@ -549,7 +549,9 @@ class ItemService:
             standalone_only: If True, exclude items that are in albums
         '''
         if item_type == ItemType.MEDIA.value and not standalone_only:
-            return self.media_repo.get_by_folder(folder_id, sort_by=sort_by)
+            return self.item_repo.get_media_with_details(
+                folder_id, sort_by=sort_by
+            )
 
         items = self.item_repo.get_by_folder(folder_id, item_type, sort_by)
 

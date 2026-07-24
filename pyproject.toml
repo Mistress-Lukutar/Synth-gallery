@@ -7,7 +7,7 @@ packages = ["app"]
 
 [project]
 name = "synth-gallery"
-version = "1.1.2"
+version = "1.1.3"
 description = "Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support"
 readme = "README.md"
 license = { text = "MIT" }
