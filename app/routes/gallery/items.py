@@ -5,13 +5,18 @@ Author: Mistress-Lukutar
 Date:   2026-07-24
 Version: v1.1.2
 '''
+import tempfile
+import urllib.parse
 import uuid
+import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List
 
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel, field_validator
+from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field, field_validator
 
 from app.routes.gallery.deps import get_permission_service, get_album_service
 from app.application.services import ItemService, AlbumService
@@ -21,8 +26,20 @@ from app.infrastructure.repositories import (
     ItemRepository, ItemMediaRepository, AlbumRepository, FolderRepository
 )
 from app.infrastructure.services.encryption import EncryptionService, dek_cache
+from app.infrastructure.services.image_conversion import (
+    ConversionSettings,
+    ImageConversionError,
+    SUPPORTED_DOWNLOAD_FORMATS,
+    convert_image,
+    format_extension,
+    needs_conversion,
+)
+from app.infrastructure.services.media import get_media_type
+from app.infrastructure.storage import get_storage
+from app.logging_config import get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def get_item_service(db) -> ItemService:
@@ -346,56 +363,252 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
 # Batch Download
 # =============================================================================
 
+class BatchDownloadOptions(BaseModel):
+    """Image conversion options from the download modal."""
+
+    format: str = "jxl"
+    jpeg_quality: int = Field(default=90, ge=1, le=100)
+    webp_quality: int = Field(default=90, ge=1, le=100)
+    webp_lossless: bool = False
+    jxl_effort: int = Field(default=7, ge=1, le=9)
+    png_optimize: bool = True
+
+    @field_validator("format")
+    @classmethod
+    def _validate_format(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in SUPPORTED_DOWNLOAD_FORMATS:
+            raise ValueError(
+                f"format must be one of: {', '.join(SUPPORTED_DOWNLOAD_FORMATS)}"
+            )
+        return value
+
+
 class BatchDownloadInput(BaseModel):
     item_ids: list[str] = []
     album_ids: list[str] = []
+    options: BatchDownloadOptions = BatchDownloadOptions()
+
+
+@dataclass
+class _DownloadEntry:
+    """One file scheduled for a batch download response."""
+
+    dir_name: str      # "" for the archive root, album name for album items
+    title: str         # raw item title (original filename)
+    item_id: str
+    owner_id: int
+    content_type: str
+    media_type: str    # 'image' | 'video'
+
+
+def _sanitize_name(name: str, fallback: str = "file") -> str:
+    """Make an archive-safe file/folder name (unicode letters preserved)."""
+    sanitized = "".join(
+        c if (c.isalnum() or c in (" ", "-", "_", ".")) else "_"
+        for c in name
+    )
+    sanitized = sanitized.strip(" .")
+    return sanitized or fallback
+
+
+def _archive_path(dir_name: str, filename: str) -> str:
+    """Build a zip entry path, nesting album items into a subfolder."""
+    return f"{dir_name}/{filename}" if dir_name else filename
+
+
+def _unique_archive_path(used: set, path: str) -> str:
+    """Deduplicate archive paths by appending " (n)" before the extension."""
+    if path not in used:
+        used.add(path)
+        return path
+    base, dot, ext = path.rpartition(".")
+    if dot and base:
+        stem, suffix = base, f".{ext}"
+    else:
+        stem, suffix = path, ""
+    n = 2
+    while True:
+        candidate = f"{stem} ({n}){suffix}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        n += 1
+
+
+def _with_extension(filename: str, extension: str) -> str:
+    """Replace (or append) the file extension of a filename."""
+    base = filename.rsplit(".", 1)[0] if "." in filename else filename
+    return f"{base}{extension}"
+
+
+def _passthrough_filename(
+    title: str, content_type: str, conversion: ConversionSettings
+) -> str:
+    """Align the extension of a passthrough download with the stored bytes.
+
+    Items transcoded to JXL at upload time keep their original title
+    (e.g. ``photo.jpg``), so a JXL download would otherwise carry a
+    misleading extension.
+    """
+    jxl_ext = format_extension("jxl")
+    if content_type == "image/jxl" and conversion.format == "jxl" and jxl_ext:
+        return _with_extension(title, jxl_ext)
+    return title
+
+
+def _attachment_header(filename: str) -> str:
+    """Build a Content-Disposition header with an ASCII + UTF-8 filename."""
+    ascii_name = (
+        filename.encode("ascii", "ignore").decode("ascii").replace('"', "")
+        or "file"
+    )
+    quoted = urllib.parse.quote(filename)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quoted}"
+
+
+def _entry_from_row(row, dir_name: str = "") -> _DownloadEntry:
+    """Build a _DownloadEntry from an items JOIN item_media row."""
+    content_type = row["content_type"] or "application/octet-stream"
+    media_type = row["media_type"] or get_media_type(content_type)
+    return _DownloadEntry(
+        dir_name=dir_name,
+        title=row["title"] or row["id"],
+        item_id=row["id"],
+        owner_id=row["user_id"],
+        content_type=content_type,
+        media_type=media_type,
+    )
+
+
+async def _load_converted_bytes(
+    entry: _DownloadEntry,
+    dek: bytes,
+    storage,
+    conversion: ConversionSettings,
+) -> tuple[bytes, str, str] | None:
+    """Decrypt an entry's bytes and convert them when conversion applies.
+
+    Returns:
+        (converted_bytes, content_type, extension), or None when the entry
+        must be served as-is (video, no-op conversion, or a failed
+        conversion which falls back to the original bytes).
+    """
+    if entry.media_type == "video" or not needs_conversion(
+        entry.content_type, conversion
+    ):
+        return None
+    encrypted = await storage.download(entry.item_id, "uploads")
+    plaintext = EncryptionService.decrypt_bytes(encrypted, dek)
+    try:
+        return convert_image(plaintext, entry.content_type, conversion)
+    except ImageConversionError as exc:
+        logger.warning(
+            "batch-download: conversion of %s to %s failed (%s); using original",
+            entry.item_id, conversion.format, exc,
+        )
+        return None
+
+
+async def _single_file_response(
+    entry: _DownloadEntry,
+    user,
+    user_dek: bytes | None,
+    storage,
+    conversion: ConversionSettings,
+) -> Response:
+    """Serve a single selected file directly (no ZIP archive)."""
+    dek = (
+        user_dek if entry.owner_id == user["id"] else dek_cache.get(entry.owner_id)
+    )
+    if not dek:
+        raise HTTPException(status_code=403, detail="Encryption key not available")
+
+    filename = _sanitize_name(entry.title, "file")
+    converted = await _load_converted_bytes(entry, dek, storage, conversion)
+    if converted is not None:
+        data, content_type, extension = converted
+        filename = _with_extension(filename, extension)
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": _attachment_header(filename),
+                "Content-Length": str(len(data)),
+            },
+        )
+
+    # Passthrough: stream the decrypted original.
+    filename = _passthrough_filename(filename, entry.content_type, conversion)
+    stream = await storage.get_stream(entry.item_id, "uploads")
+
+    def _gen():
+        try:
+            yield from EncryptionService.iter_decrypt(stream, dek)
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    headers = {"Content-Disposition": _attachment_header(filename)}
+    try:
+        enc_size = await storage.get_size(entry.item_id, "uploads")
+        headers["Content-Length"] = str(
+            EncryptionService.get_plaintext_size(enc_size)
+        )
+    except Exception:  # noqa: BLE001 - size header is best-effort
+        pass
+
+    return StreamingResponse(
+        _gen(),
+        media_type=entry.content_type or "application/octet-stream",
+        headers=headers,
+    )
 
 
 @router.post("/api/items/batch-download")
 async def batch_download(data: BatchDownloadInput, request: Request):
-    """Download multiple items and albums as a streaming ZIP file.
+    """Download selected items and albums, optionally converting images.
 
-    Writes decrypted plaintext into a spooled temp file one file at a time
-    via :meth:`zipfile.ZipFile.open`, so memory use stays bounded regardless
-    of total batch size. Encrypted objects are streamed through the storage
-    abstraction (``storage.get_stream``) so this works for any backend.
+    A single-file selection is served directly (no ZIP). Larger selections
+    are written into a spooled ZIP one file at a time via
+    :meth:`zipfile.ZipFile.open`, so memory use stays bounded regardless of
+    total batch size: standalone items land at the archive root and each
+    album in a subfolder named after the album. Images are converted to the
+    requested format (default ``jxl`` = as stored); videos always pass
+    through unchanged.
     """
-    import tempfile
-    import zipfile
-    from datetime import datetime
-    from fastapi.responses import StreamingResponse
-    from app.infrastructure.storage import get_storage
-
     user = require_user(request)
     user_dek = dek_cache.get(user["id"])
     storage = get_storage()
+    conversion = ConversionSettings(**data.options.model_dump())
 
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
 
-        files_to_download = []
-        date_folder = datetime.now().strftime("%Y-%m-%d")
+        entries: list[_DownloadEntry] = []
+        album_dirs: list[str] = []
+        standalone_count = 0
 
         # Individual items.
         for item_id in data.item_ids:
             if not perm_service.can_access_item(item_id, user["id"]):
                 continue
             item = db.execute(
-                """SELECT i.id, i.title, i.user_id
+                """SELECT i.id, i.title, i.user_id,
+                          im.content_type, im.media_type
                    FROM items i
+                   LEFT JOIN item_media im ON im.item_id = i.id
                    WHERE i.id = ?""",
                 (item_id,),
             ).fetchone()
-            if item:
-                if storage.exists(item_id, "uploads"):
-                    files_to_download.append((
-                        f"{date_folder}/{item['title']}",
-                        item_id,
-                        item["user_id"],
-                    ))
+            if item and storage.exists(item_id, "uploads"):
+                entries.append(_entry_from_row(item))
+                standalone_count += 1
 
-        # Albums.
+        # Albums: each album contributes a subfolder inside the archive.
         for album_id in data.album_ids:
             if not perm_service.can_access_album(album_id, user["id"]):
                 continue
@@ -406,49 +619,89 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             if not album:
                 continue
             album_items = db.execute(
-                """SELECT i.id, i.title, i.user_id
+                """SELECT i.id, i.title, i.user_id,
+                          im.content_type, im.media_type
                    FROM items i
                    JOIN album_items ai ON i.id = ai.item_id
+                   LEFT JOIN item_media im ON im.item_id = i.id
                    WHERE ai.album_id = ?
                    ORDER BY ai.position""",
                 (album_id,),
             ).fetchall()
-            sanitized_album_name = "".join(
-                c
-                for c in album["name"]
-                if c.isalnum() or c in (" ", "-", "_")
-            ).strip() or "album"
+            if not album_items:
+                continue
+            dir_name = _sanitize_name(album["name"], fallback="album")
             for item in album_items:
                 if storage.exists(item["id"], "uploads"):
-                    files_to_download.append((
-                        f"{date_folder}/{sanitized_album_name}/{item['title']}",
-                        item["id"],
-                        item["user_id"],
-                    ))
+                    entries.append(_entry_from_row(item, dir_name=dir_name))
+            album_dirs.append(dir_name)
 
-        if not files_to_download:
+        if not entries:
             raise HTTPException(status_code=404, detail="No files to download")
+
+        # Single file: serve it directly instead of packing a one-file ZIP.
+        if len(entries) == 1:
+            return await _single_file_response(
+                entries[0], user, user_dek, storage, conversion
+            )
+
+        if standalone_count == 0 and len(album_dirs) == 1:
+            zip_name = f"{album_dirs[0]}.zip"
+        else:
+            date_folder = datetime.now().strftime("%Y-%m-%d")
+            zip_name = f"synth-download-{date_folder}.zip"
 
         # Spooled temp file: rolls to disk if it exceeds 64 MiB.
         spool = tempfile.SpooledTemporaryFile(
             max_size=64 * 1024 * 1024, suffix=".zip"
         )
         try:
+            used_paths: set = set()
             with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
-                for archive_path, item_id, owner_id in files_to_download:
+                for entry in entries:
                     dek = (
                         user_dek
-                        if owner_id == user["id"]
-                        else dek_cache.get(owner_id)
+                        if entry.owner_id == user["id"]
+                        else dek_cache.get(entry.owner_id)
                     )
                     if not dek:
+                        logger.warning(
+                            "batch-download: skip %s (owner encryption key "
+                            "not available)",
+                            entry.item_id,
+                        )
                         continue
+                    safe_title = _sanitize_name(entry.title, "file")
                     try:
+                        converted = await _load_converted_bytes(
+                            entry, dek, storage, conversion
+                        )
+                        if converted is not None:
+                            converted_bytes, _ct, extension = converted
+                            path = _unique_archive_path(
+                                used_paths,
+                                _archive_path(
+                                    entry.dir_name,
+                                    _with_extension(safe_title, extension),
+                                ),
+                            )
+                            zf.writestr(path, converted_bytes)
+                            continue
+
+                        path = _unique_archive_path(
+                            used_paths,
+                            _archive_path(
+                                entry.dir_name,
+                                _passthrough_filename(
+                                    safe_title, entry.content_type, conversion
+                                ),
+                            ),
+                        )
                         enc_reader = await storage.get_stream(
-                            item_id, "uploads"
+                            entry.item_id, "uploads"
                         )
                         try:
-                            with zf.open(archive_path, "w") as zip_writer:
+                            with zf.open(path, "w") as zip_writer:
                                 EncryptionService.decrypt_to_stream(
                                     enc_reader, zip_writer, dek
                                 )
@@ -459,7 +712,8 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                                 pass
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
-                            "batch-download: skip %s (%s)", archive_path, exc
+                            "batch-download: skip %s (%s)",
+                            entry.item_id, exc,
                         )
                         continue
 
@@ -482,9 +736,7 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 _stream(),
                 media_type="application/zip",
                 headers={
-                    "Content-Disposition": (
-                        f"attachment; filename=synth-download-{date_folder}.zip"
-                    )
+                    "Content-Disposition": _attachment_header(zip_name)
                 },
             )
         except Exception:

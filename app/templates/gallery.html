@@ -386,6 +386,79 @@
     </div>
 </div>
 
+<!-- Download Modal -->
+<div id="download-modal" class="modal hidden">
+    <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-header">
+            <h3>Download</h3>
+            <button class="btn-close" onclick="closeDownloadModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="download-summary" id="download-summary"></p>
+            <div class="form-group">
+                <label>Format</label>
+                <div class="radio-group" style="flex-direction: column; gap: 0.75rem; align-items: flex-start;">
+                    <label class="radio-label">
+                        <input type="radio" name="download-format" value="jxl" checked>
+                        JXL <span style="color: var(--text-muted);">(original)</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="download-format" value="jpeg">
+                        JPEG
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="download-format" value="png">
+                        PNG
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="download-format" value="webp">
+                        WebP
+                    </label>
+                </div>
+            </div>
+            <div id="download-fmt-jxl" class="download-format-options hidden">
+                <div class="form-group">
+                    <label for="download-jxl-effort">Effort</label>
+                    <select id="download-jxl-effort">
+                        <option value="5">Fast (5)</option>
+                        <option value="7" selected>Balanced (7)</option>
+                        <option value="9">Maximum (9)</option>
+                    </select>
+                </div>
+            </div>
+            <div id="download-fmt-jpeg" class="download-format-options hidden">
+                <div class="form-group">
+                    <label for="download-jpeg-quality">Quality: <span id="download-jpeg-quality-value">90</span></label>
+                    <input type="range" id="download-jpeg-quality" class="range-input" min="1" max="100" value="90">
+                </div>
+            </div>
+            <div id="download-fmt-png" class="download-format-options hidden">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="download-png-optimize" checked>
+                    <span class="checkmark"></span>
+                    Optimize size
+                </label>
+            </div>
+            <div id="download-fmt-webp" class="download-format-options hidden">
+                <div class="form-group">
+                    <label for="download-webp-quality">Quality: <span id="download-webp-quality-value">90</span></label>
+                    <input type="range" id="download-webp-quality" class="range-input" min="1" max="100" value="90">
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="download-webp-lossless">
+                    <span class="checkmark"></span>
+                    Lossless
+                </label>
+            </div>
+            <p class="download-note">Videos are downloaded without conversion. A single file is downloaded directly, multiple files are packed into a ZIP.</p>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeDownloadModal()">Cancel</button>
+            <button class="btn" id="download-confirm-btn">Download</button>
+        </div>
+    </div>
+</div>
+
 <!-- Initial folder ID for init.js -->
 <script>
 window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';

@@ -2202,7 +2202,103 @@ main {
 }
 
 .radio-label input[type="radio"] {
-    accent-color: var(--accent);
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    background: var(--bg);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    flex-shrink: 0;
+    transition: border-color 0.2s;
+}
+
+.radio-label input[type="radio"]:hover {
+    border-color: var(--accent);
+}
+
+.radio-label input[type="radio"]:checked {
+    border-color: var(--accent);
+}
+
+.radio-label input[type="radio"]:checked::before {
+    content: '';
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+}
+
+.radio-label input[type="radio"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Download modal - quality slider and summary text */
+.range-input {
+    width: 100%;
+    height: 6px;
+    margin: 0.5rem 0;
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+}
+
+.range-input::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-secondary);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.range-input::-webkit-slider-thumb:hover {
+    background: var(--accent-hover);
+}
+
+.range-input::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-secondary);
+    cursor: pointer;
+}
+
+.range-input::-moz-range-track {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+.range-input:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.download-summary {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+}
+
+.download-note {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 0.75rem;
 }
 
 .modal-actions {

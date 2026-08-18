@@ -68,6 +68,7 @@ Synth-Gallery/
 │   │   │   ├── backup.py             # Backup/restore service + scheduler
 │   │   │   ├── ffmpeg.py             # ffmpeg/ffprobe wrappers (probe + thumbnail)
 │   │   │   ├── media.py              # Image processing (Pillow only)
+│   │   │   ├── image_conversion.py   # Download-time image conversion (JXL/JPEG/PNG/WebP)
 │   │   │   ├── metadata.py           # EXIF/metadata extraction
 │   │   │   ├── thumbnail.py          # Thumbnail generation/regeneration
 │   │   │   └── webauthn.py           # Hardware key support
@@ -258,6 +259,14 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 - Files with `content_type == image/jxl` are served as JXL when the client sends `Accept: image/jxl`
 - Browsers without JXL support receive an on-demand JPEG fallback, cached under `fallbacks/`
 - The frontend uses `<picture>` with `<source type="image/jxl">` and a JPEG fallback `img`
+- **ffmpeg is intentionally NOT used for JXL**: its libjxl wrapper cannot do `--lossless_jpeg` reversible transcodes, EXIF containers or progressive flags (verified against gyan.dev full builds with `--enable-libjxl`); ffmpeg stays video-only
+
+**Batch Download & Download Conversion:**
+- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `jxl` (default = as stored), `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_lossless_jxl(effort=...)`)
+- A selection resolving to a single file is served directly with `Content-Disposition: attachment` (no ZIP); two or more files produce a spooled streaming ZIP
+- Album items land in an `{AlbumName}/` subfolder (single-album downloads name the ZIP after the album); entry names are sanitized and deduplicated (`name (2).ext`)
+- Conversion lives in `app/infrastructure/services/image_conversion.py` (JXL sources decoded via djxl, targets encoded via Pillow/cjxl); **videos always pass through unchanged**; failed conversions fall back to the original bytes with a warning
+- The gallery frontend opens `#download-modal` (`gallery-download.js`) for format/quality selection; `gallery-selection.js` only triggers the modal
 - Existing files and videos are not affected
 
 ### 6. Storage Abstraction Layer

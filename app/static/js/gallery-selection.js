@@ -91,41 +91,14 @@
             });
         }
 
-        // Download selected
+        // Download selected - opens the download modal (format/quality
+        // selection, single-file vs ZIP handling). See gallery-download.js.
         const downloadBtn = document.getElementById('download-selected-btn');
         if (downloadBtn) {
-            downloadBtn.addEventListener('click', async () => {
+            downloadBtn.addEventListener('click', () => {
                 if (selectedPhotos.size === 0 && selectedAlbums.size === 0) return;
-
-                downloadBtn.disabled = true;
-                const originalHTML = downloadBtn.innerHTML;
-                // Show spinner while preparing
-                downloadBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" class="spinner"><circle cx="12" cy="12" r="10" stroke-dasharray="60" stroke-dashoffset="20"/></svg>';
-
-                try {
-                    const resp = await csrfFetch(`${getBaseUrl()}/api/items/batch-download`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ item_ids: Array.from(selectedPhotos) })
-                    });
-
-                    if (!resp.ok) throw new Error('Download failed');
-
-                    const blob = await resp.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `photos-${Date.now()}.zip`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    window.URL.revokeObjectURL(url);
-                } catch (err) {
-                    console.error('Download error:', err);
-                    alert('Download failed: ' + err.message);
-                } finally {
-                    downloadBtn.disabled = false;
-                    downloadBtn.innerHTML = originalHTML;
+                if (typeof window.openDownloadModal === 'function') {
+                    window.openDownloadModal();
                 }
             });
         }

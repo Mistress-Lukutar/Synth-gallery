@@ -58,7 +58,11 @@ def _extension_for_content_type(is_jpeg: bool) -> str:
     return '.jpg' if is_jpeg else '.png'
 
 
-def _encode_with_cjxl(image_bytes: bytes, is_jpeg: bool) -> bytes:
+def _encode_with_cjxl(
+    image_bytes: bytes,
+    is_jpeg: bool,
+    effort: int | None = None,
+) -> bytes:
     '''Encode image bytes to lossless progressive JPEG XL using the cjxl CLI.
 
     Progressive encoding is controlled through the ``JXL_PROGRESSIVE_AC``,
@@ -67,6 +71,8 @@ def _encode_with_cjxl(image_bytes: bytes, is_jpeg: bool) -> bytes:
     Args:
         image_bytes: Raw image file bytes.
         is_jpeg: Whether the source is a JPEG file.
+        effort: Encoder effort override (1-9). When ``None``, the
+            ``JXL_EFFORT`` configuration constant is used.
 
     Returns:
         Lossless progressive JXL bytes.
@@ -100,7 +106,7 @@ def _encode_with_cjxl(image_bytes: bytes, is_jpeg: bool) -> bytes:
             binary,
             source_path,
             output_path,
-            '-e', str(JXL_EFFORT),
+            '-e', str(effort if effort is not None else JXL_EFFORT),
             '--num_threads', str(JXL_THREADS),
             '--container=1',
         ]
@@ -150,6 +156,7 @@ def _encode_with_cjxl(image_bytes: bytes, is_jpeg: bool) -> bytes:
 def encode_to_lossless_jxl(
     source: bytes | BinaryIO,
     is_jpeg: bool | None = None,
+    effort: int | None = None,
 ) -> bytes:
     '''Encode raster image data to lossless JPEG XL.
 
@@ -164,6 +171,8 @@ def encode_to_lossless_jxl(
         source: Raw image bytes or file-like object.
         is_jpeg: Whether the source is a JPEG file. If None, the
             value is detected from magic bytes.
+        effort: Encoder effort override (1-9). When ``None``, the
+            ``JXL_EFFORT`` configuration constant is used.
 
     Returns:
         Lossless JPEG XL bytes.
@@ -189,4 +198,4 @@ def encode_to_lossless_jxl(
     if binary is None:
         raise JxlEncodeError('cjxl encoder not found')
 
-    return _encode_with_cjxl(image_bytes, is_jpeg)
+    return _encode_with_cjxl(image_bytes, is_jpeg, effort=effort)
