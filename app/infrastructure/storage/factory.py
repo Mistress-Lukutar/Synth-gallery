@@ -5,7 +5,7 @@ from typing import Optional
 
 from .base import StorageConfig, StorageInterface
 from .local_storage import LocalStorage
-from ...config import UPLOADS_DIR
+from ... import config
 
 # Singleton instance
 _storage_instance: Optional[StorageInterface] = None
@@ -33,8 +33,9 @@ def get_storage_config() -> StorageConfig:
         if base_path:
             base_path = Path(base_path)
         else:
-            # Default: parent of uploads directory
-            base_path = Path(UPLOADS_DIR).parent
+            # Default: parent of uploads directory. Resolved at call time
+            # (not import time) so env overrides / test patches are honoured.
+            base_path = Path(config.UPLOADS_DIR).parent
         
         return StorageConfig(
             backend="local",

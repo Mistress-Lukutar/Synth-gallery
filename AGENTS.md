@@ -370,7 +370,7 @@ The app runs on port 8008 by default.
 ### Run Tests
 
 ```bash
-# Run all tests
+# Run all tests (use the project venv: .venv/Scripts/python.exe on Windows)
 pytest
 
 # Run with verbose output
@@ -382,6 +382,28 @@ pytest tests/integration/test_auth.py
 # Run with coverage
 pytest --cov=app --cov-report=html
 ```
+
+### Test Isolation
+
+`tests/conftest.py` sets `SYNTH_DB_PATH`, `SYNTH_UPLOADS_DIR`,
+`SYNTH_THUMBNAILS_DIR`, `SYNTH_FALLBACKS_DIR`, `BACKUP_PATH` and disables
+the backup/tag-stats schedulers via environment variables **before** any
+`app.*` module is imported. All persistent state is redirected to a
+throwaway session temp directory, so tests never touch the real
+`gallery.db`, `uploads/`, `thumbnails/`, `fallbacks/` or `backups/`. Each
+test still gets a fresh per-test database file (`patched_config` /
+`fresh_database`).
+
+The storage factory resolves its base path from `config.UPLOADS_DIR` at
+call time (`app/infrastructure/storage/factory.py`) — do not reintroduce
+by-value path imports there.
+
+E2E tests (`tests/e2e/`) drive a live server via Playwright and are
+skipped automatically when `pytest-playwright` is not installed.
+
+If old (pre-isolation) test runs left junk in production data, clean it
+with `python .agents/cleanup_test_leftovers.py` (dry-run by default,
+`--apply` to delete; backs up the DB to `gallery.db.cleanup-bak` first).
 
 ### Test Structure
 
@@ -418,6 +440,10 @@ On first startup, if no users exist, a temporary admin account is created automa
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `SYNTH_DB_PATH` | SQLite database file location | `./gallery.db` |
+| `SYNTH_UPLOADS_DIR` | Uploads directory location | `./uploads` |
+| `SYNTH_THUMBNAILS_DIR` | Thumbnails directory location | `./thumbnails` |
+| `SYNTH_FALLBACKS_DIR` | JXL JPEG-fallback cache location | `./fallbacks` |
 | `SYNTH_BASE_URL` | Base URL subpath (e.g., "synth") | "" |
 | `SYNTH_AI_API_KEY` | API key for AI service | None |
 | `WEBAUTHN_RP_NAME` | WebAuthn display name | "Synth Gallery" |

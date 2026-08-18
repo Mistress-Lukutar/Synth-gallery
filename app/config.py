@@ -15,9 +15,12 @@ from app.logging_config import setup_logging
 setup_logging()
 
 # Directory paths.
+# Persistent-state locations are overridable via environment variables so
+# the test suite can redirect every write to a throwaway directory before
+# app modules are imported (see tests/conftest.py).
 BASE_DIR = Path(__file__).resolve().parent.parent
-UPLOADS_DIR = BASE_DIR / "uploads"
-THUMBNAILS_DIR = BASE_DIR / "thumbnails"
+UPLOADS_DIR = Path(os.environ.get("SYNTH_UPLOADS_DIR", str(BASE_DIR / "uploads")))
+THUMBNAILS_DIR = Path(os.environ.get("SYNTH_THUMBNAILS_DIR", str(BASE_DIR / "thumbnails")))
 
 # Create directories if they don't exist.
 UPLOADS_DIR.mkdir(exist_ok=True)
@@ -119,5 +122,5 @@ JXL_QPROGRESSIVE_AC = (
 JXL_PROGRESSIVE_DC = int(os.environ.get("JXL_PROGRESSIVE_DC", "1"))
 
 # Cache directory for on-demand JPEG fallbacks generated from JXL originals
-FALLBACKS_DIR = BASE_DIR / "fallbacks"
+FALLBACKS_DIR = Path(os.environ.get("SYNTH_FALLBACKS_DIR", str(BASE_DIR / "fallbacks")))
 FALLBACKS_DIR.mkdir(exist_ok=True)

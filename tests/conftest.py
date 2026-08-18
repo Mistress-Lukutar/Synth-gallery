@@ -2,11 +2,32 @@
 
 This module provides isolated test environments:
 - Temporary database (SQLite)
-- Temporary uploads/thumbnails directories
+- Temporary uploads/thumbnails/fallbacks/backups directories
 - Fresh user sessions for each test
+
+Isolation strategy
+------------------
+All persistent-state locations (database file, uploads, thumbnails,
+fallbacks, backups) are redirected to a throwaway session directory via
+environment variables set at conftest import time - BEFORE any ``app.*``
+module is imported. ``app.config`` and ``app.database`` resolve their paths
+at import time from these variables, so no test can ever touch the real
+``gallery.db``, ``uploads/`` or ``thumbnails/`` in the project root,
+regardless of which fixtures it uses.
+
+The storage factory singleton also resolves its base path from
+``config.UPLOADS_DIR`` (call-time), so file writes land in the same
+throwaway directory. Background schedulers (backup, tag stats) are disabled
+via ``BACKUP_SCHEDULE``/``TAG_STATS_SCHEDULE``.
+
+Each test still gets its own fresh database file (see ``patched_config`` /
+``fresh_database``) so tests cannot observe each other's DB state.
 """
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Dict, Any
@@ -17,9 +38,22 @@ from fastapi.testclient import TestClient
 # Ensure app is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Set test environment BEFORE importing app modules
+# ---------------------------------------------------------------------------
+# Redirect ALL persistent state to a throwaway directory BEFORE app import.
+# ---------------------------------------------------------------------------
+TEST_DATA_ROOT = Path(tempfile.mkdtemp(prefix="synth-gallery-tests-"))
+atexit.register(lambda: shutil.rmtree(TEST_DATA_ROOT, ignore_errors=True))
+
+os.environ["SYNTH_DB_PATH"] = str(TEST_DATA_ROOT / "gallery.db")
+os.environ["SYNTH_UPLOADS_DIR"] = str(TEST_DATA_ROOT / "uploads")
+os.environ["SYNTH_THUMBNAILS_DIR"] = str(TEST_DATA_ROOT / "thumbnails")
+os.environ["SYNTH_FALLBACKS_DIR"] = str(TEST_DATA_ROOT / "fallbacks")
+os.environ["BACKUP_PATH"] = str(TEST_DATA_ROOT / "backups")
+# Background schedulers must never fire during tests.
+os.environ["BACKUP_SCHEDULE"] = "disabled"
+os.environ["TAG_STATS_SCHEDULE"] = "disabled"
+# Misc test-friendly settings.
 os.environ["SYNTH_BASE_URL"] = ""
-os.environ["BACKUP_PATH"] = ""
 os.environ["WEBAUTHN_RP_NAME"] = "Test Synth Gallery"
 os.environ["COOKIE_SECURE"] = "false"
 
@@ -48,71 +82,54 @@ def test_data_dir() -> Path:
 
 @pytest.fixture(scope="function")
 def isolated_environment(tmp_path: Path) -> Dict:
-    """Create completely isolated environment for a single test.
-    
+    """Create isolated environment for a single test.
+
+    Uploads/thumbnails/backups directories are session-scoped and shared
+    between tests (they live under TEST_DATA_ROOT and are removed at exit).
+    Only the database is per-test, which keeps tests independent where it
+    matters (queryable state) without constant storage re-initialisation.
+
     Returns:
         Dict with paths: db, uploads, thumbnails, backups
     """
-    env = {
+    return {
         "db_path": tmp_path / "test.db",
-        "uploads_dir": tmp_path / "uploads",
-        "thumbnails_dir": tmp_path / "thumbnails",
-        "backups_dir": tmp_path / "backups",
-        "base_dir": tmp_path
+        "uploads_dir": Path(os.environ["SYNTH_UPLOADS_DIR"]),
+        "thumbnails_dir": Path(os.environ["SYNTH_THUMBNAILS_DIR"]),
+        "backups_dir": Path(os.environ["BACKUP_PATH"]),
+        "base_dir": TEST_DATA_ROOT,
     }
-    
-    # Create directories
-    for dir_path in [env["uploads_dir"], env["thumbnails_dir"], env["backups_dir"]]:
-        dir_path.mkdir(parents=True, exist_ok=True)
-    
-    return env
 
 
 @pytest.fixture(scope="function")
 def patched_config(isolated_environment: Dict):
-    """Monkey-patch app configuration to use isolated directories."""
-    import app.config as config
-    import app.database as db_module
-    
-    # Store original values
-    originals = {
-        "UPLOADS_DIR": config.UPLOADS_DIR,
-        "THUMBNAILS_DIR": config.THUMBNAILS_DIR,
-        "BACKUP_PATH": config.BACKUP_PATH,
-        "DATABASE_PATH": db_module.DATABASE_PATH,
-        "COOKIE_SECURE": config.COOKIE_SECURE,
-    }
+    """Point the database at a fresh per-test file.
 
-    # Apply patches - NOTE: We don't patch BASE_DIR to keep static files working
-    config.UPLOADS_DIR = isolated_environment["uploads_dir"]
-    config.THUMBNAILS_DIR = isolated_environment["thumbnails_dir"]
-    config.BACKUP_PATH = isolated_environment["backups_dir"]
+    Uploads/thumbnails/fallbacks/backups paths are env-driven and stable for
+    the whole session (see TEST_DATA_ROOT above), so only DATABASE_PATH
+    needs patching here.
+    """
+    import app.database as db_module
+
+    original = db_module.DATABASE_PATH
+
+    # Apply patch
     db_module.DATABASE_PATH = isolated_environment["db_path"]
-    db_module.BASE_DIR = isolated_environment["base_dir"]
-    # Disable Secure flag for tests (TestClient uses HTTP)
-    config.COOKIE_SECURE = False
 
     yield isolated_environment
 
-    # Restore original values
-    config.UPLOADS_DIR = originals["UPLOADS_DIR"]
-    config.THUMBNAILS_DIR = originals["THUMBNAILS_DIR"]
-    config.BACKUP_PATH = originals["BACKUP_PATH"]
-    db_module.DATABASE_PATH = originals["DATABASE_PATH"]
-    db_module.BASE_DIR = config.BASE_DIR  # Restore from config
-    config.COOKIE_SECURE = originals["COOKIE_SECURE"]
+    # Restore original value
+    db_module.DATABASE_PATH = original
 
 
 @pytest.fixture(scope="function")
 def fresh_database(patched_config: Dict):
     """Initialize fresh database with schema for each test.
-    
+
     IMPORTANT: This ensures each test starts with clean state.
-    After refactoring to Repository pattern, this fixture should
-    still work - just change how it initializes the schema.
     """
     import app.database as db_module
-    
+
     # Reset any existing thread-local connections
     if hasattr(db_module, '_local') and hasattr(db_module._local, 'connection'):
         try:
@@ -121,12 +138,12 @@ def fresh_database(patched_config: Dict):
         except:
             pass
         db_module._local.connection = None
-    
+
     # Initialize fresh schema
     init_db()
-    
+
     yield patched_config["db_path"]
-    
+
     # Cleanup: close connections
     if hasattr(db_module, '_local') and hasattr(db_module._local, 'connection'):
         try:
@@ -140,10 +157,10 @@ def fresh_database(patched_config: Dict):
 @pytest.fixture(scope="function")
 def db_connection(fresh_database: Path):
     """Provide a database connection for repositories.
-    
+
     Uses the app's thread-local connection to ensure consistency
     with the application's database access pattern.
-    
+
     Returns:
         sqlite3.Connection with row_factory set
     """
@@ -156,14 +173,14 @@ def db_connection(fresh_database: Path):
 @pytest.fixture(scope="function")
 def client(fresh_database: Path) -> Generator[TestClient, None, None]:
     """Create test client with fresh isolated environment.
-    
+
     Usage:
         def test_something(client):
             response = client.get("/")
             assert response.status_code == 200
     """
     from app.main import app
-    
+
     with TestClient(app) as test_client:
         yield test_client
 
@@ -171,7 +188,7 @@ def client(fresh_database: Path) -> Generator[TestClient, None, None]:
 @pytest.fixture(scope="function")
 def test_user(db_connection) -> Dict[str, any]:
     """Create a test user and return credentials.
-    
+
     Returns:
         Dict with: id, username, password, display_name
     """
@@ -180,13 +197,13 @@ def test_user(db_connection) -> Dict[str, any]:
         "password": "TestPass123!",
         "display_name": "Test User"
     }
-    
+
     user_id = UserRepository(db_connection).create(
         credentials["username"],
         credentials["password"],
         credentials["display_name"]
     )
-    
+
     credentials["id"] = user_id
     return credentials
 
@@ -199,13 +216,13 @@ def second_user(db_connection) -> Dict[str, any]:
         "password": "SecondPass123!",
         "display_name": "Second User"
     }
-    
+
     user_id = UserRepository(db_connection).create(
         credentials["username"],
         credentials["password"],
         credentials["display_name"]
     )
-    
+
     credentials["id"] = user_id
     return credentials
 
@@ -213,7 +230,7 @@ def second_user(db_connection) -> Dict[str, any]:
 @pytest.fixture(scope="function")
 def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
     """Client authenticated as test_user.
-    
+
     Usage:
         def test_protected(authenticated_client):
             response = authenticated_client.get("/")
@@ -222,7 +239,7 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
     # First get login page to obtain CSRF token
     client.get("/login")
     csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
-    
+
     response = client.post(
         "/login",
         data={
@@ -232,10 +249,10 @@ def authenticated_client(client: TestClient, test_user: Dict) -> TestClient:
         },
         follow_redirects=False
     )
-    
+
     assert response.status_code == 302, "Login should redirect to gallery"
     assert SESSION_COOKIE in response.cookies, "Session cookie should be set"
-    
+
     return client
 
 
@@ -248,11 +265,11 @@ def csrf_token(authenticated_client: TestClient) -> str:
 @pytest.fixture(scope="function")
 def test_folder(db_connection, test_user: Dict) -> str:
     """Create a test folder and return its ID.
-    
+
     Uses Repository pattern for folder creation.
     """
     folder_id = FolderRepository(db_connection).create(
-        "Test Folder", 
+        "Test Folder",
         test_user["id"]
     )
     return folder_id
@@ -261,13 +278,13 @@ def test_folder(db_connection, test_user: Dict) -> str:
 @pytest.fixture(scope="function")
 def test_image_bytes() -> bytes:
     """Create minimal valid JPEG image in memory.
-    
+
     Returns:
         JPEG file as bytes
     """
     from PIL import Image
     import io
-    
+
     img = Image.new('RGB', (100, 100), color='red')
     img_bytes = io.BytesIO()
     img.save(img_bytes, format='JPEG', quality=85)
@@ -282,7 +299,7 @@ def uploaded_photo(
     csrf_token: str
 ) -> Dict:
     """Upload a test photo and return its metadata.
-    
+
     Returns:
         Dict with: id, filename, media_type
     """
@@ -292,10 +309,10 @@ def uploaded_photo(
         files={"file": ("test.jpg", test_image_bytes, "image/jpeg")},
         headers={"X-CSRF-Token": csrf_token}
     )
-    
+
     assert response.status_code == 200, f"Upload failed: {response.text}"
     data = response.json()
-    
+
     return {
         "id": data["id"],
         "filename": data["filename"],
@@ -312,7 +329,7 @@ def test_album(
     csrf_token: str
 ) -> Dict:
     """Create a test album with photos and return its metadata.
-    
+
     Returns:
         Dict with: id, name, item_ids, item_count
     """
@@ -354,7 +371,7 @@ def test_album(
 @pytest.fixture(scope="function")
 def encrypted_user(db_connection, client: TestClient) -> Dict[str, Any]:
     """Create user with encryption enabled (DEK in cache).
-    
+
     This simulates production setup where encryption is enabled.
     """
     credentials: Dict[str, Any] = {
@@ -362,14 +379,14 @@ def encrypted_user(db_connection, client: TestClient) -> Dict[str, Any]:
         "password": "EncryptPass123!",
         "display_name": "Encrypted User"
     }
-    
+
     user_id = UserRepository(db_connection).create(
         credentials["username"],
         credentials["password"],
         credentials["display_name"]
     )
     credentials["id"] = user_id
-    
+
     # Login to trigger DEK generation
     response = client.post(
         "/login",
@@ -379,7 +396,7 @@ def encrypted_user(db_connection, client: TestClient) -> Dict[str, Any]:
         },
         follow_redirects=False
     )
-    
+
     assert response.status_code == 302
     return credentials
 
@@ -391,7 +408,7 @@ def encrypted_user(db_connection, client: TestClient) -> Dict[str, Any]:
 @contextmanager
 def login_as(client: TestClient, username: str, password: str):
     """Context manager to temporarily login as different user.
-    
+
     Usage:
         with login_as(client, "other", "pass"):
             response = client.get("/api/folders/tree")
@@ -399,7 +416,7 @@ def login_as(client: TestClient, username: str, password: str):
     """
     # Clear existing session
     client.cookies.clear()
-    
+
     # Login
     response = client.post(
         "/login",
@@ -407,7 +424,7 @@ def login_as(client: TestClient, username: str, password: str):
         follow_redirects=False
     )
     assert response.status_code == 302
-    
+
     try:
         yield client
     finally:
@@ -418,7 +435,7 @@ def login_as(client: TestClient, username: str, password: str):
 @contextmanager
 def temp_folder(db_connection, client: TestClient, user_id: int, name: str = "Temp Folder"):
     """Context manager that creates and cleans up a folder.
-    
+
     Usage:
         with temp_folder(db_connection, client, user_id, "My Folder") as folder_id:
             # use folder_id

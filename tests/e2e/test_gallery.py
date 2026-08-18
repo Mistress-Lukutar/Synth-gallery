@@ -9,6 +9,10 @@ playwright install
 
 import pytest
 
+# These tests drive a LIVE server (http://localhost:8000) via Playwright.
+# Skip cleanly when pytest-playwright is not installed instead of erroring.
+pytest.importorskip("playwright", reason="e2e tests require pytest-playwright")
+
 
 @pytest.fixture
 def logged_in_page(page):

@@ -6,6 +6,7 @@ Date:   2026-07-23
 Version: v1.1.1
 '''
 import logging
+import os
 import sqlite3
 import threading
 from datetime import datetime
@@ -14,7 +15,9 @@ from pathlib import Path
 import bcrypt
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_PATH = BASE_DIR / "gallery.db"
+# Overridable via SYNTH_DB_PATH so the test suite can run against a
+# throwaway database instead of the production gallery.db.
+DATABASE_PATH = Path(os.environ.get("SYNTH_DB_PATH", str(BASE_DIR / "gallery.db")))
 
 
 # =============================================================================

@@ -12,6 +12,7 @@ fallbacks/
 logs/
 .claude/
 *.db
+gallery.db.*-bak
 backup-*.zip
 
 # IDE
@@ -22,3 +23,5 @@ nul
 
 # Agents temp
 .agents
+.zcode
+.claude
