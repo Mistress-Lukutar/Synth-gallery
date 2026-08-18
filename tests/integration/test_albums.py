@@ -51,7 +51,7 @@ class TestAlbumCreation:
         assert response.status_code == 200
         data = response.json()
         assert "album_id" in data
-        assert data["photo_count"] == 3
+        assert data["item_count"] == 3
     
     def test_album_inherits_folder_permissions(
         self,
@@ -117,13 +117,13 @@ class TestAlbumCreation:
             json={
                 "name": "Count Test Album",
                 "folder_id": test_folder,
-                "photo_ids": photo_ids
+                "item_ids": photo_ids
             },
             headers={"X-CSRF-Token": csrf_token}
         )
-        
+
         assert response.status_code == 200
-        assert response.json()["album"]["photo_count"] == 5
+        assert response.json()["album"]["item_count"] == 5
 
 
 class TestAlbumThumbnailDimensions:
@@ -153,7 +153,7 @@ class TestAlbumThumbnailDimensions:
             json={
                 "name": "Cover Test Album",
                 "folder_id": test_folder,
-                "photo_ids": [photo_id]
+                "item_ids": [photo_id]
             },
             headers={"X-CSRF-Token": csrf_token}
         )
@@ -200,18 +200,18 @@ class TestAlbumThumbnailDimensions:
             json={
                 "name": "Aspect Test Album",
                 "folder_id": test_folder,
-                "photo_ids": [photo_id]
+                "item_ids": [photo_id]
             },
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200
-        
+
         # Get folder content via API to check dimensions
         response = authenticated_client.get(f"/api/folders/{test_folder}/content")
         assert response.status_code == 200
-        
+
         data = response.json()
-        albums = [item for item in data.get("albums", []) if item.get("type") == "album"]
+        albums = [item for item in data.get("items", []) if item.get("type") == "album"]
         
         if albums:
             album = albums[0]
@@ -276,7 +276,7 @@ class TestAlbumNavigation:
             json={
                 "name": "Nav Test Album",
                 "folder_id": test_folder,
-                "photo_ids": photo_ids
+                "item_ids": photo_ids
             },
             headers={"X-CSRF-Token": csrf_token}
         )
@@ -321,18 +321,18 @@ class TestAlbumReorder:
             json={
                 "name": "Reorder Test Album",
                 "folder_id": test_folder,
-                "photo_ids": photo_ids
+                "item_ids": photo_ids
             },
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200
         album_id = response.json()["album"]["id"]
-        
+
         # Reorder - reverse order
         reversed_ids = list(reversed(photo_ids))
         response = authenticated_client.put(
             f"/api/albums/{album_id}/reorder",
-            json={"photo_ids": reversed_ids},
+            json={"item_ids": reversed_ids},
             headers={"X-CSRF-Token": csrf_token}
         )
         

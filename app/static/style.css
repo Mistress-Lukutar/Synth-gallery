@@ -1181,9 +1181,27 @@ main {
     margin-top: 0.5rem;
 }
 
+/* Indeterminate state: all bytes sent, server is still processing */
+.progress-fill.indeterminate {
+    position: relative;
+    background: var(--border);
+    overflow: hidden;
+}
+
+.progress-fill.indeterminate::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    background: var(--accent);
+    animation: progress 1.2s ease-in-out infinite;
+}
+
 @keyframes progress {
     0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
+    100% { transform: translateX(250%); }
 }
 
 /* Tag Picker Modal */

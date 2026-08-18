@@ -289,18 +289,18 @@ class TestAITaggingJobs:
         csrf_token: str
     ):
         """Agent can download server-side encrypted files for items inside an album."""
-        photo_id = test_album["photo_ids"][0]
+        item_id = test_album["item_ids"][0]
 
         # Create job for album item
         resp = authenticated_client.post(
             "/api/ai/jobs",
-            json={"item_ids": [photo_id]},
+            json={"item_ids": [item_id]},
             headers={"X-CSRF-Token": csrf_token}
         )
         assert resp.status_code == 200
 
         resp = authenticated_client.get(
-            f"/api/ai/items/{photo_id}/file",
+            f"/api/ai/items/{item_id}/file",
             headers={"X-API-Key": api_key}
         )
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"

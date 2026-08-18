@@ -191,8 +191,9 @@ class TestAlbumUpload:
         data = response.json()
         
         assert "album_id" in data
-        assert "photos" in data
-        assert len(data["photos"]) == 3
+        assert "items" in data
+        assert len(data["items"]) == 3
+        assert data["item_count"] == 3
     
     def test_album_requires_minimum_two_files(
         self,

@@ -314,10 +314,10 @@ def test_album(
     """Create a test album with photos and return its metadata.
     
     Returns:
-        Dict with: id, name, photo_ids, photo_count
+        Dict with: id, name, item_ids, item_count
     """
     # Upload multiple photos
-    photo_ids = []
+    item_ids = []
     for i in range(3):
         response = authenticated_client.post(
             "/upload",
@@ -326,27 +326,27 @@ def test_album(
             headers={"X-CSRF-Token": csrf_token}
         )
         assert response.status_code == 200
-        photo_ids.append(response.json()["id"])
-    
+        item_ids.append(response.json()["id"])
+
     # Create album
     response = authenticated_client.post(
         "/api/albums",
         json={
             "name": "Test Album",
             "folder_id": test_folder,
-            "photo_ids": photo_ids
+            "item_ids": item_ids
         },
         headers={"X-CSRF-Token": csrf_token}
     )
-    
+
     assert response.status_code == 200
     data = response.json()
-    
+
     return {
         "id": data["album_id"],
         "name": "Test Album",
-        "photo_ids": photo_ids,
-        "photo_count": data["photo_count"],
+        "item_ids": item_ids,
+        "item_count": data["item_count"],
         "folder_id": test_folder
     }
 

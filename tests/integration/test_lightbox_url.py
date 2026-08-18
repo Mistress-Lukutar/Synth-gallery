@@ -70,7 +70,7 @@ class TestLightboxURL:
         
         # Album info if applicable
         if data.get("album"):
-            assert "photo_ids" in data["album"]
+            assert "item_ids" in data["album"]
 
 
 class TestLightboxNavigationAPI:

@@ -34,6 +34,61 @@ async function csrfFetch(url, options = {}) {
     });
 }
 
+// Upload with CSRF token and byte-level upload progress.
+// fetch() cannot report request body progress, so this uses XHR.
+// Resolves with a fetch-like Response so callers can use resp.ok /
+// resp.json() exactly like csrfFetch results.
+function csrfUpload(url, formData, { onProgress, onUploaded, signal } = {}) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
+
+        const onAbort = () => xhr.abort();
+
+        const cleanup = () => {
+            if (signal) signal.removeEventListener('abort', onAbort);
+        };
+
+        if (signal) {
+            if (signal.aborted) {
+                reject(new DOMException('Upload aborted', 'AbortError'));
+                return;
+            }
+            signal.addEventListener('abort', onAbort);
+        }
+
+        if (onProgress) {
+            xhr.upload.onprogress = (e) => onProgress(e);
+        }
+        if (onUploaded) {
+            // All bytes sent; server is now processing (thumbnails, encryption)
+            xhr.upload.onload = () => onUploaded();
+        }
+
+        xhr.onload = () => {
+            cleanup();
+            const headers = new Headers();
+            xhr.getAllResponseHeaders().trim().split(/[\r\n]+/).forEach((line) => {
+                const idx = line.indexOf(':');
+                if (idx > 0) headers.append(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
+            });
+            resolve(new Response(xhr.response, { status: xhr.status, headers }));
+        };
+        xhr.onerror = () => {
+            cleanup();
+            reject(new TypeError('Network error during upload'));
+        };
+        xhr.onabort = () => {
+            cleanup();
+            reject(new DOMException('Upload aborted', 'AbortError'));
+        };
+
+        xhr.send(formData);
+    });
+}
+
 // Escape HTML to prevent XSS
 function escapeHtml(text) {
     if (!text) return '';
@@ -62,6 +117,7 @@ function clampGalleryAspect(width, height) {
 // Export to window
 window.getCsrfToken = getCsrfToken;
 window.csrfFetch = csrfFetch;
+window.csrfUpload = csrfUpload;
 window.escapeHtml = escapeHtml;
 window.getBaseUrl = getBaseUrl;
 window.clampGalleryAspect = clampGalleryAspect;

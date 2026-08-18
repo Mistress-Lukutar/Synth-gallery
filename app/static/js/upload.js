@@ -103,7 +103,10 @@
         if (progressDiv) progressDiv.classList.add('hidden');
         if (albumCheckbox) albumCheckbox.checked = false;
         if (submitBtn) submitBtn.disabled = true;
-        if (progressFill) progressFill.style.width = '0%';
+        if (progressFill) {
+            progressFill.style.width = '0%';
+            progressFill.classList.remove('indeterminate');
+        }
         if (cancelBtn) cancelBtn.disabled = false;
         setUploadMode('files');
     }
@@ -384,6 +387,42 @@
         renderFilePreview();
     }
 
+    // Human-readable byte size (1 decimal below 100 units)
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) return '?';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit++;
+        }
+        return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+    }
+
+    // Update the progress bar and text from byte counters.
+    // Returns the clamped percentage so callers can restore it later.
+    function updateUploadProgress(label, loaded, total) {
+        const pct = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = `${pct.toFixed(1)}%`;
+        if (total > 0) {
+            progressText.textContent =
+                `${label} — ${formatBytes(loaded)} / ${formatBytes(total)} (${Math.floor(pct)}%)`;
+        } else {
+            progressText.textContent = label;
+        }
+        return pct;
+    }
+
+    // Indeterminate state: all bytes are sent, server is still processing
+    // (probing, thumbnails, encryption, album creation).
+    // Bar width stays at the byte-progress value (≈100%).
+    function showProcessingState(label) {
+        progressFill.classList.add('indeterminate');
+        progressText.textContent = label;
+    }
+
     function removeFile(index) {
         selectedFiles.splice(index, 1);
         renderFilePreview();
@@ -507,9 +546,6 @@
                     throw new Error('Empty files');
                 }
 
-                progressText.textContent = `Uploading ${folderFiles.length} files...`;
-                progressFill.style.width = '30%';
-
                 const formData = new FormData();
                 const paths = [];
 
@@ -521,11 +557,14 @@
                 formData.append('paths', JSON.stringify(paths));
                 formData.append('folder_id', targetFolderId);
 
-                progressFill.style.width = '50%';
-                const resp = await csrfFetch(`${getBaseUrl()}/upload-bulk`, {
-                    method: 'POST',
-                    body: formData,
-                    signal: abortController.signal
+                const resp = await csrfUpload(`${getBaseUrl()}/upload-bulk`, formData, {
+                    signal: abortController.signal,
+                    onProgress: (e) => {
+                        if (e.lengthComputable) {
+                            updateUploadProgress(`Uploading ${folderFiles.length} files`, e.loaded, e.total);
+                        }
+                    },
+                    onUploaded: () => showProcessingState('Processing on server...')
                 });
 
                 if (!resp.ok) {
@@ -543,7 +582,6 @@
                 }
 
                 const data = await resp.json();
-                progressFill.style.width = '90%';
 
                 const s = data.summary;
                 let msg = `Uploaded: ${s.individual_photos} photos`;
@@ -552,8 +590,9 @@
                 }
                 if (s.failed > 0) msg += ` | ${s.failed} failed`;
                 if (s.skipped_nested > 0) msg += ` | ${s.skipped_nested} nested skipped`;
-                progressText.textContent = msg;
+                progressFill.classList.remove('indeterminate');
                 progressFill.style.width = '100%';
+                progressText.textContent = msg;
 
             } else {
                 // Regular file upload
@@ -573,7 +612,6 @@
 
                 if (isAlbum) {
                     progressText.textContent = 'Uploading album...';
-                    progressFill.style.width = '50%';
 
                     const formData = new FormData();
                     for (const file of files) {
@@ -581,10 +619,14 @@
                     }
                     formData.append('folder_id', targetFolderId);
 
-                    const resp = await csrfFetch(`${getBaseUrl()}/upload-album`, {
-                        method: 'POST',
-                        body: formData,
-                        signal: abortController.signal
+                    const resp = await csrfUpload(`${getBaseUrl()}/upload-album`, formData, {
+                        signal: abortController.signal,
+                        onProgress: (e) => {
+                            if (e.lengthComputable) {
+                                updateUploadProgress('Uploading album', e.loaded, e.total);
+                            }
+                        },
+                        onUploaded: () => showProcessingState('Processing on server...')
                     });
 
                     if (!resp.ok) {
@@ -598,25 +640,36 @@
                     }
 
                     const data = await resp.json();
-                    uploadedIds = data.photos.map(p => p.id);
+                    const items = data.items || [];
+                    uploadedIds = items.map(p => p.id);
                     uploadedFileIds.push(...uploadedIds); // Track for potential deletion
-                    progressFill.style.width = '100%;'
+                    progressFill.classList.remove('indeterminate');
+                    progressFill.style.width = '100%';
+                    progressText.textContent = `Album created with ${items.length} file${items.length === 1 ? '' : 's'}`;
 
                 } else {
-                    // Upload files in the order they appear in selectedFiles
-                    for (let i = 0; i < selectedFiles.length; i++) {
-                        const file = selectedFiles[i];
-                        progressText.textContent = `Uploading ${i + 1}/${selectedFiles.length}: ${file.name}...`;
-                        progressFill.style.width = `${((i + 1) / selectedFiles.length) * 100}%`;
+                    // Upload files in the order they appear in selectedFiles.
+                    // Progress is aggregated across the whole batch by bytes.
+                    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+                    let sentBytes = 0;
 
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
                         const formData = new FormData();
                         formData.append('file', file);
                         formData.append('folder_id', targetFolderId);
 
-                        const resp = await csrfFetch(`${getBaseUrl()}/upload`, {
-                            method: 'POST',
-                            body: formData,
-                            signal: abortController.signal
+                        const resp = await csrfUpload(`${getBaseUrl()}/upload`, formData, {
+                            signal: abortController.signal,
+                            onProgress: (e) => {
+                                if (e.lengthComputable) {
+                                    updateUploadProgress(
+                                        `Uploading ${i + 1}/${files.length}: ${file.name}`,
+                                        sentBytes + e.loaded,
+                                        totalBytes
+                                    );
+                                }
+                            }
                         });
 
                         if (!resp.ok) {
@@ -635,9 +688,12 @@
                         const data = await resp.json();
                         uploadedIds.push(data.id);
                         uploadedFileIds.push(data.id); // Track for potential deletion
+                        sentBytes += file.size;
                     }
                 }
 
+                progressFill.classList.remove('indeterminate');
+                progressFill.style.width = '100%';
                 progressText.textContent = 'Done!';
             }
 
@@ -658,6 +714,7 @@
             }, 500);
 
         } catch (err) {
+            if (progressFill) progressFill.classList.remove('indeterminate');
             if (err.name === 'AbortError') {
                 progressText.textContent = 'Upload cancelled';
             } else {
