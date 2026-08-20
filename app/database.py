@@ -260,6 +260,11 @@ def _rebuild_table(
     shape; ``keep_columns`` lists columns that exist in both old and new
     tables and must be preserved.
     """
+    # PRAGMA foreign_keys is silently ignored inside an open transaction,
+    # and the preceding data-fixing UPDATE usually left one open. Commit
+    # first, otherwise DROP TABLE cascades into child tables (album_items,
+    # item_media, ...) and silently destroys their rows.
+    db.commit()
     db.execute("PRAGMA foreign_keys = OFF")
     new_table = f"{table}_new"
     db.execute(f"DROP TABLE IF EXISTS {new_table}")
@@ -361,6 +366,63 @@ def _migrate_v2_schema(db: sqlite3.Connection) -> None:
             items_keep,
         )
 
+    db.commit()
+
+
+def _migrate_album_name_not_null(db: sqlite3.Connection) -> None:
+    """Enforce ``NOT NULL`` on ``albums.name`` (idempotent).
+
+    Legacy rename requests were written to the database without
+    validation, so old deployments may carry albums with a NULL name
+    (they crashed batch downloads with a TypeError). Such rows are
+    backfilled with a deterministic ``Untitled (id8)`` name — unique per
+    album and traceable to its id — before the table is rebuilt with the
+    constraint. Fresh databases already have the NOT NULL column and this
+    is a no-op.
+    """
+    cursor = db.execute("PRAGMA table_info(albums)")
+    columns = cursor.fetchall()
+    name_col = next((row for row in columns if row["name"] == "name"), None)
+    if name_col is None or name_col["notnull"]:
+        return
+
+    _backup_database(DATABASE_PATH, ".albumnotnull-bak")
+    db.execute(
+        "UPDATE albums SET name = 'Untitled (' || substr(id, 1, 8) || ')' "
+        "WHERE name IS NULL"
+    )
+    # Pre-FK schemas may reference folders that were deleted long ago;
+    # null those references so the rebuilt table (which declares the FKs)
+    # passes PRAGMA foreign_key_check.
+    db.execute(
+        "UPDATE albums SET folder_id = NULL "
+        "WHERE folder_id IS NOT NULL "
+        "AND folder_id NOT IN (SELECT id FROM folders)"
+    )
+    keep = [row["name"] for row in columns]
+    _rebuild_table(
+        db,
+        "albums",
+        """
+        CREATE TABLE albums (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            folder_id TEXT,
+            user_id INTEGER,
+            cover_item_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (cover_item_id) REFERENCES items(id) ON DELETE SET NULL
+        )
+        """,
+        keep,
+    )
+    # Dropping the old table dropped its indexes; recreate the one
+    # init_db declares so it survives the rebuild.
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)"
+    )
     db.commit()
 
 
@@ -474,7 +536,7 @@ def init_db():
     db.execute("""
         CREATE TABLE IF NOT EXISTS albums (
             id TEXT PRIMARY KEY,
-            name TEXT,
+            name TEXT NOT NULL,
             folder_id TEXT,
             user_id INTEGER,
             cover_item_id TEXT,
@@ -855,6 +917,11 @@ def init_db():
     # pre-migration backup of the database file before any breaking rebuild.
     _backup_database(DATABASE_PATH, ".v2migration-bak")
     _migrate_v2_schema(db)
+
+    # Album name migration (idempotent): backfill NULL names with
+    # 'Untitled (id8)' and enforce NOT NULL on albums.name. Takes its own
+    # pre-migration backup before rebuilding the table.
+    _migrate_album_name_not_null(db)
 
     db.commit()
 

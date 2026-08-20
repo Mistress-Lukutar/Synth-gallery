@@ -402,8 +402,14 @@ class _DownloadEntry:
     media_type: str    # 'image' | 'video'
 
 
-def _sanitize_name(name: str, fallback: str = "file") -> str:
-    """Make an archive-safe file/folder name (unicode letters preserved)."""
+def _sanitize_name(name: str | None, fallback: str = "file") -> str:
+    """Make an archive-safe file/folder name (unicode letters preserved).
+
+    Albums in older datasets may carry a NULL name, so None input is
+    accepted and replaced with the caller-supplied fallback.
+    """
+    if not name:
+        return fallback
     sanitized = "".join(
         c if (c.isalnum() or c in (" ", "-", "_", ".")) else "_"
         for c in name
@@ -630,7 +636,11 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             ).fetchall()
             if not album_items:
                 continue
-            dir_name = _sanitize_name(album["name"], fallback="album")
+            # NULL names (legacy rows) fall back to a per-album unique dir
+            # so several unnamed albums never merge into one subfolder.
+            dir_name = _sanitize_name(
+                album["name"], fallback=f"album-{str(album_id)[:8]}"
+            )
             for item in album_items:
                 if storage.exists(item["id"], "uploads"):
                     entries.append(_entry_from_row(item, dir_name=dir_name))
@@ -754,9 +764,14 @@ async def batch_download(data: BatchDownloadInput, request: Request):
 # =============================================================================
 
 class AlbumCreateInput(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     folder_id: str
     item_ids: List[str] = []
+
+
+class AlbumUpdateInput(BaseModel):
+    """Album rename payload; name must be non-empty when provided."""
+    name: Optional[str] = Field(default=None, min_length=1)
 
 
 @router.post("/api/albums")
@@ -806,23 +821,23 @@ def get_album(album_id: str, request: Request):
 
 
 @router.put("/api/albums/{album_id}")
-def update_album(album_id: str, data: dict, request: Request):
-    """Update album (name, etc)."""
+def update_album(album_id: str, data: AlbumUpdateInput, request: Request):
+    """Update album (rename). Empty or missing names are rejected."""
     user = require_user(request)
-    
+
     db = create_connection()
     try:
         album_repo = AlbumRepository(db)
         album_service = get_album_service(db)
-        
+
         # Check edit permission
         if not album_service._can_edit(album_id, user["id"]):
             raise HTTPException(403, "Cannot edit album")
-        
-        # Update allowed fields
-        if "name" in data:
-            album_repo.update(album_id, name=data["name"])
-        
+
+        # Update allowed fields (null name = no rename requested)
+        if data.name is not None:
+            album_repo.update(album_id, name=data.name)
+
         return {"status": "ok"}
     finally:
         db.close()

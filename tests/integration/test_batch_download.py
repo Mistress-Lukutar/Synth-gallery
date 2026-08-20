@@ -320,6 +320,104 @@ class TestJxlStoredItems:
         assert resp.content[:4] == b'\x00\x00\x00\x0c'
 
 
+class TestNullNameAlbums:
+    '''Albums with falsy names must not crash the download.
+
+    NULL names are no longer representable (NOT NULL migration), but
+    empty-string names can still exist as legacy data and exercise the
+    same sanitizer fallback path.
+    '''
+
+    def _insert_album(self, db, album_id, folder_id, user_id, name=''):
+        db.execute(
+            '''INSERT INTO albums (id, name, folder_id, user_id, created_at)
+               VALUES (?, ?, ?, ?, datetime('now'))''',
+            (album_id, name, folder_id, user_id),
+        )
+
+    def test_empty_name_album_downloads_into_unique_subfolder(
+        self, authenticated_client, test_folder, test_user, test_image_bytes
+    ):
+        from app.database import create_connection
+
+        # Two photos so the selection resolves to a ZIP (a single file
+        # would be served directly by design).
+        item_ids = [
+            _upload(authenticated_client, test_folder,
+                    f'u{i}.jpg', test_image_bytes, 'image/jpeg')['id']
+            for i in range(2)
+        ]
+
+        album_id = 'aaaaaaaa-dead-beef-0000-000000000001'
+        db = create_connection()
+        try:
+            self._insert_album(db, album_id, test_folder, test_user['id'])
+            for position, item_id in enumerate(item_ids):
+                db.execute(
+                    'INSERT INTO album_items (album_id, item_id, position) '
+                    'VALUES (?, ?, ?)',
+                    (album_id, item_id, position),
+                )
+            db.commit()
+        finally:
+            db.close()
+
+        resp = _batch_download(authenticated_client, {
+            'album_ids': [album_id],
+            'options': {'format': 'png'},
+        })
+
+        assert resp.status_code == 200, resp.text
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            expected_dir = f'album-{album_id[:8]}'
+            assert sorted(zf.namelist()) == [
+                f'{expected_dir}/u0.png',
+                f'{expected_dir}/u1.png',
+            ]
+
+    def test_two_nameless_albums_do_not_merge(
+        self, authenticated_client, test_folder, test_user, test_image_bytes
+    ):
+        from app.database import create_connection
+
+        photos = [
+            _upload(authenticated_client, test_folder,
+                    f'u{i}.jpg', test_image_bytes, 'image/jpeg')['id']
+            for i in range(2)
+        ]
+        album_ids = [
+            'aaaaaaaa-0000-0000-0000-000000000001',
+            'bbbbbbbb-0000-0000-0000-000000000002',
+        ]
+
+        db = create_connection()
+        try:
+            for album_id, item_id in zip(album_ids, photos):
+                self._insert_album(db, album_id, test_folder, test_user['id'])
+                db.execute(
+                    'INSERT INTO album_items (album_id, item_id, position) '
+                    'VALUES (?, ?, 0)',
+                    (album_id, item_id),
+                )
+            db.commit()
+        finally:
+            db.close()
+
+        resp = _batch_download(authenticated_client, {
+            'album_ids': album_ids,
+            'options': {'format': 'png'},
+        })
+
+        assert resp.status_code == 200, resp.text
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            names = sorted(zf.namelist())
+            # Two distinct subfolders despite both albums being nameless
+            assert names == [
+                'album-aaaaaaaa/u0.png',
+                'album-bbbbbbbb/u1.png',
+            ]
+
+
 class TestValidation:
     '''Input validation for the batch download endpoint.'''
 

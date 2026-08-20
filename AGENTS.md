@@ -335,6 +335,12 @@ items (base)                          item_media (detail: type='media')
 - Added `CHECK (media_type IN ('image', 'video'))` to `item_media`
 - Legacy `media_type='3d'` rows are normalised to `'image'` (a 3D model belongs to a future `items.type`, not a media sub-kind)
 
+**Album name NOT NULL migration** (idempotent, backup at `gallery.db.albumnotnull-bak`):
+- Legacy rename requests wrote unvalidated names, leaving albums with `name IS NULL` (they crashed batch downloads)
+- NULL names are backfilled with `Untitled (id8)`; dangling `folder_id` references (pre-FK schema) are nulled; the table is rebuilt with `name TEXT NOT NULL` and the full FK set
+- `_rebuild_table` commits before toggling `PRAGMA foreign_keys` — the pragma is a no-op inside an open transaction, and `DROP TABLE` would otherwise cascade-delete child rows (`album_items`, `item_media`)
+- The album API validates names: `POST /api/albums` requires `min_length=1`, `PUT /api/albums/{id}` uses a typed model instead of a raw dict
+
 **Legacy `photo_*` purge (v2.0):**
 - Removed `can_access_photo`, `can_delete_photo`, `get_photo_count`, `get_standalone_photos` aliases
 - API response keys renamed: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, request bodies `photo_ids` → `item_ids`
