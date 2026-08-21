@@ -7,10 +7,42 @@
     let searchInput = null;
     let suggestions = null;
     let searchTimeout = null;
-    
+
     // Store last folder content for clearing search
     let lastFolderData = null;
     let isSearchActive = false;
+
+    // --- Pure helpers (exported for unit tests) ---
+
+    // Split a search query into words and describe the word being typed.
+    // A leading "-" marks a negative tag search (e.g. "-wat" -> "wat").
+    function parseSearchQuery(query) {
+        const words = query.split(/\s+/);
+        const currentWord = words[words.length - 1].toLowerCase();
+        const isNegative = currentWord.startsWith('-');
+        const searchWord = isNegative ? currentWord.substring(1) : currentWord;
+        return { words, currentWord, isNegative, searchWord };
+    }
+
+    // Replace the last word of the input with a picked suggestion,
+    // preserving the negative marker, and keep a trailing space.
+    function applySuggestionToInput(value, tag, wasNegative) {
+        const words = value.trim().split(/\s+/);
+        words[words.length - 1] = (wasNegative ? '-' : '') + tag;
+        return words.join(' ') + ' ';
+    }
+
+    // Tag autocomplete endpoint URL.
+    function buildTagSearchApiUrl(baseUrl, query, limit = 50) {
+        return `${baseUrl}/api/tags/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+    }
+
+    // Gallery search endpoint URL.
+    function buildSearchApiUrl(baseUrl, { tags, folderId, sort }) {
+        return `${baseUrl}/api/search?tags=${encodeURIComponent(tags)}`
+            + `&folder_id=${encodeURIComponent(folderId)}`
+            + `&sort=${encodeURIComponent(sort)}`;
+    }
 
     function init() {
         searchInput = document.getElementById('tag-search-input');
@@ -50,7 +82,7 @@
                     option.classList.add('active');
                     
                     // Update tooltip
-                    sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
+                    sortBtn.setAttribute('title', window.getSortLabel ? window.getSortLabel(sort) : sort);
                     
                     // Update sort mode and rebuild masonry
                     window.currentSortMode = sort;
@@ -86,7 +118,7 @@
                 sortMenu.querySelectorAll('.sort-option').forEach(o => o.classList.remove('active'));
                 const activeOption = sortMenu.querySelector(`[data-sort="${sort}"]`);
                 if (activeOption) activeOption.classList.add('active');
-                sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
+                sortBtn.setAttribute('title', window.getSortLabel ? window.getSortLabel(sort) : sort);
             };
         }
 
@@ -154,17 +186,12 @@
     async function loadSearchSuggestions(query) {
         try {
             // Get last word being typed
-            const words = query.split(/\s+/);
-            const currentWord = words[words.length - 1].toLowerCase();
-
-            // Strip leading minus for negative tag search (e.g. "-wat" -> "wat")
-            const isNegative = currentWord.startsWith('-');
-            const searchWord = isNegative ? currentWord.substring(1) : currentWord;
+            const { isNegative, searchWord } = parseSearchQuery(query);
 
             if (searchWord.length < 2) return;
 
             // Fetch matching tags from new API
-            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(searchWord)}&limit=50`);
+            const resp = await fetch(buildTagSearchApiUrl(getBaseUrl(), searchWord));
             if (!resp.ok) return;
 
             const data = await resp.json();
@@ -189,10 +216,7 @@
                 item.addEventListener('click', () => {
                     const tag = item.dataset.tag.toLowerCase();
                     const wasNegative = item.dataset.negative === 'true';
-                    const value = searchInput.value.trim();
-                    const words = value.split(/\s+/);
-                    words[words.length - 1] = (wasNegative ? '-' : '') + tag;
-                    searchInput.value = words.join(' ') + ' ';
+                    searchInput.value = applySuggestionToInput(searchInput.value, tag, wasNegative);
                     suggestions.classList.add('hidden');
                     searchInput.focus();
                     updateSearchURL(searchInput.value.trim());
@@ -227,7 +251,11 @@
 
         try {
             const sort = window.currentSortMode || 'uploaded';
-            const resp = await fetch(`${getBaseUrl()}/api/search?tags=${encodeURIComponent(query)}&folder_id=${encodeURIComponent(window.currentFolderId)}&sort=${encodeURIComponent(sort)}`);
+            const resp = await fetch(buildSearchApiUrl(getBaseUrl(), {
+                tags: query,
+                folderId: window.currentFolderId,
+                sort,
+            }));
             if (!resp.ok) throw new Error('Search failed');
 
             const data = await resp.json();
@@ -399,7 +427,7 @@
     // Init on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
         init();
-        
+
         // Check for search query in URL on page load
         const urlParams = new URLSearchParams(window.location.search);
         const searchQuery = urlParams.get('q');
@@ -408,5 +436,15 @@
             performSearch(searchQuery);
         }
     });
+
+    // CommonJS export for Jest unit tests (no-op in the browser).
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            parseSearchQuery,
+            applySuggestionToInput,
+            buildTagSearchApiUrl,
+            buildSearchApiUrl,
+        };
+    }
 
 })();

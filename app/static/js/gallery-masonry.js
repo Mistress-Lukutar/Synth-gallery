@@ -14,6 +14,59 @@
     let lastRebuildTime = 0;
     const MIN_REBUILD_INTERVAL = 100; // ms
 
+    // --- Pure helpers (exported for unit tests) ---
+
+    // Parse gallery date strings (handle ISO strings with microseconds).
+    // Returns milliseconds since epoch, or 0 for missing/invalid input.
+    function parseGalleryDate(d) {
+        if (!d) return 0;
+        // Normalize Python datetime format (2026-03-02T11:02:41.820010)
+        let normalized = d.replace(' ', 'T');
+        // Trim microseconds to milliseconds if needed
+        const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
+        if (match && match[2] && match[2].length > 4) {
+            normalized = match[1] + match[2].substring(0, 4);
+        }
+        // Add Z if no timezone
+        if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
+            normalized += 'Z';
+        }
+        return new Date(normalized).getTime() || 0;
+    }
+
+    // Comparator for gallery items by date, descending (newest first).
+    // Folders are never reordered (they are laid out separately).
+    function compareGalleryItemsByDate(a, b, sortMode) {
+        const aIsFolder = a.classList.contains('subfolder-tile') || a.dataset.itemType === 'folder';
+        const bIsFolder = b.classList.contains('subfolder-tile') || b.dataset.itemType === 'folder';
+        if (aIsFolder || bIsFolder) return 0;
+
+        let aDate, bDate;
+        if (sortMode === 'taken') {
+            aDate = a.dataset.takenAt || a.dataset.uploadedAt;
+            bDate = b.dataset.takenAt || b.dataset.uploadedAt;
+        } else {
+            aDate = a.dataset.uploadedAt || a.dataset.takenAt;
+            bDate = b.dataset.uploadedAt || b.dataset.takenAt;
+        }
+        return parseGalleryDate(bDate) - parseGalleryDate(aDate);
+    }
+
+    // Number of masonry columns for a given gallery pixel width.
+    function getColumnCountForWidth(width) {
+        return Math.max(2, Math.floor(width / MIN_COLUMN_WIDTH));
+    }
+
+    // Estimated rendered item height from stored thumbnail dimensions.
+    // The aspect ratio is clamped to prevent extreme placeholders.
+    // Returns null when no dimensions are available (DOM fallback applies).
+    function estimateGalleryItemHeight(thumbW, thumbH, columnWidth) {
+        if (!(thumbW > 0 && thumbH > 0)) return null;
+        let aspectRatio = thumbW / thumbH;
+        aspectRatio = Math.max(0.5, Math.min(2.0, aspectRatio));
+        return columnWidth / aspectRatio;
+    }
+
     function init() {
         gallery = document.getElementById('gallery');
         if (!gallery) {
@@ -24,7 +77,7 @@
     window.getColumnCount = function() {
         if (!gallery) return 2;
         const width = gallery.clientWidth || 800;
-        return Math.max(2, Math.floor(width / MIN_COLUMN_WIDTH));
+        return getColumnCountForWidth(width);
     };
 
     window.initMasonry = function() {
@@ -51,7 +104,7 @@
         }
         
         const galleryWidth = gallery.clientWidth || 800;
-        const columnCount = Math.max(2, Math.floor(galleryWidth / MIN_COLUMN_WIDTH));
+        const columnCount = getColumnCountForWidth(galleryWidth);
         const columnWidth = galleryWidth / columnCount;
 
         // Always get fresh items from DOM - this is the source of truth
@@ -76,44 +129,7 @@
         
         // Sort items based on current sort mode (excluding subfolders which are separate)
         const sortMode = window.currentSortMode || 'uploaded';
-        visibleItems.sort((a, b) => {
-            // Don't sort folders (they're handled separately), only albums and photos
-            const aIsFolder = a.classList.contains('subfolder-tile') || a.dataset.itemType === 'folder';
-            const bIsFolder = b.classList.contains('subfolder-tile') || b.dataset.itemType === 'folder';
-            if (aIsFolder || bIsFolder) return 0;
-            
-            // Get dates for comparison
-            let aDate, bDate;
-            if (sortMode === 'taken') {
-                aDate = a.dataset.takenAt || a.dataset.uploadedAt;
-                bDate = b.dataset.takenAt || b.dataset.uploadedAt;
-            } else {
-                aDate = a.dataset.uploadedAt || a.dataset.takenAt;
-                bDate = b.dataset.uploadedAt || b.dataset.takenAt;
-            }
-            
-            // Parse dates (handle ISO strings with microseconds)
-            const parseDate = (d) => {
-                if (!d) return 0;
-                // Normalize Python datetime format (2026-03-02T11:02:41.820010)
-                let normalized = d.replace(' ', 'T');
-                // Trim microseconds to milliseconds if needed
-                const match = normalized.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?/);
-                if (match && match[2] && match[2].length > 4) {
-                    normalized = match[1] + match[2].substring(0, 4);
-                }
-                // Add Z if no timezone
-                if (!normalized.endsWith('Z') && !normalized.match(/[+-]\d{2}:\d{2}$/)) {
-                    normalized += 'Z';
-                }
-                return new Date(normalized).getTime() || 0;
-            };
-            const aTime = parseDate(aDate);
-            const bTime = parseDate(bDate);
-            
-            // Descending order (newest first)
-            return bTime - aTime;
-        });
+        visibleItems.sort((a, b) => compareGalleryItemsByDate(a, b, sortMode));
         
         const scrollY = window.scrollY;
 
@@ -169,13 +185,8 @@
             const thumbW = parseInt(item.dataset.thumbWidth) || 0;
             const thumbH = parseInt(item.dataset.thumbHeight) || 0;
 
-            let itemHeight;
-            if (thumbW > 0 && thumbH > 0) {
-                // Use stored dimensions, clamped to prevent extreme aspect ratios
-                let aspectRatio = thumbW / thumbH;
-                aspectRatio = Math.max(0.5, Math.min(2.0, aspectRatio));
-                itemHeight = columnWidth / aspectRatio;
-            } else {
+            let itemHeight = estimateGalleryItemHeight(thumbW, thumbH, columnWidth);
+            if (itemHeight === null) {
                 // Fallback for legacy photos - use square placeholder or loaded image
                 const img = item.querySelector('img');
                 if (img && img.naturalHeight && img.naturalWidth) {
@@ -250,5 +261,16 @@
             window.rebuildMasonry();
         }, 150);
     });
+
+    // CommonJS export for Jest unit tests (no-op in the browser).
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            parseGalleryDate,
+            compareGalleryItemsByDate,
+            getColumnCountForWidth,
+            estimateGalleryItemHeight,
+            MIN_COLUMN_WIDTH,
+        };
+    }
 
 })();

@@ -6,9 +6,28 @@
 (function() {
     // Current sort preference
     let currentSort = 'uploaded';
-    
+
     // Expose to window for masonry sorting
     window.currentSortMode = currentSort;
+
+    // --- Pure helpers (exported for unit tests) ---
+
+    // SPA URL for a folder view.
+    function buildFolderUrl(baseUrl, folderId) {
+        return `${baseUrl}/?folder_id=${folderId}`;
+    }
+
+    // Display extension for a note card (e.g. "notes.MD" -> "md").
+    function getNoteExtension(displayName) {
+        const name = displayName || '';
+        return (name.includes('.') ? name.split('.').pop() : 'txt').toLowerCase();
+    }
+
+    // Tooltip label for the sort button.
+    function getSortLabel(sort) {
+        return sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
+    }
+    window.getSortLabel = getSortLabel;
 
     // Navigate to folder via SPA
     // pushState: true = add history entry, false = no history change, 'replace' = replace current entry
@@ -33,9 +52,9 @@
             const data = await resp.json();
             
             if (pushState === true) {
-                history.pushState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
+                history.pushState({ folderId: folderId }, '', buildFolderUrl(getBaseUrl(), folderId));
             } else if (pushState === 'replace') {
-                history.replaceState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
+                history.replaceState({ folderId: folderId }, '', buildFolderUrl(getBaseUrl(), folderId));
             }
             
             window.currentFolderId = folderId;
@@ -92,7 +111,7 @@
             
         } catch (err) {
             console.error('[SPA] Navigation failed:', err);
-            window.location.href = `${getBaseUrl()}/?folder_id=${folderId}`;
+            window.location.href = buildFolderUrl(getBaseUrl(), folderId);
         }
         
         return false;
@@ -260,7 +279,7 @@
                 // Text note: extension-icon card, no thumbnail
                 const note = item;
                 const displayName = note.original_name || note.title || 'Untitled';
-                const ext = (displayName.includes('.') ? displayName.split('.').pop() : 'txt').toLowerCase();
+                const ext = getNoteExtension(displayName);
                 const uploadedAt = note.uploaded_at || '';
                 const takenAt = note.taken_at || '';
                 const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
@@ -381,8 +400,7 @@
     function updateSortUI(sort) {
         const sortBtn = document.getElementById('sort-btn');
         if (sortBtn) {
-            const sortLabel = sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
-            sortBtn.setAttribute('title', sortLabel);
+            sortBtn.setAttribute('title', getSortLabel(sort));
         }
     }
 
@@ -446,5 +464,14 @@
             console.error('[navigation] openPhoto not available');
         }
     };
+
+    // CommonJS export for Jest unit tests (no-op in the browser).
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            buildFolderUrl,
+            getNoteExtension,
+            getSortLabel,
+        };
+    }
 
 })();

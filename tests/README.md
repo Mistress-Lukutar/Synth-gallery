@@ -14,6 +14,9 @@ This document describes the testing strategy and all available tests for the Syn
 ├─────────────────────────────────────────────────────────────┤
 │                    Unit Tests (pytest)                      │
 │   Encryption, services, repositories - isolated testing     │
+├─────────────────────────────────────────────────────────────┤
+│                  JS Unit Tests (Jest + jsdom)               │
+│   Pure frontend helpers - sorting, URLs, search parsing     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -23,6 +26,20 @@ This document describes the testing strategy and all available tests for the Syn
 ```bash
 python -m pytest tests/ -v
 ```
+
+### JavaScript Unit Tests (Jest)
+```bash
+# One-time setup (requires Node.js 18+)
+npm install
+
+# Run the JS suite (tests/js/)
+npm test
+```
+
+The Jest configuration lives in `package.json` (`testEnvironment: jsdom`).
+Frontend modules are classic scripts (IIFEs); pure helpers are exported via
+a CommonJS guard (`module.exports`) that is inert in the browser, so tests
+can `require()` the modules directly.
 
 ### By Category
 ```bash
@@ -254,6 +271,19 @@ Tests for API endpoints, database operations, and authentication flows.
 | | `test_safe_file_endpoints_use_permission_service` | Permission service usage |
 | `TestSafeFileThumbnail` | `test_thumbnail_endpoint_returns_202_for_missing_thumbnail` | 202 for missing thumbnail |
 | | `test_permission_service_has_can_access_photo` | Service has photo access method |
+
+---
+
+### 6. JS Unit Tests (`tests/js/`)
+
+Jest + jsdom tests for the pure helpers exported from the frontend IIFE
+modules (see "JavaScript Unit Tests (Jest)" above for setup).
+
+| File | Module | Covers |
+|------|--------|--------|
+| `gallery-masonry.test.js` | `app/static/js/gallery-masonry.js` | `parseGalleryDate` (ISO/microseconds/timezones), `compareGalleryItemsByDate` (uploaded/taken, folders excluded), `getColumnCountForWidth`, `estimateGalleryItemHeight` (aspect clamping) |
+| `navigation.test.js` | `app/static/js/navigation.js` | `buildFolderUrl` (subpath support), `getNoteExtension`, `getSortLabel` |
+| `gallery-search.test.js` | `app/static/js/gallery-search.js` | `parseSearchQuery` (negative tags), `applySuggestionToInput`, `buildTagSearchApiUrl`, `buildSearchApiUrl` |
 
 ---
 

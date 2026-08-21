@@ -25,3 +25,5 @@ nul
 .agents
 .zcode
 .claude
+# Node
+node_modules/
