@@ -60,8 +60,9 @@ class RandomAccessReader(ABC):
 
     Required by HTTP Range serving and chunked-envelope decryption, which
     need ``seek``/``tell`` to skip to the chunks overlapping the requested
-    byte range. Backends that cannot provide a seekable stream (e.g. S3's
-    single-pass ``StreamingBody``) should raise ``NotImplementedError`` from
+    byte range. LocalStorage wraps an open file handle; S3Storage serves
+    ranged GETs through a buffered reader. Backends that cannot provide a
+    seekable stream should raise ``NotImplementedError`` from
     :meth:`StorageInterface.get_random_access_reader` rather than return a
     broken reader.
 
@@ -334,10 +335,10 @@ class StorageInterface(ABC):
         """Return a seekable reader over the stored object.
 
         Used by HTTP Range serving and chunked-envelope decryption, which
-        require ``seek``/``tell``. Backends that cannot satisfy random
-        access (e.g. S3's single-pass object stream) raise
-        ``NotImplementedError``; callers must fall back to whole-file
-        streaming for those backends.
+        require ``seek``/``tell``. LocalStorage and S3Storage both provide
+        readers (S3 via buffered ranged GETs); backends that cannot satisfy
+        random access raise ``NotImplementedError``, and callers must fall
+        back to whole-file streaming for those.
 
         Args:
             file_id: Unique file identifier

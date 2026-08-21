@@ -1,8 +1,10 @@
 """S3-compatible storage implementation (AWS S3, MinIO, DigitalOcean Spaces)."""
+import io
 from pathlib import Path
 from typing import BinaryIO, Optional, Union, Iterator
 
 from .base import (
+    RandomAccessReader,
     StorageInterface,
     StorageConfig,
     StorageError,
@@ -21,6 +23,118 @@ except ImportError:
     HAS_BOTO3 = False
     boto3 = None
     ClientError = Exception
+
+
+class S3RandomAccessReader(RandomAccessReader):
+    """Seekable reader over an S3 object backed by HTTP ranged GETs.
+
+    Reads are buffered: small reads are served from a 64 KiB read-ahead
+    window so one GET amortises many ``read()`` calls, while reads larger
+    than the window fetch exactly the requested span in a single request —
+    sequential chunk-sized decrypt reads stay one-request-per-chunk and
+    never over-fetch.
+    """
+
+    _WINDOW = 64 * 1024
+
+    def __init__(self, client, bucket: str, key: str, size: int):
+        self._client = client
+        self._bucket = bucket
+        self._key = key
+        self._size = size
+        self._pos = 0
+        self._buf = b""
+        self._buf_start = 0
+        self._closed = False
+
+    # -- internals -------------------------------------------------------------
+
+    def _check_open(self) -> None:
+        if self._closed:
+            raise ValueError("read/write operation on closed reader")
+
+    def _fetch(self, start: int, end: int) -> bytes:
+        """GET the inclusive byte span ``[start, end]`` from the object."""
+        response = self._client.get_object(
+            Bucket=self._bucket,
+            Key=self._key,
+            Range=f"bytes={start}-{end}",
+        )
+        return response["Body"].read()
+
+    def _fill_buffer(self, pos: int) -> None:
+        fetch_len = min(self._WINDOW, self._size - pos)
+        if fetch_len <= 0:
+            self._buf = b""
+            self._buf_start = pos
+            return
+        self._buf = self._fetch(pos, pos + fetch_len - 1)
+        self._buf_start = pos
+
+    # -- RandomAccessReader API --------------------------------------------------
+
+    def read(self, size: int = -1) -> bytes:
+        self._check_open()
+        if size is None or size < 0:
+            size = self._size - self._pos
+        if size <= 0 or self._pos >= self._size:
+            return b""
+
+        out = bytearray()
+        remaining = size
+        while remaining > 0:
+            buf_end = self._buf_start + len(self._buf)
+            in_window = self._buf and self._buf_start <= self._pos < buf_end
+            if in_window:
+                offset = self._pos - self._buf_start
+                take = min(remaining, len(self._buf) - offset)
+                out += self._buf[offset : offset + take]
+                self._pos += take
+                remaining -= take
+                continue
+
+            # Position is outside the buffered window.
+            if remaining >= self._WINDOW:
+                # Large read: fetch exactly the span, no buffering overhead.
+                span = min(remaining, self._size - self._pos)
+                out += self._fetch(self._pos, self._pos + span - 1)
+                self._pos += span
+                remaining -= span
+            else:
+                self._fill_buffer(self._pos)
+                if not self._buf:
+                    break  # EOF
+        return bytes(out)
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        self._check_open()
+        if whence == io.SEEK_SET:
+            new_pos = offset
+        elif whence == io.SEEK_CUR:
+            new_pos = self._pos + offset
+        elif whence == io.SEEK_END:
+            new_pos = self._size + offset
+        else:
+            raise ValueError(f"invalid whence value: {whence}")
+        if new_pos < 0:
+            raise ValueError("negative seek position")
+        # Keep the buffer only when the new position lands inside it.
+        buf_end = self._buf_start + len(self._buf)
+        if not (self._buf and self._buf_start <= new_pos < buf_end):
+            self._buf = b""
+        self._pos = new_pos
+        return self._pos
+
+    def tell(self) -> int:
+        return self._pos
+
+    def close(self) -> None:
+        self._closed = True
+        self._buf = b""
+
+    @property
+    def size(self) -> int:
+        return self._size
 
 
 class S3Storage(StorageInterface):
@@ -286,7 +400,7 @@ class S3Storage(StorageInterface):
     async def get_size(self, file_id: str, folder: str = "uploads") -> int:
         """Get file size from S3."""
         key = self._get_key(file_id, folder)
-        
+
         try:
             response = self.client.head_object(Bucket=self.bucket, Key=key)
             return response['ContentLength']
@@ -295,3 +409,25 @@ class S3Storage(StorageInterface):
             if error_code in ('404', 'NoSuchKey'):
                 raise StorageFileNotFoundError(f"File not found: {file_id}")
             raise StorageError(f"Failed to get size of {file_id}: {e}")
+
+    def get_random_access_reader(
+        self, file_id: str, folder: str = "uploads"
+    ) -> RandomAccessReader:
+        """Return a seekable reader over the object, backed by ranged GETs.
+
+        Enables HTTP Range serving and chunked-envelope decryption on S3
+        without downloading whole objects.
+        """
+        key = self._get_key(file_id, folder)
+
+        try:
+            response = self.client.head_object(Bucket=self.bucket, Key=key)
+        except ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            if error_code in ('404', 'NoSuchKey'):
+                raise StorageFileNotFoundError(f"File not found: {file_id}")
+            raise StorageError(f"Failed to open {file_id} for random access: {e}")
+
+        return S3RandomAccessReader(
+            self.client, self.bucket, key, response['ContentLength']
+        )

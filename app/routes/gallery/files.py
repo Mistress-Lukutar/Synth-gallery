@@ -145,10 +145,10 @@ async def _open_encrypted_reader(filename: str, folder: str):
     '''Return a seekable reader over the stored encrypted envelope.
 
     Goes through the storage abstraction's ``get_random_access_reader`` so
-    any backend that supports random access (local today) works identically.
-    Backends that cannot provide a seekable stream (e.g. S3) raise
-    ``NotImplementedError`` from the storage layer; range/JXL serving is not
-    supported for those until a range-GET reader is added.
+    any backend that supports random access (local file handles, S3
+    range-GET readers) works identically. Backends that cannot provide a
+    seekable stream raise ``NotImplementedError``; callers fall back to
+    whole-file streaming.
     '''
     return storage.get_random_access_reader(filename, folder)
 
@@ -282,7 +282,20 @@ async def get_file(item_id: str, request: Request):
 
         # JXL path stays whole-file (small images; needs Accept negotiation).
         if content_type == 'image/jxl':
-            reader = await _open_encrypted_reader(filename, 'uploads')
+            try:
+                reader = await _open_encrypted_reader(filename, 'uploads')
+            except NotImplementedError:
+                # Backend without random access: whole-file stream.
+                stream = await storage.get_stream(filename, 'uploads')
+                head = stream.read(ENVELOPE_HEADER_SIZE)
+                EncryptionService.parse_envelope_header(head)
+                buf = io.BytesIO()
+                EncryptionService.decrypt_to_stream(
+                    _PrefixedReader(head, stream), buf, dek
+                )
+                return await _serve_jxl_or_fallback(
+                    request, item_id, buf.getvalue(), dek
+                )
             try:
                 buf = io.BytesIO()
                 EncryptionService.decrypt_to_stream(reader, buf, dek)
@@ -299,29 +312,40 @@ async def get_file(item_id: str, request: Request):
         range_header = request.headers.get('range')
         parsed = _parse_range(range_header, plaintext_size) if range_header else None
 
+        random_reader = None
         if parsed is not None:
             start, end = parsed
-            # Range serving needs a seekable reader so decrypt_range can skip
-            # to the chunks overlapping [start, end]. Open it here (awaitable)
-            # and hand it to the sync generator.
-            reader = await _open_encrypted_reader(filename, 'uploads')
+            try:
+                # Range serving needs a seekable reader so decrypt_range can
+                # skip to the chunks overlapping [start, end].
+                random_reader = await _open_encrypted_reader(
+                    filename, 'uploads'
+                )
+            except NotImplementedError:
+                # Backend without random access: fall through to the
+                # whole-file stream below (no Accept-Ranges advertised).
+                pass
 
-            def _gen():
-                try:
-                    yield from EncryptionService.decrypt_range(
-                        reader, dek, start, end
-                    )
-                finally:
-                    reader.close()
+            if random_reader is not None:
+                reader = random_reader
 
-            headers = _build_headers(
-                content_type,
-                plaintext_size,
-                content_range=(start, end, plaintext_size),
-            )
-            return StreamingResponse(
-                _gen(), status_code=206, headers=headers, media_type=content_type
-            )
+                def _gen():
+                    try:
+                        yield from EncryptionService.decrypt_range(
+                            reader, dek, start, end
+                        )
+                    finally:
+                        reader.close()
+
+                headers = _build_headers(
+                    content_type,
+                    plaintext_size,
+                    content_range=(start, end, plaintext_size),
+                )
+                return StreamingResponse(
+                    _gen(), status_code=206, headers=headers,
+                    media_type=content_type,
+                )
 
         # Full-file streaming response. iter_decrypt is sequential (no seek),
         # so a plain storage stream works for any backend including S3.
@@ -349,7 +373,13 @@ async def get_file(item_id: str, request: Request):
             finally:
                 reader.close()
 
-        headers = _build_headers(content_type, plaintext_size)
+        # When a Range was requested but the backend cannot seek, the whole
+        # file is served with 200 and no Accept-Ranges advertisement.
+        headers = _build_headers(
+            content_type,
+            plaintext_size,
+            accept_ranges=random_reader is not None or parsed is None,
+        )
         return StreamingResponse(
             _gen_full(), headers=headers, media_type=content_type
         )
