@@ -87,11 +87,11 @@ def _make_thumbnail_for(
         return None
 
 
-async def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
+async def regenerate_thumbnail(item_id: str, user_id: int = None) -> bool:
     '''Regenerate a single item's thumbnail.
 
     Args:
-        photo_id: The item ID.
+        item_id: The item ID.
         user_id: Optional user ID to look up the DEK.
 
     Returns:
@@ -104,13 +104,13 @@ async def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
             FROM item_media im
             JOIN items i ON im.item_id = i.id
             WHERE i.id = ?""",
-        (photo_id,),
+        (item_id,),
     ).fetchone()
     if not photo:
         return False
 
     # Storage is keyed by item_id (extension-less).
-    if not storage.exists(photo_id, 'uploads'):
+    if not storage.exists(item_id, 'uploads'):
         return False
 
     dek = None
@@ -124,7 +124,7 @@ async def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
     temp_plain: Path | None = None
     src_stream = None
     try:
-        src_stream = await storage.get_stream(photo_id, 'uploads')
+        src_stream = await storage.get_stream(item_id, 'uploads')
         if photo['media_type'] == 'video':
             # Video: decrypt to temp file (ffmpeg needs a path).
             suffix = _suggest_suffix('video', photo['content_type'])
@@ -146,7 +146,7 @@ async def regenerate_thumbnail(photo_id: str, user_id: int = None) -> bool:
         thumb_bytes, _, _ = result
 
         encrypted_thumb = EncryptionService.encrypt_bytes(thumb_bytes, dek)
-        await storage.upload(photo_id, encrypted_thumb, folder='thumbnails')
+        await storage.upload(item_id, encrypted_thumb, folder='thumbnails')
         return True
     except Exception:
         return False

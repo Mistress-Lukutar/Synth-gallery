@@ -26,7 +26,7 @@ class TestUploadSpoofingProtection:
         php_content = b"<?php echo 'HACKED'; system($_GET['cmd']); ?>"
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("malicious.jpg", io.BytesIO(php_content), "image/jpeg")
@@ -48,7 +48,7 @@ class TestUploadSpoofingProtection:
         html_content = b"<html><script>alert('XSS')</script></html>"
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("xss.png", io.BytesIO(html_content), "image/png")
@@ -71,7 +71,7 @@ class TestUploadSpoofingProtection:
         exe_content = b"MZ" + b"\x00" * 100  # Minimal EXE header
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("virus.gif", io.BytesIO(exe_content), "image/gif")
@@ -92,7 +92,7 @@ class TestUploadSpoofingProtection:
         js_content = b"fetch('/api/admin/delete-all', {method: 'POST'})"
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("payload.webp", io.BytesIO(js_content), "image/webp")
@@ -112,7 +112,7 @@ class TestUploadSpoofingProtection:
     ):
         """Valid JPEG with correct magic bytes should be accepted."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("valid.jpg", io.BytesIO(test_image_bytes), "image/jpeg")
@@ -138,7 +138,7 @@ class TestUploadSpoofingProtection:
         jpeg_content = b'\xff\xd8\xff\xe0\x00\x10JFIF' + b'\x00' * 200
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("valid.jpg", io.BytesIO(jpeg_content), "image/jpeg")
@@ -160,7 +160,7 @@ class TestUploadSpoofingProtection:
         """Valid image with correct magic bytes should be accepted."""
         # Use real test image (JPEG) to verify full flow works
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("valid.jpg", io.BytesIO(test_image_bytes), "image/jpeg")
@@ -180,7 +180,7 @@ class TestUploadSpoofingProtection:
     ):
         """Empty file with image content-type should be rejected."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("empty.jpg", io.BytesIO(b""), "image/jpeg")
@@ -198,7 +198,7 @@ class TestUploadSpoofingProtection:
     ):
         """File too small to have valid magic bytes should be rejected."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("tiny.jpg", io.BytesIO(b"\xff\xd8"), "image/jpeg")  # Only 2 bytes
@@ -220,7 +220,7 @@ class TestUploadMimeTypeValidation:
     ):
         """Files with unsupported content-type should be rejected."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("file.pdf", io.BytesIO(b"%PDF-1.4"), "application/pdf")
@@ -241,7 +241,7 @@ class TestUploadMimeTypeValidation:
         text_content = b"This is a text file, not an image"
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={
                 "file": ("text.jpg", io.BytesIO(text_content), "image/jpeg")

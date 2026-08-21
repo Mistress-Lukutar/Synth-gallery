@@ -51,7 +51,7 @@ class JxlFallbackService:
 
     async def get_fallback(
         self,
-        photo_id: str,
+        item_id: str,
         jxl_bytes: bytes,
         dek: bytes,
     ) -> bytes:
@@ -61,7 +61,7 @@ class JxlFallbackService:
         image, encodes it as JPEG and caches the encrypted result.
 
         Args:
-            photo_id: UUID of the media item.
+            item_id: UUID of the media item.
             jxl_bytes: Decrypted JXL bytes.
             dek: Data encryption key for caching the fallback.
 
@@ -71,81 +71,81 @@ class JxlFallbackService:
         Raises:
             JxlFallbackError: If decoding or encoding fails.
         '''
-        cached = await self._get_cached(photo_id, dek)
+        cached = await self._get_cached(item_id, dek)
         if cached is not None:
             return cached
 
         try:
             jpeg_bytes = self._jxl_to_jpeg(jxl_bytes)
         except Exception as exc:
-            logger.exception('Failed to generate JPEG fallback for %s', photo_id)
+            logger.exception('Failed to generate JPEG fallback for %s', item_id)
             raise JxlFallbackError(f'Fallback generation failed: {exc}') from exc
 
-        await self._cache_fallback(photo_id, jpeg_bytes, dek)
+        await self._cache_fallback(item_id, jpeg_bytes, dek)
         return jpeg_bytes
 
-    async def invalidate(self, photo_id: str) -> None:
+    async def invalidate(self, item_id: str) -> None:
         '''Remove cached fallback for the given item.
 
         Args:
-            photo_id: UUID of the media item.
+            item_id: UUID of the media item.
         '''
-        if not self.storage.exists(photo_id, self._FOLDER):
+        if not self.storage.exists(item_id, self._FOLDER):
             return
 
         try:
-            await self.storage.delete(photo_id, self._FOLDER)
+            await self.storage.delete(item_id, self._FOLDER)
         except Exception as exc:
-            logger.warning('Failed to invalidate fallback for %s: %s', photo_id, exc)
+            logger.warning('Failed to invalidate fallback for %s: %s', item_id, exc)
 
     async def _get_cached(
         self,
-        photo_id: str,
+        item_id: str,
         dek: bytes,
     ) -> bytes | None:
         '''Return decrypted cached fallback or None if unavailable.
 
         Args:
-            photo_id: UUID of the media item.
+            item_id: UUID of the media item.
             dek: Data encryption key.
 
         Returns:
             Decrypted JPEG bytes or None.
         '''
-        if not self.storage.exists(photo_id, self._FOLDER):
+        if not self.storage.exists(item_id, self._FOLDER):
             return None
 
         try:
-            encrypted = await self.storage.download(photo_id, self._FOLDER)
+            encrypted = await self.storage.download(item_id, self._FOLDER)
             return EncryptionService.decrypt_bytes(encrypted, dek)
         except Exception as exc:
-            logger.warning('Cached fallback for %s is unusable: %s', photo_id, exc)
-            await self.invalidate(photo_id)
+            logger.warning('Cached fallback for %s is unusable: %s', item_id, exc)
+            await self.invalidate(item_id)
             return None
 
     async def _cache_fallback(
         self,
-        photo_id: str,
+        item_id: str,
         jpeg_bytes: bytes,
         dek: bytes,
     ) -> None:
         '''Encrypt and store a generated fallback.
 
         Args:
-            photo_id: UUID of the media item.
+            item_id: UUID of the media item.
             jpeg_bytes: Generated JPEG bytes.
             dek: Data encryption key.
         '''
         try:
             encrypted = EncryptionService.encrypt_bytes(jpeg_bytes, dek)
             await self.storage.upload(
-                photo_id,
+                item_id,
                 encrypted,
                 folder=self._FOLDER,
                 content_type='image/jpeg',
             )
         except Exception as exc:
-            logger.warning('Failed to cache fallback for %s: %s', photo_id, exc)
+            logger.warning('Failed to cache fallback for %s: %s', item_id, exc)
 
     def _jxl_to_jpeg(self, jxl_bytes: bytes) -> bytes:
         '''Decode JXL bytes and re-encode as JPEG.

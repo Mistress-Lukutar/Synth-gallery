@@ -226,6 +226,33 @@ class EncryptionService:
             writer.write(chunk)
 
     @staticmethod
+    def parse_envelope_header(head: bytes) -> int:
+        '''Validate a raw envelope header.
+
+        Args:
+            head: The first ``ENVELOPE_HEADER_SIZE`` bytes read from a
+                stored envelope.
+
+        Returns:
+            The plaintext chunk size declared by the envelope.
+
+        Raises:
+            EncryptionError: If the header is truncated, has a bad magic
+                value, an unsupported version or an invalid chunk size.
+        '''
+        if len(head) < ENVELOPE_HEADER_SIZE:
+            raise EncryptionError("truncated envelope header")
+        if head[:4] != ENVELOPE_MAGIC:
+            raise EncryptionError("invalid envelope magic")
+        version = head[4]
+        if version != ENVELOPE_VERSION:
+            raise EncryptionError(f"unsupported envelope version {version}")
+        chunk_size = struct.unpack(">I", head[6:10])[0]
+        if chunk_size <= 0:
+            raise EncryptionError("invalid chunk size in envelope")
+        return chunk_size
+
+    @staticmethod
     def iter_decrypt(reader: BinaryIO, dek: bytes) -> Iterator[bytes]:
         '''Lazily yield plaintext chunks from a chunked envelope.
 
@@ -245,16 +272,7 @@ class EncryptionService:
                 fails on any chunk.
         '''
         header = reader.read(ENVELOPE_HEADER_SIZE)
-        if len(header) < ENVELOPE_HEADER_SIZE:
-            raise EncryptionError("truncated envelope header")
-        if header[:4] != ENVELOPE_MAGIC:
-            raise EncryptionError("invalid envelope magic")
-        version = header[4]
-        if version != ENVELOPE_VERSION:
-            raise EncryptionError(f"unsupported envelope version {version}")
-        chunk_size = struct.unpack(">I", header[6:10])[0]
-        if chunk_size <= 0:
-            raise EncryptionError("invalid chunk size in envelope")
+        chunk_size = EncryptionService.parse_envelope_header(header)
 
         aesgcm = AESGCM(dek)
         cipher_chunk_size = NONCE_SIZE + chunk_size + GCM_TAG_SIZE
@@ -305,16 +323,7 @@ class EncryptionService:
 
         reader.seek(0, io.SEEK_SET)
         header = reader.read(ENVELOPE_HEADER_SIZE)
-        if len(header) < ENVELOPE_HEADER_SIZE:
-            raise EncryptionError("truncated envelope header")
-        if header[:4] != ENVELOPE_MAGIC:
-            raise EncryptionError("invalid envelope magic")
-        version = header[4]
-        if version != ENVELOPE_VERSION:
-            raise EncryptionError(f"unsupported envelope version {version}")
-        chunk_size = struct.unpack(">I", header[6:10])[0]
-        if chunk_size <= 0:
-            raise EncryptionError("invalid chunk size in envelope")
+        chunk_size = EncryptionService.parse_envelope_header(header)
 
         aesgcm = AESGCM(dek)
         cipher_chunk_size = NONCE_SIZE + chunk_size + GCM_TAG_SIZE
@@ -375,39 +384,6 @@ class EncryptionService:
         plaintext_from_full = full_chunks * chunk_size
         plaintext_from_last = remainder - NONCE_SIZE - GCM_TAG_SIZE
         return plaintext_from_full + plaintext_from_last
-
-    @staticmethod
-    def detect_format(reader: BinaryIO) -> str:
-        '''Inspect the first bytes of ``reader`` without consuming the stream.
-
-        Args:
-            reader: A seekable binary reader positioned anywhere; the original
-                position is restored before return.
-
-        Returns:
-            ``"v1"`` for the new chunked envelope, ``"legacy"`` for the old
-            whole-file ``[nonce][ciphertext+tag]`` format, or ``"plaintext"``
-            if the stream does not look like an encrypted envelope.
-        '''
-        try:
-            pos = reader.tell()
-        except (AttributeError, OSError):
-            pos = None
-        try:
-            head = reader.read(ENVELOPE_HEADER_SIZE)
-        finally:
-            if pos is not None:
-                try:
-                    reader.seek(pos, io.SEEK_SET)
-                except (AttributeError, OSError):
-                    pass
-
-        if len(head) >= 4 and head[:4] == ENVELOPE_MAGIC:
-            return "v1"
-        # The legacy format had no magic and started with 12 random bytes;
-        # we treat anything else as legacy/plaintext and let the caller
-        # decide via authentication result.
-        return "legacy"
 
     # ==================================================================
     # Recovery key methods (unchanged contract).

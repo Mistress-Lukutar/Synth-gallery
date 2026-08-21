@@ -86,7 +86,6 @@ def gallery(request: Request, folder_id: str = None):
 
 
 @router.get("/api/folders/{folder_id}/content")
-@router.get("/api/folders/{folder_id}/contents")  # Legacy alias
 def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
     """Get folder contents as JSON (for SPA navigation).
     
@@ -136,7 +135,7 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
                 "user_id": folder.get("user_id"),
             })
 
-        # Add albums from legacy table (for now)
+        # Add albums (dedicated albums table; not an items.type yet).
         for album in folder_contents["albums"]:
             # Get item count from album_items table
             album_items = album_repo.get_items(album["id"])

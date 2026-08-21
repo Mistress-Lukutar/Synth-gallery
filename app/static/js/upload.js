@@ -659,7 +659,7 @@
                         formData.append('file', file);
                         formData.append('folder_id', targetFolderId);
 
-                        const resp = await csrfUpload(`${getBaseUrl()}/upload`, formData, {
+                        const resp = await csrfUpload(`${getBaseUrl()}/api/uploads`, formData, {
                             signal: abortController.signal,
                             onProgress: (e) => {
                                 if (e.lengthComputable) {

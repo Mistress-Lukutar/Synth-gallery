@@ -265,19 +265,21 @@ class TestFileEncryption:
         with pytest.raises(ValueError):
             list(EncryptionService.decrypt_range(reader, dek, -1, 5))
 
-    def test_detect_format_v1(self):
-        """detect_format should identify the new envelope."""
+    def test_parse_envelope_header_valid(self):
+        """parse_envelope_header should return the declared chunk size."""
         dek = EncryptionService.generate_dek()
         enc = EncryptionService.encrypt_bytes(b'data', dek)
-        reader = io.BytesIO(enc)
-        assert EncryptionService.detect_format(reader) == 'v1'
-        # Position must be restored.
-        assert reader.tell() == 0
+        chunk_size = EncryptionService.parse_envelope_header(enc[:10])
+        assert chunk_size > 0
 
-    def test_detect_format_legacy(self):
-        """detect_format should classify non-envelope bytes as legacy."""
-        reader = io.BytesIO(b'\xff\xd8\xff\xe0' + b'\x00' * 100)
-        assert EncryptionService.detect_format(reader) == 'legacy'
+    def test_parse_envelope_header_rejects_non_envelope(self):
+        """Non-envelope bytes should raise EncryptionError."""
+        with pytest.raises(EncryptionError):
+            EncryptionService.parse_envelope_header(
+                b'\xff\xd8\xff\xe0' + b'\x00' * 6
+            )
+        with pytest.raises(EncryptionError):
+            EncryptionService.parse_envelope_header(b'SGE')
 
     def test_decrypt_corrupt_header(self):
         """Truncated or malformed headers should raise EncryptionError."""

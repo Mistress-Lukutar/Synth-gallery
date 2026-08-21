@@ -15,6 +15,7 @@ from app.database import create_connection
 from app.dependencies import require_user
 from app.infrastructure.repositories import ItemRepository, ItemMediaRepository
 from app.infrastructure.services.encryption import (
+    ENVELOPE_HEADER_SIZE,
     EncryptionError,
     EncryptionService,
     dek_cache,
@@ -83,8 +84,40 @@ def _parse_range(header: str, total: int) -> tuple[int, int] | None:
         return None
 
 
+class _PrefixedReader:
+    '''Chain already-read bytes back in front of a stream.
+
+    Used after peeking the envelope header for pre-flight validation: the
+    decrypt pipe still sees a complete envelope starting at byte 0 without
+    needing a seekable source.
+    '''
+
+    def __init__(self, prefix: bytes, stream) -> None:
+        self._buffer = prefix
+        self._stream = stream
+
+    def read(self, n: int = -1):
+        if not self._buffer:
+            return self._stream.read(n)
+        if n is None or n < 0:
+            chunk, self._buffer = self._buffer, b''
+            rest = self._stream.read()
+            return chunk + (rest or b'')
+        chunk, self._buffer = self._buffer[:n], self._buffer[n:]
+        if len(chunk) < n:
+            rest = self._stream.read(n - len(chunk))
+            return chunk + (rest or b'')
+        return chunk
+
+    def close(self):
+        try:
+            self._stream.close()
+        except Exception:
+            pass
+
+
 def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=None):
-    '''Build a photo-like dict for the requested item.
+    '''Build an item dict for the requested file record.
 
     Dispatch is driven by the item-type registry: today only ``media`` items
     serve files, but the registry check is the single extension point so a
@@ -149,7 +182,7 @@ def _build_headers(
 
 async def _serve_jxl_or_fallback(
     request: Request,
-    photo_id: str,
+    item_id: str,
     jxl_bytes: bytes,
     dek: bytes,
 ) -> Response:
@@ -161,21 +194,21 @@ async def _serve_jxl_or_fallback(
     '''
     if _force_jpeg_fallback(request) or not _client_accepts_jxl(request):
         fallback_service = JxlFallbackService()
-        jpeg_bytes = await fallback_service.get_fallback(photo_id, jxl_bytes, dek)
+        jpeg_bytes = await fallback_service.get_fallback(item_id, jxl_bytes, dek)
         return Response(content=jpeg_bytes, media_type='image/jpeg')
     return Response(content=jxl_bytes, media_type='image/jxl')
 
 
-@router.head('/files/{photo_id}')
-@router.head('/files/{photo_id}/thumbnail')
-async def file_head(photo_id: str, request: Request):
+@router.head('/files/{item_id}')
+@router.head('/files/{item_id}/thumbnail')
+async def file_head(item_id: str, request: Request):
     '''HEAD metadata for a media file (Content-Length, Accept-Ranges).'''
     user = require_user(request)
     db = create_connection()
     try:
         item_repo = ItemRepository(db)
         item_media_repo = ItemMediaRepository(db)
-        record = _get_file_record(photo_id, item_repo, item_media_repo)
+        record = _get_file_record(item_id, item_repo, item_media_repo)
         if not record:
             raise HTTPException(status_code=404, detail='Item not found')
 
@@ -185,14 +218,14 @@ async def file_head(photo_id: str, request: Request):
         ):
             raise HTTPException(status_code=403, detail='Access denied')
 
-        if not storage.exists(photo_id, 'uploads'):
+        if not storage.exists(item_id, 'uploads'):
             raise HTTPException(status_code=404, detail='File missing')
 
         owner_id = record.get('user_id')
         if not dek_cache.get(owner_id) if owner_id else True:
             raise HTTPException(status_code=403, detail='Encryption key not available')
 
-        enc_size = await _encrypted_size(photo_id, 'uploads')
+        enc_size = await _encrypted_size(item_id, 'uploads')
         content_type = record.get('content_type') or 'application/octet-stream'
         try:
             plaintext_size = EncryptionService.get_plaintext_size(enc_size)
@@ -205,8 +238,8 @@ async def file_head(photo_id: str, request: Request):
         db.close()
 
 
-@router.get('/files/{photo_id}')
-async def get_file(photo_id: str, request: Request):
+@router.get('/files/{item_id}')
+async def get_file(item_id: str, request: Request):
     '''Stream a media file with optional HTTP Range support.
 
     Files are decrypted on the fly from the chunked envelope. Range requests
@@ -221,7 +254,7 @@ async def get_file(photo_id: str, request: Request):
         item_repo = ItemRepository(db)
         item_media_repo = ItemMediaRepository(db)
 
-        file_record = _get_file_record(photo_id, item_repo, item_media_repo)
+        file_record = _get_file_record(item_id, item_repo, item_media_repo)
         if not file_record:
             raise HTTPException(status_code=404, detail='Item not found')
 
@@ -229,7 +262,7 @@ async def get_file(photo_id: str, request: Request):
         if folder_id and not perm_service.can_access(folder_id, user['id']):
             raise HTTPException(status_code=403, detail='Access denied')
 
-        filename = file_record.get('filename', photo_id)
+        filename = file_record.get('filename', item_id)
         content_type = file_record.get('content_type') or 'application/octet-stream'
 
         owner_id = file_record.get('user_id')
@@ -254,7 +287,7 @@ async def get_file(photo_id: str, request: Request):
                 buf = io.BytesIO()
                 EncryptionService.decrypt_to_stream(reader, buf, dek)
                 return await _serve_jxl_or_fallback(
-                    request, photo_id, buf.getvalue(), dek
+                    request, item_id, buf.getvalue(), dek
                 )
             except EncryptionError as exc:
                 raise HTTPException(
@@ -294,16 +327,27 @@ async def get_file(photo_id: str, request: Request):
         # so a plain storage stream works for any backend including S3.
         stream = await storage.get_stream(filename, 'uploads')
 
+        # Pre-flight the envelope header so corrupt or non-envelope files
+        # fail with an explicit 500 instead of a silently empty 200 body.
+        try:
+            head = stream.read(ENVELOPE_HEADER_SIZE)
+            EncryptionService.parse_envelope_header(head)
+        except EncryptionError as exc:
+            stream.close()
+            raise HTTPException(status_code=500, detail=f'Decryption failed: {exc}')
+
+        reader = _PrefixedReader(head, stream)
+
         def _gen_full():
             try:
-                yield from EncryptionService.iter_decrypt(stream, dek)
+                # Errors raised here abort the transfer mid-stream; header
+                # problems were already rejected by the pre-flight above.
+                yield from EncryptionService.iter_decrypt(reader, dek)
             except EncryptionError as exc:
-                logger.warning('Stream decrypt failed for %s: %s', filename, exc)
+                logger.error('Stream decrypt failed for %s: %s', filename, exc)
+                raise
             finally:
-                try:
-                    stream.close()
-                except Exception:
-                    pass
+                reader.close()
 
         headers = _build_headers(content_type, plaintext_size)
         return StreamingResponse(
@@ -313,8 +357,8 @@ async def get_file(photo_id: str, request: Request):
         db.close()
 
 
-@router.get('/files/{photo_id}/thumbnail')
-async def get_file_thumbnail(photo_id: str, request: Request):
+@router.get('/files/{item_id}/thumbnail')
+async def get_file_thumbnail(item_id: str, request: Request):
     '''Thumbnail access endpoint. Thumbnails are small JPEGs.'''
     user = require_user(request)
 
@@ -324,7 +368,7 @@ async def get_file_thumbnail(photo_id: str, request: Request):
         item_repo = ItemRepository(db)
         item_media_repo = ItemMediaRepository(db)
 
-        file_record = _get_file_record(photo_id, item_repo, item_media_repo)
+        file_record = _get_file_record(item_id, item_repo, item_media_repo)
         if not file_record:
             raise HTTPException(status_code=404, detail='Item not found')
 
@@ -333,10 +377,10 @@ async def get_file_thumbnail(photo_id: str, request: Request):
             raise HTTPException(status_code=403, detail='Access denied')
 
         # Auto-regenerate missing thumbnails.
-        if not storage.exists(photo_id, 'thumbnails'):
+        if not storage.exists(item_id, 'thumbnails'):
             from app.infrastructure.services.thumbnail import regenerate_thumbnail
 
-            if not await regenerate_thumbnail(photo_id, user['id']):
+            if not await regenerate_thumbnail(item_id, user['id']):
                 raise HTTPException(status_code=404, detail='Thumbnail unavailable')
 
         # Thumbnails are always generated as JPEG, regardless of the original
@@ -350,7 +394,7 @@ async def get_file_thumbnail(photo_id: str, request: Request):
                 status_code=403, detail='Encryption key not available'
             )
 
-        data = await storage.download(photo_id, 'thumbnails')
+        data = await storage.download(item_id, 'thumbnails')
         try:
             decrypted_data = EncryptionService.decrypt_bytes(data, dek)
         except EncryptionError as exc:

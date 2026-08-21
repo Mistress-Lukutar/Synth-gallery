@@ -28,7 +28,7 @@ Synth Gallery is a **personal media vault** with end-to-end encryption, hardware
 | Image Processing | Pillow 12.1.1 |
 | Video Processing | ffmpeg / ffprobe (external binary; gyan.dev full build) |
 | Encryption | cryptography (AES-256-GCM, chunked streaming envelope) |
-| Password Hashing | bcrypt via passlib |
+| Password Hashing | bcrypt |
 | Hardware Keys | webauthn >=2.0.0 (FIDO2) |
 
 ## Project Structure

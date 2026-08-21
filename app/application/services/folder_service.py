@@ -215,14 +215,14 @@ class FolderService:
         return self.folder_repo.list_with_metadata(user_id)
 
     def get_folder_contents(self, folder_id: str, user_id: int) -> dict:
-        '''Get contents of a folder (subfolders, albums, photos).
+        '''Get contents of a folder (subfolders, albums, items).
 
         Args:
             folder_id: Folder ID
             user_id: User ID
 
         Returns:
-            Dict with subfolders, albums, photos
+            Dict with subfolders, albums, items
 
         Raises:
             HTTPException: If no access to folder
@@ -250,5 +250,4 @@ class FolderService:
             'subfolders': subfolders,
             'albums': albums,
             'items': items,
-            'photos': items,  # Legacy alias for backward compatibility
         }

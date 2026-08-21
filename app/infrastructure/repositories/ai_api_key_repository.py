@@ -93,20 +93,6 @@ class AiApiKeyRepository(Repository):
         )
         return self._row_to_dict(cursor.fetchone())
 
-    def get_by_hash(self, key_hash: str) -> Optional[dict]:
-        """Get API key by hash.
-
-        Returns:
-            Key dict or None
-        """
-        cursor = self._execute(
-            """SELECT k.id, k.name, k.is_active, k.user_id, k.rate_limit_tier
-               FROM ai_api_keys k
-               WHERE k.key_hash = ?""",
-            (key_hash,)
-        )
-        return self._row_to_dict(cursor.fetchone())
-
     def delete(self, key_id: int) -> bool:
         """Delete API key.
 

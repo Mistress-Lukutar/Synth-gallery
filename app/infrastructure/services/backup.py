@@ -19,12 +19,6 @@ from ...config import (
     BASE_DIR, BACKUP_PATH, BACKUP_ROTATION_COUNT, BACKUP_SCHEDULE, BACKUP_ENCRYPTION_KEY
 )
 
-DATABASE_PATH = BASE_DIR / "gallery.db"
-BACKUPS_DIR = BASE_DIR / "backups"  # Legacy DB-only backups
-UPLOADS_DIR = BASE_DIR / "uploads"   # Kept for test compatibility
-THUMBNAILS_DIR = BASE_DIR / "thumbnails"  # Kept for test compatibility
-MAX_BACKUPS = 5
-
 
 def _format_size(size_bytes: int) -> str:
     """Format file size in human-readable format."""
@@ -93,114 +87,6 @@ def _prepare_db_copy(src_path: Path, dest_path: Path) -> None:
         conn.execute("VACUUM")
     finally:
         conn.close()
-
-
-# =============================================================================
-# Legacy Database-only Backup Functions (for backwards compatibility)
-# =============================================================================
-
-def ensure_backups_dir():
-    """Create backups directory if it doesn't exist."""
-    BACKUPS_DIR.mkdir(exist_ok=True)
-
-
-def create_backup(reason: str = "manual") -> str | None:
-    """Create a database backup (legacy function).
-
-    Args:
-        reason: Reason for backup (e.g., "manual", "pre-migration", "pre-restore")
-
-    Returns:
-        Backup filename or None if database doesn't exist
-    """
-    if not DATABASE_PATH.exists():
-        return None
-
-    ensure_backups_dir()
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"gallery_{timestamp}_{reason}.db"
-    backup_path = BACKUPS_DIR / filename
-
-    shutil.copy2(DATABASE_PATH, backup_path)
-    rotate_backups()
-
-    return filename
-
-
-def list_backups() -> list[dict]:
-    """List all database backups with metadata (legacy function)."""
-    ensure_backups_dir()
-
-    backups = []
-    for file in BACKUPS_DIR.glob("gallery_*.db"):
-        stat = file.stat()
-        parts = file.stem.split("_")
-        reason = parts[3] if len(parts) > 3 else "unknown"
-
-        try:
-            date_str = f"{parts[1]}_{parts[2]}"
-            created_at = datetime.strptime(date_str, "%Y%m%d_%H%M%S")
-        except (IndexError, ValueError):
-            created_at = datetime.fromtimestamp(stat.st_mtime)
-
-        backups.append({
-            "name": file.name,
-            "size": stat.st_size,
-            "size_human": _format_size(stat.st_size),
-            "created_at": created_at.isoformat(),
-            "reason": reason
-        })
-
-    backups.sort(key=lambda x: x["created_at"], reverse=True)
-    return backups
-
-
-def get_backup_path(filename: str) -> Path | None:
-    """Get backup file path if it exists."""
-    if "/" in filename or "\\" in filename or ".." in filename:
-        return None
-
-    backup_path = BACKUPS_DIR / filename
-    if backup_path.exists() and backup_path.is_file():
-        return backup_path
-    return None
-
-
-def restore_backup(filename: str) -> bool:
-    """Restore database from backup (legacy function)."""
-    backup_path = get_backup_path(filename)
-    if not backup_path:
-        return False
-
-    if DATABASE_PATH.exists():
-        create_backup("pre-restore")
-
-    shutil.copy2(backup_path, DATABASE_PATH)
-    return True
-
-
-def delete_backup(filename: str) -> bool:
-    """Delete a backup file."""
-    backup_path = get_backup_path(filename)
-    if not backup_path:
-        return False
-
-    backup_path.unlink()
-    return True
-
-
-def rotate_backups(keep: int = MAX_BACKUPS):
-    """Delete old backups, keeping only the most recent ones."""
-    backups = list_backups()
-
-    if len(backups) <= keep:
-        return
-
-    for backup in backups[keep:]:
-        backup_path = BACKUPS_DIR / backup["name"]
-        if backup_path.exists():
-            backup_path.unlink()
 
 
 # =============================================================================

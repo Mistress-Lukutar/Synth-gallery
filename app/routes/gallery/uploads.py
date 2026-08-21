@@ -12,7 +12,6 @@ from datetime import datetime
 from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 
 from app.application.services import FolderService, ItemService
-from app.application.services.item_service import ItemService as _ItemService
 from app.application.services.item_types import ItemType
 from app.database import create_connection
 from app.dependencies import require_user
@@ -63,7 +62,6 @@ async def _process_upload(
 
 
 @router.post('/api/uploads')
-@router.post('/upload')  # Legacy endpoint for backward compatibility
 async def upload_file(
     request: Request,
     file: UploadFile = File(...),
@@ -72,7 +70,7 @@ async def upload_file(
     '''Upload a single file.
 
     Creates an Item record with type='media' and the associated ItemMedia
-    row. The legacy endpoint returns a backward-compatible response format.
+    row.
     '''
     user = require_user(request)
 
@@ -278,7 +276,7 @@ async def upload_album(
     folder_id: str = Form(...),
     album_name: str = Form(''),
 ):
-    '''Upload multiple files as an album (legacy endpoint).
+    '''Upload multiple files as an album.
 
     Creates items and an album containing them.
     '''
@@ -309,7 +307,7 @@ async def upload_album(
     db = create_connection()
     try:
         album_repo = AlbumRepository(db)
-        item_service = _ItemService(
+        item_service = ItemService(
             item_repository=ItemRepository(db),
             item_media_repository=ItemMediaRepository(db),
         )

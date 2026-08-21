@@ -88,7 +88,7 @@ class TestLightboxNavigationAPI:
         photo_ids = []
         for i in range(3):
             response = authenticated_client.post(
-                "/upload",
+                "/api/uploads",
                 data={"folder_id": test_folder},
                 files={"file": (f"nav_{i}.jpg", test_image_bytes, "image/jpeg")},
                 headers={"X-CSRF-Token": csrf_token}

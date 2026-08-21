@@ -248,27 +248,6 @@ class FolderRepository(Repository):
         )
         return cursor.fetchone() is not None
 
-    def count_photos_recursive(self, folder_id: str) -> int:
-        '''Count all photos in folder and subfolders.
-
-        Args:
-            folder_id: Folder ID
-
-        Returns:
-            Total photo count
-        '''
-        folder_ids = self._get_subtree_ids(folder_id)
-        if not folder_ids:
-            return 0
-
-        placeholders = ','.join('?' * len(folder_ids))
-        cursor = self._execute(
-            f'SELECT COUNT(*) as count FROM items WHERE folder_id IN ({placeholders})',
-            tuple(folder_ids),
-        )
-        row = cursor.fetchone()
-        return row['count'] if row else 0
-
     def _get_subtree_ids(self, folder_id: str) -> list[str]:
         '''Get all folder IDs in subtree using recursive CTE.'''
         cursor = self._execute(

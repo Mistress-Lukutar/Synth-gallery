@@ -147,13 +147,15 @@ class TestFolderPermissions:
             data={"username": test_user["username"], "password": test_user["password"]},
             follow_redirects=False
         )
-        
+        csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
+
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": shared_folder},
-            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
+            files={"file": ("test.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
         )
-        
+
         assert response.status_code == 403
     
     def test_editor_can_upload_to_shared_folder(
@@ -191,12 +193,12 @@ class TestFolderPermissions:
         csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": shared_folder},
             files={"file": ("test.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
         )
-        
+
         assert response.status_code == 200
 
 
@@ -265,7 +267,7 @@ class TestFolderDeletion:
         folder_id = folder_repo.create("ToDelete", test_user["id"])
         
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": folder_id},
             files={"file": ("delete_me.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -324,14 +326,16 @@ class TestFolderContentAPI:
         self,
         authenticated_client: TestClient,
         test_folder: str,
-        test_image_bytes: bytes
+        test_image_bytes: bytes,
+        csrf_token: str
     ):
         """Folder content API should list photos and albums."""
         # Upload a photo first
         authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
-            files={"file": ("content_test.jpg", test_image_bytes, "image/jpeg")}
+            files={"file": ("content_test.jpg", test_image_bytes, "image/jpeg")},
+            headers={"X-CSRF-Token": csrf_token}
         )
         
         response = authenticated_client.get(f"/api/folders/{test_folder}/content")
@@ -343,7 +347,7 @@ class TestFolderContentAPI:
         data = response.json()
         
         # Should have expected structure
-        assert "photos" in data or "items" in data
+        assert "items" in data
     
     def test_breadcrumbs_returned_for_folder(
         self,

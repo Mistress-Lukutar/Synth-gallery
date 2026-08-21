@@ -41,17 +41,6 @@ sqlite3.register_converter("TIMESTAMP", _convert_datetime)
 # =============================================================================
 # Password Hashing
 # =============================================================================
-def hash_password(password: str, salt: str = None) -> tuple[str, str]:
-    """Hash password using bcrypt.
-
-    Note: salt parameter is ignored for bcrypt (it generates its own).
-    Kept for backward compatibility with existing code.
-    Returns (hash, empty_string) tuple for API compatibility.
-    """
-    hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-    return hashed.decode('utf-8'), ""
-
-
 def verify_password(password: str, hashed: str, salt: str = None) -> bool:
     """Verify password against bcrypt hash."""
     if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
@@ -278,6 +267,37 @@ def _rebuild_table(
     db.execute(f"DROP TABLE {table}")
     db.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
     db.execute("PRAGMA foreign_keys = ON")
+
+
+def _deactivate_legacy_api_keys(db: sqlite3.Connection) -> None:
+    """Deactivate API keys whose hash predates the bcrypt switch.
+
+    Legacy keys were stored as plain SHA-256 hex digests; verification only
+    supports bcrypt, so such keys can never authenticate again. They are
+    deactivated (not deleted) to keep the audit trail visible in the admin
+    UI. Idempotent: inactive keys are left alone.
+    """
+    cursor = db.execute(
+        "SELECT id, name FROM ai_api_keys "
+        "WHERE is_active = 1 "
+        "AND key_hash NOT LIKE '$2b$%' AND key_hash NOT LIKE '$2a$%'"
+    )
+    legacy = cursor.fetchall()
+    if not legacy:
+        return
+    db.execute(
+        "UPDATE ai_api_keys SET is_active = 0 "
+        "WHERE is_active = 1 "
+        "AND key_hash NOT LIKE '$2b$%' AND key_hash NOT LIKE '$2a$%'"
+    )
+    logger = logging.getLogger(__name__)
+    for row in legacy:
+        logger.warning(
+            "Deactivated legacy SHA-256 API key '%s' (id=%s); "
+            "bcrypt is required - create a new key in the admin UI",
+            row["name"],
+            row["id"],
+        )
 
 
 def _migrate_v2_schema(db: sqlite3.Connection) -> None:
@@ -922,6 +942,10 @@ def init_db():
     # 'Untitled (id8)' and enforce NOT NULL on albums.name. Takes its own
     # pre-migration backup before rebuilding the table.
     _migrate_album_name_not_null(db)
+
+    # Deactivate API keys that predate the bcrypt switch; they can no
+    # longer be verified and would otherwise linger as dead rows.
+    _deactivate_legacy_api_keys(db)
 
     db.commit()
 

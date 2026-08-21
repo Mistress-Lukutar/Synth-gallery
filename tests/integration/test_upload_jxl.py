@@ -83,7 +83,7 @@ class TestJxlUpload:
     ) -> None:
         '''Uploading a JPEG with USE_JXL enabled should store it as image/jxl.'''
         response = authenticated_client.post(
-            '/upload',
+            '/api/uploads',
             data={'folder_id': test_folder},
             headers=_csrf_headers(authenticated_client),
             files={'file': ('test.jpg', jpeg_bytes, 'image/jpeg')},
@@ -107,7 +107,7 @@ class TestJxlUpload:
     ) -> None:
         '''Uploading with USE_JXL disabled should keep the original JPEG type.'''
         response = authenticated_client.post(
-            '/upload',
+            '/api/uploads',
             data={'folder_id': test_folder},
             headers=_csrf_headers(authenticated_client),
             files={'file': ('test.jpg', jpeg_bytes, 'image/jpeg')},
@@ -135,7 +135,7 @@ class TestJxlFallbackServing:
     ) -> str:
         '''Upload a JPEG and return its item ID as JXL.'''
         response = authenticated_client.post(
-            '/upload',
+            '/api/uploads',
             data={'folder_id': test_folder},
             headers=_csrf_headers(authenticated_client),
             files={'file': ('test.jpg', jpeg_bytes, 'image/jpeg')},
@@ -217,7 +217,7 @@ class TestPngTextChunkPreservation:
     ) -> None:
         '''PNG tEXt/zTXt chunks should be available via metadata API.'''
         response = authenticated_client.post(
-            '/upload',
+            '/api/uploads',
             data={'folder_id': test_folder},
             headers=_csrf_headers(authenticated_client),
             files={'file': ('test.png', png_bytes_with_text, 'image/png')},
@@ -243,7 +243,7 @@ class TestPngTextChunkPreservation:
     ) -> None:
         '''When USE_JXL transcodes PNG to JXL, text chunks remain in metadata.'''
         response = authenticated_client.post(
-            '/upload',
+            '/api/uploads',
             data={'folder_id': test_folder},
             headers=_csrf_headers(authenticated_client),
             files={'file': ('test.png', png_bytes_with_text, 'image/png')},

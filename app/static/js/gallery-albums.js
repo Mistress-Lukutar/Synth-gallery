@@ -72,8 +72,7 @@
             if (!resp.ok) throw new Error('Failed to load album');
             
             const album = await resp.json();
-            // Support both new items array and legacy photos array
-            let albumItems = album.items || album.photos || [];
+            let albumItems = album.items || [];
             
             // If coming from tag search, filter to only matching items
             if (matchingItemIds && matchingItemIds.length > 0) {
@@ -327,8 +326,7 @@
             if (!resp.ok) throw new Error('Failed to load album items');
             
             const data = await resp.json();
-            // Support both new items array and legacy photos array
-            const items = data.items || data.photos || [];
+            const items = data.items || [];
             
             if (countEl) countEl.textContent = `(${items.length})`;
             

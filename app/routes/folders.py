@@ -148,28 +148,17 @@ def delete_folder_route(request: Request, folder_id: str):
     import asyncio
     storage = get_storage()
     for filename in filenames:
-        photo_id = Path(filename).stem
+        item_id = Path(filename).stem
         # Delete upload and thumbnail asynchronously
         try:
             loop = asyncio.get_running_loop()
-            asyncio.create_task(storage.delete(photo_id, folder="uploads"))
-            asyncio.create_task(storage.delete(photo_id, folder="thumbnails"))
+            asyncio.create_task(storage.delete(item_id, folder="uploads"))
+            asyncio.create_task(storage.delete(item_id, folder="thumbnails"))
         except RuntimeError:
-            asyncio.run(storage.delete(photo_id, folder="uploads"))
-            asyncio.run(storage.delete(photo_id, folder="thumbnails"))
+            asyncio.run(storage.delete(item_id, folder="uploads"))
+            asyncio.run(storage.delete(item_id, folder="thumbnails"))
     
     return {"status": "ok"}
-
-
-@router.get("/{folder_id}/contents")
-def get_folder_contents_route(request: Request, folder_id: str):
-    """Get contents of a specific folder."""
-    user = require_user(request)
-    
-    # Using service layer (Issue #16)
-    service = get_folder_service()
-    contents = service.get_folder_contents(folder_id, user["id"])
-    return contents
 
 
 @router.post("/{folder_id}/set-default")

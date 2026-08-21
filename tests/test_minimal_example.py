@@ -22,7 +22,7 @@ def test_upload_with_csrf(authenticated_client: TestClient, test_folder: str):
     
     # Загружаем с заголовком CSRF
     response = authenticated_client.post(
-        "/upload",
+        "/api/uploads",
         data={"folder_id": test_folder},
         files={"file": ("test.jpg", buf.getvalue(), "image/jpeg")},
         headers={"X-CSRF-Token": csrf_token}

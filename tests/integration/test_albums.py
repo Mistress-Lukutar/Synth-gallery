@@ -25,7 +25,7 @@ class TestAlbumCreation:
         photo_ids = []
         for i in range(3):
             response = authenticated_client.post(
-                "/upload",
+                "/api/uploads",
                 data={"folder_id": test_folder},
                 files={"file": (f"album_photo_{i}.jpg", test_image_bytes, "image/jpeg")},
                 headers={"X-CSRF-Token": csrf_token}
@@ -103,7 +103,7 @@ class TestAlbumCreation:
         photo_ids = []
         for i in range(5):
             response = authenticated_client.post(
-                "/upload",
+                "/api/uploads",
                 data={"folder_id": test_folder},
                 files={"file": (f"count_{i}.jpg", test_image_bytes, "image/jpeg")},
                 headers={"X-CSRF-Token": csrf_token}
@@ -139,7 +139,7 @@ class TestAlbumThumbnailDimensions:
         """Album API returns cover thumbnail dimensions."""
         # Upload a photo
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={"file": ("cover.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -186,7 +186,7 @@ class TestAlbumThumbnailDimensions:
         """Album placeholder should have correct aspect ratio from cover photo."""
         # Upload photo
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={"file": ("aspect.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -262,7 +262,7 @@ class TestAlbumNavigation:
         photo_ids = []
         for i in range(3):
             response = authenticated_client.post(
-                "/upload",
+                "/api/uploads",
                 data={"folder_id": test_folder},
                 files={"file": (f"nav_{i}.jpg", test_image_bytes, "image/jpeg")},
                 headers={"X-CSRF-Token": csrf_token}
@@ -307,7 +307,7 @@ class TestAlbumReorder:
         photo_ids = []
         for i in range(3):
             response = authenticated_client.post(
-                "/upload",
+                "/api/uploads",
                 data={"folder_id": test_folder},
                 files={"file": (f"reorder_{i}.jpg", test_image_bytes, "image/jpeg")},
                 headers={"X-CSRF-Token": csrf_token}

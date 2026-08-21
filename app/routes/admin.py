@@ -16,8 +16,6 @@ from ..infrastructure.services.audit_log import (
     log_api_key_revoked,
 )
 from ..infrastructure.services.backup import (
-    create_backup, list_backups, get_backup_path,
-    restore_backup, delete_backup,
     FullBackupService, backup_scheduler
 )
 from ..infrastructure.services.thumbnail import (
@@ -59,7 +57,6 @@ def backups_page(request: Request):
     """Backup management page."""
     user = require_admin(request)
 
-    db_backups = list_backups()
     full_backups = FullBackupService.list_full_backups()
     scheduler_status = backup_scheduler.status
 
@@ -68,7 +65,6 @@ def backups_page(request: Request):
         {
             "request": request,
             "user": user,
-            "backups": db_backups,
             "full_backups": full_backups,
             "scheduler_status": scheduler_status,
             "backup_path": str(BACKUP_PATH),
@@ -76,68 +72,6 @@ def backups_page(request: Request):
             "base_url": ROOT_PATH
         }
     )
-
-
-# === Backup API ===
-
-@router.post("/api/admin/backup")
-def create_backup_endpoint(request: Request):
-    """Create a new backup."""
-    require_admin(request)
-
-    filename = create_backup("manual")
-    if not filename:
-        raise HTTPException(status_code=500, detail="Failed to create backup")
-
-    return {"status": "ok", "filename": filename}
-
-
-@router.get("/api/admin/backups")
-def list_backups_endpoint(request: Request):
-    """List all backups."""
-    require_admin(request)
-
-    return {"backups": list_backups()}
-
-
-@router.get("/api/admin/backup/{filename}/download")
-def download_backup(request: Request, filename: str):
-    """Download a backup file."""
-    require_admin(request)
-
-    backup_path = get_backup_path(filename)
-    if not backup_path:
-        raise HTTPException(status_code=404, detail="Backup not found")
-
-    return FileResponse(
-        backup_path,
-        media_type="application/x-sqlite3",
-        filename=filename
-    )
-
-
-@router.post("/api/admin/backup/{filename}/restore")
-def restore_backup_endpoint(request: Request, filename: str):
-    """Restore database from backup."""
-    require_admin(request)
-
-    success = restore_backup(filename)
-    if not success:
-        raise HTTPException(status_code=404, detail="Backup not found")
-
-    return {"status": "ok", "message": "Database restored. Please restart the application."}
-
-
-@router.delete("/api/admin/backup/{filename}")
-def delete_backup_endpoint(request: Request, filename: str):
-    """Delete a backup file."""
-    require_admin(request)
-
-    success = delete_backup(filename)
-    if not success:
-        raise HTTPException(status_code=404, detail="Backup not found")
-
-    return {"status": "ok"}
 
 
 # === Full Backup API (Database + Media) ===

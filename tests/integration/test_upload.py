@@ -29,7 +29,7 @@ class TestSingleFileUpload:
     ):
         """Upload unencrypted image successfully."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             headers=_csrf_headers(authenticated_client), files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
         )
@@ -69,7 +69,7 @@ class TestSingleFileUpload:
         csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": folder_id},
             headers={"X-CSRF-Token": csrf_token},
             files={"file": ("encrypted.jpg", raw_bytes, "image/jpeg")}
@@ -93,7 +93,7 @@ class TestSingleFileUpload:
     ):
         """Upload should reject non-media files."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             headers=_csrf_headers(authenticated_client), files={"file": ("malware.exe", b"not an image", "application/octet-stream")}
         )
@@ -107,7 +107,7 @@ class TestSingleFileUpload:
     ):
         """Upload without folder_id should fail."""
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={},  # No folder_id
             headers=_csrf_headers(authenticated_client), files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
         )
@@ -148,7 +148,7 @@ class TestSingleFileUpload:
         csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": folder_id},
             headers={"X-CSRF-Token": csrf_token}, 
             files={"file": ("test.jpg", test_image_bytes, "image/jpeg")}
@@ -263,7 +263,7 @@ class TestFileRetrieval:
         """Downloaded file should match uploaded content (unencrypted)."""
         # Upload
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             headers=_csrf_headers(authenticated_client), files={"file": ("original.jpg", test_image_bytes, "image/jpeg")}
         )

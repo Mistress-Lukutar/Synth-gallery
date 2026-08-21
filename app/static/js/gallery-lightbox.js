@@ -140,8 +140,7 @@
             if (!resp.ok) return null;
             
             const album = await resp.json();
-            // Phase 5: API returns 'items' instead of 'photos'
-            const albumItems = album.items || album.photos || [];
+            const albumItems = album.items || [];
             if (albumItems.length === 0) return null;
             
             // Cache album data
@@ -689,8 +688,8 @@
                 // Check cache first
                 const cached = albumCache.get(albumId);
                 if (cached && (Date.now() - cached.timestamp) < ALBUM_CACHE_TTL) {
-                    // Use cached album data (photos or items - Phase 5 compatibility)
-                    const cachedItems = cached.photos || cached.items || [];
+                    // Use cached album data
+                    const cachedItems = cached.photos;
                     if (cachedItems.length > 0) {
                         flatOrder.push({ type: 'album_marker', id: albumId, albumName: cached.name });
                         for (const photo of cachedItems) {

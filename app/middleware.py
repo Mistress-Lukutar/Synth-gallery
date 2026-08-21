@@ -238,9 +238,6 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         "/api/ai/",
         "/api/webauthn/",
         "/api/auth/recover",
-        "/upload",
-        "/upload-album",
-        "/upload-bulk"
     }
 
     async def dispatch(self, request: Request, call_next):

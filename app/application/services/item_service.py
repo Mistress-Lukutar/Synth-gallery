@@ -43,9 +43,6 @@ from app.infrastructure.services.metadata import (
 )
 from app.infrastructure.storage import get_storage
 
-# Re-exported for backwards compatibility (callers import ItemRenderer /
-# MediaRenderer from item_service).
-from .item_renderers import ItemRenderer, MediaRenderer  # noqa: F401
 from .item_types import ItemType, get_renderer_for
 
 
