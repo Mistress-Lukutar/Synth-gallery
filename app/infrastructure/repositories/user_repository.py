@@ -48,22 +48,22 @@ class UserRepository(Repository):
     
     def create(self, username: str, password: str, display_name: str) -> int:
         """Create new user.
-        
+
         Args:
             username: Unique username
             password: Plain text password (will be hashed)
             display_name: Display name
-            
+
         Returns:
             New user ID
         """
-        password_hash, _ = self._hash_password(password)
-        
+        password_hash = self._hash_password(password)
+
         cursor = self._execute(
-            """INSERT INTO users 
-               (username, password_hash, password_salt, display_name) 
-               VALUES (?, ?, ?, ?)""",
-            (username.lower().strip(), password_hash, "", display_name.strip())
+            """INSERT INTO users
+               (username, password_hash, display_name)
+               VALUES (?, ?, ?)""",
+            (username.lower().strip(), password_hash, display_name.strip())
         )
         self._commit()
         return cursor.lastrowid
@@ -78,8 +78,8 @@ class UserRepository(Repository):
         Returns:
             True if user existed and was updated
         """
-        password_hash, _ = self._hash_password(new_password)
-        
+        password_hash = self._hash_password(new_password)
+
         cursor = self._execute(
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (password_hash, user_id)
@@ -185,7 +185,7 @@ class UserRepository(Repository):
             self._verify_password(password, dummy_hash)
             return None
 
-        if self._verify_password(password, user["password_hash"], user.get("password_salt", "")):
+        if self._verify_password(password, user["password_hash"]):
             return user
         return None
     
@@ -539,27 +539,26 @@ class UserRepository(Repository):
             return False
     
     # Private helper methods
-    
-    def _hash_password(self, password: str) -> tuple[str, str]:
+
+    def _hash_password(self, password: str) -> str:
         """Hash password using bcrypt.
-        
+
         Args:
             password: Plain text password
-            
+
         Returns:
-            Tuple of (hash, empty_string) for API compatibility
+            Bcrypt hash string
         """
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        return hashed.decode('utf-8'), ""
-    
-    def _verify_password(self, password: str, hashed: str, salt: str = None) -> bool:
+        return hashed.decode('utf-8')
+
+    def _verify_password(self, password: str, hashed: str) -> bool:
         """Verify password against bcrypt hash.
-        
+
         Args:
             password: Plain text password
             hashed: Stored bcrypt hash
-            salt: Ignored (for API compatibility)
-            
+
         Returns:
             True if password matches
         """

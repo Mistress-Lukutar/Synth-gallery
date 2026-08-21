@@ -38,7 +38,7 @@ class TestSchemaConstraint:
 
 
 class TestMigration:
-    '''Legacy nullable-name tables are migrated by init_db.'''
+    '''Legacy nullable-name tables are migrated by revision 0003.'''
 
     def _simulate_legacy_table(self, db) -> str:
         '''Replace albums with a pre-migration nullable-name table.'''
@@ -72,12 +72,19 @@ class TestMigration:
         db.execute('PRAGMA foreign_keys = ON')
         return album_id
 
+    def _stamp_before_revision(self, db) -> None:
+        '''Pretend the database has not seen revision 0003 yet.'''
+        db.execute('DELETE FROM alembic_version')
+        db.execute("INSERT INTO alembic_version (version_num) VALUES ('0002')")
+        db.commit()
+
     def test_migration_backfills_and_enforces_not_null(
         self, db_connection
     ):
         album_id = self._simulate_legacy_table(db_connection)
+        self._stamp_before_revision(db_connection)
 
-        init_db()  # runs the idempotent migration
+        init_db()  # applies the pending revision
 
         row = db_connection.execute(
             'SELECT name FROM albums WHERE id = ?', (album_id,)
@@ -105,6 +112,7 @@ class TestMigration:
 
     def test_migration_is_idempotent(self, db_connection):
         self._simulate_legacy_table(db_connection)
+        self._stamp_before_revision(db_connection)
         init_db()
         names_before = [
             r['name'] for r in db_connection.execute(

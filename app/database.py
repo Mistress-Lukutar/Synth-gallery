@@ -1,9 +1,9 @@
 '''
 File:   database.py
-Brief:  Database connection, schema initialization and password hashing.
+Brief:  SQLAlchemy engine, sqlite3-compatible connection adapter and
+        Alembic-driven schema migrations.
 Author: Mistress-Lukutar
-Date:   2026-07-23
-Version: v1.1.1
+Date:   2026-08-21
 '''
 import logging
 import os
@@ -13,11 +13,16 @@ from datetime import datetime
 from pathlib import Path
 
 import bcrypt
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 # Overridable via SYNTH_DB_PATH so the test suite can run against a
 # throwaway database instead of the production gallery.db.
 DATABASE_PATH = Path(os.environ.get("SYNTH_DB_PATH", str(BASE_DIR / "gallery.db")))
+
+MIGRATIONS_DIR = BASE_DIR / "migrations"
 
 
 # =============================================================================
@@ -49,27 +54,224 @@ def verify_password(password: str, hashed: str, salt: str = None) -> bool:
 
 
 # =============================================================================
+# Engine management
+# =============================================================================
+_engine: Engine | None = None
+_engine_key: str | None = None
+_engine_lock = threading.Lock()
+
+
+def _apply_connection_pragmas(dbapi_connection, connection_record) -> None:
+    """Enable foreign-key enforcement on every pooled connection.
+
+    SQLite disables FK constraints by default; the schema relies on
+    ``ON DELETE CASCADE`` / ``SET NULL`` declared on its tables.
+    """
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.close()
+
+
+def get_engine() -> Engine:
+    """Return the process-wide engine, rebuilding it if DATABASE_PATH changed.
+
+    The cache is keyed by the resolved database path so the test suite can
+    point the module at a fresh per-test file and get a matching engine.
+    """
+    global _engine, _engine_key
+    key = str(DATABASE_PATH)
+    with _engine_lock:
+        if _engine is None or _engine_key != key:
+            if _engine is not None:
+                _engine.dispose()
+            _engine = create_engine(
+                f"sqlite:///{DATABASE_PATH}",
+                connect_args={
+                    # Preserve the TIMESTAMP<->datetime converters registered
+                    # above (pysqlite applies them via cursor.description).
+                    "detect_types": sqlite3.PARSE_DECLTYPES,
+                    # Repositories share connections across threads via the
+                    # thread-local get_db(); the engine pool serialises actual
+                    # use, so relax sqlite3's same-thread guard.
+                    "check_same_thread": False,
+                },
+            )
+            event.listen(_engine, "connect", _apply_connection_pragmas)
+            _engine_key = key
+    return _engine
+
+
+# =============================================================================
+# sqlite3-compatible connection adapter
+# =============================================================================
+def _to_named(sql: str, parameters) -> tuple[str, dict | list]:
+    """Convert ``?`` placeholders and positional params for text() binds.
+
+    SQLAlchemy's ``text()`` construct requires named ``:param`` binds, while
+    the codebase historically uses sqlite3 ``?`` placeholders. The rewrite is
+    purely positional (each ``?`` becomes ``:p<N>`` in order); string literals
+    containing ``?`` are not used anywhere in the codebase's SQL.
+    """
+    if parameters is None or (isinstance(parameters, (tuple, list)) and not parameters):
+        return sql, {}
+    if isinstance(parameters, dict):
+        return sql, parameters
+
+    names: list[str] = []
+    out: list[str] = []
+    index = 0
+    for ch in sql:
+        if ch == "?":
+            name = f"p{index}"
+            index += 1
+            names.append(name)
+            out.append(f":{name}")
+        else:
+            out.append(ch)
+    converted = "".join(out)
+
+    if parameters and isinstance(parameters[0], (tuple, list, dict)):
+        # executemany-style list of parameter sequences
+        param_list = []
+        for seq in parameters:
+            if isinstance(seq, dict):
+                param_list.append(seq)
+            else:
+                param_list.append(dict(zip(names, seq)))
+        return converted, param_list
+    return converted, dict(zip(names, parameters))
+
+
+class Result:
+    """Cursor-like wrapper over a SQLAlchemy CursorResult.
+
+    Rows are exposed as Mappings so legacy ``row['col']`` access keeps
+    working; ``rowcount`` and ``lastrowid`` mirror the sqlite3 cursor API.
+    """
+
+    __slots__ = ("_result", "_sa")
+
+    def __init__(self, result, sa_connection: Connection):
+        self._result = result
+        self._sa = sa_connection
+
+    @property
+    def rowcount(self) -> int:
+        return self._result.rowcount
+
+    @property
+    def lastrowid(self) -> int:
+        """ID generated by the most recent INSERT on this connection."""
+        return self._sa.exec_driver_sql("SELECT last_insert_rowid()").scalar()
+
+    def fetchone(self):
+        return self._result.mappings().first()
+
+    def fetchall(self):
+        return self._result.mappings().all()
+
+    def __iter__(self):
+        return iter(self._result.mappings())
+
+
+class DbConnection:
+    """sqlite3-compatible façade over a SQLAlchemy Connection.
+
+    Keeps the calling convention the repositories were written against
+    (``execute``/``executemany``/``commit``/``close``/``total_changes``)
+    while every statement is compiled through SQLAlchemy Core ``text()``
+    with bound parameters.
+    """
+
+    def __init__(self, sa_connection: Connection):
+        self._sa = sa_connection
+        self._total_changes = 0
+
+    # -- statement execution -------------------------------------------------
+
+    def execute(self, sql: str, parameters=()) -> Result:
+        converted, params = _to_named(sql, parameters)
+        try:
+            result = self._sa.execute(text(converted), params)
+        except SQLAlchemyError as exc:
+            raise self._unwrap(exc)
+        if result.rowcount and result.rowcount > 0:
+            self._total_changes += result.rowcount
+        return Result(result, self._sa)
+
+    def executemany(self, sql: str, parameters_list) -> Result:
+        converted, params = _to_named(sql, parameters_list)
+        try:
+            result = self._sa.execute(text(converted), params)
+        except SQLAlchemyError as exc:
+            raise self._unwrap(exc)
+        if result.rowcount and result.rowcount > 0:
+            self._total_changes += result.rowcount
+        return Result(result, self._sa)
+
+    @staticmethod
+    def _unwrap(exc: SQLAlchemyError) -> Exception:
+        """Surface the underlying DBAPI exception (sqlite3.IntegrityError etc.).
+
+        Callers throughout the codebase catch the native sqlite3 exceptions
+        (locked database, constraint violations); SQLAlchemy wraps them, so
+        re-raise the original to keep those handlers working.
+        """
+        orig = getattr(exc, "orig", None)
+        return orig if orig is not None else exc
+
+    # -- transaction / lifecycle ----------------------------------------------
+
+    def commit(self) -> None:
+        self._sa.commit()
+
+    def rollback(self) -> None:
+        self._sa.rollback()
+
+    def close(self) -> None:
+        self._sa.close()
+
+    @property
+    def total_changes(self) -> int:
+        """Cumulative number of rows modified through this connection."""
+        return self._total_changes
+
+    @property
+    def in_transaction(self) -> bool:
+        return self._sa.in_transaction()
+
+    # -- escape hatch for infrastructure code ---------------------------------
+
+    @property
+    def sa_connection(self) -> Connection:
+        """The underlying SQLAlchemy Connection (for text()/exec_driver_sql)."""
+        return self._sa
+
+    def exec_driver_sql(self, statement: str, parameters=()):
+        """Execute raw DBAPI SQL (``?`` placeholders) on the connection."""
+        return self._sa.exec_driver_sql(statement, parameters)
+
+
+# =============================================================================
 # Database Connection
 # =============================================================================
 _local = threading.local()
 
 
-def get_db() -> sqlite3.Connection:
+def get_db() -> DbConnection:
     """Get thread-local database connection.
 
     WARNING: Do NOT close this connection! It's reused across the thread.
     For contexts where you need to close the connection, use create_connection().
     """
-    if not hasattr(_local, 'connection') or _local.connection is None:
-        _local.connection = sqlite3.connect(
-            DATABASE_PATH,
-            detect_types=sqlite3.PARSE_DECLTYPES
-        )
-        _local.connection.row_factory = sqlite3.Row
-    return _local.connection
+    conn = getattr(_local, "connection", None)
+    if conn is None or conn._sa.closed:
+        conn = DbConnection(get_engine().connect())
+        _local.connection = conn
+    return conn
 
 
-def create_connection() -> sqlite3.Connection:
+def create_connection() -> DbConnection:
     """Create a new database connection.
 
     Use this when you need a connection that you can safely close.
@@ -84,14 +286,9 @@ def create_connection() -> sqlite3.Connection:
             db.close()
 
     Returns:
-        New sqlite3.Connection with row_factory set
+        New DbConnection backed by a pooled SQLAlchemy connection
     """
-    conn = sqlite3.connect(
-        DATABASE_PATH,
-        detect_types=sqlite3.PARSE_DECLTYPES
-    )
-    conn.row_factory = sqlite3.Row
-    return conn
+    return DbConnection(get_engine().connect())
 
 
 def cleanup_expired_sessions():
@@ -101,175 +298,9 @@ def cleanup_expired_sessions():
 
 
 # =============================================================================
-# Schema Migration Helpers
+# Schema migrations (Alembic)
 # =============================================================================
-def _column_exists(db: sqlite3.Connection, table: str, column: str) -> bool:
-    """Check whether a column exists in a table."""
-    cursor = db.execute(f"PRAGMA table_info({table})")
-    return any(row["name"] == column for row in cursor.fetchall())
-
-
-def _table_exists(db: sqlite3.Connection, table: str) -> bool:
-    """Check whether a table exists in the database."""
-    cursor = db.execute(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table,),
-    )
-    return cursor.fetchone() is not None
-
-
-def _recreate_table_without_column(
-    db: sqlite3.Connection,
-    table: str,
-    column: str,
-) -> None:
-    """Recreate a table without the given column.
-
-    SQLite cannot drop a column that is referenced by a table-level foreign
-    key constraint, so we build the new schema dynamically and copy data over.
-    """
-    # Preserve foreign-key behaviour while we rewrite the table.
-    db.execute("PRAGMA foreign_keys = OFF")
-
-    cursor = db.execute(f"PRAGMA table_info({table})")
-    columns = [row for row in cursor.fetchall() if row["name"] != column]
-    column_names = [c["name"] for c in columns]
-
-    # Build column definitions from PRAGMA output.
-    col_defs = []
-    for col in columns:
-        parts = [f'"{col["name"]}"', col["type"]]
-        if col["notnull"]:
-            parts.append("NOT NULL")
-        if col["dflt_value"] is not None:
-            parts.append(f"DEFAULT ({col['dflt_value']})")
-        if col["pk"]:
-            parts.append("PRIMARY KEY")
-        col_defs.append(" ".join(parts))
-
-    # Keep foreign keys that do not involve the dropped column.
-    cursor = db.execute(f"PRAGMA foreign_key_list({table})")
-    fks = [
-        row for row in cursor.fetchall()
-        if row["from"] != column and row["to"] != column
-    ]
-    # Group by constraint id so multi-column FKs stay intact.
-    fk_groups: dict[int, list[dict]] = {}
-    for fk in fks:
-        fk_groups.setdefault(fk["id"], []).append(fk)
-    for group in fk_groups.values():
-        from_cols = ", ".join(f'"{fk["from"]}"' for fk in group)
-        to_table = group[0]["table"]
-        to_cols = ", ".join(f'"{fk["to"]}"' for fk in group)
-        on_update = group[0]["on_update"]
-        on_delete = group[0]["on_delete"]
-        clause = f"FOREIGN KEY ({from_cols}) REFERENCES {to_table} ({to_cols})"
-        if on_update and on_update != "NO ACTION":
-            clause += f" ON UPDATE {on_update}"
-        if on_delete and on_delete != "NO ACTION":
-            clause += f" ON DELETE {on_delete}"
-        col_defs.append(clause)
-
-    new_table = f"{table}_new"
-    db.execute(f"DROP TABLE IF EXISTS {new_table}")
-    db.execute(f"CREATE TABLE {new_table} ({', '.join(col_defs)})")
-
-    placeholders = ", ".join("?" for _ in column_names)
-    quoted_names = ", ".join(f'"{name}"' for name in column_names)
-    db.execute(
-        f"INSERT INTO {new_table} ({quoted_names}) SELECT {quoted_names} FROM {table}"
-    )
-
-    db.execute(f"DROP TABLE {table}")
-    db.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
-
-    db.execute("PRAGMA foreign_keys = ON")
-
-
-def _drop_safe_columns(db: sqlite3.Connection) -> None:
-    """Remove safe_id columns from folders, albums and items.
-
-    Existing rows that belonged to a safe are deleted first because their
-    files are encrypted with a client-side key the server no longer stores.
-    """
-    tables = ("folders", "albums", "items")
-    for table in tables:
-        if not _column_exists(db, table, "safe_id"):
-            continue
-
-        db.execute(f"DELETE FROM {table} WHERE safe_id IS NOT NULL")
-        _recreate_table_without_column(db, table, "safe_id")
-    db.commit()
-
-
-def _drop_safe_tables(db: sqlite3.Connection) -> None:
-    """Drop safe and safe session tables if they still exist."""
-    for table in ("safe_sessions", "safes"):
-        if _table_exists(db, table):
-            db.execute(f"DROP TABLE {table}")
-    db.commit()
-
-
-def _backup_database(db_path: Path, suffix: str) -> Path | None:
-    """Copy the database file to ``<db_path><suffix>`` before a breaking change.
-
-    Returns the backup path on success, or ``None`` if the source does not
-    exist (e.g. an in-memory ``:memory:`` database used by tests). The backup
-    is a best-effort safety net; failures are logged but do not abort the
-    migration.
-    """
-    import shutil
-
-    src = str(db_path)
-    if not db_path.exists():
-        return None
-    dest = Path(f"{src}{suffix}")
-    try:
-        shutil.copy2(src, dest)
-    except OSError as exc:
-        logging.getLogger(__name__).warning(
-            "Pre-migration backup of %s failed: %s", src, exc
-        )
-        return None
-    return dest
-
-
-def _rebuild_table(
-    db: sqlite3.Connection,
-    table: str,
-    create_ddl: str,
-    keep_columns: list[str],
-) -> None:
-    """Rebuild ``table`` with ``create_ddl``, copying ``keep_columns`` over.
-
-    SQLite cannot add/drop CHECK constraints or alter a column type in place,
-    so changing a table's shape requires a full rebuild: create a shadow table
-    with the new schema, copy the surviving columns, drop the original and
-    rename. ``create_ddl`` is the full ``CREATE TABLE`` statement for the new
-    shape; ``keep_columns`` lists columns that exist in both old and new
-    tables and must be preserved.
-    """
-    # PRAGMA foreign_keys is silently ignored inside an open transaction,
-    # and the preceding data-fixing UPDATE usually left one open. Commit
-    # first, otherwise DROP TABLE cascades into child tables (album_items,
-    # item_media, ...) and silently destroys their rows.
-    db.commit()
-    db.execute("PRAGMA foreign_keys = OFF")
-    new_table = f"{table}_new"
-    db.execute(f"DROP TABLE IF EXISTS {new_table}")
-    db.execute(create_ddl.replace(table, new_table, 1))
-
-    quoted = ", ".join(f'"{c}"' for c in keep_columns)
-    db.execute(
-        f"INSERT INTO {new_table} ({quoted}) SELECT {quoted} FROM {table}"
-    )
-
-    db.execute(f"DROP TABLE {table}")
-    db.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
-    db.execute("PRAGMA foreign_keys = ON")
-
-
-def _deactivate_legacy_api_keys(db: sqlite3.Connection) -> None:
+def _deactivate_legacy_api_keys(db: DbConnection) -> None:
     """Deactivate API keys whose hash predates the bcrypt switch.
 
     Legacy keys were stored as plain SHA-256 hex digests; verification only
@@ -300,616 +331,20 @@ def _deactivate_legacy_api_keys(db: sqlite3.Connection) -> None:
         )
 
 
-def _migrate_v2_schema(db: sqlite3.Connection) -> None:
-    """One-time v2.0 schema migration for the polymorphic item tables.
+def run_db_migrations() -> None:
+    """Apply all pending Alembic revisions up to head."""
+    from alembic import command
+    from alembic.config import Config
 
-    - Drops the dead ``item_media.storage_mode`` column (never read).
-    - Drops the redundant ``item_media.filename`` column (always == item_id;
-      the storage key is derived from item_id everywhere).
-    - Adds ``CHECK (type IN ('media'))`` to ``items``.
-    - Adds ``CHECK (media_type IN ('image', 'video'))`` to ``item_media``.
-
-    All four are applied idempotently: a freshly created (v2) database has
-    the new shape already and this function is a no-op. Existing pre-v2
-    databases are rebuilt table-by-table with a pre-migration backup.
-    """
-    # ---- item_media: drop storage_mode + filename, add CHECK ----
-    media_cursor = db.execute("PRAGMA table_info(item_media)")
-    media_cols = [row["name"] for row in media_cursor.fetchall()]
-    if "storage_mode" in media_cols or "filename" in media_cols:
-        # Normalise legacy media_type values that predate the v2 image/video
-        # enum (e.g. '3d', which belongs to a future items.type, not a media
-        # sub-kind) so the new CHECK constraint does not reject existing rows.
-        db.execute(
-            "UPDATE item_media SET media_type = 'image' "
-            "WHERE media_type NOT IN ('image', 'video')"
-        )
-        # Surviving columns after dropping storage_mode and filename.
-        keep = [
-            c for c in media_cols if c not in ("storage_mode", "filename")
-        ]
-        _rebuild_table(
-            db,
-            "item_media",
-            """
-            CREATE TABLE item_media (
-                item_id TEXT PRIMARY KEY,
-                media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
-                original_name TEXT,
-                content_type TEXT,
-                width INTEGER,
-                height INTEGER,
-                duration INTEGER,
-                thumb_width INTEGER,
-                thumb_height INTEGER,
-                taken_at TIMESTAMP,
-                file_size INTEGER,
-                png_text_chunks TEXT,
-                FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
-            )
-            """,
-            keep,
-        )
-
-    # ---- items: add CHECK (type IN ('media')) ----
-    # SQLite stores CHECK constraints only in the table's CREATE statement, so
-    # detect the pre-v2 shape by inspecting the original sql.
-    schema = db.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='items'"
-    ).fetchone()
-    if schema and "CHECK (type IN" not in (schema["sql"] or ""):
-        # Normalise legacy items.type values to 'media' before adding the
-        # CHECK constraint so existing rows are not rejected.
-        db.execute(
-            "UPDATE items SET type = 'media' "
-            "WHERE type NOT IN ('media')"
-        )
-        items_cursor = db.execute("PRAGMA table_info(items)")
-        items_keep = [row["name"] for row in items_cursor.fetchall()]
-        _rebuild_table(
-            db,
-            "items",
-            """
-            CREATE TABLE items (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL CHECK (type IN ('media')),
-                folder_id TEXT,
-                user_id INTEGER,
-                uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
-                title TEXT,
-                description TEXT,
-                updated_at TIMESTAMP,
-                FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-            )
-            """,
-            items_keep,
-        )
-
-    db.commit()
+    alembic_cfg = Config(str(BASE_DIR / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(MIGRATIONS_DIR))
+    command.upgrade(alembic_cfg, "head")
 
 
-def _migrate_album_name_not_null(db: sqlite3.Connection) -> None:
-    """Enforce ``NOT NULL`` on ``albums.name`` (idempotent).
-
-    Legacy rename requests were written to the database without
-    validation, so old deployments may carry albums with a NULL name
-    (they crashed batch downloads with a TypeError). Such rows are
-    backfilled with a deterministic ``Untitled (id8)`` name — unique per
-    album and traceable to its id — before the table is rebuilt with the
-    constraint. Fresh databases already have the NOT NULL column and this
-    is a no-op.
-    """
-    cursor = db.execute("PRAGMA table_info(albums)")
-    columns = cursor.fetchall()
-    name_col = next((row for row in columns if row["name"] == "name"), None)
-    if name_col is None or name_col["notnull"]:
-        return
-
-    _backup_database(DATABASE_PATH, ".albumnotnull-bak")
-    db.execute(
-        "UPDATE albums SET name = 'Untitled (' || substr(id, 1, 8) || ')' "
-        "WHERE name IS NULL"
-    )
-    # Pre-FK schemas may reference folders that were deleted long ago;
-    # null those references so the rebuilt table (which declares the FKs)
-    # passes PRAGMA foreign_key_check.
-    db.execute(
-        "UPDATE albums SET folder_id = NULL "
-        "WHERE folder_id IS NOT NULL "
-        "AND folder_id NOT IN (SELECT id FROM folders)"
-    )
-    keep = [row["name"] for row in columns]
-    _rebuild_table(
-        db,
-        "albums",
-        """
-        CREATE TABLE albums (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            folder_id TEXT,
-            user_id INTEGER,
-            cover_item_id TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (cover_item_id) REFERENCES items(id) ON DELETE SET NULL
-        )
-        """,
-        keep,
-    )
-    # Dropping the old table dropped its indexes; recreate the one
-    # init_db declares so it survives the rebuild.
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)"
-    )
-    db.commit()
-
-
-
-# =============================================================================
-# Database Schema Initialization
-# =============================================================================
-def init_db():
-    """Initialize database schema."""
-    db = get_db()
-
-    # Users table for authentication
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            password_salt TEXT NOT NULL DEFAULT '',
-            display_name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            is_admin INTEGER DEFAULT 0,
-            failed_login_attempts INTEGER DEFAULT 0,
-            locked_until TIMESTAMP,
-            last_login TIMESTAMP
-        )
-    """)
-
-    # Migration: Add security columns to users if not exist
-    cursor = db.execute("PRAGMA table_info(users)")
-    user_columns = [row['name'] for row in cursor.fetchall()]
-    if 'failed_login_attempts' not in user_columns:
-        db.execute("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0")
-    if 'locked_until' not in user_columns:
-        db.execute("ALTER TABLE users ADD COLUMN locked_until TIMESTAMP")
-    if 'last_login' not in user_columns:
-        db.execute("ALTER TABLE users ADD COLUMN last_login TIMESTAMP")
-
-    # Sessions table for login sessions
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            expires_at TIMESTAMP NOT NULL,
-            encrypted_dek BLOB,
-            fingerprint TEXT,
-            ip_address TEXT,
-            user_agent TEXT,
-            last_active_at TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Migration: Add new columns to sessions if not exist
-    cursor = db.execute("PRAGMA table_info(sessions)")
-    session_columns = [row['name'] for row in cursor.fetchall()]
-    if 'ip_address' not in session_columns:
-        db.execute("ALTER TABLE sessions ADD COLUMN ip_address TEXT")
-    if 'user_agent' not in session_columns:
-        db.execute("ALTER TABLE sessions ADD COLUMN user_agent TEXT")
-    if 'last_active_at' not in session_columns:
-        db.execute("ALTER TABLE sessions ADD COLUMN last_active_at TIMESTAMP")
-
-    db.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)")
-
-    # WebAuthn credentials for hardware key authentication
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS webauthn_credentials (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            credential_id BLOB NOT NULL UNIQUE,
-            public_key BLOB NOT NULL,
-            sign_count INTEGER DEFAULT 0,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            encrypted_dek BLOB,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Folders table for organizing content
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS folders (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            parent_id TEXT,
-            user_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Folder permissions table for sharing
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS folder_permissions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            folder_id TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            permission TEXT NOT NULL CHECK(permission IN ('viewer', 'editor')),
-            granted_by INTEGER NOT NULL,
-            granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (granted_by) REFERENCES users(id),
-            UNIQUE(folder_id, user_id)
-        )
-    """)
-
-    # Albums table
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS albums (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            folder_id TEXT,
-            user_id INTEGER,
-            cover_item_id TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (cover_item_id) REFERENCES items(id) ON DELETE SET NULL
-        )
-    """)
-
-    # =============================================================================
-    # Tag System v2: Hierarchical Tags
-    # =============================================================================
-    
-    # Tag categories (fixed set)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tag_categories (
-            id INTEGER PRIMARY KEY,
-            slug TEXT NOT NULL UNIQUE,
-            name TEXT NOT NULL,
-            color TEXT NOT NULL,
-            sort_order INTEGER DEFAULT 0
-        )
-    """)
-    
-    # Tags (flat tags grouped by category)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tags (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            display_name TEXT,
-            category_id INTEGER,
-            usage_count INTEGER DEFAULT 0,
-            description TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (category_id) REFERENCES tag_categories(id)
-        )
-    """)
-
-    # Migration: Drop legacy tree columns via table recreation
-    # SQLite cannot DROP COLUMN when it has a self-referencing foreign key,
-    # so we recreate the table and copy data.
-    cursor = db.execute("PRAGMA table_info(tags)")
-    tag_columns = [row['name'] for row in cursor.fetchall()]
-    if 'parent_id' in tag_columns:
-        db.execute("PRAGMA foreign_keys = OFF")
-        db.execute("""
-            CREATE TABLE tags_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                display_name TEXT,
-                category_id INTEGER,
-                usage_count INTEGER DEFAULT 0,
-                description TEXT DEFAULT '',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (category_id) REFERENCES tag_categories(id)
-            )
-        """)
-        db.execute("""
-            INSERT INTO tags_new (id, name, display_name, category_id, usage_count, description, created_at)
-            SELECT id, name, display_name, category_id, usage_count, description, created_at FROM tags
-        """)
-        db.execute("DROP TABLE tags")
-        db.execute("ALTER TABLE tags_new RENAME TO tags")
-        db.execute("PRAGMA foreign_keys = ON")
-
-    # Migration: Add description column to tags if not exists
-    cursor = db.execute("PRAGMA table_info(tags)")
-    tag_columns = [row['name'] for row in cursor.fetchall()]
-    if 'description' not in tag_columns:
-        db.execute("ALTER TABLE tags ADD COLUMN description TEXT DEFAULT ''")
-
-    # Item-tags relationship (many-to-many)
-    # v3: stores both explicit (user-added) and implied (auto-resolved) tags
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS item_tags (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id TEXT NOT NULL,
-            tag_id INTEGER NOT NULL,
-            is_explicit INTEGER NOT NULL DEFAULT 1,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(item_id, tag_id),
-            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
-            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Tag implications: directed edges for semantic inheritance (e.g. sea -> water)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tag_implications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            implies_tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            UNIQUE(tag_id, implies_tag_id)
-        )
-    """)
-
-    # Tag co-occurrence: statistical relatedness for UX suggestions
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tag_cooccurrence (
-            tag_a_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            tag_b_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            count INTEGER NOT NULL DEFAULT 1,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (tag_a_id, tag_b_id),
-            CHECK (tag_a_id < tag_b_id)
-        )
-    """)
-
-    # Tag mutex pairs: negative correlation cache (data-driven + manual)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tag_mutex_pairs (
-            tag_a_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            tag_b_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            phi REAL NOT NULL,
-            is_auto INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (tag_a_id, tag_b_id),
-            CHECK (tag_a_id < tag_b_id)
-        )
-    """)
-
-    # Tag suggestion feedback: user accept/reject/dismiss actions
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS tag_suggestion_feedback (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id TEXT NOT NULL,
-            context_tag_ids TEXT NOT NULL,
-            suggested_tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-            outcome TEXT NOT NULL CHECK(outcome IN ('accepted', 'rejected', 'dismissed')),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # =============================================================================
-    # Polymorphic Items Architecture
-    # =============================================================================
-    
-    # Items table - polymorphic base for all content types.
-    # CHECK constraint guards items.type against typos; extend the allowed
-    # set as new polymorphic types (note, audio, model) land.
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS items (
-            id TEXT PRIMARY KEY,
-            type TEXT NOT NULL CHECK (type IN ('media')),
-            folder_id TEXT,
-            user_id INTEGER,
-            uploaded_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
-            title TEXT,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-        )
-    """)
-
-    # Item media table - photo/video specific data.
-    # media_type is a sub-kind within the 'media' item type.
-    # ``filename`` was always equal to ``item_id`` and ``storage_mode`` was
-    # never read; both were dropped in the v2.0 schema migration.
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS item_media (
-            item_id TEXT PRIMARY KEY,
-            media_type TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
-            original_name TEXT,
-            content_type TEXT,
-            width INTEGER,
-            height INTEGER,
-            duration INTEGER,
-            thumb_width INTEGER,
-            thumb_height INTEGER,
-            taken_at TIMESTAMP,
-            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
-        )
-    """)
-    
-    # Album items junction table
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS album_items (
-            album_id TEXT NOT NULL,
-            item_id TEXT NOT NULL,
-            position INTEGER DEFAULT 0,
-            added_at TIMESTAMP DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
-            PRIMARY KEY (album_id, item_id),
-            FOREIGN KEY (album_id) REFERENCES albums(id) ON DELETE CASCADE,
-            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE
-        )
-    """)
-    
-    # Indexes
-    db.execute("CREATE INDEX IF NOT EXISTS idx_items_type ON items(type)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_items_folder ON items(folder_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_album ON album_items(album_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_album_items_item ON album_items(item_id)")
-    db.execute("DROP INDEX IF EXISTS idx_tags_path")
-    db.execute("DROP INDEX IF EXISTS idx_tags_parent")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_item ON item_tags(item_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_tag ON item_tags(tag_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_item_tags_explicit ON item_tags(item_id, is_explicit)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_cooccurrence_a ON tag_cooccurrence(tag_a_id, count DESC)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_cooccurrence_b ON tag_cooccurrence(tag_b_id, count DESC)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_mutex_a ON tag_mutex_pairs(tag_a_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_mutex_b ON tag_mutex_pairs(tag_b_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_suggested_tag ON tag_suggestion_feedback(suggested_tag_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_feedback_outcome ON tag_suggestion_feedback(outcome)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON folders(parent_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_folders_user_id ON folders(user_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_albums_folder_id ON albums(folder_id)")
-
-    # User folder preferences (sort settings per user per folder)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS user_folder_preferences (
-            user_id INTEGER NOT NULL,
-            folder_id TEXT NOT NULL,
-            sort_by TEXT DEFAULT 'uploaded',
-            PRIMARY KEY (user_id, folder_id),
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
-        )
-    """)
-
-    # User settings (global user preferences like default folder)
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS user_settings (
-            user_id INTEGER PRIMARY KEY,
-            default_folder_id TEXT,
-            encrypted_dek BLOB,
-            dek_salt BLOB,
-            encryption_version INTEGER DEFAULT 1,
-            recovery_encrypted_dek BLOB,
-            collapsed_folders TEXT DEFAULT '[]',
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (default_folder_id) REFERENCES folders(id) ON DELETE SET NULL
-        )
-    """)
-
-    # Migration: remove legacy safe/safe-session tables and safe_id columns.
-    _drop_safe_tables(db)
-    _drop_safe_columns(db)
-
-    # Envelope encryption tables
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS user_public_keys (
-            user_id INTEGER PRIMARY KEY,
-            public_key BLOB NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS folder_keys (
-            folder_id TEXT PRIMARY KEY,
-            encrypted_folder_dek TEXT NOT NULL,
-            created_by INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE,
-            FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Migration: Add description and updated_at columns if not exist
-    cursor = db.execute("PRAGMA table_info(items)")
-    columns = [row['name'] for row in cursor.fetchall()]
-    if 'description' not in columns:
-        db.execute("ALTER TABLE items ADD COLUMN description TEXT")
-    if 'updated_at' not in columns:
-        # SQLite doesn't support DEFAULT with non-constant values in ALTER TABLE
-        db.execute("ALTER TABLE items ADD COLUMN updated_at TIMESTAMP")
-        # Set default for existing rows
-        db.execute("UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
-
-    # Migration: Drop unused metadata column from items
-    if 'metadata' in columns:
-        _recreate_table_without_column(db, 'items', 'metadata')
-    
-    # Migration: Add file_size to item_media table
-    cursor = db.execute("PRAGMA table_info(item_media)")
-    media_columns = [row['name'] for row in cursor.fetchall()]
-    if 'file_size' not in media_columns:
-        db.execute("ALTER TABLE item_media ADD COLUMN file_size INTEGER")
-    if 'png_text_chunks' not in media_columns:
-        db.execute("ALTER TABLE item_media ADD COLUMN png_text_chunks TEXT")
-
-    # AI Tagging Jobs table
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS ai_tagging_jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            item_id TEXT NOT NULL,
-            user_id INTEGER NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            started_at TIMESTAMP,
-            completed_at TIMESTAMP,
-            processing_deadline TIMESTAMP,
-            result_tags TEXT,
-            error_message TEXT,
-            retry_count INTEGER DEFAULT 0,
-            FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-    """)
-
-    # Migration: Add user_id and processing_deadline to ai_tagging_jobs if not exist
-    cursor = db.execute("PRAGMA table_info(ai_tagging_jobs)")
-    ai_job_columns = [row['name'] for row in cursor.fetchall()]
-    if 'user_id' not in ai_job_columns:
-        db.execute("ALTER TABLE ai_tagging_jobs ADD COLUMN user_id INTEGER")
-        # Assign existing jobs to the first available user (or admin)
-        db.execute("UPDATE ai_tagging_jobs SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL")
-    if 'processing_deadline' not in ai_job_columns:
-        db.execute("ALTER TABLE ai_tagging_jobs ADD COLUMN processing_deadline TIMESTAMP")
-
-    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_status ON ai_tagging_jobs(status)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_item ON ai_tagging_jobs(item_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_user ON ai_tagging_jobs(user_id)")
-    db.execute("CREATE INDEX IF NOT EXISTS idx_ai_jobs_deadline ON ai_tagging_jobs(processing_deadline)")
-
-    # AI API Keys table
-    db.execute("""
-        CREATE TABLE IF NOT EXISTS ai_api_keys (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            key_hash TEXT NOT NULL UNIQUE,
-            is_active INTEGER DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            user_id INTEGER REFERENCES users(id),
-            created_by INTEGER REFERENCES users(id),
-            expires_at TIMESTAMP,
-            last_used_at TIMESTAMP,
-            rate_limit_tier TEXT DEFAULT 'default'
-        )
-    """)
-
-    # Migration: Add new columns to ai_api_keys if not exist
-    cursor = db.execute("PRAGMA table_info(ai_api_keys)")
-    api_key_columns = [row['name'] for row in cursor.fetchall()]
-    if 'user_id' not in api_key_columns:
-        db.execute("ALTER TABLE ai_api_keys ADD COLUMN user_id INTEGER REFERENCES users(id)")
-    if 'created_by' not in api_key_columns:
-        db.execute("ALTER TABLE ai_api_keys ADD COLUMN created_by INTEGER REFERENCES users(id)")
-    if 'expires_at' not in api_key_columns:
-        db.execute("ALTER TABLE ai_api_keys ADD COLUMN expires_at TIMESTAMP")
-    if 'last_used_at' not in api_key_columns:
-        db.execute("ALTER TABLE ai_api_keys ADD COLUMN last_used_at TIMESTAMP")
-    if 'rate_limit_tier' not in api_key_columns:
-        db.execute("ALTER TABLE ai_api_keys ADD COLUMN rate_limit_tier TEXT DEFAULT 'default'")
-
-    # Create default admin user if no users exist (first run)
+def _seed_default_admin(db: DbConnection) -> None:
+    """Create the temporary default admin account on an empty database."""
     cursor = db.execute("SELECT COUNT(*) as count FROM users")
     if cursor.fetchone()["count"] == 0:
-        import bcrypt
-
         default_username = "admin"
         default_password = "admin"
 
@@ -917,10 +352,11 @@ def init_db():
 
         db.execute(
             """INSERT INTO users
-               (username, password_hash, password_salt, display_name, is_admin)
-               VALUES (?, ?, ?, ?, ?)""",
-            (default_username, hashed.decode('utf-8'), "", "Administrator", 1)
+               (username, password_hash, display_name, is_admin)
+               VALUES (?, ?, ?, ?)""",
+            (default_username, hashed.decode('utf-8'), "Administrator", 1)
         )
+        db.commit()
 
         print("=" * 70)
         print("FIRST RUN: Default admin account created")
@@ -932,21 +368,12 @@ def init_db():
         print("   then delete this temporary account for security.")
         print("=" * 70)
 
-    # v2.0 schema migration (idempotent): drop dead item_media columns and
-    # add CHECK constraints on items.type / item_media.media_type. Take a
-    # pre-migration backup of the database file before any breaking rebuild.
-    _backup_database(DATABASE_PATH, ".v2migration-bak")
-    _migrate_v2_schema(db)
 
-    # Album name migration (idempotent): backfill NULL names with
-    # 'Untitled (id8)' and enforce NOT NULL on albums.name. Takes its own
-    # pre-migration backup before rebuilding the table.
-    _migrate_album_name_not_null(db)
+def init_db():
+    """Initialize database schema and run startup data fixups."""
+    run_db_migrations()
 
-    # Deactivate API keys that predate the bcrypt switch; they can no
-    # longer be verified and would otherwise linger as dead rows.
+    db = get_db()
+    _seed_default_admin(db)
     _deactivate_legacy_api_keys(db)
-
     db.commit()
-
-

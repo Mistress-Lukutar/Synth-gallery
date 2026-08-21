@@ -38,6 +38,8 @@ dependencies = [
     "cryptography==42.0.0",
     "webauthn==2.0.0",
     "aiofiles==24.1.0",
+    "SQLAlchemy>=2.0",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
