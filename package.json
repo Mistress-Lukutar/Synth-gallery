@@ -1,6 +1,6 @@
 {
   "name": "synth-gallery",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Personal media vault with server-side encryption, hardware key authentication, and multi-user support.",
   "private": true,
   "scripts": {

@@ -7,14 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-22
+
+### Added
+- **Chunked Streaming Encryption (SGE1)** - New chunked AEAD envelope for all stored files
+  - `[SGE1 header]` + per-chunk `[nonce][ciphertext+GCM tag]` layout (1 MiB default chunks)
+  - Memory usage is O(chunk size) regardless of file size - multi-GiB videos stream safely
+  - HTTP Range support: `GET /files/{id}` returns 206 Partial Content, decrypting only the requested chunks
+  - `HEAD /files/{id}` returns `Content-Length` / `Accept-Ranges` for browser probing
+  - Migration script `.agents/reencrypt_to_chunked.py` converts legacy whole-file envelopes
+- **Universal Server-side Encryption** - All media is encrypted on upload, no opt-out
+  - Migration script `.agents/encrypt_existing_uploads.py` encrypts legacy plaintext files
+  - Upload fails with 403 when the user's DEK is not available (no silent plaintext storage)
+- **MKV / Large Video Support** - `video/x-matroska` uploads with no size cap
+  - ffmpeg/ffprobe pipeline replaces OpenCV for probing and thumbnails
+  - Lightbox shows a download overlay when the browser cannot decode the container
+- **JPEG XL Experimental Storage** (`USE_JXL=true`)
+  - Lossless transcode of new image uploads via official `cjxl` binary (reversible for JPEG sources)
+  - EXIF/metadata preserved inside the JXL container; PNG text chunks survive the transcode
+  - On-demand JPEG fallback for browsers without JXL support, cached under `fallbacks/`
+  - `Accept: image/jxl` content negotiation; `<picture>` element with JPEG fallback in the UI
+  - `Start.bat` auto-downloads libjxl tools when `cjxl`/`djxl` are not on `PATH`
+- **Text Note Items** (Issue #23) - New `note` item type alongside `media`
+  - Upload txt/md/json/csv/yaml; extension inference for `application/octet-stream`
+  - Content stored encrypted in the same SGE1 envelope; metadata (char/line count, encoding) in `item_texts`
+  - Legacy cp1251 text decoded and roundtripped as UTF-8
+  - Notes flow through folders, albums, batch download and the lightbox
+- **Batch Download with Format Conversion** - `POST /api/items/batch-download`
+  - Single-file selections served directly; multi-file selections stream a ZIP
+  - Optional image conversion: JXL/JPEG/PNG/WebP with quality settings (videos pass through)
+  - Download modal in the gallery for format/quality selection
+- **Lightbox Zoom & Pan** - Mouse wheel zoom and drag pan
+- **PNG Text Chunk Editing** - View and edit embedded PNG text chunks (e.g. generation parameters)
+- **Bulk Tag Operations** - Edit tags on the current selection
+  - Albums expand into their items; respects search-filtered album contents
+  - Partial explicit tags shown across the selection
+- **Tag Suggestions v2** - PMI-based related-tag scoring with mutual-exclusion groups
+- **Tag Admin Operations** - Delete-and-remap, remap-only, and sanitize actions for admins
+- **AI Job Release Endpoint** - `POST /api/ai/jobs/{id}/release` returns a claimed job to the queue
+- **Alembic + SQLAlchemy Schema Management** (Issue #17, Phase 1)
+  - All schema changes are Alembic revisions (`migrations/versions/0001`-`0006`)
+  - `rebuild_table` helper handles SQLite CHECK/column changes with FK-safe rebuilds
+  - `users.password_salt` relic column dropped; legacy relic columns preserved during rebuilds
+- **S3 Random-Access Reader** - `get_random_access_reader` on the storage interface for range serving
+- **JavaScript Unit Tests** - Jest + jsdom tier under `tests/js/` for pure frontend helpers
+- **Static Asset Cache-Busting** - `?v={{ app_version }}` on all static URLs; version from installed package metadata
+
 ### Changed
-- **JPEG XL tooling**: switched from `pillow-jxl-plugin` to the official libjxl binaries (`cjxl` / `djxl`)
+- **Polymorphic Items Architecture** - `items` base table + per-type detail tables
+  - Typed item-type registry (`item_types.py`) is the single source of truth for dispatch
+  - Strategy renderers (`MediaRenderer`, `NoteRenderer`) produce the gallery read model
+  - Consolidated `items JOIN item_media` read model on `ItemRepository`
+  - API keys renamed: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, `photo_ids` → `item_ids`
+  - File-serving path param renamed: `/files/{photo_id}` → `/files/{item_id}`
+- **JPEG XL Tooling** - Switched from `pillow-jxl-plugin` to the official libjxl binaries (`cjxl` / `djxl`)
   - Removed `pillow-jxl-plugin` dependency
-  - Encoding now requires `cjxl`; missing binary fails fast when `USE_JXL=true`
-  - Decoding and fallback generation now use `djxl`
-  - Added progressive encoding flags: `JXL_PROGRESSIVE_AC`, `JXL_QPROGRESSIVE_AC`, `JXL_PROGRESSIVE_DC`
+  - Encoding fails fast when `USE_JXL=true` and `cjxl` is missing
+  - Progressive encoding flags: `JXL_PROGRESSIVE_AC`, `JXL_QPROGRESSIVE_AC`, `JXL_PROGRESSIVE_DC`
   - Removed `JXL_DECODING_SPEED` (was only used by the Pillow plugin)
-  - `Start.bat` now skips downloading libjxl when `cjxl.exe` and `djxl.exe` are already on `PATH`
+- **Album Names NOT NULL** - Schema migration backfills NULL names as `Untitled (id8)`; API validates names
+- **Animated WebP Reclassified as Video** - Probed and thumbnailed via ffmpeg
+- **Single Version Source** - `APP_VERSION` resolves from `importlib.metadata` (pyproject.toml); per-file version docstrings removed
+- **Test Isolation** - Suite redirects all persistent state to a throwaway directory; never touches production `gallery.db`/`uploads/`
+
+### Removed
+- **End-to-End "Safes" Feature** - Removed in favour of universal server-side encryption
+  - Deleted safe/safe-file routes, services, repositories, client-side SafeCrypto and UI
+  - Deleted the `item_keys` remnants and `X-Encryption: e2e` client decryption path
+- **Legacy Whole-File Encryption Format** - Plaintext-fallback serving branch removed; SGE1 only after migration
+- **Legacy `photo_*` Aliases** - `can_access_photo`, `get_photo_count` etc. removed
+- **Legacy Shims and Dead Code** - Deprecated proxy functions, unused metadata column, one-off scripts
+- **OpenCV Dependency** - All video work goes through ffmpeg
+
+### Fixed
+- **Migration Crash on Legacy Databases** - `users` rebuild now preserves unknown relic columns (e.g. `default_folder_id`) instead of crashing
+- **Test Leftovers in Production Data** - Tests can no longer leak into the real database or media directories
+- **Video Thumbnails** - Missing video thumbnails regenerate correctly
+- **Backup VACUUM** - Transaction committed before vacuum
+
+### Breaking Changes
+- Legacy whole-file encrypted files **must** be migrated with `.agents/reencrypt_to_chunked.py` before starting 2.0
+- Safes (E2E vaults) are gone; export any safe content before upgrading
+- API renames: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, `photo_ids` → `item_ids`, `/files/{photo_id}` → `/files/{item_id}`
+- `opencv-python-headless` and `pillow-jxl-plugin` dependencies removed (install `ffmpeg` and, optionally, libjxl binaries)
 
 ## [1.3.2] - 2026-05-04
 
@@ -672,6 +747,11 @@ finally:
 [0.4.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v0.1.0...v0.2.0
+[Unreleased]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.3.2...v2.0.0
+[1.3.2]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.3.1...v1.3.2
+[1.3.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Mistress-Lukutar/Synth-gallery/compare/v1.0.1...v1.1.0
