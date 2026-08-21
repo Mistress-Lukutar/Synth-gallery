@@ -21,7 +21,7 @@ echo.
 :: ----------------------------------------------------------------
 
 set BASE_PATH=synth
-set SYNTH_ENV=development
+set SYNTH_ENV=production
 
 :: ----------------------------------------------------------------
 :: ADVANCED CONFIGURATION
@@ -54,9 +54,10 @@ set JXL_THREADS=-1
 :: Progressive encoding settings for cjxl.
 :: --progressive_ac and --qprogressive_ac improve perceived loading speed.
 :: --progressive_dc=1 adds an extra 64x64 low-resolution pass.
-set JXL_PROGRESSIVE_AC=false
-set JXL_QPROGRESSIVE_AC=false
-set JXL_PROGRESSIVE_DC=0
+:: Defaults follow app/config.py (true / true / 1); uncomment to override:
+:: set JXL_PROGRESSIVE_AC=false
+:: set JXL_QPROGRESSIVE_AC=false
+:: set JXL_PROGRESSIVE_DC=0
 
 :: Set the environment variable for the application
 set SYNTH_BASE_URL=%BASE_PATH%
@@ -225,8 +226,10 @@ echo   Press Ctrl+C to stop the server
 echo ----------------------------------------------------------------
 echo.
 
-:: Start the server
-.venv\Scripts\uvicorn.exe app.main:app --reload --port %PORT% --host %HOST%
+:: Start the server (auto-reload only in development mode)
+set RELOAD_FLAG=
+if /i "%SYNTH_ENV%"=="development" set RELOAD_FLAG=--reload
+.venv\Scripts\uvicorn.exe app.main:app %RELOAD_FLAG% --port %PORT% --host %HOST%
 
 :: Pause if server stops
 echo.
