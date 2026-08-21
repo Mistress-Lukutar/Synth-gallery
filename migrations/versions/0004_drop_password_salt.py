@@ -23,15 +23,27 @@ depends_on = None
 
 def upgrade() -> None:
     conn = op.get_bind()
-    keep = [
-        row["name"]
-        for row in conn.exec_driver_sql("PRAGMA table_info(users)").mappings().all()
-        if row["name"] != "password_salt"
-    ]
+    actual = conn.exec_driver_sql("PRAGMA table_info(users)").mappings().all()
+    keep = [row["name"] for row in actual if row["name"] != "password_salt"]
+
+    # Databases created before the Alembic baseline may carry relic columns
+    # the baseline no longer declares (e.g. users.default_folder_id from the
+    # pre-user_settings era). Preserve them verbatim: ``keep`` is introspected
+    # from the live table, so the new schema must contain every kept column
+    # or the copy INSERT fails.
+    target_columns = {
+        "id", "username", "password_hash", "display_name", "created_at",
+        "is_admin", "failed_login_attempts", "locked_until", "last_login",
+    }
+    relic_ddl = "".join(
+        f',\n            "{row["name"]}" {row["type"] or "TEXT"}'
+        for row in actual
+        if row["name"] not in target_columns | {"password_salt"}
+    )
     rebuild_table(
         conn,
         "users",
-        """
+        f"""
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
@@ -41,7 +53,7 @@ def upgrade() -> None:
             is_admin INTEGER DEFAULT 0,
             failed_login_attempts INTEGER DEFAULT 0,
             locked_until TIMESTAMP,
-            last_login TIMESTAMP
+            last_login TIMESTAMP{relic_ddl}
         )
         """,
         keep,
