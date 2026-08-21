@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, field_validator
 
-from ..config import BACKUP_PATH, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
+from ..config import APP_VERSION, BACKUP_PATH, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
 from ..database import create_connection
 from ..dependencies import require_user, get_csrf_token
 from ..infrastructure.repositories import UserRepository, AiApiKeyRepository
@@ -25,6 +25,7 @@ from ..infrastructure.services.thumbnail import (
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["app_version"] = APP_VERSION
 templates.env.globals["external_host"] = EXTERNAL_HOST
 
 router = APIRouter()

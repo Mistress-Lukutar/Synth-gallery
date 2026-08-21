@@ -3,7 +3,6 @@ File:   ffmpeg.py
 Brief:  ffprobe/ffmpeg wrappers for video probing and thumbnail extraction.
 Author: Mistress-Lukutar
 Date:   2026-07-21
-Version: v0.1.0
 '''
 
 from __future__ import annotations

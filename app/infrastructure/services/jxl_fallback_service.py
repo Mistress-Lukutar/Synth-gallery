@@ -3,7 +3,6 @@ File:   jxl_fallback_service.py
 Brief:  Generate and cache JPEG fallbacks for JXL originals.
 Author: Mistress-Lukutar
 Date:   2026-07-11
-Version: v0.2.0
 '''
 
 from __future__ import annotations

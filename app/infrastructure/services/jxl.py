@@ -3,7 +3,6 @@ File:   jxl.py
 Brief:  JPEG XL (JXL) decoding and introspection via the official libjxl binaries.
 Author: Mistress-Lukutar
 Date:   2026-07-11
-Version: v0.1.0
 '''
 
 from __future__ import annotations

@@ -3,7 +3,6 @@ File:   config.py
 Brief:  Application configuration and constants.
 Author: Mistress-Lukutar
 Date:   2026-07-21
-Version: v0.2.0
 '''
 
 import os
@@ -13,6 +12,16 @@ from app.logging_config import setup_logging
 
 # Initialize logging configuration.
 setup_logging()
+
+# Application version. The single source of truth is pyproject.toml; the
+# installed package metadata mirrors it. The fallback covers running from a
+# bare source checkout without an installed distribution.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+    APP_VERSION = _pkg_version("synth-gallery")
+except PackageNotFoundError:
+    APP_VERSION = "2.0.0"
 
 # Directory paths.
 # Persistent-state locations are overridable via environment variables so

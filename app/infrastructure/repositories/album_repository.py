@@ -3,7 +3,6 @@ File:   album_repository.py
 Brief:  Album repository - content-agnostic album management.
 Author: Mistress-Lukutar
 Date:   2026-07-13
-Version: v1.0.0
 '''
 
 from __future__ import annotations

@@ -3,7 +3,6 @@ File:   folders.py
 Brief:  Folder management routes.
 Author: Mistress-Lukutar
 Date:   2026-07-13
-Version: v1.0.0
 '''
 from pathlib import Path
 from typing import Literal

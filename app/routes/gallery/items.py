@@ -3,7 +3,6 @@ File:   items.py
 Brief:  Item routes - unified API for all content types.
 Author: Mistress-Lukutar
 Date:   2026-07-24
-Version: v1.1.2
 '''
 import tempfile
 import urllib.parse

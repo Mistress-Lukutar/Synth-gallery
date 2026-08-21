@@ -2,19 +2,19 @@
 
 {% block extra_head %}
 <!-- EasyMDE Markdown Editor -->
-<link rel="stylesheet" href="{{ base_url }}/static/vendor/easymde/easymde.min.css">
+<link rel="stylesheet" href="{{ base_url }}/static/vendor/easymde/easymde.min.css?v={{ app_version }}">
 <!-- Font Awesome for EasyMDE icons -->
-<link rel="stylesheet" href="{{ base_url }}/static/vendor/font-awesome/css/font-awesome.min.css">
+<link rel="stylesheet" href="{{ base_url }}/static/vendor/font-awesome/css/font-awesome.min.css?v={{ app_version }}">
 <!-- Highlight.js for code syntax highlighting -->
-<link rel="stylesheet" href="{{ base_url }}/static/vendor/highlightjs/github-dark.min.css">
-<script src="{{ base_url }}/static/vendor/highlightjs/highlight.min.js"></script>
+<link rel="stylesheet" href="{{ base_url }}/static/vendor/highlightjs/github-dark.min.css?v={{ app_version }}">
+<script src="{{ base_url }}/static/vendor/highlightjs/highlight.min.js?v={{ app_version }}"></script>
 <!-- KaTeX for LaTeX math rendering -->
-<link rel="stylesheet" href="{{ base_url }}/static/vendor/katex/katex.min.css">
-<script src="{{ base_url }}/static/vendor/katex/katex.min.js"></script>
-<script src="{{ base_url }}/static/vendor/katex/auto-render.min.js"></script>
-<script src="{{ base_url }}/static/vendor/easymde/easymde.min.js"></script>
+<link rel="stylesheet" href="{{ base_url }}/static/vendor/katex/katex.min.css?v={{ app_version }}">
+<script src="{{ base_url }}/static/vendor/katex/katex.min.js?v={{ app_version }}"></script>
+<script src="{{ base_url }}/static/vendor/katex/auto-render.min.js?v={{ app_version }}"></script>
+<script src="{{ base_url }}/static/vendor/easymde/easymde.min.js?v={{ app_version }}"></script>
 <!-- Marked.js for rendering -->
-<script src="{{ base_url }}/static/vendor/marked/marked.min.js"></script>
+<script src="{{ base_url }}/static/vendor/marked/marked.min.js?v={{ app_version }}"></script>
 {% endblock %}
 
 {% block content %}

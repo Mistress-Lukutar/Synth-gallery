@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..config import ROOT_PATH, BASE_DIR
+from ..config import APP_VERSION, ROOT_PATH, BASE_DIR
 from ..database import create_connection
 from ..dependencies import require_user, require_admin, get_csrf_token
 from ..infrastructure.repositories import TagsRepository, TagImplicationRepository, TagCooccurrenceRepository, TagMutexRepository
@@ -14,6 +14,7 @@ from ..application.services import TagService
 router = APIRouter()
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["app_version"] = APP_VERSION
 
 
 class TagUpdateInput(BaseModel):

@@ -3,7 +3,6 @@ File:   api.py
 Brief:  AI service API routes - job queue for external AI agents.
 Author: Mistress-Lukutar
 Date:   2026-07-23
-Version: v1.1.0
 '''
 import asyncio
 import json

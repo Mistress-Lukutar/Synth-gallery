@@ -3,7 +3,6 @@ File:   item_repository.py
 Brief:  Item repository - polymorphic base for all content types.
 Author: Mistress-Lukutar
 Date:   2026-07-24
-Version: v1.1.3
 '''
 
 from __future__ import annotations

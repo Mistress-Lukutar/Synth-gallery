@@ -3,7 +3,6 @@ File:   files.py
 Brief:  File serving routes for gallery media (streaming + HTTP Range).
 Author: Mistress-Lukutar
 Date:   2026-07-23
-Version: v1.1.0
 '''
 import io
 from pathlib import Path

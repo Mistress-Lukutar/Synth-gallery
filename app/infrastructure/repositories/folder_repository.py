@@ -3,7 +3,6 @@ File:   folder_repository.py
 Brief:  Folder repository - handles all folder-related database operations.
 Author: Mistress-Lukutar
 Date:   2026-07-24
-Version: v1.1.2
 '''
 
 from __future__ import annotations

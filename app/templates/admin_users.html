@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>User Management - Synth Admin</title>
-    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
-    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css?v={{ app_version }}">
     <style>
         .admin-layout {
             max-width: 1000px;
@@ -460,6 +460,6 @@
             }
         });
     </script>
-    <script src="{{ base_url }}/static/js/toast.js"></script>
+    <script src="{{ base_url }}/static/js/toast.js?v={{ app_version }}"></script>
 </body>
 </html>

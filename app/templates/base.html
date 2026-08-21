@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ request.state.csrf_token }}">
     <title>{% block title %}Synth{% endblock %}</title>
-    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
-    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css?v={{ app_version }}">
     
     <!-- Global config -->
     <script>
@@ -18,36 +18,36 @@
     </script>
     
     <!-- Core utilities -->
-    <script src="{{ base_url }}/static/js/core.js"></script>
-    <script src="{{ base_url }}/static/js/toast.js"></script>
+    <script src="{{ base_url }}/static/js/core.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/toast.js?v={{ app_version }}"></script>
     <!-- Back Button Manager (must be loaded before modals) -->
-    <script src="{{ base_url }}/static/js/back-button.js"></script>
+    <script src="{{ base_url }}/static/js/back-button.js?v={{ app_version }}"></script>
     <!-- Folder Actions -->
-    <script src="{{ base_url }}/static/js/folder-actions.js"></script>
+    <script src="{{ base_url }}/static/js/folder-actions.js?v={{ app_version }}"></script>
     <!-- Navigation -->
-    <script src="{{ base_url }}/static/js/navigation.js"></script>
+    <script src="{{ base_url }}/static/js/navigation.js?v={{ app_version }}"></script>
     <!-- Folder Tree Utilities (Issue #26: shared module for sidebar and picker) -->
-    <script src="{{ base_url }}/static/js/folder-tree-utils.js"></script>
+    <script src="{{ base_url }}/static/js/folder-tree-utils.js?v={{ app_version }}"></script>
     <!-- Sidebar -->
-    <script src="{{ base_url }}/static/js/sidebar.js"></script>
+    <script src="{{ base_url }}/static/js/sidebar.js?v={{ app_version }}"></script>
     <!-- Upload -->
-    <script src="{{ base_url }}/static/js/upload.js"></script>
+    <script src="{{ base_url }}/static/js/upload.js?v={{ app_version }}"></script>
     <!-- Gallery modules (load after DOM) -->
-    <script src="{{ base_url }}/static/js/gallery-masonry.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-selection.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-download.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-ai-tag.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-lightbox.js"></script>
-    <script src="{{ base_url }}/static/js/tag-editor-core.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-tags.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-bulk-tags.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-search.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-dragdrop.js"></script>
-    <script src="{{ base_url }}/static/js/gallery-albums.js"></script>
+    <script src="{{ base_url }}/static/js/gallery-masonry.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-selection.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-download.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-ai-tag.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-lightbox.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/tag-editor-core.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-tags.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-bulk-tags.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-search.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-dragdrop.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/gallery-albums.js?v={{ app_version }}"></script>
     <!-- File Access Service (direct file access) -->
-    <script src="{{ base_url }}/static/js/file-access-service.js"></script>
+    <script src="{{ base_url }}/static/js/file-access-service.js?v={{ app_version }}"></script>
     <!-- Initialization (last) -->
-    <script src="{{ base_url }}/static/js/init.js"></script>
+    <script src="{{ base_url }}/static/js/init.js?v={{ app_version }}"></script>
     
     {% block extra_head %}{% endblock %}
 </head>
@@ -56,7 +56,7 @@
         <!-- Sidebar -->
         <aside id="sidebar" class="sidebar">
             <div class="sidebar-logo">
-                <a href="{{ base_url }}/" class="logo" onclick="event.preventDefault(); navigateToDefaultFolder();"><img src="{{ base_url }}/static/favicon.svg" alt="" class="logo-icon">Synth</a>
+                <a href="{{ base_url }}/" class="logo" onclick="event.preventDefault(); navigateToDefaultFolder();"><img src="{{ base_url }}/static/favicon.svg?v={{ app_version }}" alt="" class="logo-icon">Synth</a>
             </div>
             <div class="folder-tree" id="folder-tree">
                 <!-- Folder tree rendered by JS -->

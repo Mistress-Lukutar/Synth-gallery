@@ -4,7 +4,6 @@ Brief:  Per-user media encryption service. Chunked AES-256-GCM streaming
         format for arbitrary-size files, plus KEK/recovery-key helpers.
 Author: Mistress-Lukutar
 Date:   2026-07-21
-Version: v1.0.0
 '''
 
 from __future__ import annotations

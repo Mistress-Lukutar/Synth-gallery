@@ -4,7 +4,6 @@ Brief:  Image processing helpers (thumbnail generation, dimensions).
         Video handling is delegated to :mod:`app.infrastructure.services.ffmpeg`.
 Author: Mistress-Lukutar
 Date:   2026-07-21
-Version: v1.1.0
 '''
 from __future__ import annotations
 

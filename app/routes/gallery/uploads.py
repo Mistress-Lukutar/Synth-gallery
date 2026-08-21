@@ -3,7 +3,6 @@ File:   uploads.py
 Brief:  Upload routes - unified upload handling for all media types.
 Author: Mistress-Lukutar
 Date:   2026-07-24
-Version: v1.1.2
 '''
 import json
 import uuid

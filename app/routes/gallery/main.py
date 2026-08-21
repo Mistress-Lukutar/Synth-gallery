@@ -3,7 +3,6 @@ File:   main.py
 Brief:  Main gallery routes - page view and folder content API.
 Author: Mistress-Lukutar
 Date:   2026-07-24
-Version: v1.1.2
 '''
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
@@ -13,7 +12,7 @@ from pydantic import BaseModel
 from app.routes.gallery.deps import get_folder_service, get_permission_service
 from app.application.services import UserSettingsService, ItemService
 from app.infrastructure.repositories import UserRepository
-from app.config import ROOT_PATH, BASE_DIR, EXTERNAL_HOST
+from app.config import APP_VERSION, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
 from app.database import create_connection
 from app.dependencies import get_current_user
 from app.infrastructure.repositories import (
@@ -28,6 +27,7 @@ router = APIRouter()
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["app_version"] = APP_VERSION
 templates.env.globals["external_host"] = EXTERNAL_HOST
 
 

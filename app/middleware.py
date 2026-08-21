@@ -3,7 +3,6 @@ File:   middleware.py
 Brief:  Application middleware.
 Author: Mistress-Lukutar
 Date:   2026-07-13
-Version: v1.0.0
 '''
 import hashlib
 import secrets

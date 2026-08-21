@@ -3,7 +3,6 @@ File:   jxl_encoder.py
 Brief:  Encode raster images to lossless JPEG XL via the official cjxl CLI.
 Author: Mistress-Lukutar
 Date:   2026-07-11
-Version: v0.2.0
 '''
 
 from __future__ import annotations

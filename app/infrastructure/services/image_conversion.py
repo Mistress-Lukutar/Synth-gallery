@@ -6,7 +6,6 @@ Brief:  On-demand image conversion for downloads (JXL / JPEG / PNG / WebP).
         targets are produced with Pillow.
 Author: Mistress-Lukutar
 Date:   2026-08-19
-Version: v1.0.0
 '''
 from __future__ import annotations
 

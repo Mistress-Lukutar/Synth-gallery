@@ -3,7 +3,6 @@ File:   thumbnail.py
 Brief:  Thumbnail management service - regeneration, cleanup, statistics.
 Author: Mistress-Lukutar
 Date:   2026-07-24
-Version: v1.1.2
 '''
 import io
 import os

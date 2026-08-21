@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Tag Management - Synth Gallery</title>
-    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
-    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css?v={{ app_version }}">
     <!-- EasyMDE Markdown Editor -->
-    <link rel="stylesheet" href="{{ base_url }}/static/vendor/easymde/easymde.min.css">
-    <link rel="stylesheet" href="{{ base_url }}/static/vendor/font-awesome/css/font-awesome.min.css">
-    <script src="{{ base_url }}/static/vendor/easymde/easymde.min.js"></script>
+    <link rel="stylesheet" href="{{ base_url }}/static/vendor/easymde/easymde.min.css?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ base_url }}/static/vendor/font-awesome/css/font-awesome.min.css?v={{ app_version }}">
+    <script src="{{ base_url }}/static/vendor/easymde/easymde.min.js?v={{ app_version }}"></script>
     <style>
         .admin-layout {
             max-width: 1400px;
@@ -542,7 +542,7 @@
         window.__isAdmin = {{ 'true' if user and user.is_admin else 'false' }};
         window.__categories = {{ categories | tojson }};
     </script>
-    <script src="{{ base_url }}/static/js/toast.js"></script>
-    <script src="{{ base_url }}/static/js/tags-page.js"></script>
+    <script src="{{ base_url }}/static/js/toast.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/tags-page.js?v={{ app_version }}"></script>
 </body>
 </html>

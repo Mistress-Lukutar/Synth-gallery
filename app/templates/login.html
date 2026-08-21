@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Synth</title>
-    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
-    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css?v={{ app_version }}">
     <style>
         .login-container {
             min-height: 100vh;
@@ -310,7 +310,7 @@
         <div class="login-box">
             <div class="login-header">
                 <a href="{{ base_url }}/" class="logo">
-                    <img src="{{ base_url }}/static/favicon.svg" alt="" class="logo-icon">
+                    <img src="{{ base_url }}/static/favicon.svg?v={{ app_version }}" alt="" class="logo-icon">
                     Synth
                 </a>
                 <p>Sign in to access the gallery</p>
@@ -387,8 +387,8 @@
     <script>
         window.SYNTH_BASE_URL = '{{ base_url }}';
     </script>
-    <script src="{{ base_url }}/static/js/core.js"></script>
-    <script src="{{ base_url }}/static/js/login.js"></script>
+    <script src="{{ base_url }}/static/js/core.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/login.js?v={{ app_version }}"></script>
 
     <style>
         @keyframes spin {
