@@ -19,8 +19,16 @@ from typing import Any, BinaryIO, Dict, List, Optional
 
 from fastapi import HTTPException, UploadFile
 
-from app.config import ALLOWED_MEDIA_TYPES, USE_JXL
-from app.infrastructure.repositories import ItemMediaRepository, ItemRepository
+from app.config import (
+    ALLOWED_MEDIA_TYPES,
+    TEXT_MAX_SIZE,
+    USE_JXL,
+)
+from app.infrastructure.repositories import (
+    ItemMediaRepository,
+    ItemRepository,
+    ItemTextRepository,
+)
 from app.infrastructure.services.encryption import EncryptionService
 from app.infrastructure.services.ffmpeg import (
     extract_video_thumbnail_bytes,
@@ -43,7 +51,11 @@ from app.infrastructure.services.metadata import (
 )
 from app.infrastructure.storage import get_storage
 
-from .item_types import ItemType, get_renderer_for
+from .item_types import (
+    ItemType,
+    get_renderer_for,
+    resolve_item_type_for_content,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -68,10 +80,14 @@ class ItemService:
         self,
         item_repository: ItemRepository,
         item_media_repository: ItemMediaRepository,
+        item_text_repository: Optional[ItemTextRepository] = None,
         storage: Any = None,
     ) -> None:
         self.item_repo = item_repository
         self.media_repo = item_media_repository
+        self.text_repo = item_text_repository or ItemTextRepository(
+            item_repository._conn
+        )
         self.storage = storage or get_storage()
 
     def get_renderer(self, item_type: str) -> ItemRenderer:
@@ -225,6 +241,181 @@ class ItemService:
     # ========================================================================
     # Async Upload Processing
     # ========================================================================
+
+    async def process_upload(
+        self,
+        file: UploadFile,
+        folder_id: str,
+        user_id: int,
+        user_dek: Optional[bytes] = None,
+    ) -> Dict:
+        '''Dispatch an upload to the handler for its item type.
+
+        The item-type registry drives the routing: the first registered
+        type whose allowed MIME set matches the upload's content type
+        handles the file. Unknown content types are rejected here so both
+        handlers can assume a validated type.
+
+        Args:
+            file: Uploaded file.
+            folder_id: Target folder.
+            user_id: Owner user ID.
+            user_dek: User's DEK for server-side encryption.
+
+        Returns:
+            Created item dict.
+        '''
+        content_type = file.content_type or 'application/octet-stream'
+        if content_type == 'application/octet-stream':
+            content_type = self._infer_note_content_type(file.filename)
+
+        item_type = resolve_item_type_for_content(content_type)
+        if item_type is None:
+            raise HTTPException(400, f'Invalid file type: {content_type}')
+
+        if item_type == ItemType.NOTE.value:
+            file.file.seek(0)
+            return await self.process_note_upload(
+                file=file,
+                folder_id=folder_id,
+                user_id=user_id,
+                user_dek=user_dek,
+            )
+        return await self.process_media_upload(
+            file=file,
+            folder_id=folder_id,
+            user_id=user_id,
+            user_dek=user_dek,
+        )
+
+    @staticmethod
+    def _infer_note_content_type(filename: Optional[str]) -> str:
+        '''Map a note file extension to its MIME type.
+
+        Browsers report ``application/octet-stream`` for less common text
+        extensions (yaml, md); the extension decides the content type for
+        those. Returns the input MIME unchanged for anything else.
+        '''
+        if not filename:
+            return 'application/octet-stream'
+        suffix = Path(filename).suffix.lower()
+        return {
+            '.txt': 'text/plain',
+            '.md': 'text/markdown',
+            '.json': 'application/json',
+            '.csv': 'text/csv',
+            '.yaml': 'text/yaml',
+            '.yml': 'text/yaml',
+        }.get(suffix, 'application/octet-stream')
+
+    @staticmethod
+    def _decode_text(raw: bytes) -> tuple[str, str]:
+        '''Decode text bytes, auto-detecting the encoding.
+
+        Tries UTF-8 (with or without BOM), UTF-16 (BOM) and finally
+        cp1251 (legacy Windows text, common for older Russian files).
+        cp1251 accepts any byte sequence, so decoding always succeeds.
+
+        Returns:
+            Tuple of (decoded_text, encoding_name).
+        '''
+        for encoding in ('utf-8-sig', 'utf-16'):
+            try:
+                return raw.decode(encoding), encoding
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        return raw.decode('cp1251'), 'cp1251'
+
+    async def process_note_upload(
+        self,
+        file: UploadFile,
+        folder_id: str,
+        user_id: int,
+        user_dek: Optional[bytes] = None,
+    ) -> Dict:
+        '''Process a text-note upload (txt/md/json/csv/yaml).
+
+        The content is validated as decodable text (binary files are
+        rejected), measured (chars/lines/encoding) and stored as an
+        encrypted SGE1 envelope in storage — identical to media files, so
+        serving, backups and batch download work through the same
+        pipeline.
+
+        Args:
+            file: Uploaded file.
+            folder_id: Target folder.
+            user_id: Owner user ID.
+            user_dek: User's DEK for server-side encryption.
+
+        Returns:
+            Created item dict.
+        '''
+        if not file.filename:
+            raise HTTPException(400, 'No filename')
+
+        if user_dek is None:
+            raise HTTPException(403, 'Encryption key not available')
+
+        content_type = file.content_type or 'application/octet-stream'
+        if content_type == 'application/octet-stream':
+            content_type = self._infer_note_content_type(file.filename)
+        if resolve_item_type_for_content(content_type) != ItemType.NOTE.value:
+            raise HTTPException(400, f'Invalid file type: {content_type}')
+
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(400, 'Empty file')
+        if len(raw) > TEXT_MAX_SIZE:
+            raise HTTPException(
+                413,
+                f'Text file exceeds the {TEXT_MAX_SIZE // (1024 * 1024)} MB limit',
+            )
+
+        # Server-side content validation: it must be decodable text
+        # without NUL bytes (binary content masquerading as text).
+        text, encoding = self._decode_text(raw)
+        if '\x00' in text:
+            raise HTTPException(400, 'File is not a text file')
+
+        item_id = str(uuid.uuid4())
+
+        # Store re-encoded as UTF-8 so serving always works with a single
+        # canonical charset; ``encoding`` records the source encoding.
+        import io as _io
+
+        with _io.BytesIO(text.encode('utf-8')) as plaintext_reader:
+            await self._encrypt_and_upload(item_id, plaintext_reader, user_dek)
+
+        line_count = text.count('\n') + (0 if text.endswith('\n') or not text else 1)
+        self.item_repo.create(
+            item_type=ItemType.NOTE.value,
+            folder_id=folder_id,
+            user_id=user_id,
+            item_id=item_id,
+            title=file.filename,
+            uploaded_at=datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S.%f'),
+        )
+        self.text_repo.create(
+            item_id=item_id,
+            content_type=content_type,
+            original_name=file.filename,
+            encoding=encoding,
+            char_count=len(text),
+            line_count=line_count,
+        )
+
+        return {
+            'id': item_id,
+            'type': ItemType.NOTE.value,
+            'folder_id': folder_id,
+            'user_id': user_id,
+            'title': file.filename,
+            'content_type': content_type,
+            'encoding': encoding,
+            'char_count': len(text),
+            'line_count': line_count,
+            'filename': item_id,
+        }
 
     async def process_media_upload(
         self,
@@ -527,6 +718,16 @@ class ItemService:
                     'thumb_height': media.get('thumb_height'),
                     'taken_at': media.get('taken_at'),
                 })
+        elif base['type'] == ItemType.NOTE.value:
+            text = self.text_repo.get_by_item_id(item_id)
+            if text:
+                base.update({
+                    'content_type': text.get('content_type'),
+                    'original_name': text.get('original_name'),
+                    'encoding': text.get('encoding'),
+                    'char_count': text.get('char_count'),
+                    'line_count': text.get('line_count'),
+                })
 
         return base
 
@@ -566,6 +767,16 @@ class ItemService:
                         'thumb_width': media.get('thumb_width'),
                         'thumb_height': media.get('thumb_height'),
                         'taken_at': media.get('taken_at'),
+                    })
+            elif item['type'] == ItemType.NOTE.value:
+                text = self.text_repo.get_by_item_id(item['id'])
+                if text:
+                    item.update({
+                        'content_type': text.get('content_type'),
+                        'original_name': text.get('original_name'),
+                        'encoding': text.get('encoding'),
+                        'char_count': text.get('char_count'),
+                        'line_count': text.get('line_count'),
                     })
 
         return items
@@ -632,9 +843,16 @@ class ItemService:
         if not item:
             raise HTTPException(404, 'Item not found')
 
-        media = self.media_repo.get_by_item_id(item_id)
-        if not media:
-            raise HTTPException(404, 'Media not found')
+        media = None
+        text = None
+        if item['type'] == ItemType.NOTE.value:
+            text = self.text_repo.get_by_item_id(item_id)
+            if not text:
+                raise HTTPException(404, 'Text metadata not found')
+        else:
+            media = self.media_repo.get_by_item_id(item_id)
+            if not media:
+                raise HTTPException(404, 'Media not found')
 
         source_owner_id = source_owner_id or item['user_id']
         new_item_id = str(uuid.uuid4())
@@ -703,7 +921,7 @@ class ItemService:
             await _copy_storage_object('thumbnails', source_owner_id, user_id)
 
         self.item_repo.create(
-            item_type=ItemType.MEDIA.value,
+            item_type=item['type'],
             folder_id=dest_folder_id,
             user_id=user_id,
             item_id=new_item_id,
@@ -711,20 +929,30 @@ class ItemService:
             description=item.get('description'),
         )
 
-        self.media_repo.create(
-            item_id=new_item_id,
-            media_type=media['media_type'],
-            original_name=media.get('original_name'),
-            content_type=media['content_type'],
-            width=media.get('width'),
-            height=media.get('height'),
-            duration=media.get('duration'),
-            thumb_width=media['thumb_width'],
-            thumb_height=media['thumb_height'],
-            taken_at=media['taken_at'],
-            file_size=media.get('file_size'),
-            png_text_chunks=media.get('png_text_chunks'),
-        )
+        if text is not None:
+            self.text_repo.create(
+                item_id=new_item_id,
+                content_type=text['content_type'],
+                original_name=text.get('original_name'),
+                encoding=text.get('encoding', 'utf-8'),
+                char_count=text.get('char_count', 0),
+                line_count=text.get('line_count', 0),
+            )
+        else:
+            self.media_repo.create(
+                item_id=new_item_id,
+                media_type=media['media_type'],
+                original_name=media.get('original_name'),
+                content_type=media['content_type'],
+                width=media.get('width'),
+                height=media.get('height'),
+                duration=media.get('duration'),
+                thumb_width=media['thumb_width'],
+                thumb_height=media['thumb_height'],
+                taken_at=media['taken_at'],
+                file_size=media.get('file_size'),
+                png_text_chunks=media.get('png_text_chunks'),
+            )
 
         conn = self.item_repo._conn
         item_tags = conn.execute(
@@ -762,7 +990,7 @@ class ItemService:
     # ========================================================================
 
     def get_item_metadata(self, item_id: str) -> Optional[Dict]:
-        '''Get combined metadata from items and item_media tables.
+        '''Get combined metadata from items and its type detail table.
 
         Args:
             item_id: Item ID
@@ -774,11 +1002,15 @@ class ItemService:
             '''SELECT
                 i.id, i.type, i.title, i.description, i.user_id,
                 i.uploaded_at, i.updated_at,
-                im.media_type, im.original_name, im.content_type,
+                im.media_type,
+                COALESCE(im.original_name, it.original_name) AS original_name,
+                COALESCE(im.content_type, it.content_type) AS content_type,
                 im.width, im.height, im.duration, im.taken_at, im.file_size,
-                im.png_text_chunks
+                im.png_text_chunks,
+                it.encoding AS text_encoding, it.char_count, it.line_count
                FROM items i
                LEFT JOIN item_media im ON i.id = im.item_id
+               LEFT JOIN item_texts it ON i.id = it.item_id
                WHERE i.id = ?''',
             (item_id,),
         )

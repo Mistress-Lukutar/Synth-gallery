@@ -604,9 +604,11 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 continue
             item = db.execute(
                 """SELECT i.id, i.title, i.user_id,
-                          im.content_type, im.media_type
+                          COALESCE(im.content_type, it.content_type) AS content_type,
+                          im.media_type
                    FROM items i
                    LEFT JOIN item_media im ON im.item_id = i.id
+                   LEFT JOIN item_texts it ON it.item_id = i.id
                    WHERE i.id = ?""",
                 (item_id,),
             ).fetchone()
@@ -626,10 +628,12 @@ async def batch_download(data: BatchDownloadInput, request: Request):
                 continue
             album_items = db.execute(
                 """SELECT i.id, i.title, i.user_id,
-                          im.content_type, im.media_type
+                          COALESCE(im.content_type, it.content_type) AS content_type,
+                          im.media_type
                    FROM items i
                    JOIN album_items ai ON i.id = ai.item_id
                    LEFT JOIN item_media im ON im.item_id = i.id
+                   LEFT JOIN item_texts it ON it.item_id = i.id
                    WHERE ai.album_id = ?
                    ORDER BY ai.position""",
                 (album_id,),

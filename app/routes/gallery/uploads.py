@@ -41,17 +41,18 @@ async def _process_upload(
     folder_id: str,
     user: dict,
 ) -> dict:
-    '''Process a single file upload.
+    '''Process a single file upload of any registered item type.
 
-    Delegates to :meth:`ItemService.process_media_upload` for all business
-    logic. Memory usage is bounded by the streaming pipeline; arbitrarily
-    large files (multi-GiB MKVs) are supported.
+    Delegates to :meth:`ItemService.process_upload`, which routes to the
+    media or note pipeline based on the content type. Memory usage is
+    bounded by the streaming pipeline; arbitrarily large media files
+    (multi-GiB MKVs) are supported.
     '''
     db = create_connection()
     try:
         item_service = get_item_service(db)
         user_dek = dek_cache.get(user['id'])
-        return await item_service.process_media_upload(
+        return await item_service.process_upload(
             file=file,
             folder_id=folder_id,
             user_id=user['id'],
@@ -86,19 +87,29 @@ async def upload_file(
 
     item = await _process_upload(file=file, folder_id=folder_id, user=user)
 
-    return {
+    response = {
         'id': item['id'],
-        'type': ItemType.MEDIA.value,
+        'type': item.get('type', ItemType.MEDIA.value),
         'folder_id': folder_id,
-        'media_type': item.get('media_type', 'image'),
         'title': item.get('title', ''),
         'filename': item['id'],  # Extension-less: filename = item_id
         'content_type': item.get('content_type'),
-        'thumb_width': item.get('thumb_width', 0),
-        'thumb_height': item.get('thumb_height', 0),
-        'taken_at': item.get('taken_at'),
         'status': 'ok',
     }
+    if response['type'] == ItemType.NOTE.value:
+        response.update({
+            'encoding': item.get('encoding'),
+            'char_count': item.get('char_count'),
+            'line_count': item.get('line_count'),
+        })
+    else:
+        response.update({
+            'media_type': item.get('media_type', 'image'),
+            'thumb_width': item.get('thumb_width', 0),
+            'thumb_height': item.get('thumb_height', 0),
+            'taken_at': item.get('taken_at'),
+        })
+    return response
 
 
 @router.post('/api/uploads/batch')

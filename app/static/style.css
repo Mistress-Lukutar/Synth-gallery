@@ -482,6 +482,58 @@ main {
     background: var(--bg-secondary);
 }
 
+/* Text-note card: extension icon instead of a thumbnail */
+.note-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-secondary);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--text-muted);
+}
+
+.note-placeholder svg {
+    opacity: 0.7;
+}
+
+.note-ext {
+    padding: 2px 10px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text);
+}
+
+/* Text note viewer in the lightbox */
+.lightbox-text {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.lightbox-text pre {
+    margin: 0;
+    padding: 24px;
+    min-height: 100%;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* Error placeholder - for 403/locked content */
 .gallery-placeholder-error {
     position: absolute;

@@ -90,3 +90,56 @@ class MediaRenderer(ItemRenderer):
             'url': self.get_full_url(item),
             'title': item.get('title', ''),
         }
+
+
+class NoteRenderer(ItemRenderer):
+    '''Renderer for text notes (txt/md/json/csv/yaml).
+
+    Notes have no generated thumbnail; the gallery shows an extension-icon
+    card and the lightbox renders the decrypted text with syntax
+    highlighting.
+    '''
+
+    def get_thumbnail_url(self, item: Dict) -> str:
+        from app.config import BASE_URL
+        return f'{BASE_URL}/files/{item["id"]}/thumbnail'
+
+    def get_full_url(self, item: Dict) -> str:
+        from app.config import BASE_URL
+        return f'{BASE_URL}/files/{item["id"]}'
+
+    def get_dimensions(self, item: Dict) -> tuple:
+        return 280, 210
+
+    @staticmethod
+    def file_extension(item: Dict) -> str:
+        '''Return the display extension for the note (e.g. ``md``).'''
+        original_name = item.get('original_name') or item.get('title') or ''
+        if '.' in original_name:
+            return original_name.rsplit('.', 1)[-1].lower()[:8]
+        content_type = item.get('content_type') or 'text/plain'
+        return content_type.rsplit('/', 1)[-1]
+
+    def render_gallery_item(self, item: Dict) -> Dict:
+        '''Render gallery-grid metadata.
+
+        Contract mirrors :class:`MediaRenderer` with ``has_thumbnail``
+        always False so the grid renders an extension-icon card.
+        '''
+        return {
+            'type': 'note',
+            'media_type': None,
+            'width': 280,
+            'height': 210,
+            'has_thumbnail': False,
+            'thumbnail_url': None,
+            'extension': self.file_extension(item),
+        }
+
+    def render_lightbox(self, item: Dict) -> Dict:
+        return {
+            'type': 'note',
+            'url': self.get_full_url(item),
+            'extension': self.file_extension(item),
+            'title': item.get('title', ''),
+        }

@@ -184,6 +184,7 @@
         items.forEach(item => {
             // Phase 5: Polymorphic items only (type: 'item' with item_type)
             const isMedia = item.type === 'item' && item.item_type === 'media';
+            const isNote = item.type === 'item' && item.item_type === 'note';
             
             if (item.type === 'album') {
                 const album = item;
@@ -246,6 +247,41 @@
                                     <rect x="14" y="14" width="7" height="7" rx="1"/>
                                 </svg>
                                 <span>${album.item_count || 0}</span>
+                            </div>
+                        </div>
+                        <div class="select-indicator" title="Select">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                `;
+            } else if (isNote) {
+                // Text note: extension-icon card, no thumbnail
+                const note = item;
+                const displayName = note.original_name || note.title || 'Untitled';
+                const ext = (displayName.includes('.') ? displayName.split('.').pop() : 'txt').toLowerCase();
+                const uploadedAt = note.uploaded_at || '';
+                const takenAt = note.taken_at || '';
+                const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
+
+                html += `
+                    <div class="gallery-item note-item"
+                         data-item-id="${note.id}"
+                         data-item-type="item"
+                         data-media-type="note"
+                         data-thumb-width="280"
+                         data-thumb-height="210"
+                         ${dateAttrs}>
+                        <div class="gallery-link" onclick="openItem('${note.id}')" style="aspect-ratio: 280 / 210;">
+                            <div class="note-placeholder">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                </svg>
+                                <span class="note-ext">${escapeHtml(ext)}</span>
                             </div>
                         </div>
                         <div class="select-indicator" title="Select">

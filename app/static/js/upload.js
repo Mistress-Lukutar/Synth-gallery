@@ -227,17 +227,25 @@
     // Check valid media file
     function isValidMedia(file) {
         if (file.type) {
-            return file.type.startsWith('image/') ||
-                   file.type === 'video/mp4' ||
-                   file.type === 'video/webm' ||
-                   file.type === 'video/x-matroska' ||
-                   file.type === 'video/x-mkv' ||
-                   file.type === 'video/matroska' ||
-                   file.type === 'video/webp';
+            if (file.type.startsWith('text/')) {
+                // HTML/SVG texts are not note material; only the note formats apply
+                return ['text/plain', 'text/markdown', 'text/csv', 'text/yaml', 'text/x-yaml'].includes(file.type);
+            }
+            if (file.type.startsWith('image/') ||
+                file.type === 'video/mp4' ||
+                file.type === 'video/webm' ||
+                file.type === 'video/x-matroska' ||
+                file.type === 'video/x-mkv' ||
+                file.type === 'video/matroska' ||
+                file.type === 'video/webp') {
+                return true;
+            }
+            return ['application/json', 'application/yaml', 'application/x-yaml'].includes(file.type);
         }
         // Fallback to extension when the browser doesn't report a MIME type
         const ext = file.name.split('.').pop().toLowerCase();
-        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jxl', 'mp4', 'webm', 'mkv'].includes(ext);
+        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jxl', 'mp4', 'webm', 'mkv',
+                'txt', 'md', 'json', 'csv', 'yaml', 'yml'].includes(ext);
     }
 
     // Add files to selection (accumulates)

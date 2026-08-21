@@ -1052,6 +1052,35 @@
         window.history.pushState({ photoId: newPhotoId }, '', url.toString());
     };
 
+    // Render a text note in the lightbox with syntax highlighting.
+    // highlight.js is vendored and included globally by gallery.html.
+    function renderLightboxText(mediaContainer, text, photo) {
+        const langMap = {
+            md: 'markdown', markdown: 'markdown',
+            json: 'json',
+            csv: 'csv',
+            yaml: 'yaml', yml: 'yaml',
+            txt: 'plaintext',
+        };
+        const name = photo.original_name || photo.title || '';
+        const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : 'txt';
+        const lang = langMap[ext] || 'plaintext';
+
+        mediaContainer.innerHTML = `
+            <div class="lightbox-text">
+                <pre><code class="language-${lang}">${escapeHtml(text)}</code></pre>
+            </div>
+        `;
+        const codeEl = mediaContainer.querySelector('code');
+        if (codeEl && window.hljs) {
+            try {
+                window.hljs.highlightElement(codeEl);
+            } catch (e) {
+                // Unknown language in this highlight.js build - keep plain text.
+            }
+        }
+    }
+
     // Render a single lightbox image. For JXL, use <picture> so capable browsers
     // load the JXL original while others fall back to the server-rendered JPEG.
     function renderLightboxImage(mediaContainer, src, isJxl, photoName, quality = 'fit') {
@@ -1105,8 +1134,21 @@
             
             // Render media using FileAccessService (handles server-side encrypted files)
             const mimeType = photo.content_type || (photo.media_type === 'video' ? 'video/mp4' : 'image/jpeg');
-            
-            if (photo.media_type === 'video') {
+
+            if (photo.type === 'note') {
+                // Text notes: fetch decrypted content and render with
+                // syntax highlighting (highlight.js is vendored globally).
+                try {
+                    const textUrl = await FileAccessService.getFileUrl(photoId, { photo });
+                    const textResp = await fetch(textUrl);
+                    if (!textResp.ok) throw new Error(`HTTP ${textResp.status}`);
+                    const text = await textResp.text();
+                    renderLightboxText(mediaContainer, text, photo);
+                } catch (err) {
+                    console.error('[lightbox] Failed to load note:', err);
+                    mediaContainer.innerHTML = `<p>Error: Failed to load text</p>`;
+                }
+            } else if (photo.media_type === 'video') {
                 // Videos: load directly via FileAccessService.
                 // Browsers cannot decode MKV reliably in <video> (most audio
                 // codecs in MKV — AC3/DTS/eAC3/FLAC — are unsupported, so the

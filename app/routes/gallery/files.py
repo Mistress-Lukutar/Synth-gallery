@@ -119,26 +119,45 @@ class _PrefixedReader:
 def _get_file_record(item_id: str, item_repo: ItemRepository, item_media_repo=None):
     '''Build an item dict for the requested file record.
 
-    Dispatch is driven by the item-type registry: today only ``media`` items
-    serve files, but the registry check is the single extension point so a
-    future type can opt into file serving without reopening this route.
+    Dispatch is driven by the item-type registry: media items read their
+    content type from ``item_media``, notes from ``item_texts``.
     '''
     from app.application.services.item_types import is_known_item_type
 
     item = item_repo.get_by_id(item_id)
     if item and is_known_item_type(item.get('type', '')):
-        media = item_media_repo.get_by_item_id(item_id) if item_media_repo else None
-        return {
+        record = {
             'id': item['id'],
+            'type': item.get('type'),
             'filename': item_id,
             'title': item.get('title', item_id),
             'user_id': item.get('user_id'),
             'folder_id': item.get('folder_id'),
-            'content_type': (
-                media.get('content_type', 'image/jpeg') if media else 'image/jpeg'
-            ),
+            'content_type': 'application/octet-stream',
         }
+        if item.get('type') == 'note':
+            from app.infrastructure.repositories import ItemTextRepository
+
+            text = ItemTextRepository(item_repo._conn).get_by_item_id(item_id)
+            if text and text.get('content_type'):
+                record['content_type'] = text['content_type']
+        elif item_media_repo is not None:
+            media = item_media_repo.get_by_item_id(item_id)
+            if media and media.get('content_type'):
+                record['content_type'] = media['content_type']
+        return record
     return None
+
+
+def _served_content_type(content_type: str) -> str:
+    '''Add the UTF-8 charset to text content types at serve time.
+
+    Note content is normalised to UTF-8 at upload, so browsers can always
+    be told the charset explicitly (they otherwise guess latin-1).
+    '''
+    if content_type.startswith('text/') and 'charset' not in content_type:
+        return f'{content_type}; charset=utf-8'
+    return content_type
 
 
 async def _open_encrypted_reader(filename: str, folder: str):
@@ -401,6 +420,10 @@ async def get_file_thumbnail(item_id: str, request: Request):
         file_record = _get_file_record(item_id, item_repo, item_media_repo)
         if not file_record:
             raise HTTPException(status_code=404, detail='Item not found')
+
+        # Notes have no generated thumbnail.
+        if file_record.get('type') == 'note':
+            raise HTTPException(status_code=404, detail='Thumbnail unavailable')
 
         folder_id = file_record.get('folder_id')
         if folder_id and not perm_service.can_access(folder_id, user['id']):

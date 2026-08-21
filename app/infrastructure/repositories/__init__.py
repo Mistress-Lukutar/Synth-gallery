@@ -19,6 +19,7 @@ from .permission_repository import PermissionRepository
 from .webauthn_repository import WebAuthnRepository
 from .item_repository import ItemRepository
 from .item_media_repository import ItemMediaRepository
+from .item_text_repository import ItemTextRepository
 from .album_repository import AlbumRepository
 from .tags_repository import TagsRepository
 from .tag_implication_repository import TagImplicationRepository
@@ -37,6 +38,7 @@ __all__ = [
     "WebAuthnRepository",
     "ItemRepository",
     "ItemMediaRepository",
+    "ItemTextRepository",
     "AlbumRepository",
     "TagsRepository",
     "TagImplicationRepository",

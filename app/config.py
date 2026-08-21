@@ -48,6 +48,23 @@ ALLOWED_VIDEO_TYPES = {
 }
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
 
+# Allowed text/note MIME types (items.type = 'note').
+ALLOWED_NOTE_TYPES = {
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "text/yaml",
+    "text/x-yaml",
+    "application/yaml",
+    "application/x-yaml",
+    "application/json",
+}
+# Filename extensions accepted for text uploads when the browser reports a
+# generic application/octet-stream MIME type.
+NOTE_EXTENSIONS = {".txt", ".md", ".json", ".csv", ".yaml", ".yml"}
+# Upper bound for text uploads (issue #23 proposes 5-10 MB).
+TEXT_MAX_SIZE = int(os.environ.get("SYNTH_TEXT_MAX_SIZE", str(10 * 1024 * 1024)))
+
 # Encryption (chunked AES-256-GCM streaming format).
 # Each chunk carries its own 12-byte nonce and 16-byte GCM tag, enabling
 # O(1) memory encryption/decryption and HTTP Range serving.

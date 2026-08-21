@@ -24,9 +24,9 @@ import enum
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
-from app.config import ALLOWED_MEDIA_TYPES
+from app.config import ALLOWED_MEDIA_TYPES, ALLOWED_NOTE_TYPES
 
-from .item_renderers import ItemRenderer, MediaRenderer
+from .item_renderers import ItemRenderer, MediaRenderer, NoteRenderer
 
 
 class ItemType(str, enum.Enum):
@@ -38,9 +38,9 @@ class ItemType(str, enum.Enum):
     '''
 
     MEDIA = 'media'
-    # NOTE = 'note'        # future: item_notes detail table
-    # AUDIO = 'audio'      # future: item_audio detail table
-    # MODEL = 'model'      # future: item_models detail table
+    NOTE = 'note'        # text files: item_texts detail table
+    # AUDIO = 'audio'    # future: item_audio detail table
+    # MODEL = 'model'    # future: item_models detail table
 
 
 @dataclass(frozen=True)
@@ -60,12 +60,30 @@ ITEM_TYPE_REGISTRY: Dict[str, ItemTypeSpec] = {
         renderer_factory=MediaRenderer,
         allowed_mime=frozenset(ALLOWED_MEDIA_TYPES),
     ),
+    ItemType.NOTE.value: ItemTypeSpec(
+        value=ItemType.NOTE.value,
+        detail_table='item_texts',
+        renderer_factory=NoteRenderer,
+        allowed_mime=frozenset(ALLOWED_NOTE_TYPES),
+    ),
 }
 
 
 def get_item_type_spec(item_type: str) -> Optional[ItemTypeSpec]:
     '''Return the spec for ``item_type`` or ``None`` if unknown.'''
     return ITEM_TYPE_REGISTRY.get(item_type)
+
+
+def resolve_item_type_for_content(content_type: str) -> Optional[str]:
+    '''Return the item type whose allowed MIME set contains ``content_type``.
+
+    Registry order decides precedence when MIME sets ever overlap; today
+    media (image/*, video/*) and note (text formats) sets are disjoint.
+    '''
+    for spec in ITEM_TYPE_REGISTRY.values():
+        if spec.allowed_mime and content_type in spec.allowed_mime:
+            return spec.value
+    return None
 
 
 def require_item_type_spec(item_type: str) -> ItemTypeSpec:
