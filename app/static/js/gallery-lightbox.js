@@ -52,6 +52,19 @@
     let currentImageLoadController = null;
     let currentFullImageLoader = null;
     
+    // Zoom / pan state
+    let zoomState = {
+        scale: 1,
+        translateX: 0,
+        translateY: 0,
+        isDragging: false,
+        lastMouseX: 0,
+        lastMouseY: 0,
+        minScale: 1,
+        maxScale: 10,
+        hintTimeout: null
+    };
+    
     // Cancel any pending image loads for lightbox only (does not affect gallery thumbnails)
     function cancelImageLoading() {
         if (currentImageLoadController) {
@@ -80,6 +93,31 @@
         }
     }
 
+    // Show an overlay explaining the video cannot be played inline, with a
+    // download link. Used for MKV (audio codecs browsers can't decode) or when
+    // <video> fires 'error' for any other unsupported container/codec.
+    function showVideoUnsupportedOverlay(
+        mediaContainer,
+        downloadUrl,
+        downloadName,
+        isMkv
+    ) {
+        const reason = isMkv
+            ? 'MKV uses audio codecs (AC3/DTS/eAC3/FLAC) that browsers cannot decode, so inline playback would be silent. Download to watch with sound.'
+            : 'This video could not be played in the browser.';
+        const sizeText = downloadName ? `<div class="video-fallback-name">${downloadName}</div>` : '';
+        mediaContainer.innerHTML =
+            `<div class="video-fallback">
+                <div class="video-fallback-icon" aria-hidden="true">▶</div>
+                <div class="video-fallback-title">Video not playable inline</div>
+                ${sizeText}
+                <div class="video-fallback-reason">${reason}</div>
+                <a class="video-fallback-download" href="${downloadUrl}" download="${downloadName}">
+                    Download
+                </a>
+            </div>`;
+    }
+
     function init() {
         lightbox = document.getElementById('lightbox');
         if (!lightbox) {
@@ -102,8 +140,7 @@
             if (!resp.ok) return null;
             
             const album = await resp.json();
-            // Phase 5: API returns 'items' instead of 'photos'
-            const albumItems = album.items || album.photos || [];
+            const albumItems = album.items || [];
             if (albumItems.length === 0) return null;
             
             // Cache album data
@@ -117,7 +154,6 @@
             const albumPhotos = albumItems.map(p => ({
                 type: 'item',  // Phase 5: polymorphic item
                 id: p.id,
-                safeId: p.safe_id,
                 albumId: albumId
             }));
             
@@ -191,6 +227,211 @@
         
         // Touch swipe navigation for mobile
         setupTouchNavigation();
+        
+        // Desktop wheel zoom + drag pan
+        setupZoomHandlers();
+    }
+    
+    // ---------- Zoom / Pan ----------
+    
+    function getZoomImage() {
+        const mediaContainer = lightbox?.querySelector('.lightbox-media');
+        if (!mediaContainer) return null;
+        return mediaContainer.querySelector('img.lightbox-image');
+    }
+    
+    function isFullQualityImage() {
+        const img = getZoomImage();
+        return !!(img && img.dataset.quality === 'full' && img.complete && img.naturalWidth > 0);
+    }
+    
+    function getZoomContainer() {
+        return lightbox?.querySelector('.lightbox-media');
+    }
+    
+    function getZoomHint() {
+        let hint = lightbox?.querySelector('.lightbox-zoom-hint');
+        if (!hint && lightbox) {
+            hint = document.createElement('div');
+            hint.className = 'lightbox-zoom-hint';
+            lightbox.appendChild(hint);
+        }
+        return hint;
+    }
+    
+    function showZoomHint(text) {
+        const hint = getZoomHint();
+        if (!hint) return;
+        hint.textContent = text;
+        hint.classList.add('visible');
+        if (zoomState.hintTimeout) {
+            clearTimeout(zoomState.hintTimeout);
+        }
+        zoomState.hintTimeout = setTimeout(() => {
+            hint.classList.remove('visible');
+        }, 1200);
+    }
+    
+    function resetZoom(animate = false) {
+        zoomState.scale = 1;
+        zoomState.translateX = 0;
+        zoomState.translateY = 0;
+        zoomState.isDragging = false;
+        applyZoom(!animate);
+        const container = getZoomContainer();
+        if (container) container.classList.remove('panning');
+    }
+    
+    function applyZoom(noTransition = false) {
+        const img = getZoomImage();
+        const container = getZoomContainer();
+        if (!img) {
+            if (container) container.classList.remove('can-pan', 'zoomed');
+            return;
+        }
+        if (noTransition) {
+            img.classList.add('no-transition');
+        } else {
+            img.classList.remove('no-transition');
+        }
+        img.style.transform = `translate(${zoomState.translateX}px, ${zoomState.translateY}px) scale(${zoomState.scale})`;
+        if (container) {
+            if (zoomState.scale > 1 && isFullQualityImage()) {
+                container.classList.add('can-pan', 'zoomed');
+            } else {
+                container.classList.remove('can-pan', 'zoomed');
+            }
+        }
+        if (noTransition) {
+            // Force reflow then re-enable transitions
+            img.offsetHeight;
+            img.classList.remove('no-transition');
+        }
+    }
+    
+    function getImageBaseScale(img, containerRect) {
+        if (!img.naturalWidth || !img.naturalHeight) return 1;
+        const scaleX = containerRect.width / img.naturalWidth;
+        const scaleY = containerRect.height / img.naturalHeight;
+        // object-fit: contain -> fit inside container, never upscale beyond natural size
+        return Math.min(scaleX, scaleY, 1);
+    }
+    
+    function clampPan() {
+        const img = getZoomImage();
+        const container = getZoomContainer();
+        if (!img || !container) return;
+        const rect = container.getBoundingClientRect();
+        const baseScale = getImageBaseScale(img, rect);
+        const scaledWidth = img.naturalWidth * baseScale * zoomState.scale;
+        const scaledHeight = img.naturalHeight * baseScale * zoomState.scale;
+        const maxTranslateX = Math.max(0, (scaledWidth - rect.width) / 2);
+        const maxTranslateY = Math.max(0, (scaledHeight - rect.height) / 2);
+        zoomState.translateX = Math.max(-maxTranslateX, Math.min(maxTranslateX, zoomState.translateX));
+        zoomState.translateY = Math.max(-maxTranslateY, Math.min(maxTranslateY, zoomState.translateY));
+    }
+    
+    function zoomAt(clientX, clientY, newScale) {
+        const img = getZoomImage();
+        const container = getZoomContainer();
+        if (!img || !container) return;
+        const rect = container.getBoundingClientRect();
+        const mouseX = clientX - rect.left - rect.width / 2;
+        const mouseY = clientY - rect.top - rect.height / 2;
+        
+        const oldScale = zoomState.scale;
+        newScale = Math.max(zoomState.minScale, Math.min(zoomState.maxScale, newScale));
+        if (newScale === oldScale) return;
+        
+        // Keep the point under the cursor stable during the zoom
+        const ratio = newScale / oldScale;
+        zoomState.translateX = mouseX - (mouseX - zoomState.translateX) * ratio;
+        zoomState.translateY = mouseY - (mouseY - zoomState.translateY) * ratio;
+        zoomState.scale = newScale;
+        
+        // When zooming out to 1, always re-center
+        if (zoomState.scale <= 1) {
+            zoomState.scale = 1;
+            zoomState.translateX = 0;
+            zoomState.translateY = 0;
+        }
+        
+        clampPan();
+        applyZoom(false);
+        showZoomHint(`${Math.round(zoomState.scale * 100)}%`);
+    }
+    
+    function onWheel(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        if (!isFullQualityImage()) return;
+        e.preventDefault();
+        // Support both vertical mouse wheel and horizontal trackpad gestures
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        const factor = delta < 0 ? 1.15 : 0.87;
+        zoomAt(e.clientX, e.clientY, zoomState.scale * factor);
+    }
+    
+    function onMouseDown(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        // Only left button; ignore if clicking overlay/buttons
+        if (e.button !== 0) return;
+        if (!isFullQualityImage() || zoomState.scale <= 1) return;
+        // Don't start panning when clicking controls or panels
+        if (e.target.closest('.lightbox-nav, .lightbox-close, .lightbox-bottom-bar, .lightbox-top-bar, .item-details-panel, .album-editor-panel')) {
+            return;
+        }
+        e.preventDefault();
+        zoomState.isDragging = true;
+        zoomState.lastMouseX = e.clientX;
+        zoomState.lastMouseY = e.clientY;
+        const container = getZoomContainer();
+        if (container) container.classList.add('panning');
+    }
+    
+    function onMouseMove(e) {
+        if (!zoomState.isDragging) return;
+        e.preventDefault();
+        const dx = e.clientX - zoomState.lastMouseX;
+        const dy = e.clientY - zoomState.lastMouseY;
+        zoomState.lastMouseX = e.clientX;
+        zoomState.lastMouseY = e.clientY;
+        zoomState.translateX += dx;
+        zoomState.translateY += dy;
+        clampPan();
+        applyZoom(true);
+    }
+    
+    function onMouseUp(e) {
+        if (!zoomState.isDragging) return;
+        zoomState.isDragging = false;
+        const container = getZoomContainer();
+        if (container) container.classList.remove('panning');
+    }
+    
+    function onDoubleClick(e) {
+        if (lightbox.classList.contains('hidden')) return;
+        if (!isFullQualityImage()) return;
+        // Ignore on controls
+        if (e.target.closest('.lightbox-nav, .lightbox-close, .lightbox-bottom-bar, .lightbox-top-bar, .item-details-panel, .album-editor-panel')) {
+            return;
+        }
+        e.preventDefault();
+        if (zoomState.scale > 1.05) {
+            resetZoom(true);
+            showZoomHint('Fit');
+        } else {
+            zoomAt(e.clientX, e.clientY, 2.5);
+        }
+    }
+    
+    function setupZoomHandlers() {
+        const container = getZoomContainer();
+        if (!container) return;
+        container.addEventListener('wheel', onWheel, { passive: false });
+        container.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        container.addEventListener('dblclick', onDoubleClick);
     }
     
     // Touch swipe navigation
@@ -351,7 +592,6 @@
         flatNavOrder = photos.map(p => ({
             type: 'item',  // Phase 5: polymorphic item
             id: p.id,
-            safeId: p.safeId,
             albumId: p.albumId || null
         }));
         currentNavIndex = startIndex;
@@ -371,7 +611,6 @@
         const expandedPhotos = albumPhotos.map(p => ({
             type: 'item',  // Phase 5: polymorphic item
             id: p.id,
-            safeId: p.safeId,
             albumId: albumId
         }));
         
@@ -449,15 +688,14 @@
                 // Check cache first
                 const cached = albumCache.get(albumId);
                 if (cached && (Date.now() - cached.timestamp) < ALBUM_CACHE_TTL) {
-                    // Use cached album data (photos or items - Phase 5 compatibility)
-                    const cachedItems = cached.photos || cached.items || [];
+                    // Use cached album data
+                    const cachedItems = cached.photos;
                     if (cachedItems.length > 0) {
                         flatOrder.push({ type: 'album_marker', id: albumId, albumName: cached.name });
                         for (const photo of cachedItems) {
                             flatOrder.push({
                                 type: 'item',  // Phase 5: polymorphic item
                                 id: photo.id,
-                                safeId: photo.safe_id || item.dataset.safeId, // Fallback to album's safeId
                                 albumId: albumId
                             });
                         }
@@ -475,8 +713,7 @@
                 const itemId = item.dataset.itemId || item.dataset.photoId;
                 flatOrder.push({
                     type: 'item',  // Phase 5: polymorphic item
-                    id: itemId,
-                    safeId: item.dataset.safeId
+                    id: itemId
                 });
             }
         }
@@ -500,29 +737,8 @@
         
         if (galleryItem) {
             const access = galleryItem.dataset.access;
-            const safeId = galleryItem.dataset.safeId;
             
             if (access === 'denied') {
-                return;
-            }
-            
-            if (access === 'locked' && safeId) {
-                
-                let safeName = 'Safe';
-                let unlockType = 'password';
-                if (window.userSafes) {
-                    const safe = window.userSafes.find(s => s.id === safeId);
-                    if (safe) {
-                        safeName = safe.name;
-                        unlockType = safe.unlock_type;
-                    }
-                }
-                
-                if (typeof openSafeUnlock === 'function') {
-                    openSafeUnlock(safeId, safeName, unlockType);
-                } else {
-                    console.error('[openPhoto] openSafeUnlock not available');
-                }
                 return;
             }
         }
@@ -561,7 +777,7 @@
         
         // If still not found, add as standalone - Phase 5: polymorphic item
         if (currentNavIndex === -1) {
-            flatNavOrder = [{ type: 'item', id: photoId, safeId: galleryItem?.dataset.safeId }];  // Phase 5
+            flatNavOrder = [{ type: 'item', id: photoId }];  // Phase 5
             currentNavIndex = 0;
             window.clearAlbumContext();
         } else {
@@ -626,6 +842,17 @@
         // Cancel any pending image loads (including all network requests)
         cancelAllLoading();
         
+        // Reset zoom so the next opened photo starts unzoomed
+        resetZoom(false);
+        
+        // Remove zoom hint and clear its timeout
+        const hint = lightbox.querySelector('.lightbox-zoom-hint');
+        if (hint) hint.remove();
+        if (zoomState.hintTimeout) {
+            clearTimeout(zoomState.hintTimeout);
+            zoomState.hintTimeout = null;
+        }
+        
         lightbox.classList.add('hidden');
         document.body.style.overflow = '';
         // Also close any open panels (skip refresh since lightbox is closing)
@@ -646,6 +873,9 @@
 
     window.closeLightboxWithAnimation = async function(direction = 'down') {
         if (!lightbox) return;
+        
+        // Reset zoom before sliding so the animation uses the base transform
+        resetZoom(false);
         
         const mediaContainer = lightbox.querySelector('.lightbox-media');
         const currentImg = mediaContainer?.querySelector('img, video');
@@ -749,6 +979,9 @@
         // Phase 5: support polymorphic items (type: 'item') and legacy (type: 'photo')
         if (!item || (item.type !== 'item' && item.type !== 'photo')) return;
         
+        // Reset zoom before navigating so slide animations aren't affected by transforms
+        resetZoom(false);
+        
         // Animation setup
         let currentImg = null;
         let slideOutX = 0;
@@ -819,6 +1052,54 @@
         window.history.pushState({ photoId: newPhotoId }, '', url.toString());
     };
 
+    // Render a text note in the lightbox with syntax highlighting.
+    // highlight.js is vendored and included globally by gallery.html.
+    function renderLightboxText(mediaContainer, text, photo) {
+        const langMap = {
+            md: 'markdown', markdown: 'markdown',
+            json: 'json',
+            csv: 'csv',
+            yaml: 'yaml', yml: 'yaml',
+            txt: 'plaintext',
+        };
+        const name = photo.original_name || photo.title || '';
+        const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : 'txt';
+        const lang = langMap[ext] || 'plaintext';
+
+        mediaContainer.innerHTML = `
+            <div class="lightbox-text">
+                <pre><code class="language-${lang}">${escapeHtml(text)}</code></pre>
+            </div>
+        `;
+        const codeEl = mediaContainer.querySelector('code');
+        if (codeEl && window.hljs) {
+            try {
+                window.hljs.highlightElement(codeEl);
+            } catch (e) {
+                // Unknown language in this highlight.js build - keep plain text.
+            }
+        }
+    }
+
+    // Render a single lightbox image. For JXL, use <picture> so capable browsers
+    // load the JXL original while others fall back to the server-rendered JPEG.
+    function renderLightboxImage(mediaContainer, src, isJxl, photoName, quality = 'fit') {
+        const alt = escapeHtml(photoName || '');
+        if (isJxl) {
+            mediaContainer.innerHTML = `
+                <picture>
+                    <source srcset="${src}" type="image/jxl">
+                    <img class="lightbox-image" data-quality="${quality}" src="${src}?format=jpeg" alt="${alt}">
+                </picture>
+            `;
+        } else {
+            mediaContainer.innerHTML = `
+                <img class="lightbox-image" data-quality="${quality}" src="${src}" alt="${alt}">
+            `;
+        }
+        resetZoom(false);
+    }
+
     window.loadPhoto = async function(photoId) {
         if (!lightbox) return;
         
@@ -851,58 +1132,144 @@
             currentPhotoId = photoId;
             window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
             
-            // Render media using unified FileAccessService
-            // This handles all encryption types (none, server-side, E2E/Safe) uniformly
+            // Render media using FileAccessService (handles server-side encrypted files)
             const mimeType = photo.content_type || (photo.media_type === 'video' ? 'video/mp4' : 'image/jpeg');
-            const isE2E = !!photo.safe_id;
-            
-            if (photo.media_type === 'video') {
-                // Videos: load directly via FileAccessService
+
+            if (photo.type === 'note') {
+                // Text notes: fetch decrypted content and render with
+                // syntax highlighting (highlight.js is vendored globally).
+                try {
+                    const textUrl = await FileAccessService.getFileUrl(photoId, { photo });
+                    const textResp = await fetch(textUrl);
+                    if (!textResp.ok) throw new Error(`HTTP ${textResp.status}`);
+                    const text = await textResp.text();
+                    renderLightboxText(mediaContainer, text, photo);
+                } catch (err) {
+                    console.error('[lightbox] Failed to load note:', err);
+                    mediaContainer.innerHTML = `<p>Error: Failed to load text</p>`;
+                }
+            } else if (photo.media_type === 'video') {
+                // Videos: load directly via FileAccessService.
+                // Browsers cannot decode MKV reliably in <video> (most audio
+                // codecs in MKV — AC3/DTS/eAC3/FLAC — are unsupported, so the
+                // video plays muted). For MKV we skip <video> entirely and show
+                // a download overlay. Other containers (MP4/WebM/animated WebP)
+                // try to play inline and fall back to download on error.
                 try {
                     const videoUrl = await FileAccessService.getFileUrl(photoId, { photo });
-                    mediaContainer.innerHTML = `<video class="lightbox-video" controls autoplay src="${videoUrl}"></video>`;
+                    const downloadName = photo.original_name || photo.title || `${photoId}.bin`;
+                    const ct = photo.content_type || '';
+                    const isMkv = ct.includes('matroska') || ct.includes('mkv')
+                        || /\.(mkv)$/i.test(downloadName);
+
+                    if (isMkv) {
+                        // Skip <video> entirely: MKV audio codecs are typically
+                        // unsupported, so inline playback would be silent.
+                        showVideoUnsupportedOverlay(
+                            mediaContainer,
+                            videoUrl,
+                            downloadName,
+                            true
+                        );
+                    } else {
+                        mediaContainer.innerHTML =
+                            `<video class="lightbox-video" controls autoplay preload="metadata" src="${videoUrl}"></video>`;
+                        const videoEl = mediaContainer.querySelector('video');
+                        videoEl.addEventListener('error', () => {
+                            showVideoUnsupportedOverlay(
+                                mediaContainer,
+                                videoUrl,
+                                downloadName,
+                                false
+                            );
+                        });
+                    }
                 } catch (err) {
                     console.error('[lightbox] Failed to load video:', err);
-                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load video'}</p>`;
+                    mediaContainer.innerHTML = `<p>Error: Failed to load video</p>`;
                 }
             } else {
-                // Images: progressive loading with thumbnail, then full image
+                // Images
                 const loadId = Date.now();
                 mediaContainer.dataset.loadingId = loadId;
-                
-                // Start with thumbnail
+                const isJxl = photo.content_type === 'image/jxl';
+
+                // All images: start with the thumbnail, then load the full image in the
+                // background and swap to it once ready. A single <img> element is used;
+                // zoom switches it from fit CSS to natural-size CSS so detail is preserved.
                 try {
                     const thumbUrl = await FileAccessService.getThumbnailUrl(photoId, { photo });
-                    mediaContainer.innerHTML = `
-                        <img class="lightbox-image" src="${thumbUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                    `;
+                    renderLightboxImage(mediaContainer, thumbUrl, false, photo.original_name, 'thumbnail');
                 } catch (err) {
                     console.error('[lightbox] Failed to load thumbnail:', err);
-                    mediaContainer.innerHTML = `<p>Error: ${isE2E ? 'Safe is locked' : 'Failed to load thumbnail'}</p>`;
+                    mediaContainer.innerHTML = `<p>Error: Failed to load thumbnail</p>`;
                     return; // Don't try to load full image if thumbnail failed
                 }
-                
+
                 // Load full image in background
                 try {
                     const fullUrl = await FileAccessService.getFileUrl(photoId, { photo });
-                    const fullImg = new Image();
-                    currentFullImageLoader = fullImg;
-                    
-                    fullImg.onload = () => {
-                        if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
-                            currentFullImageLoader = null;
-                            mediaContainer.innerHTML = `
-                                <img class="lightbox-image" src="${fullUrl}" alt="${escapeHtml(photo.original_name || '')}">
-                            `;
-                        }
-                    };
-                    fullImg.onerror = () => {
-                        if (currentFullImageLoader === fullImg) {
-                            currentFullImageLoader = null;
-                        }
-                        console.warn('[lightbox] Failed to load full image, keeping thumbnail');
-                    };
-                    fullImg.src = fullUrl;
+
+                    if (isJxl) {
+                        // For JXL: start loading the progressive JXL original. JXL-capable
+                        // browsers will decode it; if the browser doesn't support JXL,
+                        // onerror fires and we fall back to the server-rendered JPEG.
+                        const jxlImg = new Image();
+                        currentFullImageLoader = jxlImg;
+
+                        jxlImg.onload = () => {
+                            if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === jxlImg) {
+                                currentFullImageLoader = null;
+                                renderLightboxImage(mediaContainer, fullUrl, true, photo.original_name, 'full');
+                            }
+                        };
+
+                        jxlImg.onerror = () => {
+                            if (currentFullImageLoader === jxlImg) {
+                                currentFullImageLoader = null;
+                            }
+                            // Browser doesn't support JXL or the JXL request failed;
+                            // load the full JPEG fallback instead.
+                            const jpegUrl = `${fullUrl}?format=jpeg`;
+                            const jpegImg = new Image();
+                            currentFullImageLoader = jpegImg;
+
+                            jpegImg.onload = () => {
+                                if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === jpegImg) {
+                                    currentFullImageLoader = null;
+                                    renderLightboxImage(mediaContainer, fullUrl, true, photo.original_name, 'full');
+                                }
+                            };
+
+                            jpegImg.onerror = () => {
+                                if (currentFullImageLoader === jpegImg) {
+                                    currentFullImageLoader = null;
+                                }
+                                console.warn('[lightbox] Failed to load JXL fallback JPEG, keeping thumbnail');
+                            };
+
+                            jpegImg.src = jpegUrl;
+                        };
+
+                        jxlImg.src = fullUrl;
+                    } else {
+                        const fullImg = new Image();
+                        currentFullImageLoader = fullImg;
+
+                        fullImg.onload = () => {
+                            if (mediaContainer.dataset.loadingId == loadId && currentPhotoId === photoId && currentFullImageLoader === fullImg) {
+                                currentFullImageLoader = null;
+                                renderLightboxImage(mediaContainer, fullUrl, false, photo.original_name, 'full');
+                            }
+                        };
+                        fullImg.onerror = () => {
+                            if (currentFullImageLoader === fullImg) {
+                                currentFullImageLoader = null;
+                            }
+                            console.warn('[lightbox] Failed to load full image, keeping thumbnail');
+                        };
+                        fullImg.src = fullUrl;
+                    }
                 } catch (err) {
                     console.warn('[lightbox] Failed to start full image load:', err);
                 }
@@ -936,7 +1303,7 @@
                 // Photo is part of an album
                 if (albumIndicator) albumIndicator.classList.remove('hidden');
                 if (albumBars) {
-                    albumBars.innerHTML = photo.album.photo_ids.map((id, i) => 
+                    albumBars.innerHTML = photo.album.item_ids.map((id, i) =>
                         `<div class="album-bar ${i + 1 === photo.album.current ? 'active' : ''}"></div>`
                     ).join('');
                 }

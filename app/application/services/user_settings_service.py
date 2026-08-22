@@ -317,7 +317,7 @@ class UserSettingsService:
             raise HTTPException(status_code=404, detail="User not found")
         
         from ...database import verify_password
-        if not verify_password(old_password, user["password_hash"], user.get("password_salt", "")):
+        if not verify_password(old_password, user["password_hash"]):
             raise HTTPException(status_code=400, detail="Current password is incorrect")
         
         # Check if user has encryption keys
@@ -385,7 +385,7 @@ class UserSettingsService:
             raise HTTPException(status_code=404, detail="User not found")
         
         from ...database import verify_password
-        if not verify_password(password, user["password_hash"], user.get("password_salt", "")):
+        if not verify_password(password, user["password_hash"]):
             raise HTTPException(status_code=400, detail="Invalid password")
         
         # Get encryption keys

@@ -1,16 +1,21 @@
-"""AI service API routes - job queue for external AI agents."""
+'''
+File:   api.py
+Brief:  AI service API routes - job queue for external AI agents.
+Author: Mistress-Lukutar
+Date:   2026-07-23
+'''
 import asyncio
 import json
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Request, HTTPException, Query
+from fastapi import APIRouter, Request, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from ..database import create_connection
-from ..dependencies import require_user, require_api_key, require_admin, _check_rate_limit
-from ..infrastructure.repositories import (
+from app.database import create_connection
+from app.dependencies import require_user, require_api_key, require_admin, _check_rate_limit
+from app.infrastructure.repositories import (
     AIJobRepository,
     TagsRepository,
     TagImplicationRepository,
@@ -18,11 +23,19 @@ from ..infrastructure.repositories import (
     ItemRepository,
     ItemMediaRepository,
 )
-from ..infrastructure.storage import get_storage, LocalStorage
-from ..application.services import TagService, AITaggingService
-from ..infrastructure.services.audit_log import log_ai_job_claimed
+from app.infrastructure.storage import get_storage
+from app.infrastructure.services.encryption import (
+    EncryptionError,
+    EncryptionService,
+    dek_cache,
+)
+from app.application.services import TagService, AITaggingService
+from app.infrastructure.services.audit_log import log_ai_job_claimed
+import logging
 
 router = APIRouter(tags=["ai"])
+
+logger = logging.getLogger(__name__)
 
 storage = get_storage()
 
@@ -311,6 +324,29 @@ def fail_job(job_id: int, data: JobFailInput, request: Request):
         db.close()
 
 
+@router.post("/api/ai/jobs/{job_id}/release")
+def release_job(job_id: int, request: Request):
+    """Release a claimed job back to the queue (processing -> pending)."""
+    api_key_info = require_api_key(request)
+    db = create_connection()
+    try:
+        # Verify job belongs to API key owner
+        job_repo = AIJobRepository(db)
+        job = job_repo.get_job_by_id(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job["user_id"] != api_key_info["user_id"]:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        service = _ai_tagging_service(db)
+        success = service.release_job(job_id)
+        if not success:
+            raise HTTPException(status_code=409, detail="Job not in processing state")
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
 # =============================================================================
 # File access for AI agents
 # =============================================================================
@@ -319,8 +355,7 @@ def fail_job(job_id: int, data: JobFailInput, request: Request):
 async def get_item_file_api(item_id: str, request: Request):
     """Get file for AI agent analysis.
 
-    Returns decrypted file bytes for non-encrypted items.
-    Server-side encrypted items are not accessible via API key.
+    Returns decrypted file bytes for server-side encrypted items.
     """
     api_key_info = require_api_key(request)
 
@@ -340,16 +375,51 @@ async def get_item_file_api(item_id: str, request: Request):
         media_repo = ItemMediaRepository(db)
 
         item = item_repo.get_by_id(item_id)
-        if not item or item.get("type") != "media":
+        from app.application.services.item_types import is_known_item_type
+        if not item or not is_known_item_type(item.get("type", "")):
+            logger.warning(
+                "AI file access: item not found. item_id=%s, found=%s, type=%s",
+                item_id,
+                item is not None,
+                item.get("type") if item else None,
+            )
             raise HTTPException(status_code=404, detail="Item not found")
 
         # Enforce ownership: item must belong to the API key owner
-        if item.get("user_id") != api_key_info["user_id"]:
+        item_user_id = item.get("user_id")
+        api_user_id = api_key_info["user_id"]
+        if item_user_id != api_user_id:
+            logger.warning(
+                "AI file access: ownership mismatch. item_id=%s, item_user_id=%s (type=%s), api_user_id=%s (type=%s)",
+                item_id,
+                item_user_id,
+                type(item_user_id).__name__,
+                api_user_id,
+                type(api_user_id).__name__,
+            )
             raise HTTPException(status_code=403, detail="Access denied")
 
-        # Do not serve encrypted items via API key (no DEK available)
-        if item.get("is_encrypted") or item.get("safe_id"):
-            raise HTTPException(status_code=403, detail="Encrypted items not accessible via API")
+        # Detailed logging for access debugging
+        logger.info(
+            "AI file access check: item_id=%s, user_id=%s, api_user_id=%s",
+            item_id,
+            item.get("user_id"),
+            api_user_id,
+        )
+
+        # Server-side encrypted files: decrypt with owner's DEK if available
+        owner_id = item.get("user_id")
+        user_dek = dek_cache.get(owner_id) if owner_id else None
+        if not user_dek:
+            logger.warning(
+                "AI file access: DEK not in cache for user_id=%s. item_id=%s",
+                owner_id,
+                item_id,
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="Encryption key not available. Ensure the user has an active session."
+            )
 
         media = media_repo.get_by_item_id(item_id)
         content_type = media.get("content_type") if media else "image/jpeg"
@@ -357,14 +427,13 @@ async def get_item_file_api(item_id: str, request: Request):
         if not storage.exists(item_id, "uploads"):
             raise HTTPException(status_code=404, detail="File not found")
 
-        if isinstance(storage, LocalStorage):
-            from fastapi.responses import FileResponse
-            file_path = storage.get_path(item_id, "uploads")
-            return FileResponse(file_path, media_type=content_type)
-        else:
-            from fastapi.responses import RedirectResponse
-            url = storage.get_url(item_id, "uploads", expires=3600)
-            return RedirectResponse(url=url)
+        data = await storage.download(item_id, "uploads")
+
+        try:
+            decrypted_data = EncryptionService.decrypt_bytes(data, user_dek)
+        except EncryptionError:
+            raise HTTPException(status_code=500, detail="Decryption failed")
+        return Response(content=decrypted_data, media_type=content_type)
     finally:
         db.close()
 

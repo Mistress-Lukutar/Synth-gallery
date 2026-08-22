@@ -1,15 +1,20 @@
 {
   "name": "synth-gallery",
-  "version": "1.0.0",
-  "description": "Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support.",
-  "main": "index.js",
-  "directories": {
-    "test": "tests"
-  },
+  "version": "2.0.0",
+  "description": "Personal media vault with server-side encryption, hardware key authentication, and multi-user support.",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "license": "MIT",
+  "jest": {
+    "testEnvironment": "jsdom",
+    "testMatch": [
+      "**/tests/js/**/*.test.js"
+    ]
+  },
+  "devDependencies": {
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1"
+  }
 }

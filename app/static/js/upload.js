@@ -1,6 +1,6 @@
 /**
  * Upload module - File upload functionality
- * Handles file/folder upload, drag & drop, encryption for safes, tags, albums
+ * Handles file/folder upload, drag & drop, tags, albums
  */
 
 (function() {
@@ -11,7 +11,8 @@
     let selectedFiles = [];
     let uploadedFileIds = []; // Track uploaded files for potential deletion
     let abortController = null; // For cancelling uploads
-    const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1GB
+    // No fixed client-side upload size cap: the server uses a streaming
+    // pipeline and supports arbitrarily large files (e.g. multi-GiB MKVs).
     
     // Element references (populated on init)
     let modal, closeBtn, dropZone, fileInput, folderInput;
@@ -102,7 +103,10 @@
         if (progressDiv) progressDiv.classList.add('hidden');
         if (albumCheckbox) albumCheckbox.checked = false;
         if (submitBtn) submitBtn.disabled = true;
-        if (progressFill) progressFill.style.width = '0%';
+        if (progressFill) {
+            progressFill.style.width = '0%';
+            progressFill.classList.remove('indeterminate');
+        }
         if (cancelBtn) cancelBtn.disabled = false;
         setUploadMode('files');
     }
@@ -222,9 +226,26 @@
 
     // Check valid media file
     function isValidMedia(file) {
-        return file.type.startsWith('image/') ||
-               file.type === 'video/mp4' ||
-               file.type === 'video/webm';
+        if (file.type) {
+            if (file.type.startsWith('text/')) {
+                // HTML/SVG texts are not note material; only the note formats apply
+                return ['text/plain', 'text/markdown', 'text/csv', 'text/yaml', 'text/x-yaml'].includes(file.type);
+            }
+            if (file.type.startsWith('image/') ||
+                file.type === 'video/mp4' ||
+                file.type === 'video/webm' ||
+                file.type === 'video/x-matroska' ||
+                file.type === 'video/x-mkv' ||
+                file.type === 'video/matroska' ||
+                file.type === 'video/webp') {
+                return true;
+            }
+            return ['application/json', 'application/yaml', 'application/x-yaml'].includes(file.type);
+        }
+        // Fallback to extension when the browser doesn't report a MIME type
+        const ext = file.name.split('.').pop().toLowerCase();
+        return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'jxl', 'mp4', 'webm', 'mkv',
+                'txt', 'md', 'json', 'csv', 'yaml', 'yml'].includes(ext);
     }
 
     // Add files to selection (accumulates)
@@ -374,6 +395,42 @@
         renderFilePreview();
     }
 
+    // Human-readable byte size (1 decimal below 100 units)
+    function formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes < 0) return '?';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit++;
+        }
+        return `${value >= 100 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+    }
+
+    // Update the progress bar and text from byte counters.
+    // Returns the clamped percentage so callers can restore it later.
+    function updateUploadProgress(label, loaded, total) {
+        const pct = total > 0 ? Math.min(100, (loaded / total) * 100) : 0;
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = `${pct.toFixed(1)}%`;
+        if (total > 0) {
+            progressText.textContent =
+                `${label} — ${formatBytes(loaded)} / ${formatBytes(total)} (${Math.floor(pct)}%)`;
+        } else {
+            progressText.textContent = label;
+        }
+        return pct;
+    }
+
+    // Indeterminate state: all bytes are sent, server is still processing
+    // (probing, thumbnails, encryption, album creation).
+    // Bar width stays at the byte-progress value (≈100%).
+    function showProcessingState(label) {
+        progressFill.classList.add('indeterminate');
+        progressText.textContent = label;
+    }
+
     function removeFile(index) {
         selectedFiles.splice(index, 1);
         renderFilePreview();
@@ -465,70 +522,12 @@
         albumCheckbox.closest('.upload-option').style.display = 'none';
     }
 
-    // Get safe_id for folder
-    function getFolderSafeId(folderId) {
-        if (!folderId || typeof folderTree === 'undefined') return null;
-        const folder = folderTree.find(f => f.id === folderId);
-        return folder ? folder.safe_id : null;
-    }
-
-    // Encrypt file for safe
-    async function encryptFileForSafeUpload(file, safeId) {
-        if (!SafeCrypto.isUnlocked(safeId)) {
-            throw new Error('Safe is locked. Please unlock it first.');
-        }
-        return await SafeCrypto.encryptFileForSafe(file, safeId);
-    }
-
-    // Get or create root folder for safe
-    async function getSafeRootFolder(safeId) {
-        const safeFolders = folderTree.filter(f => f.safe_id === safeId && !f.parent_id);
-        if (safeFolders.length > 0) {
-            return safeFolders[0].id;
-        }
-
-        const resp = await csrfFetch(`${getBaseUrl()}/api/folders`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: 'Root', safe_id: safeId })
-        });
-
-        if (!resp.ok) {
-            throw new Error('Failed to create safe root folder');
-        }
-
-        const data = await resp.json();
-        if (typeof loadFolderTree === 'function') {
-            await loadFolderTree();
-        }
-        return data.folder_id;
-    }
-
     // Main upload handler
     async function handleUpload() {
-        let targetFolderId = window.currentFolderId;
-        let targetSafeId = null;
-
-        if (!targetFolderId && window.currentSafeId) {
-            try {
-                targetFolderId = await getSafeRootFolder(window.currentSafeId);
-                targetSafeId = window.currentSafeId;
-            } catch (e) {
-                alert('Failed to prepare safe folder: ' + e.message);
-                return;
-            }
-        }
+        const targetFolderId = window.currentFolderId;
 
         if (!targetFolderId) {
             alert('No folder selected. Please navigate to a folder first.');
-            return;
-        }
-
-        if (!targetSafeId) {
-            targetSafeId = getFolderSafeId(targetFolderId);
-        }
-        if (targetSafeId && !SafeCrypto.isUnlocked(targetSafeId)) {
-            alert('This folder is in a locked safe. Please unlock the safe first.');
             return;
         }
 
@@ -546,21 +545,14 @@
                 // Bulk folder upload
                 if (!folderFiles.length) return;
 
-                const oversizedFiles = folderFiles.filter(({ file }) => file.size > MAX_FILE_SIZE);
-                if (oversizedFiles.length > 0) {
-                    const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
-                    const fileNames = oversizedFiles.map(({ file }) => file.name).join(', ');
-                    alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
-                    throw new Error('Files too large');
+                // Reject empty files early; size is otherwise uncapped
+                // (server pipeline streams regardless of file size).
+                const emptyFiles = folderFiles.filter(({ file }) => !file.size);
+                if (emptyFiles.length > 0) {
+                    const fileNames = emptyFiles.map(({ file }) => file.name).join(', ');
+                    alert(`Empty file(s) cannot be uploaded: ${fileNames}`);
+                    throw new Error('Empty files');
                 }
-
-                if (targetSafeId) {
-                    alert('Folder upload is not supported in safes. Please upload files individually.');
-                    throw new Error('Folder upload not supported in safes');
-                }
-
-                progressText.textContent = `Uploading ${folderFiles.length} files...`;
-                progressFill.style.width = '30%';
 
                 const formData = new FormData();
                 const paths = [];
@@ -573,11 +565,14 @@
                 formData.append('paths', JSON.stringify(paths));
                 formData.append('folder_id', targetFolderId);
 
-                progressFill.style.width = '50%';
-                const resp = await csrfFetch(`${getBaseUrl()}/upload-bulk`, {
-                    method: 'POST',
-                    body: formData,
-                    signal: abortController.signal
+                const resp = await csrfUpload(`${getBaseUrl()}/upload-bulk`, formData, {
+                    signal: abortController.signal,
+                    onProgress: (e) => {
+                        if (e.lengthComputable) {
+                            updateUploadProgress(`Uploading ${folderFiles.length} files`, e.loaded, e.total);
+                        }
+                    },
+                    onUploaded: () => showProcessingState('Processing on server...')
                 });
 
                 if (!resp.ok) {
@@ -595,7 +590,6 @@
                 }
 
                 const data = await resp.json();
-                progressFill.style.width = '90%';
 
                 const s = data.summary;
                 let msg = `Uploaded: ${s.individual_photos} photos`;
@@ -604,32 +598,28 @@
                 }
                 if (s.failed > 0) msg += ` | ${s.failed} failed`;
                 if (s.skipped_nested > 0) msg += ` | ${s.skipped_nested} nested skipped`;
-                progressText.textContent = msg;
+                progressFill.classList.remove('indeterminate');
                 progressFill.style.width = '100%';
+                progressText.textContent = msg;
 
             } else {
                 // Regular file upload
                 const files = selectedFiles;
                 if (!files.length) return;
 
-                const oversizedFiles = files.filter(f => f.size > MAX_FILE_SIZE);
-                if (oversizedFiles.length > 0) {
-                    const maxSizeMB = (MAX_FILE_SIZE / 1024 / 1024).toFixed(0);
-                    const fileNames = oversizedFiles.map(f => f.name).join(', ');
-                    alert(`File(s) too large (max ${maxSizeMB}MB): ${fileNames}`);
-                    throw new Error('Files too large');
+                // Reject empty files early; size is otherwise uncapped
+                // (server pipeline streams regardless of file size).
+                const emptyFiles = files.filter(f => !f.size);
+                if (emptyFiles.length > 0) {
+                    const fileNames = emptyFiles.map(f => f.name).join(', ');
+                    alert(`Empty file(s) cannot be uploaded: ${fileNames}`);
+                    throw new Error('Empty files');
                 }
 
                 const isAlbum = albumCheckbox.checked && files.length > 1;
 
                 if (isAlbum) {
-                    if (targetSafeId) {
-                        alert('Albums are not supported in safes. Please upload files individually or uncheck "Create album".');
-                        throw new Error('Albums not supported in safes');
-                    }
-
                     progressText.textContent = 'Uploading album...';
-                    progressFill.style.width = '50%';
 
                     const formData = new FormData();
                     for (const file of files) {
@@ -637,10 +627,14 @@
                     }
                     formData.append('folder_id', targetFolderId);
 
-                    const resp = await csrfFetch(`${getBaseUrl()}/upload-album`, {
-                        method: 'POST',
-                        body: formData,
-                        signal: abortController.signal
+                    const resp = await csrfUpload(`${getBaseUrl()}/upload-album`, formData, {
+                        signal: abortController.signal,
+                        onProgress: (e) => {
+                            if (e.lengthComputable) {
+                                updateUploadProgress('Uploading album', e.loaded, e.total);
+                            }
+                        },
+                        onUploaded: () => showProcessingState('Processing on server...')
                     });
 
                     if (!resp.ok) {
@@ -654,52 +648,36 @@
                     }
 
                     const data = await resp.json();
-                    uploadedIds = data.photos.map(p => p.id);
+                    const items = data.items || [];
+                    uploadedIds = items.map(p => p.id);
                     uploadedFileIds.push(...uploadedIds); // Track for potential deletion
-                    progressFill.style.width = '100%;'
+                    progressFill.classList.remove('indeterminate');
+                    progressFill.style.width = '100%';
+                    progressText.textContent = `Album created with ${items.length} file${items.length === 1 ? '' : 's'}`;
 
                 } else {
-                    // Upload files in the order they appear in selectedFiles
-                    for (let i = 0; i < selectedFiles.length; i++) {
-                        const file = selectedFiles[i];
-                        progressText.textContent = `Uploading ${i + 1}/${selectedFiles.length}: ${file.name}...`;
-                        progressFill.style.width = `${((i + 1) / selectedFiles.length) * 100}%`;
+                    // Upload files in the order they appear in selectedFiles.
+                    // Progress is aggregated across the whole batch by bytes.
+                    const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+                    let sentBytes = 0;
 
+                    for (let i = 0; i < files.length; i++) {
+                        const file = files[i];
                         const formData = new FormData();
-
-                        if (targetSafeId) {
-                            try {
-                                const encrypted = await encryptFileForSafeUpload(file, targetSafeId);
-                                const encryptedFile = new File([encrypted.encryptedFile], file.name, {
-                                    type: 'application/octet-stream'
-                                });
-                                formData.append('file', encryptedFile);
-                                formData.append('encrypted_ck', 'safe');
-
-                                if (encrypted.encryptedThumbnail) {
-                                    const thumbFile = new File([encrypted.encryptedThumbnail], 'thumb.jpg.encrypted', {
-                                        type: 'application/octet-stream'
-                                    });
-                                    formData.append('thumbnail', thumbFile);
-                                    formData.append('thumb_width', encrypted.thumbWidth || 0);
-                                    formData.append('thumb_height', encrypted.thumbHeight || 0);
-                                }
-                            } catch (encryptErr) {
-                                throw new Error(`Encryption failed: ${encryptErr.message}`);
-                            }
-                        } else {
-                            formData.append('file', file);
-                        }
-
+                        formData.append('file', file);
                         formData.append('folder_id', targetFolderId);
-                        if (targetSafeId) {
-                            formData.append('safe_id', targetSafeId);
-                        }
 
-                        const resp = await csrfFetch(`${getBaseUrl()}/upload`, {
-                            method: 'POST',
-                            body: formData,
-                            signal: abortController.signal
+                        const resp = await csrfUpload(`${getBaseUrl()}/api/uploads`, formData, {
+                            signal: abortController.signal,
+                            onProgress: (e) => {
+                                if (e.lengthComputable) {
+                                    updateUploadProgress(
+                                        `Uploading ${i + 1}/${files.length}: ${file.name}`,
+                                        sentBytes + e.loaded,
+                                        totalBytes
+                                    );
+                                }
+                            }
                         });
 
                         if (!resp.ok) {
@@ -718,9 +696,12 @@
                         const data = await resp.json();
                         uploadedIds.push(data.id);
                         uploadedFileIds.push(data.id); // Track for potential deletion
+                        sentBytes += file.size;
                     }
                 }
 
+                progressFill.classList.remove('indeterminate');
+                progressFill.style.width = '100%';
                 progressText.textContent = 'Done!';
             }
 
@@ -735,14 +716,13 @@
                 closeModal();
                 if (targetFolderId && typeof navigateToFolder === 'function') {
                     navigateToFolder(targetFolderId, false);
-                } else if (window.currentSafeId && typeof navigateToSafe === 'function') {
-                    navigateToSafe(window.currentSafeId, false);
                 } else {
                     location.reload();
                 }
             }, 500);
 
         } catch (err) {
+            if (progressFill) progressFill.classList.remove('indeterminate');
             if (err.name === 'AbortError') {
                 progressText.textContent = 'Upload cancelled';
             } else {

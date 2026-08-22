@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, HTTPException, Query
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from ..config import ROOT_PATH, BASE_DIR
+from ..config import APP_VERSION, ROOT_PATH, BASE_DIR
 from ..database import create_connection
 from ..dependencies import require_user, require_admin, get_csrf_token
 from ..infrastructure.repositories import TagsRepository, TagImplicationRepository, TagCooccurrenceRepository, TagMutexRepository
@@ -14,6 +14,7 @@ from ..application.services import TagService
 router = APIRouter()
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["app_version"] = APP_VERSION
 
 
 class TagUpdateInput(BaseModel):
@@ -25,6 +26,10 @@ class TagUpdateInput(BaseModel):
 
 class ImplicationInput(BaseModel):
     implies_tag_id: int
+
+
+class TagRemapInput(BaseModel):
+    target_tag_id: int
 
 
 class CategoryCreateInput(BaseModel):
@@ -125,6 +130,32 @@ def delete_tag(tag_id: int, request: Request):
         service = _tag_service(db)
         deleted = service.delete_tag(tag_id)
         return {"status": "ok", "deleted": deleted}
+    finally:
+        db.close()
+
+
+@router.post("/api/tags/{tag_id}/remap")
+def remap_tag(tag_id: int, data: TagRemapInput, request: Request):
+    """Delete a tag and remap all its items to another tag."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        service.remap_tag(tag_id, data.target_tag_id)
+        return {"status": "ok", "remapped": True}
+    finally:
+        db.close()
+
+
+@router.post("/api/tags/{tag_id}/replace")
+def replace_tag(tag_id: int, data: TagRemapInput, request: Request):
+    """Replace a tag with another on all items without deleting the source."""
+    require_admin(request)
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        service.replace_tag(tag_id, data.target_tag_id)
+        return {"status": "ok", "replaced": True}
     finally:
         db.close()
 

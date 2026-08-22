@@ -1,22 +1,28 @@
-"""Application middleware."""
+'''
+File:   middleware.py
+Brief:  Application middleware.
+Author: Mistress-Lukutar
+Date:   2026-07-13
+'''
 import hashlib
 import secrets
 from urllib.parse import quote
+
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .config import (
+from app.config import (
     PUBLIC_PATHS, SESSION_COOKIE,
     CSRF_TOKEN_NAME, CSRF_HEADER_NAME, CSRF_COOKIE_NAME,
     ROOT_PATH, COOKIE_SECURE
 )
-from .database import create_connection
-from .infrastructure.repositories import SessionRepository
-from .infrastructure.services.encryption import dek_cache
-from .infrastructure.services.session_dek import SessionDEKService
-from .infrastructure.services.rate_limiter import RateLimiter
-from .infrastructure.services.audit_log import log_session_hijack_detected
+from app.database import create_connection
+from app.infrastructure.repositories import SessionRepository
+from app.infrastructure.services.encryption import dek_cache
+from app.infrastructure.services.session_dek import SessionDEKService
+from app.infrastructure.services.rate_limiter import RateLimiter
+from app.infrastructure.services.audit_log import log_session_hijack_detected
 
 
 def _generate_fingerprint(request: Request) -> str:
@@ -230,11 +236,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     EXEMPT_PATHS = {
         "/api/ai/",
         "/api/webauthn/",
-        "/api/safes/",
         "/api/auth/recover",
-        "/upload",
-        "/upload-album",
-        "/upload-bulk"
     }
 
     async def dispatch(self, request: Request, call_next):

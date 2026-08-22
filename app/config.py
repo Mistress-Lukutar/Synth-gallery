@@ -1,30 +1,85 @@
-"""Application configuration and constants."""
+'''
+File:   config.py
+Brief:  Application configuration and constants.
+Author: Mistress-Lukutar
+Date:   2026-07-21
+'''
+
 import os
 from pathlib import Path
 
-from .logging_config import setup_logging
+from app.logging_config import setup_logging
 
-# Initialize logging configuration
+# Initialize logging configuration.
 setup_logging()
 
-# Directory paths
-BASE_DIR = Path(__file__).resolve().parent.parent
-UPLOADS_DIR = BASE_DIR / "uploads"
-THUMBNAILS_DIR = BASE_DIR / "thumbnails"
+# Application version. The single source of truth is pyproject.toml; the
+# installed package metadata mirrors it. The fallback covers running from a
+# bare source checkout without an installed distribution.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
-# Create directories if they don't exist
+    APP_VERSION = _pkg_version("synth-gallery")
+except PackageNotFoundError:
+    APP_VERSION = "2.0.0"
+
+# Directory paths.
+# Persistent-state locations are overridable via environment variables so
+# the test suite can redirect every write to a throwaway directory before
+# app modules are imported (see tests/conftest.py).
+BASE_DIR = Path(__file__).resolve().parent.parent
+UPLOADS_DIR = Path(os.environ.get("SYNTH_UPLOADS_DIR", str(BASE_DIR / "uploads")))
+THUMBNAILS_DIR = Path(os.environ.get("SYNTH_THUMBNAILS_DIR", str(BASE_DIR / "thumbnails")))
+
+# Create directories if they don't exist.
 UPLOADS_DIR.mkdir(exist_ok=True)
 THUMBNAILS_DIR.mkdir(exist_ok=True)
 
-# Base URL configuration (for running under a subpath like /synth)
-# Set via environment variable SYNTH_BASE_URL, e.g., "synth" or "/synth"
+# Base URL configuration (for running under a subpath like /synth).
+# Set via environment variable SYNTH_BASE_URL, e.g. "synth" or "/synth".
 BASE_URL = os.environ.get("SYNTH_BASE_URL", "").strip("/")
 ROOT_PATH = f"/{BASE_URL}" if BASE_URL else ""
 
-# Allowed media types
-ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-ALLOWED_VIDEO_TYPES = {"video/mp4", "video/webm"}
+# Allowed media types.
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/jxl",
+}
+ALLOWED_VIDEO_TYPES = {
+    "video/mp4",
+    "video/webm",
+    "video/x-matroska",  # MKV container
+    "video/x-mkv",       # Common MKV MIME variant
+    "video/webp",        # Animated WebP reclassified as video at upload
+}
 ALLOWED_MEDIA_TYPES = ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES
+
+# Allowed text/note MIME types (items.type = 'note').
+ALLOWED_NOTE_TYPES = {
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "text/yaml",
+    "text/x-yaml",
+    "application/yaml",
+    "application/x-yaml",
+    "application/json",
+}
+# Filename extensions accepted for text uploads when the browser reports a
+# generic application/octet-stream MIME type.
+NOTE_EXTENSIONS = {".txt", ".md", ".json", ".csv", ".yaml", ".yml"}
+# Upper bound for text uploads (issue #23 proposes 5-10 MB).
+TEXT_MAX_SIZE = int(os.environ.get("SYNTH_TEXT_MAX_SIZE", str(10 * 1024 * 1024)))
+
+# Encryption (chunked AES-256-GCM streaming format).
+# Each chunk carries its own 12-byte nonce and 16-byte GCM tag, enabling
+# O(1) memory encryption/decryption and HTTP Range serving.
+ENCRYPTION_CHUNK_SIZE = int(
+    os.environ.get("SYNTH_ENCRYPTION_CHUNK_SIZE", str(1 << 20))
+)  # 1 MiB default
 
 # Session configuration
 # __Host- prefix enforces Secure, Path=/ and no Domain attribute at browser level
@@ -65,3 +120,33 @@ WEBAUTHN_RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "Synth Gallery")
 # Cookie security settings
 # Default is secure (HTTPS only). Set COOKIE_SECURE=false for HTTP dev environments.
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() != "false"
+
+# JPEG XL experimental storage settings
+# Set USE_JXL=true to transcode new image uploads to lossless JPEG XL.
+USE_JXL = os.environ.get("USE_JXL", "false").lower() == "true"
+JXL_FALLBACK_QUALITY = int(os.environ.get("JXL_FALLBACK_QUALITY", "85"))
+JXL_LOSSLESS_TRANSCODE_JPEG = (
+    os.environ.get("JXL_LOSSLESS_TRANSCODE_JPEG", "true").lower() == "true"
+)
+
+# JPEG XL encoder tuning.
+# effort: 1 (fastest/largest) to 9 (slowest/smallest). Default 7.
+JXL_EFFORT = int(os.environ.get("JXL_EFFORT", "7"))
+
+# num_threads passed to the JXL encoder. -1 lets the encoder decide.
+JXL_THREADS = int(os.environ.get("JXL_THREADS", "-1"))
+
+# Progressive encoding flags for cjxl.
+# --progressive_ac and --qprogressive_ac improve perceived loading speed.
+# --progressive_dc=1 adds an extra 64x64 low-resolution pass; -1 disables it.
+JXL_PROGRESSIVE_AC = (
+    os.environ.get("JXL_PROGRESSIVE_AC", "true").lower() == "true"
+)
+JXL_QPROGRESSIVE_AC = (
+    os.environ.get("JXL_QPROGRESSIVE_AC", "true").lower() == "true"
+)
+JXL_PROGRESSIVE_DC = int(os.environ.get("JXL_PROGRESSIVE_DC", "1"))
+
+# Cache directory for on-demand JPEG fallbacks generated from JXL originals
+FALLBACKS_DIR = Path(os.environ.get("SYNTH_FALLBACKS_DIR", str(BASE_DIR / "fallbacks")))
+FALLBACKS_DIR.mkdir(exist_ok=True)

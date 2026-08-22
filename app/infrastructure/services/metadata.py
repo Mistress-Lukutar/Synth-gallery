@@ -1,13 +1,18 @@
 """Metadata extraction service for images and videos."""
 import json
 import re
+import struct
 import subprocess
+import zlib
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Optional, Any
 
 from PIL import Image
 from PIL.ExifTags import TAGS
+
+from .jxl import decode_jxl
 
 
 def extract_taken_date(file_path: Path) -> Optional[datetime]:
@@ -33,7 +38,13 @@ def extract_taken_date(file_path: Path) -> Optional[datetime]:
 
     # Image files
     try:
-        with Image.open(file_path) as img:
+        if suffix == '.jxl':
+            decoded = decode_jxl(file_path.read_bytes())
+            img = Image.open(BytesIO(decoded))
+        else:
+            img = Image.open(file_path)
+
+        with img:
             # Try EXIF data first (works for JPEG, WebP, some PNG, TIFF)
             exif_date = _extract_exif_date(img)
             if exif_date:
@@ -247,7 +258,13 @@ def get_metadata_summary(file_path: Path) -> dict[str, Any]:
     }
 
     try:
-        with Image.open(file_path) as img:
+        if file_path.suffix.lower() == '.jxl':
+            decoded = decode_jxl(file_path.read_bytes())
+            img = Image.open(BytesIO(decoded))
+        else:
+            img = Image.open(file_path)
+
+        with img:
             result['dimensions'] = f"{img.width}x{img.height}"
 
             # Get EXIF data
@@ -268,3 +285,98 @@ def get_metadata_summary(file_path: Path) -> dict[str, Any]:
         pass
 
     return result
+
+
+def extract_png_text_chunks(data: bytes) -> dict[str, str]:
+    """Extract PNG text chunks (tEXt/zTXt/iTXt) from raw image bytes.
+
+    JPEG XL transcoding strips PNG text chunks, so they must be captured
+    from the original file before any transcode step.
+
+    Args:
+        data: Raw file bytes.
+
+    Returns:
+        Dictionary mapping chunk keyword to text value.
+    """
+    chunks: dict[str, str] = {}
+    if len(data) < 16 or data[:8] != b'\x89PNG\r\n\x1a\n':
+        return chunks
+
+    offset = 8
+    while offset < len(data):
+        if offset + 8 > len(data):
+            break
+        length = struct.unpack('>I', data[offset:offset + 4])[0]
+        chunk_type = data[offset + 4:offset + 8].decode('ascii', errors='ignore')
+        chunk_data_start = offset + 8
+        chunk_data_end = chunk_data_start + length
+        if chunk_data_end + 4 > len(data):
+            break
+
+        if chunk_type == 'tEXt':
+            _parse_text_chunk(data[chunk_data_start:chunk_data_end], chunks)
+        elif chunk_type == 'zTXt':
+            _parse_ztext_chunk(data[chunk_data_start:chunk_data_end], chunks)
+        elif chunk_type == 'iTXt':
+            _parse_itext_chunk(data[chunk_data_start:chunk_data_end], chunks)
+
+        offset = chunk_data_end + 4  # skip CRC
+
+    return chunks
+
+
+def _parse_text_chunk(chunk_data: bytes, chunks: dict[str, str]) -> None:
+    """Parse a PNG tEXt chunk."""
+    try:
+        null_idx = chunk_data.index(0)
+        keyword = chunk_data[:null_idx].decode('latin-1', errors='ignore')
+        text = chunk_data[null_idx + 1:].decode('latin-1', errors='ignore')
+        if keyword and keyword not in chunks:
+            chunks[keyword] = text
+    except ValueError:
+        pass
+
+
+def _parse_ztext_chunk(chunk_data: bytes, chunks: dict[str, str]) -> None:
+    """Parse a PNG zTXt chunk (compressed text)."""
+    try:
+        null_idx = chunk_data.index(0)
+        keyword = chunk_data[:null_idx].decode('latin-1', errors='ignore')
+        compression_method = chunk_data[null_idx + 1]
+        if compression_method != 0:
+            return
+        compressed = chunk_data[null_idx + 2:]
+        text = zlib.decompress(compressed).decode('latin-1', errors='ignore')
+        if keyword and keyword not in chunks:
+            chunks[keyword] = text
+    except Exception:
+        pass
+
+
+def _parse_itext_chunk(chunk_data: bytes, chunks: dict[str, str]) -> None:
+    """Parse a PNG iTXt chunk (international text, UTF-8)."""
+    try:
+        first_null = chunk_data.index(0)
+        keyword = chunk_data[:first_null].decode('latin-1', errors='ignore')
+        remainder = chunk_data[first_null + 1:]
+        if len(remainder) < 3:
+            return
+        compression_flag = remainder[0]
+        compression_method = remainder[1]
+        second_null = remainder.index(0, 2)
+        # language tag (remainder[2:second_null]) ignored
+        remainder = remainder[second_null + 1:]
+        third_null = remainder.index(0)
+        # translated keyword (remainder[:third_null]) ignored in favor of original keyword
+        text_data = remainder[third_null + 1:]
+        if compression_flag == 1:
+            if compression_method != 0:
+                return
+            text = zlib.decompress(text_data).decode('utf-8', errors='ignore')
+        else:
+            text = text_data.decode('utf-8', errors='ignore')
+        if keyword and keyword not in chunks:
+            chunks[keyword] = text
+    except Exception:
+        pass

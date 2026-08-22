@@ -23,7 +23,7 @@ class TestGalleryView:
         """Gallery should display user's photos and folders."""
         # Upload photo to folder
         authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={"file": ("gallery_item.jpg", test_image_bytes, "image/jpeg")}
         )
@@ -95,7 +95,7 @@ class TestFileAccessControl:
         csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": folder_id},
             files={"file": ("shared.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -158,7 +158,7 @@ class TestFileAccessControl:
         csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": private_folder},
             files={"file": ("secret.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -188,7 +188,7 @@ class TestFileAccessControl:
         """Unauthenticated requests should be rejected."""
         # Upload as authenticated user
         response = authenticated_client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": test_folder},
             files={"file": ("auth_test.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -252,7 +252,7 @@ class TestThumbnailAccess:
         csrf_token = client.cookies.get(CSRF_COOKIE_NAME, "")
         
         response = client.post(
-            "/upload",
+            "/api/uploads",
             data={"folder_id": private_folder},
             files={"file": ("thumb_test.jpg", test_image_bytes, "image/jpeg")},
             headers={"X-CSRF-Token": csrf_token}
@@ -367,19 +367,18 @@ class TestGallerySorting:
         # Upload multiple photos
         for i in range(3):
             response = authenticated_client.post(
-                "/upload",
+                "/api/uploads",
                 data={"folder_id": test_folder},
                 files={"file": (f"sort_{i}.jpg", test_image_bytes, "image/jpeg")},
                 headers={"X-CSRF-Token": csrf_token}
             )
             assert response.status_code == 200, f"Upload {i} failed: {response.text}"
         
-        response = authenticated_client.get(f"/api/folders/{test_folder}/contents?sort=uploaded")
+        response = authenticated_client.get(f"/api/folders/{test_folder}/content?sort=uploaded")
         
         if response.status_code == 200:
             data = response.json()
-            # Check various possible response structures
-            items = data.get("items") or data.get("photos") or []
+            items = data.get("items") or []
             assert len(items) >= 3
 
 

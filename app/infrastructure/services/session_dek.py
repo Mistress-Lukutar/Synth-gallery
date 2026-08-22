@@ -17,14 +17,10 @@ import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
 # Constants
 NONCE_SIZE = 12
-
-# Legacy fallback constants (for sessions created before HKDF migration)
-LEGACY_PBKDF2_ITERATIONS = 100_000
 
 
 class SessionDEKService:
@@ -49,24 +45,6 @@ class SessionDEKService:
         return hkdf.derive(session_id.encode("utf-8"))
 
     @staticmethod
-    def _derive_key_legacy(session_id: str) -> bytes:
-        """Legacy key derivation using PBKDF2 (for backward compatibility).
-
-        Args:
-            session_id: Random session ID from cookie
-
-        Returns:
-            256-bit key derived from session_id
-        """
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=session_id.encode("utf-8"),
-            iterations=LEGACY_PBKDF2_ITERATIONS,
-        )
-        return kdf.derive(session_id.encode("utf-8"))
-
-    @staticmethod
     def encrypt_dek(dek: bytes, session_id: str) -> bytes:
         """Encrypt DEK with session-derived key.
 
@@ -87,9 +65,6 @@ class SessionDEKService:
     def decrypt_dek(encrypted_dek: bytes, session_id: str) -> bytes:
         """Decrypt DEK with session-derived key.
 
-        Tries HKDF first, then falls back to legacy PBKDF2 for sessions
-        created before the migration.
-
         Args:
             encrypted_dek: Encrypted DEK (nonce + ciphertext)
             session_id: Session ID to derive decryption key from
@@ -99,16 +74,6 @@ class SessionDEKService:
         """
         nonce = encrypted_dek[:NONCE_SIZE]
         ciphertext = encrypted_dek[NONCE_SIZE:]
-
-        # Try HKDF (current)
-        try:
-            key = SessionDEKService._derive_key(session_id)
-            aesgcm = AESGCM(key)
-            return aesgcm.decrypt(nonce, ciphertext, None)
-        except Exception:
-            pass
-
-        # Fallback to PBKDF2 (legacy sessions)
-        key = SessionDEKService._derive_key_legacy(session_id)
+        key = SessionDEKService._derive_key(session_id)
         aesgcm = AESGCM(key)
         return aesgcm.decrypt(nonce, ciphertext, None)

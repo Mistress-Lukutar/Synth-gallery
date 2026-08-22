@@ -1,8 +1,7 @@
 """
 AI Tagging SSE and active jobs integration tests.
 """
-import hashlib
-
+import bcrypt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,7 +13,7 @@ class TestAITaggingSSE:
     def api_key(self, db_connection, test_user) -> str:
         """Create an API key for agent authentication bound to test_user."""
         raw_key = "test-api-key-sse"
-        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt()).decode()
         db_connection.execute(
             "INSERT INTO ai_api_keys (name, key_hash, is_active, user_id) VALUES (?, ?, 1, ?)",
             ("Test Agent", key_hash, test_user["id"])

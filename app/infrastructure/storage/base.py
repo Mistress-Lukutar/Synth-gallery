@@ -55,9 +55,53 @@ class StorageConfig:
             self.base_path = Path(UPLOADS_DIR).parent
 
 
+class RandomAccessReader(ABC):
+    """Seekable byte-reader over a stored (here: encrypted) object.
+
+    Required by HTTP Range serving and chunked-envelope decryption, which
+    need ``seek``/``tell`` to skip to the chunks overlapping the requested
+    byte range. LocalStorage wraps an open file handle; S3Storage serves
+    ranged GETs through a buffered reader. Backends that cannot provide a
+    seekable stream should raise ``NotImplementedError`` from
+    :meth:`StorageInterface.get_random_access_reader` rather than return a
+    broken reader.
+
+    Implementations are synchronous and must support use as a context
+    manager (``with reader: ...``) and be safe to iterate / read / seek /
+    close. The ``size`` property reports the total stored byte length.
+    """
+
+    @abstractmethod
+    def read(self, size: int = -1) -> bytes:
+        """Read up to ``size`` bytes (all remaining if ``-1``)."""
+
+    @abstractmethod
+    def seek(self, offset: int, whence: int = 0) -> int:
+        """Seek to ``offset``; ``whence`` follows :pyclass:`io.SEEK_*`."""
+
+    @abstractmethod
+    def tell(self) -> int:
+        """Return the current stream position."""
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release any underlying resource."""
+
+    @property
+    @abstractmethod
+    def size(self) -> int:
+        """Total size of the stored object in bytes."""
+
+    def __enter__(self) -> "RandomAccessReader":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+
 class StorageInterface(ABC):
     """Abstract interface for file storage operations.
-    
+
     Implementations:
     - LocalStorage: Filesystem storage
     - S3Storage: AWS S3 / MinIO / DigitalOcean Spaces
@@ -270,19 +314,47 @@ class StorageInterface(ABC):
         folder: str = "uploads"
     ) -> int:
         """Get file size in bytes.
-        
+
         Args:
             file_id: Unique file identifier
             folder: Subfolder
-            
+
         Returns:
             File size in bytes
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
         """
         pass
-    
+
+    def get_random_access_reader(
+        self,
+        file_id: str,
+        folder: str = "uploads"
+    ) -> RandomAccessReader:
+        """Return a seekable reader over the stored object.
+
+        Used by HTTP Range serving and chunked-envelope decryption, which
+        require ``seek``/``tell``. LocalStorage and S3Storage both provide
+        readers (S3 via buffered ranged GETs); backends that cannot satisfy
+        random access raise ``NotImplementedError``, and callers must fall
+        back to whole-file streaming for those.
+
+        Args:
+            file_id: Unique file identifier
+            folder: Subfolder
+
+        Returns:
+            A :class:`RandomAccessReader` positioned at byte 0.
+
+        Raises:
+            FileNotFoundError: If file doesn't exist
+            NotImplementedError: If the backend cannot provide random access
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support random-access reads"
+        )
+
     async def upload_batch(
         self,
         files: list[tuple[str, Union[bytes, BinaryIO], str]]

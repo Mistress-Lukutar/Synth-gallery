@@ -181,6 +181,85 @@ class TagsRepository(Repository):
         self._commit()
         return self._conn.total_changes > 0
 
+    def remap_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Replace tag_id with target_tag_id on all items, then delete tag_id.
+
+        Items that already have target_tag_id keep it; if the old tag was
+        explicit the target becomes explicit as well.
+        """
+        self._replace_tag_on_items(tag_id, target_tag_id)
+
+        # Delete old tag (cascades to implications, co-occurrence, mutex via FK)
+        self._execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+        self._commit()
+        return True
+
+    def replace_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Replace tag_id with target_tag_id on all items without deleting tag_id.
+
+        Items that already have target_tag_id keep it; if the old tag was
+        explicit the target becomes explicit as well. The source tag remains
+        in the database with zero usage count.
+        """
+        self._replace_tag_on_items(tag_id, target_tag_id)
+
+        # Recalculate source tag usage count (should be zero after move)
+        self._execute(
+            """
+            UPDATE tags SET usage_count = (
+                SELECT COUNT(DISTINCT item_id) FROM item_tags WHERE tag_id = ?
+            ) WHERE id = ?
+            """,
+            (tag_id, tag_id),
+        )
+
+        self._commit()
+        return True
+
+    def _replace_tag_on_items(self, tag_id: int, target_tag_id: int) -> None:
+        """Core logic: move item associations from tag_id to target_tag_id.
+
+        Promotes target to explicit where needed, moves items without the
+        target tag, and deletes remaining old associations.
+        """
+        # Promote target to explicit on items where old tag was explicit
+        self._execute(
+            """
+            UPDATE item_tags
+            SET is_explicit = 1
+            WHERE tag_id = ?
+              AND is_explicit = 0
+              AND item_id IN (
+                  SELECT item_id FROM item_tags WHERE tag_id = ? AND is_explicit = 1
+              )
+            """,
+            (target_tag_id, tag_id),
+        )
+
+        # Move items that don't already have the target tag
+        self._execute(
+            """
+            UPDATE item_tags
+            SET tag_id = ?
+            WHERE tag_id = ?
+              AND item_id NOT IN (SELECT item_id FROM item_tags WHERE tag_id = ?)
+            """,
+            (target_tag_id, tag_id, target_tag_id),
+        )
+
+        # Delete remaining old associations (items that had both tags)
+        self._execute("DELETE FROM item_tags WHERE tag_id = ?", (tag_id,))
+
+        # Recalculate target tag usage count
+        self._execute(
+            """
+            UPDATE tags SET usage_count = (
+                SELECT COUNT(DISTINCT item_id) FROM item_tags WHERE tag_id = ?
+            ) WHERE id = ?
+            """,
+            (target_tag_id, target_tag_id),
+        )
+
     def create(self, name: str, display_name: str, category_id: int, description: str = '') -> int:
         """Create a new flat tag.
 
@@ -239,12 +318,12 @@ class TagsRepository(Repository):
         """Get only explicit (user-added) tags for an item."""
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color
+                   c.name as category_name, c.color as category_color, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE it.item_id = ? AND it.is_explicit = 1
-            ORDER BY t.name
+            ORDER BY c.sort_order, t.name
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
 
@@ -252,12 +331,12 @@ class TagsRepository(Repository):
         """Get only implied (auto-resolved) tags for an item."""
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color
+                   c.name as category_name, c.color as category_color, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE it.item_id = ? AND it.is_explicit = 0
-            ORDER BY t.name
+            ORDER BY c.sort_order, t.name
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
 
@@ -265,12 +344,12 @@ class TagsRepository(Repository):
         """Get all tags for item (explicit + implied) with flag."""
         cursor = self._execute("""
             SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
-                   c.name as category_name, c.color as category_color, it.is_explicit
+                   c.name as category_name, c.color as category_color, it.is_explicit, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
             LEFT JOIN tag_categories c ON t.category_id = c.id
             WHERE it.item_id = ?
-            ORDER BY it.is_explicit DESC, t.name
+            ORDER BY c.sort_order, it.is_explicit DESC, t.name
         """, (item_id,))
         return [dict(row) for row in cursor.fetchall()]
 
@@ -317,6 +396,32 @@ class TagsRepository(Repository):
 
         self._commit()
 
+    def get_common_tags(self, item_ids: List[str]) -> List[Dict]:
+        """Get all explicit tags for items with coverage count.
+
+        Args:
+            item_ids: List of item IDs
+
+        Returns:
+            List of tag dicts with coverage count (how many items have this tag)
+        """
+        if not item_ids:
+            return []
+
+        placeholders = ','.join('?' * len(item_ids))
+        cursor = self._execute(f"""
+            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+                   c.name as category_name, c.color as category_color, c.sort_order as category_order,
+                   COUNT(DISTINCT it.item_id) as coverage
+            FROM tags t
+            JOIN item_tags it ON t.id = it.tag_id
+            LEFT JOIN tag_categories c ON t.category_id = c.id
+            WHERE it.item_id IN ({placeholders}) AND it.is_explicit = 1
+            GROUP BY t.id
+            ORDER BY c.sort_order, t.name
+        """, tuple(item_ids))
+        return [dict(row) for row in cursor.fetchall()]
+
     # ========================================================================
     # Sanitize helpers
     # ========================================================================
@@ -356,7 +461,8 @@ class TagsRepository(Repository):
         self,
         include_groups: list[set],
         exclude_ids: set,
-        folder_id: Optional[str] = None
+        folder_id: Optional[str] = None,
+        sort_by: str = 'uploaded'
     ) -> List[Dict]:
         """Search items by tags with include/exclude logic.
 
@@ -364,6 +470,7 @@ class TagsRepository(Repository):
             include_groups: List of sets, each set contains tag IDs for one search word (OR within group)
             exclude_ids: Set of tag IDs to exclude
             folder_id: Optional folder to filter by
+            sort_by: 'uploaded' or 'taken'
 
         Returns:
             List of items with media metadata
@@ -410,19 +517,56 @@ class TagsRepository(Repository):
         final_params.extend(params)
         final_params.extend(exclude_list)
 
+        order_col = 'i.uploaded_at' if sort_by == 'uploaded' else 'COALESCE(im.taken_at, i.uploaded_at)'
+
         sql = f"""
-            SELECT DISTINCT i.*, im.media_type, im.thumb_width, im.thumb_height
+            SELECT DISTINCT i.*, im.media_type, im.thumb_width, im.thumb_height, im.taken_at
             FROM items i
             LEFT JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'
               {'AND i.folder_id = ?' if folder_id else ''}
               AND ({include_sql})
               AND ({exclude_sql})
-            ORDER BY i.uploaded_at DESC
+            ORDER BY {order_col} DESC
         """
 
         cursor = self._execute(sql, final_params)
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_albums_for_tag_search(self, item_ids: List[str]) -> List[Dict]:
+        """Get albums that contain any of the given items, with matching item count.
+
+        Args:
+            item_ids: List of matching item IDs
+
+        Returns:
+            List of album dicts with matching_count and date fields
+        """
+        if not item_ids:
+            return []
+
+        placeholders = ','.join('?' * len(item_ids))
+        cursor = self._execute(f"""
+            SELECT a.id, a.name, a.folder_id, a.cover_item_id, a.user_id,
+                   COUNT(DISTINCT ai.item_id) as matching_count,
+                   MAX(i.uploaded_at) as uploaded_at,
+                   MAX(im.taken_at) as taken_at
+            FROM albums a
+            JOIN album_items ai ON a.id = ai.album_id
+            JOIN items i ON ai.item_id = i.id
+            LEFT JOIN item_media im ON i.id = im.item_id
+            WHERE ai.item_id IN ({placeholders})
+            GROUP BY a.id
+        """, tuple(item_ids))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_album_item_ids(self, album_id: str) -> List[str]:
+        """Get all item IDs in an album."""
+        cursor = self._execute(
+            "SELECT item_id FROM album_items WHERE album_id = ? ORDER BY position",
+            (album_id,)
+        )
+        return [row["item_id"] for row in cursor.fetchall()]
 
     def get_all_items_with_explicit_tags(self):
         """Return all item IDs that have at least one explicit tag."""

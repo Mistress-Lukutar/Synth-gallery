@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ..application.services import AuthService
-from ..config import SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, COOKIE_SECURE, BASE_DIR, EXTERNAL_HOST
+from ..config import APP_VERSION, SESSION_COOKIE, SESSION_MAX_AGE, ROOT_PATH, COOKIE_SECURE, BASE_DIR, EXTERNAL_HOST
 from ..database import create_connection
 from ..dependencies import get_csrf_token
 from ..infrastructure.repositories import UserRepository, SessionRepository
@@ -32,6 +32,7 @@ router = APIRouter()
 
 templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
+templates.env.globals["app_version"] = APP_VERSION
 templates.env.globals["external_host"] = EXTERNAL_HOST
 
 

@@ -7,10 +7,42 @@
     let searchInput = null;
     let suggestions = null;
     let searchTimeout = null;
-    
+
     // Store last folder content for clearing search
     let lastFolderData = null;
     let isSearchActive = false;
+
+    // --- Pure helpers (exported for unit tests) ---
+
+    // Split a search query into words and describe the word being typed.
+    // A leading "-" marks a negative tag search (e.g. "-wat" -> "wat").
+    function parseSearchQuery(query) {
+        const words = query.split(/\s+/);
+        const currentWord = words[words.length - 1].toLowerCase();
+        const isNegative = currentWord.startsWith('-');
+        const searchWord = isNegative ? currentWord.substring(1) : currentWord;
+        return { words, currentWord, isNegative, searchWord };
+    }
+
+    // Replace the last word of the input with a picked suggestion,
+    // preserving the negative marker, and keep a trailing space.
+    function applySuggestionToInput(value, tag, wasNegative) {
+        const words = value.trim().split(/\s+/);
+        words[words.length - 1] = (wasNegative ? '-' : '') + tag;
+        return words.join(' ') + ' ';
+    }
+
+    // Tag autocomplete endpoint URL.
+    function buildTagSearchApiUrl(baseUrl, query, limit = 50) {
+        return `${baseUrl}/api/tags/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+    }
+
+    // Gallery search endpoint URL.
+    function buildSearchApiUrl(baseUrl, { tags, folderId, sort }) {
+        return `${baseUrl}/api/search?tags=${encodeURIComponent(tags)}`
+            + `&folder_id=${encodeURIComponent(folderId)}`
+            + `&sort=${encodeURIComponent(sort)}`;
+    }
 
     function init() {
         searchInput = document.getElementById('tag-search-input');
@@ -50,7 +82,7 @@
                     option.classList.add('active');
                     
                     // Update tooltip
-                    sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
+                    sortBtn.setAttribute('title', window.getSortLabel ? window.getSortLabel(sort) : sort);
                     
                     // Update sort mode and rebuild masonry
                     window.currentSortMode = sort;
@@ -86,7 +118,7 @@
                 sortMenu.querySelectorAll('.sort-option').forEach(o => o.classList.remove('active'));
                 const activeOption = sortMenu.querySelector(`[data-sort="${sort}"]`);
                 if (activeOption) activeOption.classList.add('active');
-                sortBtn.setAttribute('title', sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded');
+                sortBtn.setAttribute('title', window.getSortLabel ? window.getSortLabel(sort) : sort);
             };
         }
 
@@ -154,18 +186,17 @@
     async function loadSearchSuggestions(query) {
         try {
             // Get last word being typed
-            const words = query.split(/\s+/);
-            const currentWord = words[words.length - 1].toLowerCase();
-            
-            if (currentWord.length < 2) return;
+            const { isNegative, searchWord } = parseSearchQuery(query);
+
+            if (searchWord.length < 2) return;
 
             // Fetch matching tags from new API
-            const resp = await fetch(`${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(currentWord)}&limit=50`);
+            const resp = await fetch(buildTagSearchApiUrl(getBaseUrl(), searchWord));
             if (!resp.ok) return;
 
             const data = await resp.json();
             const matches = data.tags || [];
-            
+
             if (matches.length === 0) {
                 if (suggestions) suggestions.classList.add('hidden');
                 return;
@@ -174,7 +205,7 @@
             if (!suggestions) return;
 
             suggestions.innerHTML = matches.map(t => `
-                <div class="suggestion-item" data-tag="${escapeHtml(t.name)}" style="--tag-color: ${t.category_color || '#6b7280'}">
+                <div class="suggestion-item" data-tag="${escapeHtml(t.name)}" data-negative="${isNegative}" style="--tag-color: ${t.category_color || '#6b7280'}">
                     <span class="tag-dot" style="background-color: ${t.category_color || '#6b7280'}"></span>
                     <span>${escapeHtml(t.display_name || t.name)}</span>
                     <span class="tag-count">${t.count || 0}</span>
@@ -184,10 +215,8 @@
             suggestions.querySelectorAll('.suggestion-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const tag = item.dataset.tag.toLowerCase();
-                    const value = searchInput.value.trim();
-                    const words = value.split(/\s+/);
-                    words[words.length - 1] = tag;
-                    searchInput.value = words.join(' ') + ' ';
+                    const wasNegative = item.dataset.negative === 'true';
+                    searchInput.value = applySuggestionToInput(searchInput.value, tag, wasNegative);
                     suggestions.classList.add('hidden');
                     searchInput.focus();
                     updateSearchURL(searchInput.value.trim());
@@ -202,6 +231,11 @@
     }
 
     async function performSearch(query) {
+        // Clear any active selection before showing new search results
+        if (typeof window.clearSelection === 'function') {
+            window.clearSelection();
+        }
+
         if (!query) {
             isSearchActive = false;
             return;
@@ -216,7 +250,12 @@
         isSearchActive = true;
 
         try {
-            const resp = await fetch(`${getBaseUrl()}/api/search?tags=${encodeURIComponent(query)}&folder_id=${encodeURIComponent(window.currentFolderId)}`);
+            const sort = window.currentSortMode || 'uploaded';
+            const resp = await fetch(buildSearchApiUrl(getBaseUrl(), {
+                tags: query,
+                folderId: window.currentFolderId,
+                sort,
+            }));
             if (!resp.ok) throw new Error('Search failed');
 
             const data = await resp.json();
@@ -245,9 +284,7 @@
         items.forEach(item => {
             if (item.type === 'album') {
                 const album = item;
-                const coverId = album.cover_photo_id;
-                const safeId = album.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
+                const coverId = album.cover_item_id;
                 
                 const rawWidth = album.cover_thumb_width || 280;
                 const rawHeight = album.cover_thumb_height || 280;
@@ -263,11 +300,10 @@
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
                         <img data-item-id="${coverId}"
-                             ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                             onerror="handleImageError(this, 'access')"
                              style="opacity: 0;">
                     `;
                 } else {
@@ -278,11 +314,17 @@
                     `;
                 }
                 
+                const matchingItemsAttr = album.matching_item_ids ? `data-matching-items="${album.matching_item_ids.join(',')}"` : '';
+                const albumUploadedAt = album.uploaded_at || '';
+                const albumTakenAt = album.taken_at || '';
+                
                 html += `
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
-                         ${safeIdAttr}>
+                         ${matchingItemsAttr}
+                         data-uploaded-at="${escapeHtml(albumUploadedAt)}"
+                         data-taken-at="${escapeHtml(albumTakenAt)}">
                         <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
                             ${imgHtml}
                             <div class="album-badge">
@@ -292,7 +334,7 @@
                                     <rect x="3" y="14" width="7" height="7" rx="1"/>
                                     <rect x="14" y="14" width="7" height="7" rx="1"/>
                                 </svg>
-                                <span>${album.photo_count || 0}</span>
+                                <span>${album.item_count || 0}</span>
                             </div>
                         </div>
                         <div class="select-indicator" title="Select">
@@ -304,8 +346,6 @@
                 `;
             } else if (item.type === 'photo') {
                 const photo = item;
-                const safeId = photo.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const mediaType = photo.media_type || 'image';
                 
                 const hasDims = photo.thumb_width && photo.thumb_height;
@@ -317,6 +357,9 @@
                 const dimsAttr = `data-thumb-width="${finalWidth}" data-thumb-height="${finalHeight}"`;
                 const aspectStyle = `style="aspect-ratio: ${finalWidth} / ${finalHeight};"`;
                 
+                const photoUploadedAt = photo.uploaded_at || '';
+                const photoTakenAt = photo.taken_at || '';
+                
                 // Unified template for all photos - uses data attributes for async resolution
                 html += `
                     <div class="gallery-item" 
@@ -324,15 +367,15 @@
                          data-item-type="photo"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
-                         ${safeIdAttr}>
+                         data-uploaded-at="${escapeHtml(photoUploadedAt)}"
+                         data-taken-at="${escapeHtml(photoTakenAt)}">
                         <div class="gallery-link" onclick="openPhoto('${photo.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
                             <img data-item-id="${photo.id}"
-                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
                                  alt="${escapeHtml(photo.original_name)}"
                                  loading="lazy"
                                  onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
+                                 onerror="handleImageError(this, 'access')"
                                  style="opacity: 0;">
                             ${mediaType === 'video' ? `
                                 <div class="video-badge">
@@ -384,7 +427,7 @@
     // Init on DOM ready
     document.addEventListener('DOMContentLoaded', () => {
         init();
-        
+
         // Check for search query in URL on page load
         const urlParams = new URLSearchParams(window.location.search);
         const searchQuery = urlParams.get('q');
@@ -393,5 +436,15 @@
             performSearch(searchQuery);
         }
     });
+
+    // CommonJS export for Jest unit tests (no-op in the browser).
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            parseSearchQuery,
+            applySuggestionToInput,
+            buildTagSearchApiUrl,
+            buildSearchApiUrl,
+        };
+    }
 
 })();

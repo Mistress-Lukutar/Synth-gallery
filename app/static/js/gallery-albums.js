@@ -47,49 +47,38 @@
         
         if (albumItem) {
             const access = albumItem.dataset.access;
-            const safeId = albumItem.dataset.safeId;
             
             if (access === 'denied') {
                 // Shared content without access - do nothing
                 return;
             }
-            
-            if (access === 'locked' && safeId) {
-                // Safe is locked - show unlock modal
-                
-                let safeName = 'Safe';
-                let unlockType = 'password';
-                if (window.userSafes) {
-                    const safe = window.userSafes.find(s => s.id === safeId);
-                    if (safe) {
-                        safeName = safe.name;
-                        unlockType = safe.unlock_type;
-                    }
-                }
-                
-                if (typeof openSafeUnlock === 'function') {
-                    openSafeUnlock(safeId, safeName, unlockType);
-                } else {
-                    console.error('[handleAlbumClick] openSafeUnlock not available');
-                }
-                return;
-            }
+        }
+        
+        // Check for tag search filter (matching items from search results)
+        let matchingItemIds = null;
+        if (albumItem && albumItem.dataset.matchingItems) {
+            matchingItemIds = albumItem.dataset.matchingItems.split(',').filter(Boolean);
         }
         
         // Access granted - open album
-        openAlbum(albumId);
+        openAlbum(albumId, false, matchingItemIds);
     };
 
     // Open album in lightbox (view mode)
-    window.openAlbum = async function(albumId, startFromEnd = false) {
+    window.openAlbum = async function(albumId, startFromEnd = false, matchingItemIds = null) {
         
         try {
             const resp = await fetch(`${getBaseUrl()}/api/albums/${albumId}`);
             if (!resp.ok) throw new Error('Failed to load album');
             
             const album = await resp.json();
-            // Support both new items array and legacy photos array
-            const albumItems = album.items || album.photos || [];
+            let albumItems = album.items || [];
+            
+            // If coming from tag search, filter to only matching items
+            if (matchingItemIds && matchingItemIds.length > 0) {
+                const matchingSet = new Set(matchingItemIds);
+                albumItems = albumItems.filter(item => matchingSet.has(item.id));
+            }
             
             if (albumItems.length === 0) {
                 // Empty album: open lightbox with placeholder
@@ -138,9 +127,7 @@
             // Store album items for navigation
             currentAlbumPhotos = albumItems.map(item => ({
                 id: item.id,
-                safeId: item.safe_id,
                 original_name: item.original_name || item.title || '',
-
                 albumId: albumId
             }));
             currentAlbumIndex = startFromEnd ? currentAlbumPhotos.length - 1 : 0;
@@ -260,7 +247,7 @@
             if (header) header.textContent = `Edit Album: ${album.name || 'Untitled'}`;
             
             // Load photos in album (includes cover selection logic)
-            await loadAlbumPhotos(albumId, album.cover_photo_id);
+            await loadAlbumPhotos(albumId, album.cover_item_id);
             
             albumEditorPanel.classList.add('open');
             
@@ -339,8 +326,7 @@
             if (!resp.ok) throw new Error('Failed to load album items');
             
             const data = await resp.json();
-            // Support both new items array and legacy photos array
-            const items = data.items || data.photos || [];
+            const items = data.items || [];
             
             if (countEl) countEl.textContent = `(${items.length})`;
             
@@ -461,7 +447,7 @@
             // Refresh - need to get current cover from album
             const resp = await fetch(`${getBaseUrl()}/api/albums/${editingAlbumId}`);
             const album = resp.ok ? await resp.json() : { cover_item_id: null };
-            loadAlbumPhotos(editingAlbumId, album.cover_item_id || album.cover_photo_id);
+            loadAlbumPhotos(editingAlbumId, album.cover_item_id);
         } catch (err) {
             console.error('Failed to remove item:', err);
         }
@@ -595,17 +581,6 @@
     };
 
     window.deleteAlbum = async function(albumId) {
-        // Check if album is in a locked safe (E2E - client-side only!)
-        const gallery = document.getElementById('gallery');
-        const albumItem = gallery?.querySelector(`.gallery-item[data-album-id="${albumId}"]`);
-        if (albumItem) {
-            const safeId = albumItem.dataset.safeId;
-            if (safeId && typeof SafeCrypto !== 'undefined' && SafeCrypto.isUnlocked && !SafeCrypto.isUnlocked(safeId)) {
-                alert('Cannot delete: this album is in a locked safe. Please unlock the safe first.');
-                return;
-            }
-        }
-        
         if (!confirm('Delete this album? Photos will not be deleted.')) return;
 
         try {

@@ -10,8 +10,7 @@ Verifies:
 - Progress polling
 - File access for agents (non-encrypted only)
 """
-import hashlib
-
+import bcrypt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,7 +22,7 @@ class TestAITaggingJobs:
     def api_key(self, db_connection, test_user) -> str:
         """Create an API key for agent authentication bound to test_user."""
         raw_key = "test-api-key-12345"
-        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        key_hash = bcrypt.hashpw(raw_key.encode(), bcrypt.gensalt()).decode()
         db_connection.execute(
             "INSERT INTO ai_api_keys (name, key_hash, is_active, user_id) VALUES (?, ?, 1, ?)",
             ("Test Agent", key_hash, test_user["id"])
@@ -274,15 +273,38 @@ class TestAITaggingJobs:
         uploaded_photo: dict,
         api_key: str
     ):
-        """Agent can download non-encrypted item files."""
+        """Agent can download server-side encrypted item files when the user's DEK is cached."""
         resp = authenticated_client.get(
             f"/api/ai/items/{uploaded_photo['id']}/file",
             headers={"X-API-Key": api_key}
         )
         assert resp.status_code == 200
-        assert resp.headers["content-type"] == "image/jpeg"
 
-    def test_file_access_rejects_encrypted(
+    def test_file_access_for_album_item(
+        self,
+        authenticated_client: TestClient,
+        test_album: dict,
+        api_key: str,
+        csrf_token: str
+    ):
+        """Agent can download server-side encrypted files for items inside an album."""
+        item_id = test_album["item_ids"][0]
+
+        # Create job for album item
+        resp = authenticated_client.post(
+            "/api/ai/jobs",
+            json={"item_ids": [item_id]},
+            headers={"X-CSRF-Token": csrf_token}
+        )
+        assert resp.status_code == 200
+
+        resp = authenticated_client.get(
+            f"/api/ai/items/{item_id}/file",
+            headers={"X-API-Key": api_key}
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+
+    def test_file_access_missing_file(
         self,
         authenticated_client: TestClient,
         test_user: dict,
@@ -290,22 +312,20 @@ class TestAITaggingJobs:
         api_key: str,
         db_connection
     ):
-        """Agent cannot download encrypted items."""
+        """Agent receives 404 when the item has no stored file."""
         from app.infrastructure.repositories import ItemRepository
         item_repo = ItemRepository(db_connection)
         item_id = item_repo.create(
             item_type="media",
             folder_id=test_folder,
-            user_id=test_user["id"],
-            is_encrypted=True
+            user_id=test_user["id"]
         )
 
-        # Agent should be rejected
         resp = authenticated_client.get(
             f"/api/ai/items/{item_id}/file",
             headers={"X-API-Key": api_key}
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 404
 
     def test_get_ai_tags_requires_api_key(self, authenticated_client: TestClient):
         """Tag list endpoint requires API key."""

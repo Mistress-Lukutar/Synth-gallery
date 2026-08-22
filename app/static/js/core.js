@@ -34,12 +34,70 @@ async function csrfFetch(url, options = {}) {
     });
 }
 
+// Upload with CSRF token and byte-level upload progress.
+// fetch() cannot report request body progress, so this uses XHR.
+// Resolves with a fetch-like Response so callers can use resp.ok /
+// resp.json() exactly like csrfFetch results.
+function csrfUpload(url, formData, { onProgress, onUploaded, signal } = {}) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('X-CSRF-Token', getCsrfToken());
+
+        const onAbort = () => xhr.abort();
+
+        const cleanup = () => {
+            if (signal) signal.removeEventListener('abort', onAbort);
+        };
+
+        if (signal) {
+            if (signal.aborted) {
+                reject(new DOMException('Upload aborted', 'AbortError'));
+                return;
+            }
+            signal.addEventListener('abort', onAbort);
+        }
+
+        if (onProgress) {
+            xhr.upload.onprogress = (e) => onProgress(e);
+        }
+        if (onUploaded) {
+            // All bytes sent; server is now processing (thumbnails, encryption)
+            xhr.upload.onload = () => onUploaded();
+        }
+
+        xhr.onload = () => {
+            cleanup();
+            const headers = new Headers();
+            xhr.getAllResponseHeaders().trim().split(/[\r\n]+/).forEach((line) => {
+                const idx = line.indexOf(':');
+                if (idx > 0) headers.append(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
+            });
+            resolve(new Response(xhr.response, { status: xhr.status, headers }));
+        };
+        xhr.onerror = () => {
+            cleanup();
+            reject(new TypeError('Network error during upload'));
+        };
+        xhr.onabort = () => {
+            cleanup();
+            reject(new DOMException('Upload aborted', 'AbortError'));
+        };
+
+        xhr.send(formData);
+    });
+}
+
 // Escape HTML to prevent XSS
 function escapeHtml(text) {
     if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 // Get base URL from global or compute
@@ -59,74 +117,62 @@ function clampGalleryAspect(width, height) {
 // Export to window
 window.getCsrfToken = getCsrfToken;
 window.csrfFetch = csrfFetch;
+window.csrfUpload = csrfUpload;
 window.escapeHtml = escapeHtml;
 window.getBaseUrl = getBaseUrl;
 window.clampGalleryAspect = clampGalleryAspect;
 
-// Handle image load errors (403, etc.) - show placeholder with lock icon
-window.handleImageError = function(img, errorType = 'access', context = {}) {
+// Handle image load errors (403, network, etc.) - show placeholder with icon
+window.handleImageError = function(img, errorType = 'load') {
     // Prevent infinite loop if placeholder itself fails
     if (img.dataset.errorHandled) return;
     img.dataset.errorHandled = 'true';
-    
+
     // Hide the broken image
     img.style.display = 'none';
-    
+
     // Find or create error placeholder
     const container = img.closest('.gallery-link');
     if (!container) return;
-    
+
     // Get gallery item to mark access state
     const galleryItem = img.closest('.gallery-item');
-    
+
     // Remove loading placeholder if exists
     const loadingPlaceholder = container.querySelector('.gallery-placeholder');
     if (loadingPlaceholder) loadingPlaceholder.style.display = 'none';
-    
+
     // Check if error placeholder already exists
     let errorPlaceholder = container.querySelector('.gallery-placeholder-error');
     if (errorPlaceholder) return; // Already showing error
-    
+
     // Create error placeholder
     errorPlaceholder = document.createElement('div');
     errorPlaceholder.className = 'gallery-placeholder-error';
-    
-    // Determine error type from context
-    const safeId = galleryItem?.dataset.safeId || img.dataset.safeId;
-    const isLockedSafe = safeId && errorType === 'locked';
-    const isSharedDenied = !safeId && errorType === 'access';
-    
+
     const messages = {
-        'access': { icon: 'shield', text: 'Access denied' },
-        'locked': { icon: 'lock', text: 'Safe locked' },
-        'shared': { icon: 'shield', text: 'Shared content unavailable' }
+        'access': { text: 'Access denied' },
+        'load': { text: 'Load failed' },
+        'shared': { text: 'Shared content unavailable' }
     };
-    
-    const msg = messages[errorType] || messages['access'];
-    
+
+    const msg = messages[errorType] || messages['load'];
+
     // Mark gallery item with access state for click handlers
     if (galleryItem) {
         galleryItem.classList.add('has-error');
-        if (isLockedSafe) {
-            galleryItem.dataset.access = 'locked';
-            galleryItem.dataset.safeId = safeId;
-        } else if (isSharedDenied) {
+        if (errorType === 'access') {
             galleryItem.dataset.access = 'denied';
         }
     }
-    
-    // Use lock or shield icon
-    const iconSvg = msg.icon === 'lock' 
-        ? '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
-        : '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>';
-    
+
     errorPlaceholder.innerHTML = `
         <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            ${iconSvg}
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
         <span class="error-text">${msg.text}</span>
     `;
-    
+
     container.appendChild(errorPlaceholder);
 };
 

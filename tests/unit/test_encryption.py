@@ -4,9 +4,18 @@ Encryption service unit tests.
 Tests cryptographic primitives in isolation.
 No database or filesystem dependencies.
 """
+import io
+import os
+
 import pytest
 
-from app.infrastructure.services.encryption import EncryptionService, DEKCache
+from app.infrastructure.services.encryption import (
+    DEKCache,
+    ENVELOPE_HEADER_SIZE,
+    ENVELOPE_MAGIC,
+    EncryptionError,
+    EncryptionService,
+)
 
 
 class TestKeyDerivation:
@@ -118,69 +127,183 @@ class TestDEKEncryption:
 
 
 class TestFileEncryption:
-    """Test file content encryption."""
-    
-    def test_encrypt_decrypt_file(self):
-        """File content should decrypt back to original."""
+    """Test chunked file encryption (new SGE1 envelope)."""
+
+    def test_encrypt_decrypt_bytes_small(self):
+        """Small object round-trip via encrypt_bytes/decrypt_bytes."""
         dek = EncryptionService.generate_dek()
-        plaintext = b"Hello, World! This is test content."
-        
-        encrypted = EncryptionService.encrypt_file(plaintext, dek)
-        decrypted = EncryptionService.decrypt_file(encrypted, dek)
-        
+        plaintext = b'Hello, World! This is test content.'
+
+        encrypted = EncryptionService.encrypt_bytes(plaintext, dek)
+        decrypted = EncryptionService.decrypt_bytes(encrypted, dek)
+
         assert decrypted == plaintext
-    
-    def test_encrypt_file_different_deks(self):
+        assert encrypted[:4] == ENVELOPE_MAGIC
+
+    def test_encrypt_bytes_different_deks(self):
         """Same content encrypted with different DEKs should differ."""
         dek1 = EncryptionService.generate_dek()
         dek2 = EncryptionService.generate_dek()
-        plaintext = b"Same content"
-        
-        encrypted1 = EncryptionService.encrypt_file(plaintext, dek1)
-        encrypted2 = EncryptionService.encrypt_file(plaintext, dek2)
-        
+        plaintext = b'Same content'
+
+        encrypted1 = EncryptionService.encrypt_bytes(plaintext, dek1)
+        encrypted2 = EncryptionService.encrypt_bytes(plaintext, dek2)
+
         assert encrypted1 != encrypted2
-    
-    def test_decrypt_with_wrong_dek_fails(self):
-        """Decrypting file with wrong DEK should fail."""
+
+    def test_decrypt_with_wrong_dek_raises(self):
+        """Decrypting with the wrong DEK should raise EncryptionError."""
         correct_dek = EncryptionService.generate_dek()
         wrong_dek = EncryptionService.generate_dek()
-        plaintext = b"Secret message"
-        
-        encrypted = EncryptionService.encrypt_file(plaintext, correct_dek)
-        
-        with pytest.raises(Exception):
-            EncryptionService.decrypt_file(encrypted, wrong_dek)
-    
-    def test_encrypt_empty_file(self):
-        """Empty file should encrypt/decrypt correctly."""
+        plaintext = b'Secret message'
+
+        encrypted = EncryptionService.encrypt_bytes(plaintext, correct_dek)
+
+        with pytest.raises(EncryptionError):
+            EncryptionService.decrypt_bytes(encrypted, wrong_dek)
+
+    def test_encrypt_empty_bytes(self):
+        """Empty plaintext should round-trip correctly."""
         dek = EncryptionService.generate_dek()
-        plaintext = b""
-        
-        encrypted = EncryptionService.encrypt_file(plaintext, dek)
-        decrypted = EncryptionService.decrypt_file(encrypted, dek)
-        
+        plaintext = b''
+
+        encrypted = EncryptionService.encrypt_bytes(plaintext, dek)
+        decrypted = EncryptionService.decrypt_bytes(encrypted, dek)
+
         assert decrypted == plaintext
-    
-    def test_encrypt_large_file(self):
-        """Large file should encrypt/decrypt correctly."""
+
+    def test_encrypt_large_streaming(self):
+        """Large multi-chunk plaintext round-trip via streaming pipe."""
         dek = EncryptionService.generate_dek()
-        plaintext = b"x" * (1024 * 1024)  # 1MB
-        
-        encrypted = EncryptionService.encrypt_file(plaintext, dek)
-        decrypted = EncryptionService.decrypt_file(encrypted, dek)
-        
-        assert decrypted == plaintext
-    
+        plaintext = os.urandom(int(2.5 * 1024 * 1024))  # ~2.5 MiB
+
+        enc_buf = io.BytesIO()
+        EncryptionService.encrypt_to_stream(io.BytesIO(plaintext), enc_buf, dek)
+        encrypted = enc_buf.getvalue()
+
+        dec_buf = io.BytesIO()
+        EncryptionService.decrypt_to_stream(io.BytesIO(encrypted), dec_buf, dek)
+        assert dec_buf.getvalue() == plaintext
+
+    def test_iter_decrypt_yields_plaintext_chunks(self):
+        """iter_decrypt should yield plaintext covering the whole input."""
+        dek = EncryptionService.generate_dek()
+        plaintext = os.urandom(int(1.5 * 1024 * 1024))
+
+        enc_buf = io.BytesIO()
+        EncryptionService.encrypt_to_stream(io.BytesIO(plaintext), enc_buf, dek)
+        encrypted = enc_buf.getvalue()
+
+        chunks = list(EncryptionService.iter_decrypt(io.BytesIO(encrypted), dek))
+        assert b''.join(chunks) == plaintext
+        assert len(chunks) >= 2  # more than one chunk produced
+
     def test_ciphertext_not_equal_plaintext(self):
-        """Encrypted content should not resemble plaintext."""
+        """Encrypted bytes should not contain recognizable plaintext."""
         dek = EncryptionService.generate_dek()
-        plaintext = b"AAAABBBBCCCCDDDD"  # Repetitive pattern
-        
-        encrypted = EncryptionService.encrypt_file(plaintext, dek)
-        
-        # Repetitive pattern should not be visible
-        assert b"AAAA" not in encrypted
+        plaintext = b'AAAABBBBCCCCDDDD' * 100
+
+        encrypted = EncryptionService.encrypt_bytes(plaintext, dek)
+        assert b'AAAA' not in encrypted
+
+    def test_plaintext_size_calculation(self):
+        """get_plaintext_size should match the original plaintext length."""
+        dek = EncryptionService.generate_dek()
+        for size in (0, 1, 100, 1024 * 1024, 1024 * 1024 + 17):
+            plaintext = os.urandom(size)
+            enc_buf = io.BytesIO()
+            EncryptionService.encrypt_to_stream(
+                io.BytesIO(plaintext), enc_buf, dek
+            )
+            encrypted = enc_buf.getvalue()
+            assert EncryptionService.get_plaintext_size(len(encrypted)) == size
+
+    def test_decrypt_range_full_chunk_boundary(self):
+        """decrypt_range returns exact byte slices for arbitrary ranges."""
+        dek = EncryptionService.generate_dek()
+        chunk_size = 1024 * 1024
+        plaintext = os.urandom(chunk_size * 3 + 5)
+
+        enc_buf = io.BytesIO()
+        EncryptionService.encrypt_to_stream(
+            io.BytesIO(plaintext), enc_buf, dek, chunk_size=chunk_size
+        )
+        encrypted = enc_buf.getvalue()
+
+        # Range spanning multiple chunks: [chunk_size - 10, 2*chunk_size + 10]
+        start = chunk_size - 10
+        end = 2 * chunk_size + 10
+        reader = io.BytesIO(encrypted)
+        got = b''.join(EncryptionService.decrypt_range(reader, dek, start, end))
+        assert got == plaintext[start : end + 1]
+
+    def test_decrypt_range_single_byte(self):
+        """decrypt_range should return exactly one byte for [n, n]."""
+        dek = EncryptionService.generate_dek()
+        plaintext = os.urandom(2 * 1024 * 1024)
+
+        enc_buf = io.BytesIO()
+        EncryptionService.encrypt_to_stream(io.BytesIO(plaintext), enc_buf, dek)
+        encrypted = enc_buf.getvalue()
+
+        for offset in (0, 1024 * 1024 - 1, 1024 * 1024, len(plaintext) - 1):
+            reader = io.BytesIO(encrypted)
+            got = b''.join(EncryptionService.decrypt_range(reader, dek, offset, offset))
+            assert got == plaintext[offset : offset + 1]
+
+    def test_decrypt_range_invalid_range(self):
+        """decrypt_range should reject start > end or negative start."""
+        dek = EncryptionService.generate_dek()
+        plaintext = b'x' * 100
+        enc_buf = io.BytesIO()
+        EncryptionService.encrypt_to_stream(io.BytesIO(plaintext), enc_buf, dek)
+        encrypted = enc_buf.getvalue()
+
+        reader = io.BytesIO(encrypted)
+        with pytest.raises(ValueError):
+            list(EncryptionService.decrypt_range(reader, dek, 50, 10))
+        with pytest.raises(ValueError):
+            list(EncryptionService.decrypt_range(reader, dek, -1, 5))
+
+    def test_parse_envelope_header_valid(self):
+        """parse_envelope_header should return the declared chunk size."""
+        dek = EncryptionService.generate_dek()
+        enc = EncryptionService.encrypt_bytes(b'data', dek)
+        chunk_size = EncryptionService.parse_envelope_header(enc[:10])
+        assert chunk_size > 0
+
+    def test_parse_envelope_header_rejects_non_envelope(self):
+        """Non-envelope bytes should raise EncryptionError."""
+        with pytest.raises(EncryptionError):
+            EncryptionService.parse_envelope_header(
+                b'\xff\xd8\xff\xe0' + b'\x00' * 6
+            )
+        with pytest.raises(EncryptionError):
+            EncryptionService.parse_envelope_header(b'SGE')
+
+    def test_decrypt_corrupt_header(self):
+        """Truncated or malformed headers should raise EncryptionError."""
+        dek = EncryptionService.generate_dek()
+        with pytest.raises(EncryptionError):
+            EncryptionService.decrypt_bytes(b'SGE1', dek)
+        with pytest.raises(EncryptionError):
+            EncryptionService.decrypt_bytes(b'', dek)
+
+    def test_decrypt_tampered_ciphertext(self):
+        """A flipped ciphertext byte should raise EncryptionError."""
+        dek = EncryptionService.generate_dek()
+        encrypted = bytearray(
+            EncryptionService.encrypt_bytes(b'secret payload', dek)
+        )
+        # Flip a byte inside the ciphertext body (past header + nonce).
+        encrypted[-1] ^= 0xFF
+        with pytest.raises(EncryptionError):
+            EncryptionService.decrypt_bytes(bytes(encrypted), dek)
+
+    def test_envelope_header_constants(self):
+        """Envelope header size matches the documented layout."""
+        # MAGIC(4) + VERSION(1) + RESERVED(1) + CHUNK_SIZE(4) = 10
+        assert ENVELOPE_HEADER_SIZE == 10
 
 
 class TestRecoveryKeys:

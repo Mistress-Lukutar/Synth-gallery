@@ -7,8 +7,8 @@ packages = ["app"]
 
 [project]
 name = "synth-gallery"
-version = "1.0.0"
-description = "Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support"
+version = "2.0.0"
+description = "Personal media vault with server-side encryption, hardware key authentication, and multi-user support"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
@@ -34,12 +34,12 @@ dependencies = [
     "python-multipart==0.0.22",
     "Pillow==12.1.1",
     "Jinja2==3.1.6",
-    "opencv-python-headless==4.13.0.92",
-    "passlib[bcrypt]==1.7.4",
     "bcrypt==5.0.0",
     "cryptography==42.0.0",
     "webauthn==2.0.0",
     "aiofiles==24.1.0",
+    "SQLAlchemy>=2.0",
+    "alembic>=1.13",
 ]
 
 [project.optional-dependencies]
@@ -51,12 +51,13 @@ dev = [
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
     "pytest-cov>=4.0",
+    "moto[s3]>=5.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/synth-gallery"
-Repository = "https://github.com/yourusername/synth-gallery"
-Issues = "https://github.com/yourusername/synth-gallery/issues"
+Homepage = "https://github.com/Mistress-Lukutar/Synth-gallery"
+Repository = "https://github.com/Mistress-Lukutar/Synth-gallery"
+Issues = "https://github.com/Mistress-Lukutar/Synth-gallery/issues"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

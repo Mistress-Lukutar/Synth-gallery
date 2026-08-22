@@ -97,22 +97,22 @@ def require_api_key(request: Request) -> dict:
     db = create_connection()
     try:
         repo = AiApiKeyRepository(db)
-        # First try bcrypt hash lookup
+        matched = None
         cursor = db.execute(
             "SELECT id, name, key_hash, is_active, user_id, expires_at FROM ai_api_keys"
         )
         for row in cursor.fetchall():
             key_hash_db = row["key_hash"]
-            # Support both bcrypt and legacy SHA-256 hashes during migration
-            if key_hash_db.startswith(("$2b$", "$2a$")):
-                if bcrypt.checkpw(api_key.encode(), key_hash_db.encode()):
-                    matched = row
-                    break
-            else:
-                if key_hash_db == sha_hash:
-                    matched = row
-                    break
-        else:
+            if not key_hash_db.startswith(("$2b$", "$2a$")):
+                # Only bcrypt hashes are verifiable; anything else is a
+                # pre-bcrypt relic that should have been deactivated at
+                # startup (see database.init_db).
+                continue
+            if bcrypt.checkpw(api_key.encode(), key_hash_db.encode()):
+                matched = row
+                break
+
+        if matched is None:
             log_api_key_failure(
                 ip=request.client.host if request.client else None,
                 reason="invalid_key"

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Backup Management - Synth Admin</title>
-    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg">
-    <link rel="stylesheet" href="{{ base_url }}/static/style.css">
+    <link rel="icon" type="image/svg+xml" href="{{ base_url }}/static/favicon.svg?v={{ app_version }}">
+    <link rel="stylesheet" href="{{ base_url }}/static/style.css?v={{ app_version }}">
     <style>
         .admin-layout {
             max-width: 800px;
@@ -133,7 +133,7 @@
                     <polyline points="17 8 12 3 7 8"/>
                     <line x1="12" y1="3" x2="12" y2="15"/>
                 </svg>
-                Database Backups
+                Backups (Database + Media)
             </h1>
             <nav class="admin-nav">
                 <a href="{{ base_url }}/admin/users">Users</a>
@@ -145,52 +145,6 @@
                 <a href="{{ base_url }}/" class="back-link">&larr; Gallery</a>
             </nav>
         </header>
-
-        <div class="backup-actions">
-            <button id="create-backup-btn" class="btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Create Backup
-            </button>
-        </div>
-
-        <div id="backup-list" class="backup-list">
-            {% if backups %}
-                {% for backup in backups %}
-                <div class="backup-item" data-name="{{ backup.name }}">
-                    <div class="backup-info">
-                        <div class="backup-name">{{ backup.name }}</div>
-                        <div class="backup-meta">
-                            <span>{{ backup.size_human }}</span>
-                            <span>{{ backup.created_at[:19].replace('T', ' ') }}</span>
-                            <span class="backup-reason">{{ backup.reason }}</span>
-                        </div>
-                    </div>
-                    <div class="backup-item-actions">
-                        <a href="{{ base_url }}/api/admin/backup/{{ backup.name }}/download" class="btn btn-small btn-secondary">Download</a>
-                        <button class="btn btn-small btn-secondary" onclick="restoreBackup('{{ backup.name }}')">Restore</button>
-                        <button class="btn btn-small btn-danger" onclick="deleteBackup('{{ backup.name }}')">Delete</button>
-                    </div>
-                </div>
-                {% endfor %}
-            {% else %}
-                <div class="empty-state">
-                    <p>No database backups yet</p>
-                </div>
-            {% endif %}
-        </div>
-
-        <!-- Full Backups Section -->
-        <h2 style="margin-top: 2.5rem; margin-bottom: 1rem; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-                <line x1="12" y1="22.08" x2="12" y2="12"/>
-            </svg>
-            Full Backups (Database + Media)
-        </h2>
 
         <div class="backup-actions" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
             <button id="create-full-backup-btn" class="btn">
@@ -267,71 +221,6 @@
             }
             return fetch(url, { ...options, headers });
         }
-
-        document.getElementById('create-backup-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('create-backup-btn');
-            btn.disabled = true;
-            btn.textContent = 'Creating...';
-
-            try {
-                const resp = await csrfFetch('{{ base_url }}/api/admin/backup', { method: 'POST' });
-                if (!resp.ok) throw new Error('Failed to create backup');
-
-                const data = await resp.json();
-                showToast('Backup created: ' + data.filename);
-                setTimeout(() => location.reload(), 1000);
-            } catch (err) {
-                showToast('Failed to create backup: ' + err.message, true);
-                btn.disabled = false;
-                btn.textContent = 'Create Backup';
-            }
-        });
-
-        async function restoreBackup(filename) {
-            if (!confirm(`Restore database from "${filename}"?\n\nThis will replace the current database. A backup of the current state will be created first.`)) {
-                return;
-            }
-
-            try {
-                const resp = await csrfFetch(`{{ base_url }}/api/admin/backup/${filename}/restore`, { method: 'POST' });
-                if (!resp.ok) throw new Error('Failed to restore backup');
-
-                const data = await resp.json();
-                showToast(data.message);
-                setTimeout(() => location.reload(), 2000);
-            } catch (err) {
-                showToast('Failed to restore: ' + err.message, true);
-            }
-        }
-
-        async function deleteBackup(filename) {
-            if (!confirm(`Delete backup "${filename}"?`)) {
-                return;
-            }
-
-            try {
-                const resp = await csrfFetch(`{{ base_url }}/api/admin/backup/${filename}`, { method: 'DELETE' });
-                if (!resp.ok) throw new Error('Failed to delete backup');
-
-                const item = document.querySelector(`.backup-item[data-name="${filename}"]:not(.full-backup-item)`);
-                if (item) item.remove();
-
-                showToast('Backup deleted');
-
-                // Check if list is now empty
-                if (document.querySelectorAll('#backup-list .backup-item').length === 0) {
-                    document.getElementById('backup-list').innerHTML = `
-                        <div class="empty-state">
-                            <p>No database backups yet</p>
-                        </div>
-                    `;
-                }
-            } catch (err) {
-                showToast('Failed to delete: ' + err.message, true);
-            }
-        }
-
-        // === Full Backup Functions ===
 
         document.getElementById('create-full-backup-btn').addEventListener('click', async () => {
             const btn = document.getElementById('create-full-backup-btn');
@@ -457,6 +346,6 @@
             }
         }
     </script>
-    <script src="{{ base_url }}/static/js/toast.js"></script>
+    <script src="{{ base_url }}/static/js/toast.js?v={{ app_version }}"></script>
 </body>
 </html>

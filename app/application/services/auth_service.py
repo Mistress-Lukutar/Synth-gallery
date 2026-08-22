@@ -200,7 +200,7 @@ class AuthService:
             kek = EncryptionService.derive_kek(password, enc_keys["dek_salt"])
             dek = EncryptionService.decrypt_dek(enc_keys["encrypted_dek"], kek)
             
-            # Cache in memory (legacy, for backward compatibility)
+            # Cache in memory for fast access during the session
             dek_cache.set(user_id, dek, ttl_seconds=ttl_seconds)
             
             # Also store in session for persistence (Issue #18)

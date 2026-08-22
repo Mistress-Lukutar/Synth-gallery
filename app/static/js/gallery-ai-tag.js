@@ -135,7 +135,6 @@
 
         // Collect all item IDs from selected photos and albums
         const itemIdSet = new Set(photos);
-        const albumItemSafeIds = new Map();
 
         // Fetch items from selected albums
         if (albums.length > 0) {
@@ -149,35 +148,14 @@
                 if (album && album.items) {
                     for (const item of album.items) {
                         itemIdSet.add(item.id);
-                        if (item.safe_id) {
-                            albumItemSafeIds.set(item.id, item.safe_id);
-                        }
                     }
                 }
             }
         }
 
-        // Filter out encrypted / safe items
-        const eligibleIds = [];
-        const skippedIds = [];
-        for (const itemId of itemIdSet) {
-            if (albumItemSafeIds.has(itemId)) {
-                skippedIds.push(itemId);
-                continue;
-            }
-            const itemEl = document.querySelector(`[data-item-id="${itemId}"]`);
-            if (itemEl && (itemEl.dataset.safeId || itemEl.dataset.isEncrypted === 'true')) {
-                skippedIds.push(itemId);
-            } else {
-                eligibleIds.push(itemId);
-            }
-        }
+        const itemIds = Array.from(itemIdSet);
 
-        if (skippedIds.length > 0) {
-            showToast(`${skippedIds.length} encrypted items skipped`, true);
-        }
-
-        if (eligibleIds.length === 0) {
+        if (itemIds.length === 0) {
             showToast('No eligible items for AI tagging', true);
             return;
         }
@@ -186,7 +164,7 @@
             const resp = await csrfFetch(`${getBaseUrl()}/api/ai/jobs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ item_ids: eligibleIds })
+                body: JSON.stringify({ item_ids: itemIds })
             });
 
             if (!resp.ok) {
@@ -196,7 +174,7 @@
 
             const data = await resp.json();
             const jobs = data.jobs || [];
-            currentItemIds = eligibleIds;
+            currentItemIds = itemIds;
 
             showToast(`${jobs.length} item${jobs.length !== 1 ? 's' : ''} queued for AI tagging`);
             showSpinner();

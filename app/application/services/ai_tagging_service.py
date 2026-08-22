@@ -154,6 +154,10 @@ class AITaggingService:
         # Mark job as completed
         return self.jobs.complete_job(job_id, list(final_tag_ids))
 
+    def release_job(self, job_id: int) -> bool:
+        """Release a claimed job back to pending."""
+        return self.jobs.release_job(job_id)
+
     def fail_job(self, job_id: int, error: str) -> bool:
         """Mark job as failed."""
         return self.jobs.fail_job(job_id, error)

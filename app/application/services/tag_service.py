@@ -1,4 +1,5 @@
 """Tag service - flat tags with implication-based inheritance and suggestions."""
+import re
 from typing import Optional, List, Dict, Tuple
 
 from fastapi import HTTPException
@@ -100,8 +101,8 @@ class TagService:
             Created tag dict
         """
         name = name.lower().strip().replace(' ', '_')
-        if not name or not name.replace('_', '').isalnum():
-            raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores.")
+        if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
+            raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores, hyphens, dots, brackets, etc.")
 
         # Check if tag already exists
         existing = self.tags.get_by_name(name)
@@ -150,9 +151,10 @@ class TagService:
                 current_depth += 1
 
             def sort_key(tag):
+                cat_order = tag.get("category_order", 0) or 0
                 if tag["is_explicit"]:
-                    return (0, 0, tag["name"])
-                return (1, depth_map.get(tag["id"], 999), tag["name"])
+                    return (cat_order, 0, 0, tag["name"])
+                return (cat_order, 1, depth_map.get(tag["id"], 999), tag["name"])
 
             all_tags = sorted(all_tags, key=sort_key)
 
@@ -296,9 +298,7 @@ class TagService:
         """Get tags frequently co-occurring with this tag."""
         if self.cooccurrence is None:
             return []
-        all_current = self.tags.get_item_tags_all(item_id=None)  # Not needed here
-        # Actually get_related_tags doesn't need item context
-        return self.cooccurrence.get_related_tags(tag_id, limit)
+        return self.cooccurrence.get_related_by_pmi(tag_id, limit)
 
     def get_contextual_suggestions(self,
                                    selected_tag_ids: List[int],
@@ -353,7 +353,7 @@ class TagService:
         updates = {}
         if name is not None:
             name = name.lower().strip().replace(' ', '_')
-            if not name or not name.replace('_', '').isalnum():
+            if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
                 raise HTTPException(400, "Invalid tag name")
             updates["name"] = name
         if display_name is not None:
@@ -372,6 +372,80 @@ class TagService:
         if not tag:
             raise HTTPException(404, "Tag not found")
         return self.tags.delete_tag(tag_id)
+
+    def remap_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Delete a tag and replace it with another on all items."""
+        if tag_id == target_tag_id:
+            raise HTTPException(400, "Cannot remap tag to itself")
+        tag = self.tags.get_by_id(tag_id)
+        if not tag:
+            raise HTTPException(404, "Tag not found")
+        target = self.tags.get_by_id(target_tag_id)
+        if not target:
+            raise HTTPException(404, "Target tag not found")
+        return self.tags.remap_tag(tag_id, target_tag_id)
+
+    def replace_tag(self, tag_id: int, target_tag_id: int) -> bool:
+        """Replace a tag with another on all items without deleting the source."""
+        if tag_id == target_tag_id:
+            raise HTTPException(400, "Cannot replace tag with itself")
+        tag = self.tags.get_by_id(tag_id)
+        if not tag:
+            raise HTTPException(404, "Tag not found")
+        target = self.tags.get_by_id(target_tag_id)
+        if not target:
+            raise HTTPException(404, "Target tag not found")
+        return self.tags.replace_tag(tag_id, target_tag_id)
+
+    def get_common_tags(self, item_ids: List[str]) -> List[Dict]:
+        """Get explicit tags for items with partial coverage info."""
+        tags = self.tags.get_common_tags(item_ids)
+        total = len(item_ids)
+        for tag in tags:
+            tag["is_partial"] = tag.get("coverage", 0) < total
+        return tags
+
+    def bulk_edit_tags(self, item_ids: List[str], add_tag_ids: List[int],
+                       remove_tag_ids: List[int], permission_service, user_id: int) -> Dict:
+        """Add/remove tags from multiple items, skipping those without edit permission.
+
+        Returns:
+            Dict with processed, skipped, added_total, removed_total
+        """
+        processed = 0
+        skipped = 0
+        added_total = 0
+        removed_total = 0
+
+        for item_id in item_ids:
+            if not permission_service.can_edit_item(item_id, user_id):
+                skipped += 1
+                continue
+
+            for tag_id in add_tag_ids:
+                try:
+                    result = self.add_tag_to_item(item_id, tag_id)
+                    if result.get("added"):
+                        added_total += 1
+                except HTTPException:
+                    pass
+
+            for tag_id in remove_tag_ids:
+                try:
+                    result = self.remove_tag_from_item(item_id, tag_id)
+                    if result.get("removed"):
+                        removed_total += 1
+                except HTTPException:
+                    pass
+
+            processed += 1
+
+        return {
+            "processed": processed,
+            "skipped": skipped,
+            "added_total": added_total,
+            "removed_total": removed_total,
+        }
 
     def create_implication(self, tag_id: int, implies_tag_id: int) -> Dict:
         """Create implication edge with cycle validation."""
@@ -423,12 +497,14 @@ class TagService:
 
         return include, exclude
 
-    def search_items(self, query: str, folder_id: Optional[str] = None) -> Dict:
+    def search_items(self, query: str, folder_id: Optional[str] = None,
+                     sort_by: str = 'uploaded') -> Dict:
         """Search items by tags with negative support (AND between words, OR within word group).
 
         Args:
             query: Query string like "fox night -wolf"
             folder_id: Optional folder to search in
+            sort_by: 'uploaded' or 'taken'
 
         Returns:
             Dict with items and search metadata
@@ -456,7 +532,7 @@ class TagService:
                 exclude_ids.add(tag['id'])
 
         # Build query
-        items = self._execute_tag_search(include_groups, exclude_ids, folder_id)
+        items = self._execute_tag_search(include_groups, exclude_ids, folder_id, sort_by)
 
         return {
             "items": items,
@@ -466,9 +542,9 @@ class TagService:
         }
 
     def _execute_tag_search(self, include_groups: list, exclude_ids: set,
-                           folder_id: Optional[str]) -> List[Dict]:
+                           folder_id: Optional[str], sort_by: str = 'uploaded') -> List[Dict]:
         """Execute tag search query with media metadata."""
-        items = self.tags.search_items_by_tags(include_groups, exclude_ids, folder_id)
+        items = self.tags.search_items_by_tags(include_groups, exclude_ids, folder_id, sort_by)
 
         for item in items:
             item['type'] = 'photo'

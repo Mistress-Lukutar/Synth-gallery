@@ -6,7 +6,8 @@ const BASE_URL = (() => {
     const link = document.querySelector('link[rel="stylesheet"]');
     if (link) {
         const href = link.getAttribute('href') || '';
-        return href.replace('/static/style.css', '');
+        // Strip the cache-busting query string (?v=...) before deriving the base.
+        return href.split('?')[0].replace('/static/style.css', '');
     }
     return '';
 })();
@@ -231,8 +232,10 @@ function renderDetail() {
         <div id="implies-search-results" style="margin-top:0.25rem;"></div>` : '';
 
     const deleteSection = isAdmin ? `
-        <div class="detail-section" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
+        <div class="detail-section" style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);display:flex;gap:0.5rem;flex-wrap:wrap;">
             <button class="btn btn-small btn-danger" onclick="deleteTag(${tag.id})">Delete tag</button>
+            <button class="btn btn-small btn-danger" onclick="openRemapModal(${tag.id}, 'remap')">Delete & Remap</button>
+            <button class="btn btn-small btn-warning" onclick="openRemapModal(${tag.id}, 'replace')">Remap</button>
         </div>` : '';
 
     panel.innerHTML = `
@@ -342,6 +345,107 @@ async function deleteTag(tagId) {
         tagDetail = null;
         document.getElementById('detail-panel').className = 'detail-panel empty';
         document.getElementById('detail-panel').innerHTML = '<p>Select a tag to view details</p>';
+        await refreshAllCategories();
+    } catch (err) {
+        showStatus(err.message, true);
+    }
+}
+
+// =============================================================================
+// Delete & Remap
+// =============================================================================
+
+let remapTagId = null;
+let remapTargetId = null;
+let remapMode = 'remap'; // 'remap' (delete + remap) or 'replace' (remap only)
+
+function openRemapModal(tagId, mode) {
+    remapTagId = tagId;
+    remapTargetId = null;
+    remapMode = mode || 'remap';
+    const isReplace = remapMode === 'replace';
+    document.getElementById('remap-tag-search').value = '';
+    document.getElementById('remap-tag-results').innerHTML = '';
+    document.getElementById('remap-tag-selected').style.display = 'none';
+    document.getElementById('remap-tag-selected-name').textContent = '';
+    document.getElementById('remap-tag-confirm').disabled = true;
+    document.getElementById('remap-tag-confirm').textContent = isReplace ? 'Remap' : 'Delete & Remap';
+    document.querySelector('#remap-tag-modal h2').textContent = isReplace ? 'Remap Tag' : 'Delete & Remap Tag';
+    document.querySelector('#remap-tag-modal p').textContent = isReplace
+        ? 'The selected tag will be replaced with the target tag on all items. The original tag will remain.'
+        : 'The selected tag will be deleted and replaced with the target tag on all items.';
+    document.getElementById('remap-tag-modal').classList.add('open');
+    document.getElementById('remap-tag-search').focus();
+}
+
+function closeRemapModal() {
+    document.getElementById('remap-tag-modal').classList.remove('open');
+    remapTagId = null;
+    remapTargetId = null;
+    remapMode = 'remap';
+}
+
+function selectRemapTarget(tagId, name) {
+    remapTargetId = tagId;
+    document.getElementById('remap-tag-selected-name').textContent = name;
+    document.getElementById('remap-tag-selected').style.display = 'block';
+    document.getElementById('remap-tag-results').innerHTML = '';
+    document.getElementById('remap-tag-search').value = '';
+    document.getElementById('remap-tag-confirm').disabled = false;
+}
+
+async function searchRemapTarget(query) {
+    const container = document.getElementById('remap-tag-results');
+    if (!query || query.length < 2) {
+        if (container) container.innerHTML = '';
+        return;
+    }
+    try {
+        const resp = await csrfFetch(`/api/tags/search?q=${encodeURIComponent(query)}&limit=50`);
+        if (!resp.ok) return;
+        const payload = await resp.json();
+        const data = (payload.tags || []).filter(t => t.id !== remapTagId);
+        if (!container) return;
+        if (!data.length) {
+            container.innerHTML = '<span style="font-size:0.75rem;color:var(--text-muted);">No matches</span>';
+            return;
+        }
+        container.innerHTML = data.map(t => `
+            <button class="btn btn-small btn-secondary" style="margin:0.125rem;"
+                onclick="selectRemapTarget(${t.id}, '${escapeHtml(t.display_name || t.name)}')">
+                <span style="color:${t.category_color || '#888'}">●</span>
+                ${escapeHtml(t.display_name || t.name)}
+            </button>
+        `).join('');
+    } catch {
+        if (container) container.innerHTML = '';
+    }
+}
+
+async function confirmRemap() {
+    if (!remapTagId || !remapTargetId) return;
+    const tag = tagDetail?.tag;
+    const name = tag ? (tag.display_name || tag.name) : 'this tag';
+    const targetName = document.getElementById('remap-tag-selected-name').textContent;
+    const isReplace = remapMode === 'replace';
+    const confirmMsg = isReplace
+        ? `Replace "${name}" with "${targetName}" on all items?`
+        : `Delete "${name}" and remap all its items to "${targetName}"?`;
+    if (!confirm(confirmMsg)) return;
+
+    const endpoint = isReplace ? `/api/tags/${remapTagId}/replace` : `/api/tags/${remapTagId}/remap`;
+    try {
+        const resp = await csrfFetch(endpoint, {
+            method: 'POST',
+            body: JSON.stringify({ target_tag_id: remapTargetId })
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Failed to remap tag');
+        }
+        showStatus(isReplace ? 'Tag replaced' : 'Tag remapped');
+        closeRemapModal();
+        await selectTag(remapTagId);
         await refreshAllCategories();
     } catch (err) {
         showStatus(err.message, true);
@@ -857,10 +961,25 @@ if (categoriesModal) categoriesModal.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeCategoriesModal();
 });
 
+const remapTagModal = document.getElementById('remap-tag-modal');
+if (remapTagModal) remapTagModal.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeRemapModal();
+});
+
+const remapTagSearch = document.getElementById('remap-tag-search');
+if (remapTagSearch) {
+    let debounce;
+    remapTagSearch.addEventListener('input', (e) => {
+        clearTimeout(debounce);
+        debounce = setTimeout(() => searchRemapTarget(e.target.value), 200);
+    });
+}
+
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         closeModal();
         closeCategoriesModal();
+        closeRemapModal();
     }
 });
 

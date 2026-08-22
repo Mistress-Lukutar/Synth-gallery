@@ -6,9 +6,28 @@
 (function() {
     // Current sort preference
     let currentSort = 'uploaded';
-    
+
     // Expose to window for masonry sorting
     window.currentSortMode = currentSort;
+
+    // --- Pure helpers (exported for unit tests) ---
+
+    // SPA URL for a folder view.
+    function buildFolderUrl(baseUrl, folderId) {
+        return `${baseUrl}/?folder_id=${folderId}`;
+    }
+
+    // Display extension for a note card (e.g. "notes.MD" -> "md").
+    function getNoteExtension(displayName) {
+        const name = displayName || '';
+        return (name.includes('.') ? name.split('.').pop() : 'txt').toLowerCase();
+    }
+
+    // Tooltip label for the sort button.
+    function getSortLabel(sort) {
+        return sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
+    }
+    window.getSortLabel = getSortLabel;
 
     // Navigate to folder via SPA
     // pushState: true = add history entry, false = no history change, 'replace' = replace current entry
@@ -33,9 +52,9 @@
             const data = await resp.json();
             
             if (pushState === true) {
-                history.pushState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
+                history.pushState({ folderId: folderId }, '', buildFolderUrl(getBaseUrl(), folderId));
             } else if (pushState === 'replace') {
-                history.replaceState({ folderId: folderId }, '', `${getBaseUrl()}/?folder_id=${folderId}`);
+                history.replaceState({ folderId: folderId }, '', buildFolderUrl(getBaseUrl(), folderId));
             }
             
             window.currentFolderId = folderId;
@@ -90,11 +109,9 @@
                 if (editBtn) editBtn.setAttribute('onclick', `openEditFolder('${folderId}')`);
             }
             
-            window.currentSafeId = null;
-            
         } catch (err) {
             console.error('[SPA] Navigation failed:', err);
-            window.location.href = `${getBaseUrl()}/?folder_id=${folderId}`;
+            window.location.href = buildFolderUrl(getBaseUrl(), folderId);
         }
         
         return false;
@@ -167,7 +184,7 @@
                             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                         </svg>
                         <span class="subfolder-name">${escapeHtml(folder.name)}</span>
-                        <span class="subfolder-count">${folder.photo_count || 0}</span>
+                        <span class="subfolder-count">${folder.item_count || 0}</span>
                     </a>
                 `;
             });
@@ -186,12 +203,11 @@
         items.forEach(item => {
             // Phase 5: Polymorphic items only (type: 'item' with item_type)
             const isMedia = item.type === 'item' && item.item_type === 'media';
+            const isNote = item.type === 'item' && item.item_type === 'note';
             
             if (item.type === 'album') {
                 const album = item;
-                const coverId = album.cover_photo_id || album.effective_cover_photo_id;
-                const safeId = album.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
+                const coverId = album.cover_item_id || album.effective_cover_item_id;
                 
                 // Use cover_thumb dimensions if available (v0.8.5 style), otherwise fallback to thumb dimensions
                 const thumbWidth = album.cover_thumb_width || album.thumb_width;
@@ -210,15 +226,17 @@
                 // Unified image handling - use data attributes for async resolution
                 let imgHtml;
                 if (coverId) {
+                    const thumbBase = `${getBaseUrl()}/files/${coverId}/thumbnail`;
+                    // Thumbnails are always JPEG; do not wrap them in a JXL source.
                     imgHtml = `
                         <div class="gallery-placeholder"></div>
                         <img data-item-id="${coverId}"
-                             ${safeId ? `data-safe-id="${safeId}"` : ''}
                              alt="${escapeHtml(album.name)}"
                              loading="lazy"
                              onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                             onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
-                             style="opacity: 0;">
+                             onerror="handleImageError(this, 'access')"
+                             style="opacity: 0;"
+                             src="${thumbBase}">
                     `;
                 } else {
                     imgHtml = `
@@ -236,7 +254,6 @@
                     <div class="gallery-item album-item" data-album-id="${album.id}" data-item-type="album"
                          ${coverId ? `data-cover-photo-id="${coverId}"` : ''}
                          ${dimsAttr}
-                         ${safeIdAttr}
                          data-uploaded-at="${uploadedAt}"
                          data-taken-at="${takenAt}">
                         <div class="gallery-link" onclick="handleAlbumClick('${album.id}')" ${aspectStyle}>
@@ -248,7 +265,42 @@
                                     <rect x="3" y="14" width="7" height="7" rx="1"/>
                                     <rect x="14" y="14" width="7" height="7" rx="1"/>
                                 </svg>
-                                <span>${album.photo_count || 0}</span>
+                                <span>${album.item_count || 0}</span>
+                            </div>
+                        </div>
+                        <div class="select-indicator" title="Select">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                        </div>
+                    </div>
+                `;
+            } else if (isNote) {
+                // Text note: extension-icon card, no thumbnail
+                const note = item;
+                const displayName = note.original_name || note.title || 'Untitled';
+                const ext = getNoteExtension(displayName);
+                const uploadedAt = note.uploaded_at || '';
+                const takenAt = note.taken_at || '';
+                const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
+
+                html += `
+                    <div class="gallery-item note-item"
+                         data-item-id="${note.id}"
+                         data-item-type="item"
+                         data-media-type="note"
+                         data-thumb-width="280"
+                         data-thumb-height="210"
+                         ${dateAttrs}>
+                        <div class="gallery-link" onclick="openItem('${note.id}')" style="aspect-ratio: 280 / 210;">
+                            <div class="note-placeholder">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                                </svg>
+                                <span class="note-ext">${escapeHtml(ext)}</span>
                             </div>
                         </div>
                         <div class="select-indicator" title="Select">
@@ -261,8 +313,6 @@
             } else if (isMedia) {
                 // Unified media item handling (polymorphic items or legacy photos)
                 const media = item;
-                const safeId = media.safe_id;
-                const safeIdAttr = safeId ? `data-safe-id="${safeId}"` : '';
                 const mediaType = media.media_type || 'image';
                 const displayName = media.original_name || 'Untitled';
                 
@@ -281,24 +331,26 @@
                 const takenAt = media.taken_at || '';
                 const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
                 
+                const thumbBase = `${getBaseUrl()}/files/${media.id}/thumbnail`;
+
                 // Unified template for all media - uses data attributes for async resolution
+                // Thumbnails are always JPEG, so no JXL <source> is needed here.
                 html += `
                     <div class="gallery-item" 
                          data-item-id="${media.id}"
                          data-item-type="item"
                          data-media-type="${mediaType}"
                          ${dimsAttr}
-                         ${safeIdAttr}
                          ${dateAttrs}>
                         <div class="gallery-link" onclick="openItem('${media.id}')" ${aspectStyle}>
                             <div class="gallery-placeholder"></div>
                             <img data-item-id="${media.id}"
-                                 ${safeId ? `data-safe-id="${safeId}"` : ''}
                                  alt="${escapeHtml(displayName)}"
                                  loading="lazy"
                                  onload="this.previousElementSibling.style.display='none'; this.style.opacity='1';"
-                                 onerror="handleImageError(this, '${safeId ? 'locked' : 'access'}')"
-                                 style="opacity: 0;">
+                                 onerror="handleImageError(this, 'access')"
+                                 style="opacity: 0;"
+                                 src="${thumbBase}">
                             ${mediaType === 'video' ? `
                                 <div class="video-badge">
                                     <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
@@ -342,19 +394,13 @@
                 }
             }, 50);
         }
-        
-        // Load safe thumbnails (will be defined in safes.js Phase 6)
-        if (typeof window.loadSafeThumbnails === 'function') {
-            window.loadSafeThumbnails();
-        }
     };
 
     // Update sort UI - update tooltip only, SVG icon stays unchanged
     function updateSortUI(sort) {
         const sortBtn = document.getElementById('sort-btn');
         if (sortBtn) {
-            const sortLabel = sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
-            sortBtn.setAttribute('title', sortLabel);
+            sortBtn.setAttribute('title', getSortLabel(sort));
         }
     }
 
@@ -380,20 +426,9 @@
         
         for (const img of images) {
             const itemId = img.dataset.itemId || img.dataset.photoId;
-            const safeId = img.dataset.safeId;
             
             try {
-                let url;
-                if (safeId) {
-                    // E2E file - use FileAccessService to decrypt
-                    url = await FileAccessService.getThumbnailUrl(itemId, {
-                        photo: { safe_id: safeId }
-                    });
-                } else {
-                    // Regular file - direct URL
-                    url = `${getBaseUrl()}/files/${itemId}/thumbnail`;
-                }
-                
+                const url = `${getBaseUrl()}/files/${itemId}/thumbnail`;
                 img.src = url;
             } catch (err) {
                 console.error(`[navigation] Failed to resolve thumbnail for ${itemId}:`, err);
@@ -429,5 +464,14 @@
             console.error('[navigation] openPhoto not available');
         }
     };
+
+    // CommonJS export for Jest unit tests (no-op in the browser).
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = {
+            buildFolderUrl,
+            getNoteExtension,
+            getSortLabel,
+        };
+    }
 
 })();

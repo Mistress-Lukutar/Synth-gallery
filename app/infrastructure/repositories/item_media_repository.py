@@ -3,6 +3,7 @@
 This repository handles the 'item_media' table which stores
 media-specific data for photos and videos.
 """
+import json
 from datetime import datetime
 from typing import Optional, Dict
 
@@ -32,7 +33,8 @@ class ItemMediaRepository(Repository):
         thumb_width: int = None,
         thumb_height: int = None,
         taken_at: datetime = None,
-        file_size: int = None
+        file_size: int = None,
+        png_text_chunks: dict = None
     ) -> bool:
         """Create media details for an item.
         
@@ -48,18 +50,21 @@ class ItemMediaRepository(Repository):
             thumb_height: Thumbnail height
             taken_at: EXIF capture date
             file_size: File size in bytes
+            png_text_chunks: PNG tEXt/zTXt/iTXt chunks extracted from original upload
         """
         try:
-            # Extension-less storage: filename = item_id
-            filename = item_id
+            # Storage key is the item_id (extension-less); the redundant
+            # ``filename`` column was dropped in the v2.0 schema migration.
             self._execute(
-                """INSERT INTO item_media 
-                   (item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at, file_size)
+                """INSERT INTO item_media
+                   (item_id, media_type, original_name, content_type,
+                    width, height, duration, thumb_width, thumb_height, taken_at, file_size,
+                    png_text_chunks)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    item_id, media_type, filename, original_name, content_type,
-                    width, height, duration, thumb_width, thumb_height, taken_at, file_size
+                    item_id, media_type, original_name, content_type,
+                    width, height, duration, thumb_width, thumb_height, taken_at, file_size,
+                    json.dumps(png_text_chunks, ensure_ascii=False) if png_text_chunks else None
                 )
             )
             self._commit()
@@ -75,7 +80,15 @@ class ItemMediaRepository(Repository):
             (item_id,)
         )
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        media = dict(row)
+        if media.get('png_text_chunks'):
+            try:
+                media['png_text_chunks'] = json.loads(media['png_text_chunks'])
+            except json.JSONDecodeError:
+                media['png_text_chunks'] = None
+        return media
     
     def update(self, item_id: str, **kwargs) -> bool:
         """Update media details.
@@ -87,12 +100,17 @@ class ItemMediaRepository(Repository):
         allowed_fields = {
             'original_name', 'content_type',
             'width', 'height', 'duration',
-            'thumb_width', 'thumb_height', 'taken_at'
+            'thumb_width', 'thumb_height', 'taken_at',
+            'file_size', 'png_text_chunks'
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
         if not updates:
             return False
+        
+        # Convert png_text_chunks dict to JSON
+        if 'png_text_chunks' in updates and updates['png_text_chunks'] is not None:
+            updates['png_text_chunks'] = json.dumps(updates['png_text_chunks'], ensure_ascii=False)
         
         set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
         values = list(updates.values()) + [item_id]
@@ -138,58 +156,3 @@ class ItemMediaRepository(Repository):
         )
         self._commit()
         return cursor.rowcount > 0
-    
-    def get_full_item(self, item_id: str) -> Optional[Dict]:
-        """Get combined item + media data.
-        
-        Returns:
-            Dict with both base item and media-specific fields
-        """
-        cursor = self._execute(
-            """SELECT 
-                i.*,
-                im.media_type, im.filename, im.original_name, im.content_type,
-                im.width, im.height, im.duration,
-                im.thumb_width, im.thumb_height, im.taken_at
-               FROM items i
-               LEFT JOIN item_media im ON i.id = im.item_id
-               WHERE i.id = ? AND i.type = 'media'""",
-            (item_id,)
-        )
-        row = cursor.fetchone()
-        return dict(row) if row else None
-    
-    def get_by_folder(self, folder_id: str, media_type: str = None) -> list:
-        """Get media items in folder.
-        
-        Args:
-            folder_id: Folder ID
-            media_type: 'image', 'video', or None for all
-        """
-        if media_type:
-            cursor = self._execute(
-                """SELECT 
-                    i.*,
-                    im.media_type, im.original_name, im.content_type,
-                    im.width, im.height, im.duration,
-                    im.thumb_width, im.thumb_height, im.taken_at
-                   FROM items i
-                   JOIN item_media im ON i.id = im.item_id
-                   WHERE i.folder_id = ? AND i.type = 'media' AND im.media_type = ?
-                   ORDER BY i.uploaded_at DESC""",
-                (folder_id, media_type)
-            )
-        else:
-            cursor = self._execute(
-                """SELECT 
-                    i.*,
-                    im.media_type, im.original_name, im.content_type,
-                    im.width, im.height, im.duration,
-                    im.thumb_width, im.thumb_height, im.taken_at
-                   FROM items i
-                   JOIN item_media im ON i.id = im.item_id
-                   WHERE i.folder_id = ? AND i.type = 'media'
-                   ORDER BY i.uploaded_at DESC""",
-                (folder_id,)
-            )
-        return [dict(row) for row in cursor.fetchall()]

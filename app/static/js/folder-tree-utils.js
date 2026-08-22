@@ -54,7 +54,7 @@ window.FolderTreeUtils = {
         } = options;
 
         const folderClass = this.getFolderClass(folder);
-        const photoCount = folder.photo_count || 0;
+        const itemCount = folder.item_count || 0;
         const paddingLeft = level * 16;
 
         // Expand/collapse button
@@ -88,14 +88,14 @@ window.FolderTreeUtils = {
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                     </svg>
                     <span class="folder-name">${escapeHtml(folder.name)}</span>
-                    <span class="folder-count">${photoCount}</span>
+                    <span class="folder-count">${itemCount}</span>
                 </div>
             </div>
         `;
     },
 
     /**
-     * Filter folders for picker (owner only, no safes, exclude specific folder)
+     * Filter folders for picker (owner only, exclude specific folder)
      * @param {Array} folders - all folders
      * @param {string} excludeFolderId - folder to exclude
      * @returns {Array} filtered folders
@@ -103,7 +103,6 @@ window.FolderTreeUtils = {
     filterFoldersForPicker(folders, excludeFolderId = null) {
         return folders.filter(f => 
             f.permission === 'owner' && 
-            !f.safe_id &&
             f.id !== excludeFolderId
         );
     },
@@ -140,7 +139,6 @@ window.FolderTreeUtils = {
             children = folders.filter(f => 
                 f.parent_id === parentId && 
                 f.permission === 'owner' && 
-                !f.safe_id &&
                 f.id !== excludeFolderId
             );
         } else {

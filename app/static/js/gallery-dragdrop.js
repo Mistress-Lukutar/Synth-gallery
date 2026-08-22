@@ -72,10 +72,10 @@
 
     window.addPhotoToAlbum = async function(photoId, albumId) {
         try {
-            const resp = await csrfFetch(`${getBaseUrl()}/api/albums/${albumId}/photos`, {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/albums/${albumId}/items`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ photo_ids: [photoId] })
+                body: JSON.stringify({ item_ids: [photoId] })
             });
 
             if (!resp.ok) throw new Error('Failed to add photo to album');

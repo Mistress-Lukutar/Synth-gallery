@@ -1,19 +1,29 @@
-"""Tag management routes - Flat Tags v3 with implications."""
+'''
+File:   tags.py
+Brief:  Tag management routes - Flat Tags v3 with implications.
+Author: Mistress-Lukutar
+Date:   2026-07-24
+'''
 from typing import List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Query
 from pydantic import BaseModel
 
-from ..database import create_connection
-from ..dependencies import require_user, require_admin
-from ..infrastructure.repositories import (
+from app.database import create_connection
+from app.dependencies import require_user, require_admin
+from app.infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
     TagCooccurrenceRepository,
     TagMutexRepository,
     TagFeedbackRepository,
+    PermissionRepository,
+    FolderRepository,
+    ItemRepository,
+    ItemMediaRepository,
+    AlbumRepository,
 )
-from ..application.services import TagService, TagSuggestionService
+from app.application.services import TagService, TagSuggestionService, PermissionService
 
 router = APIRouter(tags=["tags"])
 
@@ -55,6 +65,15 @@ def _tag_service(db):
         TagImplicationRepository(db),
         TagCooccurrenceRepository(db),
         TagMutexRepository(db),
+    )
+
+
+def _permission_service(db):
+    """Build PermissionService with required repositories."""
+    return PermissionService(
+        PermissionRepository(db),
+        FolderRepository(db),
+        ItemRepository(db),
     )
 
 
@@ -229,6 +248,52 @@ def remove_tag_from_item(
         db.close()
 
 
+class BulkTagEditInput(BaseModel):
+    item_ids: List[str]
+    add_tag_ids: List[int] = []
+    remove_tag_ids: List[int] = []
+
+
+@router.get("/api/items/tags/common")
+def get_common_tags(
+    request: Request,
+    item_ids: str = Query(..., description="Comma-separated item IDs")
+):
+    """Get tags common to all specified items."""
+    require_user(request)
+    ids = [i.strip() for i in item_ids.split(",") if i.strip()]
+    if not ids:
+        return {"tags": []}
+
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        tags = service.get_common_tags(ids)
+        return {"tags": tags}
+    finally:
+        db.close()
+
+
+@router.post("/api/items/tags/bulk")
+def bulk_edit_tags(data: BulkTagEditInput, request: Request):
+    """Add/remove tags from multiple items. Skips items without edit permission."""
+    user = require_user(request)
+    db = create_connection()
+    try:
+        tag_service = _tag_service(db)
+        perm_service = _permission_service(db)
+        result = tag_service.bulk_edit_tags(
+            data.item_ids,
+            data.add_tag_ids,
+            data.remove_tag_ids,
+            perm_service,
+            user["id"],
+        )
+        return {"status": "ok", **result}
+    finally:
+        db.close()
+
+
 @router.post("/api/tag-feedback")
 def submit_tag_feedback(data: TagFeedbackInput, request: Request):
     """Record user feedback for a tag suggestion."""
@@ -257,7 +322,8 @@ def submit_tag_feedback(data: TagFeedbackInput, request: Request):
 def search_by_tags(
     request: Request,
     tags: str = "",
-    folder_id: Optional[str] = None
+    folder_id: Optional[str] = None,
+    sort: str = Query("uploaded", pattern="^(uploaded|taken)$")
 ):
     """Search items by tags with negative support.
 
@@ -272,8 +338,74 @@ def search_by_tags(
 
     db = create_connection()
     try:
-        service = _tag_service(db)
-        result = service.search_items(tags, folder_id)
+        tag_service = _tag_service(db)
+        result = tag_service.search_items(tags, folder_id, sort)
+
+        # Merge albums that contain matching items
+        matching_items = result.get("items", [])
+        matching_ids = [item["id"] for item in matching_items]
+
+        tags_repo = TagsRepository(db)
+        albums = tags_repo.get_albums_for_tag_search(matching_ids)
+
+        # Collect cover IDs and fetch thumbnail dimensions in batch
+        album_item_ids = set()
+        album_builders = []
+        for album in albums:
+            album_ids = tags_repo.get_album_item_ids(album["id"])
+            matching_in_album = [iid for iid in album_ids if iid in matching_ids]
+            album_item_ids.update(matching_in_album)
+
+            cover_id = album.get("cover_item_id")
+            if cover_id not in matching_in_album:
+                cover_id = matching_in_album[0] if matching_in_album else None
+
+            album_builders.append({
+                "album": album,
+                "matching_in_album": matching_in_album,
+                "cover_id": cover_id,
+            })
+
+        # Batch fetch cover thumbnail dimensions
+        cover_ids = [b["cover_id"] for b in album_builders if b["cover_id"]]
+        cover_dims = {}
+        if cover_ids:
+            media_repo = ItemMediaRepository(db)
+            placeholders = ','.join('?' * len(cover_ids))
+            cursor = db.execute(
+                f"SELECT item_id, thumb_width, thumb_height FROM item_media WHERE item_id IN ({placeholders})",
+                tuple(cover_ids)
+            )
+            for row in cursor.fetchall():
+                cover_dims[row["item_id"]] = {
+                    "thumb_width": row["thumb_width"],
+                    "thumb_height": row["thumb_height"],
+                }
+
+        album_results = []
+        for builder in album_builders:
+            album = builder["album"]
+            cover_id = builder["cover_id"]
+            dims = cover_dims.get(cover_id, {})
+            album_results.append({
+                "type": "album",
+                "id": album["id"],
+                "name": album["name"],
+                "item_count": len(builder["matching_in_album"]),
+                "cover_item_id": cover_id,
+                "cover_thumb_width": dims.get("thumb_width"),
+                "cover_thumb_height": dims.get("thumb_height"),
+                "matching_item_ids": builder["matching_in_album"],
+                "uploaded_at": album.get("uploaded_at"),
+                "taken_at": album.get("taken_at"),
+            })
+
+        # Standalone items = those not in any album
+        standalone_items = [item for item in matching_items if item["id"] not in album_item_ids]
+
+        # Combine: albums first, then standalone items
+        result["items"] = album_results + standalone_items
+        result["total"] = len(result["items"])
         return result
     finally:
         db.close()
