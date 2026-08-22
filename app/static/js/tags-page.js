@@ -6,7 +6,8 @@ const BASE_URL = (() => {
     const link = document.querySelector('link[rel="stylesheet"]');
     if (link) {
         const href = link.getAttribute('href') || '';
-        return href.replace('/static/style.css', '');
+        // Strip the cache-busting query string (?v=...) before deriving the base.
+        return href.split('?')[0].replace('/static/style.css', '');
     }
     return '';
 })();
