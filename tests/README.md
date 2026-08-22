@@ -171,7 +171,8 @@ Tests for API endpoints, database operations, and authentication flows.
 
 | Class | Test | Description |
 |-------|------|-------------|
-| `TestSingleFileUpload` | `test_upload_image_without_encryption` | Upload without encryption |
+| `TestSingleFileUpload` | `test_upload_image` | Image upload works |
+| | `test_upload_is_encrypted_on_disk` | Uploads are encrypted on disk |
 | | `test_upload_with_encryption_enabled` | Upload with encryption |
 | | `test_upload_rejects_invalid_file_type` | Invalid file types rejected |
 | | `test_upload_requires_folder_id` | Folder ID required |
@@ -245,36 +246,10 @@ Tests for API endpoints, database operations, and authentication flows.
 | | `test_has_permission_hierarchy` | Permission hierarchy |
 | | `test_can_access` | Access check |
 | | `test_can_edit` | Edit check |
-| `TestSafeService` | `test_is_safe_folder` | Safe folder detection |
-| | `test_get_safe_by_folder` | Safe retrieval by folder |
-| | `test_configure_safe` | Safe configuration |
-| | `test_configure_nonexistent_safe_fails` | Nonexistent safe check |
-| `TestPhotoService` | `test_move_photo_not_found` | Move nonexistent photo |
-| | `test_move_photo_in_album_fails` | Move photo in album |
-| | `test_batch_move_no_permission_on_dest` | Batch move permission |
-| | `test_add_photos_to_album_no_permission` | Add photos permission |
-| | `test_move_album_not_found` | Move nonexistent album |
-| `TestUploadService` | `test_delete_photo_success` | Photo deletion |
-| | `test_delete_photo_not_found` | Delete nonexistent photo |
-| | `test_delete_album_success` | Album deletion |
-| | `test_validate_file_rejects_empty` | Empty file rejection |
-| | `test_get_media_type_from_content_type` | Media type detection |
-| | `test_get_media_type_from_extension_for_safe` | Extension detection |
 
 ---
 
-### 5. Safe Files Tests (`tests/test_safe_files.py`)
-
-| Class | Test | Description |
-|-------|------|-------------|
-| `TestSafeFileAccess` | `test_safe_thumbnail_returns_404_for_nonexistent_photo` | Safe thumbnail 404 |
-| | `test_safe_file_endpoints_use_permission_service` | Permission service usage |
-| `TestSafeFileThumbnail` | `test_thumbnail_endpoint_returns_202_for_missing_thumbnail` | 202 for missing thumbnail |
-| | `test_permission_service_has_can_access_photo` | Service has photo access method |
-
----
-
-### 6. JS Unit Tests (`tests/js/`)
+### 5. JS Unit Tests (`tests/js/`)
 
 Jest + jsdom tests for the pure helpers exported from the frontend IIFE
 modules (see "JavaScript Unit Tests (Jest)" above for setup).
@@ -328,7 +303,9 @@ pytest tests/ -v -W error
 ## Test Data
 
 Tests use:
-- In-memory SQLite database (reset for each test)
+- A fresh per-test SQLite database file in a throwaway temp directory (all
+  persistent state is redirected via env vars before `app.*` imports — see
+  `tests/conftest.py`)
 - Test fixtures in `tests/conftest.py`
 - Sample images in `tests/fixtures/` (if needed)
 
@@ -349,7 +326,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install -e ".[dev]"
       - name: Run unit and integration tests
         run: pytest tests/unit tests/integration -v
       - name: Run E2E tests

@@ -15,9 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Memory usage is O(chunk size) regardless of file size - multi-GiB videos stream safely
   - HTTP Range support: `GET /files/{id}` returns 206 Partial Content, decrypting only the requested chunks
   - `HEAD /files/{id}` returns `Content-Length` / `Accept-Ranges` for browser probing
-  - Migration script `.agents/reencrypt_to_chunked.py` converts legacy whole-file envelopes
 - **Universal Server-side Encryption** - All media is encrypted on upload, no opt-out
-  - Migration script `.agents/encrypt_existing_uploads.py` encrypts legacy plaintext files
   - Upload fails with 403 when the user's DEK is not available (no silent plaintext storage)
 - **MKV / Large Video Support** - `video/x-matroska` uploads with no size cap
   - ffmpeg/ffprobe pipeline replaces OpenCV for probing and thumbnails
@@ -86,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backup VACUUM** - Transaction committed before vacuum
 
 ### Breaking Changes
-- Legacy whole-file encrypted files **must** be migrated with `.agents/reencrypt_to_chunked.py` before starting 2.0
+- Legacy whole-file encrypted files and plaintext uploads are **no longer readable** — all stored files must be in the SGE1 chunked envelope (one-off re-encryption was performed during the development cycle; there is no in-repo migration script)
 - Safes (E2E vaults) are gone; export any safe content before upgrading
 - API renames: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, `photo_ids` → `item_ids`, `/files/{photo_id}` → `/files/{item_id}`
 - `opencv-python-headless` and `pillow-jxl-plugin` dependencies removed (install `ffmpeg` and, optionally, libjxl binaries)

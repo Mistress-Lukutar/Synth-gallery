@@ -21,13 +21,13 @@ def _csrf_headers(client: TestClient) -> dict:
 class TestSingleFileUpload:
     """Test single photo/video upload."""
     
-    def test_upload_image_without_encryption(
+    def test_upload_image(
         self,
         authenticated_client: TestClient,
         test_folder: str,
         test_image_bytes: bytes
     ):
-        """Upload unencrypted image successfully."""
+        """Upload image successfully."""
         response = authenticated_client.post(
             "/api/uploads",
             data={"folder_id": test_folder},

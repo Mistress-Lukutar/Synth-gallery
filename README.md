@@ -1,12 +1,11 @@
 # Synth
 
-Personal media vault with end-to-end encryption, hardware key authentication, and multi-user support.
+Personal media vault with server-side encryption, hardware key authentication, and multi-user support.
 
 ## Key Features
 
 ### Security
-- **Server-side Encryption** — AES-256-GCM encryption for all uploaded files
-- **Encrypted Vaults (Safes)** — Independent E2E-encrypted containers with separate keys
+- **Server-side Encryption** — AES-256-GCM chunked envelope for all uploaded files
 - **Hardware Key Login** — WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Recovery Keys** — Generate backup keys to recover access if password is lost
 
@@ -15,6 +14,7 @@ Personal media vault with end-to-end encryption, hardware key authentication, an
 - **Albums** — Group related media with drag-and-drop reordering
 - **Sharing** — Share folders with other users (Viewer/Editor permissions)
 - **Tags & Search** — Categorize and find content quickly
+- **Text Notes** — Store txt/md/json/csv/yaml alongside media
 
 ### Backup & Recovery
 - **Full Backups** — ZIP archives with database + encrypted files
@@ -22,10 +22,10 @@ Personal media vault with end-to-end encryption, hardware key authentication, an
 - **Integrity Verification** — SHA-256 checksums for all files
 
 ### Media Support
-- Images: JPEG, PNG, GIF, WebP
-- Videos: MP4, WebM
-- Automatic thumbnail generation
-- EXIF/metadata extraction
+- Images: JPEG, PNG, GIF, WebP (incl. animated), JPEG XL (optional lossless storage)
+- Videos: MP4, WebM, MKV
+- Automatic thumbnail generation (ffmpeg for video)
+- EXIF/metadata extraction, PNG text chunk editing
 
 ## Quick Start
 
@@ -35,6 +35,8 @@ Personal media vault with end-to-end encryption, hardware key authentication, an
 Start.bat
 ```
 
+The app runs on http://localhost:8008/synth/ by default (port 8008, base path `synth` — both editable in `Start.bat`).
+
 ### Local Development
 
 ```bash
@@ -43,6 +45,12 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Open http://localhost:8000
+
+### Requirements
+
+- Python 3.11+
+- ffmpeg/ffprobe on `PATH` for video probing and thumbnails (e.g. `winget install Gyan.FFmpeg`)
+- Optional: libjxl binaries (`cjxl`/`djxl`) for JPEG XL storage — `Start.bat` downloads them automatically
 
 ## First Run
 
@@ -78,67 +86,82 @@ Admin UI available at `/admin/backups`:
 
 Note: Keys are bound to the domain where registered. Register separate keys for each access method (localhost, VPN, public domain).
 
-## Encrypted Vaults (Safes)
-
-Safes are independent encrypted containers with their own encryption keys, separate from your user account key.
-
-### Features
-- **Independent Encryption Key** — Each safe has its own DEK (Data Encryption Key)
-- **Multiple Unlock Methods** — Password (PBKDF2) or hardware key (WebAuthn)
-- **Folder Structure** — Create folders and albums inside safes
-- **True E2E** — Server never sees decrypted content; files are decrypted in your browser
-- **No Sharing** — Owner-only access (by design)
-
-### Usage
-1. Click "+" next to "Safes" in the sidebar
-2. Choose unlock method: password or hardware key
-3. Upload files — they are encrypted client-side before sending to server
-4. Click the safe to unlock it (decryption happens locally in your browser)
-
-### Security Notes
-- Safe passwords are independent of your account password
-- Lost safe password = lost data (no recovery)
-- Files inside safes are stored double-encrypted: safe encryption + user's master encryption
-- Requires HTTPS or localhost (Web Crypto API requirement)
-
 ## Environment Variables
 
 ```bash
-# WebAuthn display name
+# Paths
+SYNTH_DB_PATH=./gallery.db       # SQLite database location
+SYNTH_UPLOADS_DIR=./uploads      # Uploaded files
+SYNTH_THUMBNAILS_DIR=./thumbnails
+SYNTH_FALLBACKS_DIR=./fallbacks  # JXL JPEG-fallback cache
+
+# Server
+SYNTH_BASE_URL=synth             # Base URL subpath (no slashes)
+SYNTH_EXTERNAL_HOST=             # Public origin for shared links
+SYNTH_ENV=production             # development enables extra logging
+SYNTH_LOG_LEVEL=INFO
+COOKIE_SECURE=true               # __Host- cookies behind HTTPS
+
+# WebAuthn
 WEBAUTHN_RP_NAME=Synth Gallery
 
-# Backup settings
-BACKUP_PATH=/path/to/backups
-BACKUP_SCHEDULE=daily          # daily, weekly, or disabled
-BACKUP_ROTATION_COUNT=5        # number of backups to keep
+# Backup
+BACKUP_PATH=./backups
+BACKUP_SCHEDULE=daily            # daily, weekly, or disabled
+BACKUP_ROTATION_COUNT=5
+SYNTH_BACKUP_KEY=                # Optional backup encryption key
 
-# Storage backend (optional)
-STORAGE_BACKEND=local          # local or s3
+# Storage backend
+STORAGE_BACKEND=local            # local or s3
+STORAGE_BASE_PATH=               # Override local storage root
 S3_BUCKET=your-bucket
 S3_REGION=us-east-1
 S3_ENDPOINT=https://s3.amazonaws.com  # for MinIO/custom endpoints
 S3_ACCESS_KEY=your-access-key
 S3_SECRET_KEY=your-secret-key
+S3_USE_SSL=true
+
+# JPEG XL (experimental lossless image storage)
+USE_JXL=false
+JXL_TOOL_DIR=                    # Directory containing cjxl/djxl
+JXL_EFFORT=7                     # 1 (fast) to 9 (small)
+JXL_THREADS=-1                   # -1 auto, 0 single-threaded
+JXL_FALLBACK_QUALITY=85
+JXL_LOSSLESS_TRANSCODE_JPEG=true
+JXL_PROGRESSIVE_AC=true
+JXL_QPROGRESSIVE_AC=true
+JXL_PROGRESSIVE_DC=1             # 0 disables
+
+# Encryption / uploads
+SYNTH_ENCRYPTION_CHUNK_SIZE=1048576  # SGE1 chunk size in bytes
+SYNTH_TEXT_MAX_SIZE=                 # Max text-note size in bytes
+
+# Tools
+FFMPEG_TOOL_DIR=                 # Directory containing ffmpeg/ffprobe
+
+# Tag statistics scheduler
+TAG_STATS_SCHEDULE=daily
+TAG_STATS_HOUR=3
 ```
 
 ## Security Model
 
 | Layer          | Protection                                      |
 |----------------|-------------------------------------------------|
-| Files at rest  | AES-256-GCM per-user encryption                 |
-| Safes (Vaults) | Additional AES-256-GCM with independent keys    |
+| Files at rest  | AES-256-GCM chunked envelope, per-user keys     |
 | Password       | bcrypt + PBKDF2-SHA256 key derivation           |
 | Sessions       | HTTP-only cookies, 7-day expiry                 |
-| API            | CSRF tokens                                    |
+| API            | CSRF tokens, rate limiting, security headers    |
 | Login          | Password or WebAuthn hardware keys              |
 
 ## Tech Stack
 
-- Python 3.11 / FastAPI
-- SQLite
-- Jinja2 templates
-- Pillow / OpenCV (media processing)
+- Python 3.11+ / FastAPI
+- SQLite (SQLAlchemy Core + Alembic migrations)
+- Jinja2 templates, vanilla JS/CSS
+- Pillow (images) / ffmpeg (video)
 - cryptography (AES-256-GCM)
+- bcrypt (password hashing)
 - py_webauthn (FIDO2)
 
 ## License

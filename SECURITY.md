@@ -31,24 +31,33 @@ Instead, contact us privately:
 
 ### Encryption Algorithms
 
-#### Server-Side Encryption (Standard Media)
+#### Server-Side Encryption (All Media)
 | Component                 | Algorithm              | Details                                   |
 |---------------------------|------------------------|-------------------------------------------|
-| File Encryption           | **AES-256-GCM**        | Authenticated encryption (AEAD)           |
+| File Encryption           | **AES-256-GCM**        | Chunked AEAD envelope (SGE1)              |
+| Chunk Size                | **1 MiB**              | Configurable via `SYNTH_ENCRYPTION_CHUNK_SIZE` |
 | Key Encryption Key (KEK)  | **PBKDF2-HMAC-SHA256** | 600,000 iterations (OWASP recommendation) |
 | Data Encryption Key (DEK) | **256-bit random**     | Generated via `os.urandom(32)`            |
 | Salt                      | **256-bit**            | 32 bytes per-user                         |
-| Nonce/IV                  | **96-bit**             | 12 bytes, unique per encryption           |
+| Nonce/IV                  | **96-bit**             | 12 bytes, unique per chunk                |
 | Password Hashing          | **bcrypt**             | Adaptive hashing with automatic salt      |
 | Recovery Keys             | **256-bit**            | Base64url-encoded, 43 characters          |
 
-#### Client-Side Encryption (Safes/Vaults)
-| Component       | Algorithm              | Details                                   |
-|-----------------|------------------------|-------------------------------------------|
-| File Encryption | **AES-256-GCM**        | Via Web Crypto API                        |
-| Key Derivation  | **PBKDF2-HMAC-SHA256** | 600,000 iterations                        |
-| Safe DEK        | **AES-256-GCM**        | Generated via `crypto.subtle.generateKey` |
-| Session Key     | **256-bit random**     | Ephemeral, memory-only storage            |
+#### Chunked AEAD Envelope (SGE1)
+
+Every stored file (uploads, thumbnails, JXL fallbacks) uses the same chunked
+format so a single code path handles small thumbnails and multi-GiB videos:
+
+```
+[MAGIC "SGE1" 4B][VERSION 1B][RESERVED 1B][CHUNK_SIZE 4B BE]
+for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
+    [NONCE 12B][CIPHERTEXT + 16B GCM TAG]
+```
+
+- Each chunk is independently decryptable (own nonce + tag), so HTTP Range
+  requests decrypt only the chunks overlapping the requested byte range
+- Memory usage is O(CHUNK_SIZE) regardless of file size — full plaintext is
+  never held in memory
 
 #### WebAuthn / FIDO2 Authentication
 | Component            | Algorithm                          | Details                                  |
@@ -62,21 +71,30 @@ Instead, contact us privately:
 
 ```
 Session Token: cryptographically secure random (256-bit entropy)
+Cookie Name: __Host-synth_session
 Cookie Flags:
   - HttpOnly: ✅ Prevents XSS access
   - SameSite=Lax: ✅ CSRF protection
-  - Secure: Implicit via context
-  
+  - Secure: ✅ Default (COOKIE_SECURE=true); __Host- prefix enforces
+           Secure, Path=/ and no Domain attribute at browser level
+
 Session TTL: 7 days (604,800 seconds)
 DEK Cache TTL: Matches session (7 days)
 ```
 
 ### CSRF Protection
 
-- **Double-submit cookie pattern**: CSRF token in cookie + header/form
+- **Double-submit cookie pattern**: CSRF token in `__Host-synth_csrf` cookie + header
 - **Token generation**: `secrets.token_urlsafe(32)` (256-bit entropy)
 - **Protected methods**: POST, PUT, DELETE, PATCH
 - **Exemptions**: Login page (before session establishment), API endpoints with separate auth
+
+### Rate Limiting & Security Headers
+
+- **Built-in `RateLimitMiddleware`**: per-endpoint request rate limits
+- **`SecurityHeadersMiddleware`**: CSP, HSTS, X-Frame-Options and related headers
+- **Audit logging**: security events tracked via `AuditLogService`
+- **Session fingerprinting**: browser-fingerprint based hijack detection
 
 ### Key Management Architecture
 
@@ -96,12 +114,8 @@ DEK Cache TTL: Matches session (7 days)
 │       ▼                            │                        │
 │  DEK (Data Encryption Key) ◄───────┘                        │
 │       │                                                     │
-│       ├──► File 1: encrypted with DEK                       │
-│       ├──► File 2: encrypted with DEK                       │
-│       └──► Safe DEK: encrypted with password/hardware key   │
-│                                                             │
-│  Safes (E2E): Content encrypted with Safe DEK               │
-│               Safe DEK never leaves browser memory          │
+│       ├──► File 1: SGE1 chunked envelope encrypted with DEK │
+│       └──► File 2: SGE1 chunked envelope encrypted with DEK │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -112,10 +126,9 @@ DEK Cache TTL: Matches session (7 days)
 |-----------------|-------------|------------------------------------|
 | Password hashes | SQLite      | bcrypt hashed                      |
 | Encrypted DEKs  | SQLite      | AES-256-GCM encrypted with KEK     |
-| File content    | Filesystem  | AES-256-GCM encrypted              |
+| File content    | Filesystem  | SGE1 chunked AES-256-GCM           |
 | Session tokens  | SQLite      | Random tokens, 7-day expiry        |
-| Safe DEKs       | Memory only | Never persisted server-side        |
-| Thumbnails      | Filesystem  | Regenerated from encrypted content |
+| Thumbnails      | Filesystem  | Encrypted at rest (same envelope)  |
 
 ### Backup Security
 
@@ -130,8 +143,8 @@ DEK Cache TTL: Matches session (7 days)
 ### Deployment
 
 1. **Always use HTTPS in production**
-   - Web Crypto API requires secure context (HTTPS or localhost)
-   - Safes will not work without HTTPS
+   - Secure cookies (`__Host-` prefix) are only sent over HTTPS
+   - Set `COOKIE_SECURE=false` only for local HTTP development
 
 2. **Protect the database file**
    - `gallery.db` contains encrypted keys but should still be protected
@@ -147,13 +160,10 @@ DEK Cache TTL: Matches session (7 days)
    - Minimum 12 characters recommended
    - Mix of uppercase, lowercase, numbers, symbols
 
-2. **Safe passwords are independent**
-   - Safe passwords are NOT the same as account passwords
-   - Lost Safe password = lost data (no recovery possible)
-
-3. **Store recovery keys offline**
+2. **Store recovery keys offline**
    - Print or write down recovery keys
    - Store in physically secure location
+   - Lost password + lost recovery key = lost data
 
 ### Hardware Keys (WebAuthn)
 
@@ -171,9 +181,10 @@ DEK Cache TTL: Matches session (7 days)
    - If DEK is compromised, all past and future files are at risk
    - Mitigation: DEK is only in memory during active session
 
-2. **Server-side encryption for standard files**
-   - Files are decrypted server-side for thumbnail generation
-   - Use **Safes** for true end-to-end encryption
+2. **Server-side encryption model**
+   - Files are decrypted server-side for serving and thumbnail generation
+   - The server operator (or anyone with memory access during a session)
+     can technically access plaintext — this is not end-to-end encryption
 
 3. **Folder sharing limitations**
    - Revoking folder access does NOT re-encrypt existing files
@@ -186,13 +197,13 @@ DEK Cache TTL: Matches session (7 days)
 ## Security Audit Checklist
 
 - [ ] HTTPS enabled in production
+- [ ] `COOKIE_SECURE` not disabled in production
 - [ ] Database file permissions restricted
 - [ ] Backup directory on encrypted filesystem
 - [ ] Session cookie secure flags verified
 - [ ] CSRF protection tested
 - [ ] WebAuthn origin validation working
-- [ ] Safe password recovery warnings displayed
-- [ ] Rate limiting enabled (if using reverse proxy)
+- [ ] Rate limiting tuned for your reverse proxy setup
 
 ## Vulnerability Disclosure Policy
 
@@ -212,5 +223,5 @@ We thank the following security researchers for responsible disclosure:
 
 ---
 
-**Last Updated**: 2026-03-08  
-**Policy Version**: 1.0
+**Last Updated**: 2026-08-22  
+**Policy Version**: 2.0

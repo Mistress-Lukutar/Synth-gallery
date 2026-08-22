@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Synth Gallery is a **personal media vault** with end-to-end encryption, hardware key authentication, and multi-user support. It allows users to securely store, organize, and share photos and videos.
+Synth Gallery is a **personal media vault** with server-side encryption, hardware key authentication, and multi-user support. It allows users to securely store, organize, and share photos, videos and text notes.
 
 ### Key Features
 - **Universal Server-side Encryption**: All media files are encrypted with AES-256-GCM using the owner's DEK on upload
@@ -21,7 +21,7 @@ Synth Gallery is a **personal media vault** with end-to-end encryption, hardware
 | Language | Python 3.11+ |
 | Web Framework | FastAPI 0.129.0 |
 | Server | Uvicorn 0.41.0 |
-| Database | SQLite (sqlite3 module) |
+| Database | SQLite (sqlite3 module; SQLAlchemy engine + Alembic for schema migrations) |
 | Templates | Jinja2 3.1.6 |
 | Styling | Vanilla CSS |
 | Frontend JS | Vanilla JavaScript (modular) |
@@ -38,8 +38,9 @@ Synth-Gallery/
 ├── app/                          # Main application
 │   ├── main.py                   # FastAPI entry point, lifespan management
 │   ├── config.py                 # Configuration constants, environment variables
-│   ├── database.py               # DB connections, schema init, password hashing
-│   ├── middleware.py             # AuthMiddleware, CSRFMiddleware
+│   ├── database.py               # DB connections, Alembic migration runner, password hashing
+│   ├── logging_config.py         # Logging setup (SYNTH_LOG_LEVEL / SYNTH_ENV)
+│   ├── middleware.py             # AuthMiddleware, CSRFMiddleware, RateLimitMiddleware
 │   ├── dependencies.py           # FastAPI dependencies (get_current_user, etc.)
 │   ├── tags.py                   # Tag dictionary for photo suggestions
 │   ├── application/              # Application services (business logic)
@@ -47,10 +48,14 @@ Synth-Gallery/
 │   │       ├── auth_service.py       # Authentication, sessions, DEK management
 │   │       ├── folder_service.py     # Folder CRUD, tree operations
 │   │       ├── permission_service.py # Access control logic
-│   │       ├── item_service.py       # Item (photo/video) operations
+│   │       ├── item_service.py       # Item (photo/video/note) operations
 │   │       ├── item_types.py         # Typed item-type registry (single source of truth)
 │   │       ├── item_renderers.py     # Strategy renderers per item type
 │   │       ├── album_service.py      # Album CRUD and operations
+│   │       ├── tag_service.py        # Tag CRUD and bulk operations
+│   │       ├── tag_implication_service.py # Tag implication inheritance
+│   │       ├── tag_suggestion_service.py  # PMI-based tag suggestions
+│   │       ├── ai_tagging_service.py # AI tagging job queue orchestration
 │   │       └── user_settings_service.py # User preferences
 │   ├── infrastructure/           # Infrastructure layer
 │   │   ├── repositories/         # Repository pattern (DB operations)
@@ -59,18 +64,33 @@ Synth-Gallery/
 │   │   │   ├── session_repository.py
 │   │   │   ├── folder_repository.py
 │   │   │   ├── permission_repository.py
-│   │   │   ├── item_repository.py    # Polymorphic items (photos, videos, etc.)
+│   │   │   ├── item_repository.py    # Polymorphic items (photos, videos, notes)
 │   │   │   ├── item_media_repository.py  # Media-specific data
+│   │   │   ├── item_text_repository.py   # Text-note metadata
 │   │   │   ├── album_repository.py
+│   │   │   ├── tags_repository.py
+│   │   │   ├── tag_implication_repository.py
+│   │   │   ├── tag_cooccurrence_repository.py
+│   │   │   ├── tag_feedback_repository.py
+│   │   │   ├── tag_mutex_repository.py
+│   │   │   ├── ai_job_repository.py      # AI tagging job queue
+│   │   │   ├── ai_api_key_repository.py  # Per-user AI API keys
 │   │   │   └── webauthn_repository.py
 │   │   ├── services/             # Infrastructure services
 │   │   │   ├── encryption.py         # Chunked AES-256-GCM streaming envelope, DEK cache
+│   │   │   ├── session_dek.py        # Per-session DEK cache helpers
 │   │   │   ├── backup.py             # Backup/restore service + scheduler
 │   │   │   ├── ffmpeg.py             # ffmpeg/ffprobe wrappers (probe + thumbnail)
 │   │   │   ├── media.py              # Image processing (Pillow only)
 │   │   │   ├── image_conversion.py   # Download-time image conversion (JXL/JPEG/PNG/WebP)
+│   │   │   ├── jxl.py                # JXL detection/decoding helpers
+│   │   │   ├── jxl_encoder.py        # Lossless JXL encoding via cjxl
+│   │   │   ├── jxl_fallback_service.py # On-demand JPEG fallbacks for JXL
 │   │   │   ├── metadata.py           # EXIF/metadata extraction
 │   │   │   ├── thumbnail.py          # Thumbnail generation/regeneration
+│   │   │   ├── audit_log.py          # Security event audit log
+│   │   │   ├── rate_limiter.py       # Request rate limiting
+│   │   │   ├── tag_stats_scheduler.py # Tag co-occurrence stats scheduler
 │   │   │   └── webauthn.py           # Hardware key support
 │   │   └── storage/              # Storage abstraction layer
 │   │       ├── base.py               # StorageInterface
@@ -79,22 +99,22 @@ Synth-Gallery/
 │   │       └── factory.py            # get_storage() factory
 │   ├── routes/                   # API routes
 │   │   ├── auth.py                   # Login/logout
-│   │   ├── admin.py                  # Admin panel (users, backups)
-│   │   ├── api.py                    # AI service endpoints
+│   │   ├── admin.py                  # Admin panel (users, backups, API keys)
+│   │   ├── admin_tags.py             # Admin tag operations (delete/remap/sanitize)
+│   │   ├── api.py                    # AI service endpoints (job queue)
 │   │   ├── folders.py                # Folder management
 │   │   ├── tags.py                   # Tag management
 │   │   ├── webauthn.py               # Hardware key registration/auth
-│   │   ├── envelope.py               # Envelope encryption
 │   │   ├── user_settings.py          # User profile settings
 │   │   └── gallery/                  # Gallery routes
 │   │       ├── main.py               # Main gallery view
-│   │       ├── items.py              # Item (photo/video) operations
+│   │       ├── items.py              # Item (photo/video/note) operations
 │   │       ├── files.py              # File serving
 │   │       ├── uploads.py            # Upload handling
 │   │       └── deps.py               # Gallery dependencies
 │   ├── static/                   # Static assets
 │   │   ├── style.css
-│   │   └── js/
+│   │   └── js/                       # Classic-script IIFE modules
 │   │       ├── core.js               # Core utilities
 │   │       ├── init.js               # Initialization
 │   │       ├── navigation.js         # Navigation
@@ -105,21 +125,30 @@ Synth-Gallery/
 │       ├── login.html
 │       ├── gallery.html
 │       ├── settings.html
-│       ├── encryption_settings.html
+│       ├── reset_password.html
+│       ├── tags.html
+│       ├── admin_users.html
+│       ├── admin_api_keys.html
 │       ├── admin_backups.html
 │       └── admin_maintenance.html
+├── migrations/                   # Alembic migration environment
+│   ├── env.py                    # Online migrations via app.database.get_engine()
+│   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
+│   └── versions/                 # Revisions 0001-0006
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
-│   └── unit/                     # Unit tests
-├── uploads/                      # Uploaded files (server-side encrypted by default)
-├── thumbnails/                   # Generated thumbnails (server-side encrypted by default)
-├── .agents/                      # Maintenance scripts and plans
-│   ├── encrypt_existing_uploads.py   # Migration: encrypt legacy plaintext files
-│   └── reencrypt_to_chunked.py       # Migration: legacy whole-file GCM → SGE1 chunked envelope
+│   ├── unit/                     # Unit tests
+│   ├── js/                       # Jest frontend unit tests
+│   ├── e2e/                      # Playwright E2E (optional)
+│   └── manual/                   # Manual test checklist
+├── uploads/                      # Uploaded files (server-side encrypted)
+├── thumbnails/                   # Generated thumbnails (server-side encrypted)
+├── fallbacks/                    # JXL JPEG-fallback cache (encrypted)
 ├── backups/                      # Backup storage
 ├── gallery.db                    # SQLite database
 ├── pyproject.toml                # Project configuration and dependencies (PEP 621)
+├── package.json                  # Jest configuration (frontend unit tests)
 ├── Start.bat                     # Windows startup script
 └── AGENTS.md                     # This file
 ```
@@ -203,7 +232,7 @@ DEK (Data Encryption Key) ◄──┘
 - **DEK (Data Encryption Key)**: Per-user, 256-bit random, cached in memory during session
 - **KEK (Key Encryption Key)**: Derived from password via PBKDF2; wraps the DEK via a single whole-file AES-256-GCM envelope (small payload, no streaming needed)
 - **Files**: Encrypted with the **chunked streaming AEAD envelope** described below; supports arbitrary file sizes and HTTP Range serving
-- **Legacy format**: The old whole-file `[12B nonce][ciphertext+tag]` envelope was removed. Run `.agents/reencrypt_to_chunked.py` once before starting the new service to migrate existing files
+- **Legacy format**: The old whole-file `[12B nonce][ciphertext+tag]` envelope is no longer readable — all stored files must be in SGE1 format (re-encrypted during the 2.0 development cycle)
 
 #### Chunked AEAD Envelope (SGE1)
 
@@ -239,7 +268,7 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 **File Serving:**
 - `GET /files/{item_id}` streams the plaintext on the fly via `iter_decrypt` (full file) or `decrypt_range` (HTTP Range, returns 206 Partial Content with `Content-Range` / `Accept-Ranges`)
 - `HEAD /files/{item_id}` returns `Content-Length` and `Accept-Ranges` so browsers can probe before requesting byte ranges
-- The old plaintext-fallback branch was removed; all files are expected to be in SGE1 format after migration
+- The old plaintext-fallback branch was removed; all files are expected to be in SGE1 format
 
 ### 5b. MKV / Large File Support
 
@@ -287,9 +316,9 @@ content = await storage.download(file_id, folder="uploads")
 - **S3Storage**: AWS S3 / MinIO / DigitalOcean Spaces
 
 **Random access (HTTP Range / chunked-envelope seek):**
-- `StorageInterface.get_random_access_reader(file_id, folder)` returns a seekable `RandomAccessReader` (read / seek / tell / close / `size`) for backends that support random access
+- `StorageInterface.get_random_access_reader(file_id, folder)` returns a seekable `RandomAccessReader` (read / seek / tell / close / `size`)
 - **LocalStorage** provides full random access (backed by an open file handle), so HTTP Range serving for videos works
-- **S3Storage** currently raises `NotImplementedError` for random access — byte-range GET support is a v2.0 follow-up. Callers must fall back to whole-file streaming (`get_stream`) for S3
+- **S3Storage** provides a buffered range-reader (fetches byte ranges via S3 GetObject); the buffer is mandatory — every small `read()` must not become a GET request
 - Never branch on `isinstance(storage, LocalStorage)`; always go through the interface
 
 **Configuration (Environment Variables):**
@@ -307,44 +336,52 @@ content = await storage.download(file_id, folder="uploads")
 - New files go to the configured backend
 - Backups work with any backend (downloads from S3 if needed)
 
-### 6b. Polymorphic Items (v2.0)
+### 6b. Polymorphic Items
 
 Items use a **polymorphic base table** with **per-type detail tables**, driven by a **typed item-type registry** and **Strategy renderers**:
 
 ```
 items (base)                          item_media (detail: type='media')
 ├── id (PK, TEXT UUID)                ├── item_id (PK/FK → items.id)
-├── type (TEXT) ◄── 'media'           ├── media_type ('image'|'video')
+├── type (TEXT) ◄── 'media' | 'note'  ├── media_type ('image'|'video')
 ├── folder_id (FK)                    ├── content_type, original_name
 ├── user_id (FK)                      ├── width, height, duration
 ├── uploaded_at                       ├── thumb_width, thumb_height
 ├── title, description                └── taken_at, file_size, png_text_chunks
 └── updated_at
+                                      item_texts (detail: type='note')
+                                      ├── item_id (PK/FK → items.id)
+                                      ├── content_type (text/plain, text/markdown, ...)
+                                      ├── original_name, encoding
+                                      └── char_count, line_count, file_size
 ```
 
-- **`items.type`** → coarse polymorphic kind (`media`; future `note`/`audio`/`model`)
+- **`items.type`** → coarse polymorphic kind (`media`, `note`; future `audio`/`model`)
 - **`item_media.media_type`** → sub-kind within media (`image` | `video`). A 3D model is not "a kind of photo", but a video *is* "a kind of media"
 - **Typed registry** (`app/application/services/item_types.py`): `ITEM_TYPE_REGISTRY` maps each `items.type` to its detail table, renderer factory and allowed MIME set. Dispatch sites (file serving, upload validation, `ItemService` hydration) consult `get_item_type_spec()` / `is_known_item_type()` instead of hard-coding `'media'`. Adding a new type = a new detail table + a new renderer + one registry entry
-- **Renderers** (`app/application/services/item_renderers.py`): `ItemRenderer` ABC + `MediaRenderer`. `render_gallery_item()` publishes `type`, `media_type`, `width`, `height`, `has_thumbnail`, `thumbnail_url`. The gallery frontend derives thumbnail URLs from the item id itself, so the URL fields are informational
+- **Renderers** (`app/application/services/item_renderers.py`): `ItemRenderer` ABC + `MediaRenderer` + `NoteRenderer`. `render_gallery_item()` publishes `type`, `media_type`, `width`, `height`, `has_thumbnail`, `thumbnail_url`. The gallery frontend derives thumbnail URLs from the item id itself, so the URL fields are informational
 - **Consolidated read model** (`ItemRepository.get_media_with_details`): the single `items JOIN item_media` query lives on the base repository; `ItemMediaRepository` no longer owns the JOIN
+- **Text notes**: content is stored as an SGE1-encrypted file in `uploads/` (same as media); only metadata lives in `item_texts`. Legacy cp1251 text is decoded and stored as UTF-8
 
-**v2.0 schema migration** (idempotent, runs automatically in `init_db()` with a pre-migration backup at `gallery.db.v2migration-bak`):
-- Dropped the dead `item_media.storage_mode` column (never read)
-- Dropped the redundant `item_media.filename` column (always == `item_id`; the storage key is derived from `item_id`)
-- Added `CHECK (type IN ('media'))` to `items`
-- Added `CHECK (media_type IN ('image', 'video'))` to `item_media`
-- Legacy `media_type='3d'` rows are normalised to `'image'` (a 3D model belongs to a future `items.type`, not a media sub-kind)
-
-**Album name NOT NULL migration** (idempotent, backup at `gallery.db.albumnotnull-bak`):
-- Legacy rename requests wrote unvalidated names, leaving albums with `name IS NULL` (they crashed batch downloads)
-- NULL names are backfilled with `Untitled (id8)`; dangling `folder_id` references (pre-FK schema) are nulled; the table is rebuilt with `name TEXT NOT NULL` and the full FK set
-- `_rebuild_table` commits before toggling `PRAGMA foreign_keys` — the pragma is a no-op inside an open transaction, and `DROP TABLE` would otherwise cascade-delete child rows (`album_items`, `item_media`)
-- The album API validates names: `POST /api/albums` requires `min_length=1`, `PUT /api/albums/{id}` uses a typed model instead of a raw dict
-
-**Legacy `photo_*` purge (v2.0):**
+**Legacy `photo_*` purge:**
 - Removed `can_access_photo`, `can_delete_photo`, `get_photo_count`, `get_standalone_photos` aliases
 - API response keys renamed: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, request bodies `photo_ids` → `item_ids`
 - File-serving path param renamed `photo_id` → `item_id` (URL is `/files/{item_id}`)
+
+### 6c. Schema Migrations (Alembic)
+
+All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0006 `item_texts`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
+
+- Migrations run **without an enclosing transaction** — SQLite's implicit DDL commits and `PRAGMA foreign_keys` no-ops inside transactions are what the rebuild helpers rely on
+- `migrations/migration_utils.py` provides `rebuild_table()` (SQLite cannot alter CHECK constraints or drop FK-referenced columns in place) and `backup_database()` (pre-migration safety copy). `rebuild_table` commits before toggling `PRAGMA foreign_keys`, otherwise `DROP TABLE` cascades into child rows (`album_items`, `item_media`)
+- Revisions must introspect the live schema (`PRAGMA table_info`) when rebuilding legacy tables — production databases can carry relic columns that fresh databases never had (regression test: `tests/integration/test_migration_legacy_users.py`)
+- Every revision implements `downgrade()` for rollback
+
+Notable historical revisions:
+- **0002**: dropped dead `item_media.storage_mode`/`filename` columns, added `CHECK (type IN ('media'))` and `CHECK (media_type IN ('image', 'video'))`, normalised legacy `media_type='3d'` rows to `'image'`
+- **0003**: enforced `albums.name NOT NULL` (NULLs backfilled with `Untitled (id8)`); the album API validates names (`min_length=1`)
+- **0004**: dropped the relic `users.password_salt` column
+- **0005/0006**: added the `note` item type and its `item_texts` detail table
 
 ## Build and Run Commands
 
@@ -407,15 +444,27 @@ by-value path imports there.
 E2E tests (`tests/e2e/`) drive a live server via Playwright and are
 skipped automatically when `pytest-playwright` is not installed.
 
-If old (pre-isolation) test runs left junk in production data, clean it
-with `python .agents/cleanup_test_leftovers.py` (dry-run by default,
-`--apply` to delete; backs up the DB to `gallery.db.cleanup-bak` first).
+### JavaScript Unit Tests (Jest)
+
+Frontend pure helpers (date parsing, masonry math, URL building, search
+query parsing) are unit-tested with Jest + jsdom under `tests/js/`:
+
+```bash
+npm install   # once
+npm test      # or: npx jest
+```
+
+The static JS files are classic-script IIFE modules; testable helpers are
+exported through a CommonJS guard (`if (typeof module !== 'undefined' && module.exports)`)
+that is inert in the browser. When you add logic to a gallery module,
+extract the pure part and cover it with a Jest test.
 
 ### Test Structure
 
 - `conftest.py`: Contains fixtures for isolated test environments
 - `integration/`: Integration tests for routes and workflows
 - `unit/`: Unit tests for individual components
+- `js/`: Jest frontend unit tests (run with `npm test`)
 
 ### Key Fixtures
 
@@ -451,21 +500,38 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `SYNTH_THUMBNAILS_DIR` | Thumbnails directory location | `./thumbnails` |
 | `SYNTH_FALLBACKS_DIR` | JXL JPEG-fallback cache location | `./fallbacks` |
 | `SYNTH_BASE_URL` | Base URL subpath (e.g., "synth") | "" |
-| `SYNTH_AI_API_KEY` | API key for AI service | None |
+| `SYNTH_EXTERNAL_HOST` | Public origin for shared/copy links | "" (current origin) |
+| `SYNTH_ENV` | `production` reduces default log verbosity | `development` |
+| `SYNTH_LOG_LEVEL` | Logging level (DEBUG, INFO, ...) | `INFO` |
+| `COOKIE_SECURE` | Secure flag on `__Host-` session/CSRF cookies; set `false` only for HTTP dev | `true` |
 | `WEBAUTHN_RP_NAME` | WebAuthn display name | "Synth Gallery" |
 | `BACKUP_PATH` | Backup directory path | `./backups` |
 | `BACKUP_SCHEDULE` | `daily`, `weekly`, or `disabled` | `daily` |
 | `BACKUP_ROTATION_COUNT` | Number of backups to keep | 5 |
+| `SYNTH_BACKUP_KEY` | Passphrase for encrypted backups | None (backups unencrypted) |
+| `STORAGE_BACKEND` | `local` or `s3` | `local` |
+| `STORAGE_BASE_PATH` | Override local storage root | `SYNTH_UPLOADS_DIR`-derived |
+| `S3_BUCKET` | S3 bucket name (required for s3) | - |
+| `S3_REGION` | AWS region | `us-east-1` |
+| `S3_ENDPOINT` | Custom endpoint (for MinIO) | - |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | S3 credentials | - |
+| `S3_USE_SSL` | SSL for S3 connections | `true` |
 | `USE_JXL` | Transcode new image uploads to lossless JPEG XL | `false` |
+| `JXL_TOOL_DIR` | Directory containing `cjxl`/`djxl`; overrides PATH lookup | - |
 | `JXL_FALLBACK_QUALITY` | JPEG quality for generated fallbacks | `85` |
 | `JXL_LOSSLESS_TRANSCODE_JPEG` | Use lossless JPEG transcode for JPEG sources | `true` |
 | `JXL_EFFORT` | Encoder effort: 1 (fast/large) to 9 (slow/small) | `7` |
 | `JXL_THREADS` | Encoder threads: -1 auto, 0 single-threaded | `-1` |
 | `JXL_PROGRESSIVE_AC` | Enable `--progressive_ac` for perceived loading speed | `true` |
 | `JXL_QPROGRESSIVE_AC` | Enable `--qprogressive_ac` for perceived loading speed | `true` |
-| `JXL_PROGRESSIVE_DC` | Extra low-resolution pass (`--progressive_dc`), `-1` disables | `1` |
+| `JXL_PROGRESSIVE_DC` | Extra low-resolution pass (`--progressive_dc`), `0` disables | `1` |
 | `SYNTH_ENCRYPTION_CHUNK_SIZE` | Plaintext chunk size for the chunked AEAD envelope (bytes) | `1048576` (1 MiB) |
+| `SYNTH_TEXT_MAX_SIZE` | Max text-note upload size (bytes) | `10485760` (10 MiB) |
 | `FFMPEG_TOOL_DIR` | Directory containing `ffmpeg`/`ffprobe` binaries; overrides PATH lookup | - |
+| `TAG_STATS_SCHEDULE` | Tag co-occurrence stats: `daily`, `weekly`, or `disabled` | `weekly` |
+| `TAG_STATS_HOUR` | Hour (0-23) when tag stats run | `3` |
+
+Note: `SYNTH_AI_API_KEY` is **not** read by the code — AI agent access uses per-user API keys managed at `/admin/api-keys`.
 
 ## Git Commits
 
@@ -579,7 +645,6 @@ style: update lightbox styling - transparent nav buttons
    ```
 
 2. **Event Listeners**: Use delegated events where appropriate
-3. **Crypto Operations**: Use Web Crypto API for client-side encryption
 
 ## Security Considerations
 
@@ -606,7 +671,7 @@ style: update lightbox styling - transparent nav buttons
 
 ### Important Security Notes
 
-1. **HTTPS Required**: Web Crypto API requires secure context (HTTPS or localhost)
+1. **HTTPS Required**: WebAuthn and `__Host-` secure cookies require HTTPS (or localhost for development)
 2. **Recovery Keys**: Generate and store offline - lost key = lost data
 3. **Backup Security**: Backups contain encrypted content but plaintext metadata
 
@@ -633,9 +698,10 @@ style: update lightbox styling - transparent nav buttons
 
 ### Database Schema Changes
 
-1. Modify `init_db()` in `app/database.py`
-2. Add migration logic if needed (pre-migration backup is automatic)
-3. Update relevant repository methods
+1. Create a new Alembic revision in `migrations/versions/` (next sequential number, `down_revision` pointing at the previous head)
+2. Use `rebuild_table()` from `migrations/migration_utils.py` for CHECK/column changes (introspect the live schema with `PRAGMA table_info` — production databases may carry relic columns)
+3. Implement `downgrade()` for rollback
+4. Update relevant repository methods
 
 ## Troubleshooting
 
@@ -649,7 +715,7 @@ Ensure you're using `create_connection()` and closing properly.
 Check cookie settings and DEK cache TTL.
 
 ### WebAuthn not working
-Must use HTTPS or localhost (Web Crypto API requirement).
+Must use HTTPS or localhost (secure-context requirement).
 
 ## Base URL / Subpath Configuration
 
