@@ -399,8 +399,12 @@
                 <label>Format</label>
                 <div class="radio-group" style="flex-direction: column; gap: 0.75rem; align-items: flex-start;">
                     <label class="radio-label">
-                        <input type="radio" name="download-format" value="jxl" checked>
-                        JXL <span style="color: var(--text-muted);">(original)</span>
+                        <input type="radio" name="download-format" value="original" checked>
+                        Original <span style="color: var(--text-muted);">(as stored, no re-encode)</span>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="download-format" value="jxl">
+                        JXL
                     </label>
                     <label class="radio-label">
                         <input type="radio" name="download-format" value="jpeg">
@@ -450,7 +454,7 @@
                     Lossless
                 </label>
             </div>
-            <p class="download-note">Videos are downloaded without conversion. A single file is downloaded directly, multiple files are packed into a ZIP.</p>
+            <p class="download-note">Images are downloaded as stored by default. Videos and notes are always downloaded without conversion. A single file is downloaded directly, multiple files are packed into a ZIP.</p>
         </div>
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeDownloadModal()">Cancel</button>

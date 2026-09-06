@@ -93,6 +93,98 @@ def _make_album(client: TestClient, folder_id: str, name: str,
     return resp.json()['album_id']
 
 
+def _make_jpeg_bytes(color: str) -> bytes:
+    '''Create a small JPEG of the given color.'''
+    buf = io.BytesIO()
+    Image.new('RGB', (64, 48), color=color).save(buf, format='JPEG', quality=90)
+    return buf.getvalue()
+
+
+@pytest.fixture
+def jxl_enabled(monkeypatch):
+    '''Enable JXL transcoding for the duration of a test.'''
+    monkeypatch.setattr(config_module, 'USE_JXL', True)
+    monkeypatch.setattr(item_service_module, 'USE_JXL', True)
+
+
+class TestOriginalFormat:
+    '''The default "original" option serves stored bytes untouched.'''
+
+    def test_original_zip_contains_untouched_bytes(
+        self, authenticated_client, test_folder, test_image_bytes
+    ):
+        red = _make_jpeg_bytes('red')
+        blue = _make_jpeg_bytes('blue')
+        a = _upload(authenticated_client, test_folder, 'a.jpg', red, 'image/jpeg')
+        b = _upload(authenticated_client, test_folder, 'b.jpg', blue, 'image/jpeg')
+
+        resp = _batch_download(authenticated_client, {
+            'item_ids': [a['id'], b['id']],
+            'options': {'format': 'original'},
+        })
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('application/zip')
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            assert sorted(zf.namelist()) == ['a.jpg', 'b.jpg']
+            # Media payloads are incompressible: entries must be STORED.
+            for info in zf.infolist():
+                assert info.compress_type == zipfile.ZIP_STORED
+            assert zf.read('a.jpg') == red
+            assert zf.read('b.jpg') == blue
+
+    def test_default_options_download_as_stored(
+        self, authenticated_client, test_folder, test_image_bytes
+    ):
+        uploaded = _upload(authenticated_client, test_folder,
+                           'photo.jpg', test_image_bytes, 'image/jpeg')
+
+        resp = _batch_download(authenticated_client, {
+            'item_ids': [uploaded['id']],
+        })
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'] == 'image/jpeg'
+        assert 'photo.jpg' in resp.headers['content-disposition']
+        # No re-encode: the served bytes match the upload bit-for-bit.
+        assert resp.content == test_image_bytes
+
+    def test_original_format_is_accepted_validation(
+        self, authenticated_client
+    ):
+        resp = _batch_download(authenticated_client, {
+            'item_ids': ['whatever'],
+            'options': {'format': 'original'},
+        })
+        # 404 (no accessible items), NOT 422 — the format itself is valid.
+        assert resp.status_code == 404
+
+
+class TestJxlReconstruction:
+    '''jxl -> jpeg downloads rebuild the original JPEG bit-exactly.'''
+
+    def test_jxl_to_jpeg_reconstruction_is_bit_exact(
+        self, authenticated_client, test_folder, test_image_bytes, jxl_enabled
+    ):
+        if not is_jxl_encoding_available():
+            pytest.skip('cjxl encoder not available')
+
+        data = _upload(authenticated_client, test_folder,
+                       'photo.jpg', test_image_bytes, 'image/jpeg')
+        assert data['content_type'] == 'image/jxl'
+
+        resp = _batch_download(authenticated_client, {
+            'item_ids': [data['id']],
+            'options': {'format': 'jpeg', 'jpeg_quality': 85},
+        })
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'] == 'image/jpeg'
+        assert 'photo.jpg' in resp.headers['content-disposition']
+        # djxl reconstruction: the stored JPEG comes back byte-for-byte.
+        assert resp.content == test_image_bytes
+
+
 class TestAlbumDownload:
     '''Album selections become subfolders containing every album item.'''
 
@@ -290,13 +382,7 @@ class TestZipDownload:
 
 
 class TestJxlStoredItems:
-    '''Default (jxl) format serves JXL-stored photos unchanged.'''
-
-    @pytest.fixture
-    def jxl_enabled(self, monkeypatch):
-        '''Enable JXL transcoding for the duration of a test.'''
-        monkeypatch.setattr(config_module, 'USE_JXL', True)
-        monkeypatch.setattr(item_service_module, 'USE_JXL', True)
+    '''Default (original) format serves JXL-stored photos unchanged.'''
 
     def test_jxl_item_downloaded_as_is_by_default(
         self, authenticated_client, test_folder, test_image_bytes, jxl_enabled
@@ -310,7 +396,7 @@ class TestJxlStoredItems:
 
         resp = _batch_download(authenticated_client, {
             'item_ids': [data['id']],
-            # default options = format jxl
+            # default options = format original (no conversion)
         })
 
         assert resp.status_code == 200, resp.text

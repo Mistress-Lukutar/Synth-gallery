@@ -291,10 +291,12 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 - **ffmpeg is intentionally NOT used for JXL**: its libjxl wrapper cannot do `--lossless_jpeg` reversible transcodes, EXIF containers or progressive flags (verified against gyan.dev full builds with `--enable-libjxl`); ffmpeg stays video-only
 
 **Batch Download & Download Conversion:**
-- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `jxl` (default = as stored), `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_lossless_jxl(effort=...)`)
-- A selection resolving to a single file is served directly with `Content-Disposition: attachment` (no ZIP); two or more files produce a spooled streaming ZIP
+- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `original` (default = as stored, no re-encode), `jxl`, `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_lossless_jxl(effort=...)`)
+- A selection resolving to a single file is served directly with `Content-Disposition: attachment` (no ZIP); two or more files produce a **streaming ZIP** (`zipstream-ng`): the archive is generated while it is sent to the client, with no server-side spool file
+- The ZIP uses `ZIP_STORED` (media payloads are already compressed; DEFLATE would only burn CPU)
+- Items are prepared (download → decrypt → convert) in parallel by a worker pool (`SYNTH_DOWNLOAD_WORKERS`, default 4) with a bounded look-ahead window, while the build thread writes the archive; the whole pipeline runs off the event loop (`iterate_in_threadpool`), so the server stays responsive during downloads
 - Album items land in an `{AlbumName}/` subfolder (single-album downloads name the ZIP after the album); entry names are sanitized and deduplicated (`name (2).ext`)
-- Conversion lives in `app/infrastructure/services/image_conversion.py` (JXL sources decoded via djxl, targets encoded via Pillow/cjxl); **videos always pass through unchanged**; failed conversions fall back to the original bytes with a warning
+- Conversion lives in `app/infrastructure/services/image_conversion.py`; stored JXL is decoded via djxl stdin/stdout (raw PNM pixels, alpha/16-bit fall back to PNG) and jxl→jpeg downloads use bit-exact `djxl -J` JPEG reconstruction when the container carries the original JPEG; targets are encoded via Pillow/cjxl; **videos always pass through unchanged** (streamed straight into the archive); failed conversions fall back to the original bytes with a warning
 - The gallery frontend opens `#download-modal` (`gallery-download.js`) for format/quality selection; `gallery-selection.js` only triggers the modal
 - Existing files and videos are not affected
 
@@ -526,6 +528,7 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `JXL_QPROGRESSIVE_AC` | Enable `--qprogressive_ac` for perceived loading speed | `true` |
 | `JXL_PROGRESSIVE_DC` | Extra low-resolution pass (`--progressive_dc`), `0` disables | `1` |
 | `SYNTH_ENCRYPTION_CHUNK_SIZE` | Plaintext chunk size for the chunked AEAD envelope (bytes) | `1048576` (1 MiB) |
+| `SYNTH_DOWNLOAD_WORKERS` | Worker threads preparing batch-download items in parallel | `4` |
 | `SYNTH_TEXT_MAX_SIZE` | Max text-note upload size (bytes) | `10485760` (10 MiB) |
 | `FFMPEG_TOOL_DIR` | Directory containing `ffmpeg`/`ffprobe` binaries; overrides PATH lookup | - |
 | `TAG_STATS_SCHEDULE` | Tag co-occurrence stats: `daily`, `weekly`, or `disabled` | `weekly` |

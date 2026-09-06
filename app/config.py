@@ -81,6 +81,10 @@ ENCRYPTION_CHUNK_SIZE = int(
     os.environ.get("SYNTH_ENCRYPTION_CHUNK_SIZE", str(1 << 20))
 )  # 1 MiB default
 
+# Batch download: number of worker threads preparing items (decrypt + image
+# conversion) in parallel while the ZIP archive is streamed to the client.
+DOWNLOAD_WORKERS = max(1, int(os.environ.get("SYNTH_DOWNLOAD_WORKERS", "4")))
+
 # Session configuration
 # __Host- prefix enforces Secure, Path=/ and no Domain attribute at browser level
 SESSION_COOKIE = "__Host-synth_session"
