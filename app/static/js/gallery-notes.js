@@ -16,6 +16,9 @@
     let editorDirty = false;
     let easyMde = null;
     let saving = false;
+    // Fragment to scroll to after the next markdown render (deep links and
+    // links clicked inside notes).
+    let pendingNoteFragment = null;
 
     // ========================================================================
     // Pure helpers (exported for Jest)
@@ -49,8 +52,59 @@
         return photo.content_type === 'text/markdown' || lang === 'markdown';
     }
 
+    // GFM-style heading slug: lowercase, whitespace -> '-', punctuation
+    // stripped. Unicode letters (Cyrillic etc.) are kept.
+    function slugifyHeading(text) {
+        return (text || '')
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, '-')
+            .replace(/[^\p{L}\p{N}_-]/gu, '');
+    }
+
+    // Classify a link inside a rendered note.
+    // baseUrl is the SYNTH_BASE_URL subpath (e.g. 'synth'), origin the page
+    // origin - both optional so the helper stays testable outside a browser.
+    // Returns { type: 'fragment'|'internal'|'external', folderId, photoId, fragment }
+    function parseNoteLinkHref(href, baseUrl, origin) {
+        const empty = { type: 'external', folderId: null, photoId: null, fragment: null };
+        if (!href) return empty;
+        if (href.startsWith('#')) {
+            return { type: 'fragment', folderId: null, photoId: null, fragment: decodeSafe(href.slice(1)) };
+        }
+
+        const base = (baseUrl || '').replace(/^\/+|\/+$/g, '');
+        const org = origin || (typeof window !== 'undefined' && window.location ? window.location.origin : '');
+        let url;
+        try {
+            url = new URL(href, org ? org + (base ? '/' + base + '/' : '/') : undefined);
+        } catch (e) {
+            return empty;
+        }
+        if (org && url.origin !== org) return empty;
+
+        const prefix = base ? '/' + base : '';
+        const path = url.pathname;
+        if (path !== '/' && path !== prefix && path !== prefix + '/') return empty;
+
+        return {
+            type: 'internal',
+            folderId: url.searchParams.get('folder_id'),
+            photoId: url.searchParams.get('photo_id'),
+            fragment: url.hash ? decodeSafe(url.hash.slice(1)) : null,
+        };
+    }
+
+    function decodeSafe(value) {
+        try {
+            return decodeURIComponent(value);
+        } catch (e) {
+            return value;
+        }
+    }
+
     if (typeof module !== 'undefined' && module.exports) {
-        module.exports = { noteLanguageFromName, isMarkdownNote };
+        module.exports = { noteLanguageFromName, isMarkdownNote, slugifyHeading, parseNoteLinkHref };
     }
 
     // ========================================================================
@@ -101,6 +155,113 @@
         addCopyButtons(container);
     }
 
+    // Heading anchors: marked does not emit ids (headerIds removed in v5+),
+    // so assign GFM-style slugs after rendering (post-DOMPurify DOM pass).
+    function assignHeadingIds(container) {
+        const used = new Map();
+        container.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach((h) => {
+            let slug = slugifyHeading(h.textContent);
+            if (!slug) slug = 'section';
+            const seen = used.get(slug) || 0;
+            used.set(slug, seen + 1);
+            h.id = seen > 0 ? `${slug}-${seen}` : slug;
+        });
+    }
+
+    // Root-relative links (/?folder_id=...) resolve against the site root and
+    // lose the base path (/synth) on plain navigation - restore it.
+    function prepareNoteLinks(container) {
+        const base = window.SYNTH_BASE_URL || '';
+        const prefix = base ? '/' + base : '';
+        container.querySelectorAll('a[href]').forEach((a) => {
+            const href = a.getAttribute('href') || '';
+            if (href.startsWith('/?') || href.startsWith('/#') || href === '/') {
+                a.setAttribute('href', prefix + href);
+            }
+        });
+    }
+
+    function scrollToFragment(fragment) {
+        if (!fragment) return;
+        const content = document.getElementById('note-reader-content');
+        if (!content) return;
+        let target = null;
+        try {
+            target = content.querySelector(`[id="${CSS.escape(fragment)}"]`);
+        } catch (e) {
+            return;
+        }
+        if (!target) return;
+
+        target.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        // Images/code buttons may still shift the layout - correct once more,
+        // but only if the target left the viewport in the meantime.
+        setTimeout(() => {
+            if (!target.isConnected) return;
+            const rect = target.getBoundingClientRect();
+            if (rect.top < 0 || rect.top > window.innerHeight) {
+                target.scrollIntoView({ block: 'start' });
+            }
+        }, 800);
+
+        // Keep the anchor in the address bar so the link stays shareable.
+        try {
+            const url = new URL(window.location.href);
+            url.hash = fragment;
+            window.history.replaceState(window.history.state, '', url.toString());
+        } catch (e) {
+            // Address bar is best-effort.
+        }
+    }
+
+    // Consume a pending fragment (from init.js deep links or in-note clicks)
+    // or the URL hash when the opened note is the linked one.
+    function maybeScrollToFragment() {
+        let fragment = pendingNoteFragment;
+        pendingNoteFragment = null;
+        if (!fragment && currentNote) {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('photo_id') === currentNote.id && window.location.hash) {
+                    fragment = decodeSafe(window.location.hash.slice(1));
+                }
+            } catch (e) {
+                fragment = null;
+            }
+        }
+        if (!fragment) return;
+        setTimeout(() => scrollToFragment(fragment), 200);
+    }
+
+    function handleNoteLinkClick(e) {
+        const a = e.target.closest('a[href]');
+        if (!a) return;
+        const link = parseNoteLinkHref(a.getAttribute('href'), window.SYNTH_BASE_URL || '');
+        if (link.type === 'external') return;
+
+        e.preventDefault();
+        if (link.type === 'fragment' || (!link.photoId && !link.folderId)) {
+            scrollToFragment(link.fragment);
+            return;
+        }
+
+        if (link.fragment) pendingNoteFragment = link.fragment;
+        const open = () => {
+            if (link.photoId && typeof window.openPhoto === 'function') {
+                window.openPhoto(link.photoId);
+            } else if (link.folderId && typeof window.navigateToFolder === 'function') {
+                window.navigateToFolder(link.folderId, 'push');
+            }
+        };
+        if (link.photoId && link.folderId
+                && link.folderId !== window.currentFolderId
+                && typeof window.navigateToFolder === 'function') {
+            window.navigateToFolder(link.folderId, 'push').then(open);
+        } else {
+            open();
+        }
+    }
+
     // Copy buttons on code blocks (same pattern as the details panel).
     function addCopyButtons(container) {
         container.querySelectorAll('pre code').forEach((codeBlock) => {
@@ -140,6 +301,12 @@
 
         isEditing() {
             return editMode;
+        },
+
+        // Scroll target for the next markdown render (used by init.js when
+        // the page is opened via a deep link like /?photo_id=...#heading).
+        setPendingFragment(fragment) {
+            pendingNoteFragment = fragment || null;
         },
 
         renderReader(container, text, photo, canEdit) {
@@ -197,6 +364,9 @@
                         break;
                 }
             });
+
+            const readerContent = container.querySelector('#note-reader-content');
+            readerContent.addEventListener('click', handleNoteLinkClick);
         },
 
         renderReadingView() {
@@ -209,7 +379,11 @@
                 content.classList.add('markdown-preview', 'note-markdown-wrap');
                 content.innerHTML = renderMarkdownHtml(currentText);
                 enhanceMarkdown(content);
+                assignHeadingIds(content);
+                prepareNoteLinks(content);
+                maybeScrollToFragment();
             } else {
+                pendingNoteFragment = null;
                 const lang = noteLanguageFromName(currentNote.original_name || currentNote.title);
                 content.classList.remove('markdown-preview', 'note-markdown-wrap');
                 content.innerHTML =
