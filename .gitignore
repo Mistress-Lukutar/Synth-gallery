@@ -24,6 +24,7 @@ nul
 # Agents temp
 .agents
 .zcode
+.zcodeignore
 .claude
 # Node
 node_modules/
