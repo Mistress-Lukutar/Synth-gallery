@@ -653,15 +653,34 @@ main {
     padding: 28px 36px 48px;
 }
 
-/* Reading view: plain code formats */
+/* Reading view: plain code formats.
+   Typography matches the markdown view; highlight.js keeps coloring tokens
+   but its github-dark theme's background/padding/font are overridden. */
 .note-code {
     margin: 0;
-    font-family: 'Consolas', 'Monaco', monospace;
-    font-size: 0.875rem;
-    line-height: 1.6;
+    font-family: inherit;
+    font-size: 1rem;
+    line-height: 1.7;
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--text);
+}
+
+.note-code code {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    color: inherit;
+}
+
+/* hljs adds .hljs to the inner <code> and its github-dark theme sets a
+   background, padding and its own text color on it - keep the token
+   colors, strip the chrome. */
+.note-reader-content .note-code code.hljs {
+    background: transparent;
+    padding: 0;
+    color: var(--text);
+    overflow-x: visible;
 }
 
 /* Reading view: markdown - reuse the .markdown-preview typography but
@@ -742,7 +761,8 @@ main {
 
 .note-code-editor {
     width: 100%;
-    min-height: 56vh;
+    flex: 1;
+    min-height: 320px;
     padding: 16px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
@@ -752,7 +772,7 @@ main {
     font-size: 0.875rem;
     line-height: 1.6;
     tab-size: 4;
-    resize: vertical;
+    resize: none;
 }
 
 .note-code-editor:focus {
