@@ -79,7 +79,9 @@ echo ----------------------------------------------------------------
 echo.
 
 :: Check/create virtual environment
+set INSTALL_DEPS=0
 if not exist ".venv" (
+    set INSTALL_DEPS=1
     echo [1/3] Creating virtual environment in .venv\
     python -m venv .venv
     if errorlevel 1 (
@@ -195,7 +197,12 @@ echo         winget install Gyan.FFmpeg) and ensure it is on PATH.
 echo      Python version:
 for /f "tokens=*" %%a in ('.venv\Scripts\python.exe --version 2^>^&1') do echo        %%a
 
-:: Install/update dependencies
+:: Install dependencies only for a newly created virtual environment
+if not "%INSTALL_DEPS%"=="1" (
+    echo [3/3] Existing virtual environment detected - skipping dependency installation
+    goto deps_done
+)
+
 echo [3/3] Installing dependencies...
 echo      Pip version:
 for /f "tokens=*" %%a in ('.venv\Scripts\pip.exe --version 2^>^&1') do echo        %%a
@@ -208,6 +215,8 @@ if errorlevel 1 (
     exit /b 1
 )
 echo      OK: Dependencies installed
+
+:deps_done
 
 echo.
 echo ----------------------------------------------------------------

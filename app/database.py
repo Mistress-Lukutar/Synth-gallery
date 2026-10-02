@@ -94,7 +94,17 @@ def get_engine() -> Engine:
                     # thread-local get_db(); the engine pool serialises actual
                     # use, so relax sqlite3's same-thread guard.
                     "check_same_thread": False,
+                    # Wait on SQLite write locks instead of raising
+                    # "database is locked" when several pooled connections
+                    # write concurrently under bursty load.
+                    "timeout": 30,
                 },
+                # Bursty traffic (mass uploads firing parallel thumbnail and
+                # file requests) checks out many connections at once; keep
+                # headroom so QueuePool (default 5+10) does not become the
+                # bottleneck. Idle SQLite connections are just file handles.
+                pool_size=15,
+                max_overflow=10,
             )
             event.listen(_engine, "connect", _apply_connection_pragmas)
             _engine_key = key
@@ -294,7 +304,11 @@ def create_connection() -> DbConnection:
 def cleanup_expired_sessions():
     """Remove expired sessions from database."""
     from .infrastructure.repositories import SessionRepository
-    SessionRepository(create_connection()).cleanup_expired()
+    db = create_connection()
+    try:
+        SessionRepository(db).cleanup_expired()
+    finally:
+        db.close()
 
 
 # =============================================================================
