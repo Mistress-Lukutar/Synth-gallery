@@ -61,29 +61,32 @@ def list_items(
     request: Request,
     folder_id: str,
     type: Optional[str] = None,
-    sort: str = "created"
+    sort: str = "created",
+    include_covers: bool = False,
 ):
     """List items in folder.
-    
+
     Args:
         folder_id: Folder to list
         type: Filter by type ('media', 'note') or omit for all
         sort: 'created' or 'title'
+        include_covers: Keep items used as note covers (hidden by default)
     """
     user = require_user(request)
-    
+
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        
+
         if not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(403, "Access denied")
-        
+
         item_service = get_item_service(db)
         items = item_service.get_items_by_folder(
             folder_id=folder_id,
             item_type=type,
-            sort_by=sort
+            sort_by=sort,
+            include_covers=include_covers,
         )
         
         # Render for response

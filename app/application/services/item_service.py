@@ -737,6 +737,7 @@ class ItemService:
         item_type: Optional[str] = None,
         sort_by: str = 'uploaded',
         standalone_only: bool = False,
+        include_covers: bool = False,
     ) -> List[Dict]:
         '''Get items in folder with full data.
 
@@ -745,13 +746,18 @@ class ItemService:
             item_type: Filter by type ('media', 'note') or None for all
             sort_by: 'uploaded', 'taken', or 'title'
             standalone_only: If True, exclude items that are in albums
+            include_covers: If True, keep items used as note covers
+                (hidden from listings by default; the cover picker opts in)
         '''
+        exclude_covers = not include_covers
         if item_type == ItemType.MEDIA.value and not standalone_only:
             return self.item_repo.get_media_with_details(
-                folder_id, sort_by=sort_by
+                folder_id, sort_by=sort_by, exclude_covers=exclude_covers
             )
 
-        items = self.item_repo.get_by_folder(folder_id, item_type, sort_by)
+        items = self.item_repo.get_by_folder(
+            folder_id, item_type, sort_by, exclude_covers=exclude_covers
+        )
 
         if standalone_only:
             album_item_ids = self._get_album_item_ids(folder_id)
@@ -982,9 +988,11 @@ class ItemService:
         renderer = self.get_renderer(item['type'])
         return renderer.render_lightbox(item)
 
-    def count_items_by_folder(self, folder_id: str) -> int:
-        '''Count items in folder.'''
-        return self.item_repo.count_by_folder(folder_id)
+    def count_items_by_folder(self, folder_id: str, include_covers: bool = False) -> int:
+        '''Count items in folder (note covers excluded by default).'''
+        return self.item_repo.count_by_folder(
+            folder_id, exclude_covers=not include_covers
+        )
 
     # ========================================================================
     # Metadata Operations

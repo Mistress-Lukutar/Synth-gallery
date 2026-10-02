@@ -335,6 +335,107 @@ class TestNoteCover:
         assert item["cover_item_id"] is None
 
 
+class TestCoverHiddenFromListings:
+    """Items used as note covers stay out of folder listings, subfolder
+    counts and tag search; the cover picker opts back in explicitly."""
+
+    def _note_with_cover(self, authenticated_client: TestClient, folder_id: str,
+                         csrf_token: str, test_image_bytes):
+        note = _upload_note(authenticated_client, folder_id, csrf_token)
+        photo = _upload_photo(authenticated_client, folder_id, csrf_token,
+                              test_image_bytes)
+        resp = _put_json(authenticated_client,
+                         f"/api/items/{note['id']}/cover",
+                         csrf_token, {"cover_item_id": photo["id"]})
+        assert resp.status_code == 200, resp.text
+        return note, photo
+
+    @staticmethod
+    def _grid_item_ids(content: dict) -> list:
+        return [i["id"] for i in content["items"] if i.get("type") == "item"]
+
+    def test_cover_hidden_from_folder_content(self, authenticated_client,
+                                              test_folder, csrf_token,
+                                              test_image_bytes):
+        note, photo = self._note_with_cover(
+            authenticated_client, test_folder, csrf_token, test_image_bytes
+        )
+
+        content = authenticated_client.get(
+            f"/api/folders/{test_folder}/content").json()
+        item_ids = self._grid_item_ids(content)
+        assert note["id"] in item_ids
+        assert photo["id"] not in item_ids
+
+        # The note card still advertises its (hidden) cover
+        note_card = next(i for i in content["items"]
+                         if i.get("id") == note["id"])
+        assert note_card["has_thumbnail"] is True
+
+    def test_include_covers_returns_cover_for_picker(self, authenticated_client,
+                                                     test_folder, csrf_token,
+                                                     test_image_bytes):
+        note, photo = self._note_with_cover(
+            authenticated_client, test_folder, csrf_token, test_image_bytes
+        )
+
+        content = authenticated_client.get(
+            f"/api/folders/{test_folder}/content?include_covers=true").json()
+        item_ids = self._grid_item_ids(content)
+        assert photo["id"] in item_ids
+        assert note["id"] in item_ids
+
+    def test_subfolder_badge_count_excludes_cover(self, authenticated_client,
+                                                  test_folder, csrf_token,
+                                                  test_image_bytes):
+        csrf_headers = {"X-CSRF-Token": csrf_token}
+        parent = authenticated_client.post(
+            "/api/folders", json={"name": "parent"},
+            headers=csrf_headers).json()["folder"]["id"]
+        sub = authenticated_client.post(
+            "/api/folders", json={"name": "sub", "parent_id": parent},
+            headers=csrf_headers).json()["folder"]["id"]
+
+        self._note_with_cover(
+            authenticated_client, sub, csrf_token, test_image_bytes
+        )
+
+        content = authenticated_client.get(
+            f"/api/folders/{parent}/content").json()
+        subfolders = [i for i in content["items"] if i.get("type") == "folder"]
+        assert subfolders[0]["item_count"] == 1  # the note, not its cover
+
+    def test_cover_hidden_from_tag_search(self, authenticated_client,
+                                          db_connection, test_folder,
+                                          csrf_token, test_image_bytes):
+        note, photo = self._note_with_cover(
+            authenticated_client, test_folder, csrf_token, test_image_bytes
+        )
+
+        db_connection.execute(
+            "INSERT OR IGNORE INTO tag_categories "
+            "(id, slug, name, color, sort_order) VALUES "
+            "(1, 'general', 'General', '#6b7280', 1)"
+        )
+        db_connection.commit()
+        from app.infrastructure.repositories import TagsRepository
+        tag_id = TagsRepository(db_connection).create(
+            "covertag", "CoverTag", 1
+        )
+
+        resp = authenticated_client.post(
+            f"/api/items/{photo['id']}/tags",
+            json={"tag_id": tag_id},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert resp.status_code == 200, resp.text
+
+        search = authenticated_client.get("/api/search?tags=covertag").json()
+        result_ids = [i["id"] for i in search["items"]]
+        assert photo["id"] not in result_ids
+        assert search["total"] == 0
+
+
 class TestNoteMigration:
     """Revision 0007 adds and removes item_texts.cover_item_id."""
 

@@ -86,10 +86,17 @@ def gallery(request: Request, folder_id: str = None):
 
 
 @router.get("/api/folders/{folder_id}/content")
-def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
+def get_folder_content_api(
+    folder_id: str,
+    request: Request,
+    sort: str = None,
+    include_covers: bool = False,
+):
     """Get folder contents as JSON (for SPA navigation).
-    
+
     Returns unified items list using ItemService for polymorphic content.
+    Items used as note covers are hidden unless ``include_covers`` is set
+    (the note cover picker opts in).
     """
     from ...dependencies import require_user
     user = require_user(request)
@@ -162,8 +169,12 @@ def get_folder_content_api(folder_id: str, request: Request, sort: str = None):
             })
         
         # Add items from new items table (polymorphic - Phase 5)
-        # standalone_only=True excludes items that are already in albums
-        folder_items = item_service.get_items_by_folder(folder_id, sort_by=sort, standalone_only=True)
+        # standalone_only=True excludes items that are already in albums;
+        # note covers stay hidden unless the caller opts in
+        folder_items = item_service.get_items_by_folder(
+            folder_id, sort_by=sort, standalone_only=True,
+            include_covers=include_covers,
+        )
         for item in folder_items:
             rendered = item_service.render_for_gallery(item)
             items.append({

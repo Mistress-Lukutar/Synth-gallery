@@ -524,6 +524,9 @@ class TagsRepository(Repository):
             FROM items i
             LEFT JOIN item_media im ON i.id = im.item_id
             WHERE i.type = 'media'
+              AND i.id NOT IN (
+                  SELECT cover_item_id FROM item_texts WHERE cover_item_id IS NOT NULL
+              )
               {'AND i.folder_id = ?' if folder_id else ''}
               AND ({include_sql})
               AND ({exclude_sql})

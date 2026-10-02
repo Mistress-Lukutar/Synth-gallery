@@ -443,8 +443,12 @@
                 const folderId = item.folder_id;
 
                 // Cover candidates: images from the note's folder
-                // (same source as the album add-photos modal).
-                const resp = await fetch(`${getBaseUrl()}/api/folders/${folderId}/content`);
+                // (same source as the album add-photos modal). Covers stay
+                // hidden from the regular folder listing, so opt back in —
+                // otherwise the current cover can't be highlighted or restored.
+                const resp = await fetch(
+                    `${getBaseUrl()}/api/folders/${folderId}/content?include_covers=true`
+                );
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
 

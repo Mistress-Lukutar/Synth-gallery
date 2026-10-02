@@ -79,12 +79,20 @@ class ItemRepository(Repository):
             return dict(row)
         return None
 
+    # Items referenced as note covers are hidden from listings; they are
+    # reachable directly and via the note's cover picker.
+    _COVER_EXCLUSION_SQL = (
+        'AND {col} NOT IN '
+        '(SELECT cover_item_id FROM item_texts WHERE cover_item_id IS NOT NULL)'
+    )
+
     def get_by_folder(
         self,
         folder_id: str,
         item_type: Optional[str] = None,
         sort_by: str = 'created',
         include_subfolders: bool = False,
+        exclude_covers: bool = False,
     ) -> list[dict]:
         '''Get items in folder.
 
@@ -93,6 +101,7 @@ class ItemRepository(Repository):
             item_type: Filter by type ('media', 'note', etc.) or None for all
             sort_by: 'created' or 'title'
             include_subfolders: Include items from subfolders
+            exclude_covers: Exclude items used as note covers
         '''
         if include_subfolders:
             folder_filter = '''folder_id IN (
@@ -115,6 +124,10 @@ class ItemRepository(Repository):
         else:
             type_filter = ''
 
+        cover_filter = (
+            self._COVER_EXCLUSION_SQL.format(col='id') if exclude_covers else ''
+        )
+
         if sort_by == 'title':
             order_by = 'COALESCE(title, id) ASC'
         elif sort_by == 'taken':
@@ -124,7 +137,7 @@ class ItemRepository(Repository):
 
         cursor = self._execute(
             f'''SELECT * FROM items
-                WHERE {folder_filter} {type_filter}
+                WHERE {folder_filter} {type_filter} {cover_filter}
                 ORDER BY {order_by}''',
             tuple(params),
         )
@@ -171,16 +184,26 @@ class ItemRepository(Repository):
         self._commit()
         return cursor.rowcount > 0
 
-    def count_by_folder(self, folder_id: str, item_type: Optional[str] = None) -> int:
+    def count_by_folder(
+        self,
+        folder_id: str,
+        item_type: Optional[str] = None,
+        exclude_covers: bool = False,
+    ) -> int:
         '''Count items in folder.'''
+        cover_filter = (
+            self._COVER_EXCLUSION_SQL.format(col='id') if exclude_covers else ''
+        )
         if item_type:
             cursor = self._execute(
-                'SELECT COUNT(*) as count FROM items WHERE folder_id = ? AND type = ?',
+                f'''SELECT COUNT(*) as count FROM items
+                    WHERE folder_id = ? AND type = ? {cover_filter}''',
                 (folder_id, item_type),
             )
         else:
             cursor = self._execute(
-                'SELECT COUNT(*) as count FROM items WHERE folder_id = ?',
+                f'''SELECT COUNT(*) as count FROM items
+                    WHERE folder_id = ? {cover_filter}''',
                 (folder_id,),
             )
         row = cursor.fetchone()
@@ -191,6 +214,7 @@ class ItemRepository(Repository):
         folder_id: str,
         media_type: Optional[str] = None,
         sort_by: str = 'uploaded',
+        exclude_covers: bool = False,
     ) -> list[dict]:
         '''Get media items in folder with their ``item_media`` details.
 
@@ -202,6 +226,7 @@ class ItemRepository(Repository):
             folder_id: Folder ID
             media_type: 'image', 'video', or None for all media
             sort_by: 'uploaded', 'taken', or 'title'
+            exclude_covers: Exclude items used as note covers
 
         Returns:
             List of dicts with base item + media detail fields.
@@ -218,6 +243,10 @@ class ItemRepository(Repository):
         if media_type:
             params.append(media_type)
 
+        cover_filter = (
+            self._COVER_EXCLUSION_SQL.format(col='i.id') if exclude_covers else ''
+        )
+
         cursor = self._execute(
             f'''SELECT
                 i.*,
@@ -226,7 +255,7 @@ class ItemRepository(Repository):
                 im.thumb_width, im.thumb_height, im.taken_at
                FROM items i
                JOIN item_media im ON i.id = im.item_id
-               WHERE i.folder_id = ? AND i.type = 'media' {media_filter}
+               WHERE i.folder_id = ? AND i.type = 'media' {media_filter} {cover_filter}
                ORDER BY {order_by}''',
             tuple(params),
         )
