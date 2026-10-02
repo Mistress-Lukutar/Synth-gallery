@@ -276,32 +276,53 @@
                     </div>
                 `;
             } else if (isNote) {
-                // Text note: extension-icon card, no thumbnail
+                // Text note: cover image (if set) or extension-icon card
                 const note = item;
                 const displayName = note.original_name || note.title || 'Untitled';
                 const ext = getNoteExtension(displayName);
                 const uploadedAt = note.uploaded_at || '';
                 const takenAt = note.taken_at || '';
                 const dateAttrs = `data-uploaded-at="${uploadedAt}" data-taken-at="${takenAt}"`;
+                const hasCover = note.has_thumbnail === true || note.has_thumbnail === 'true';
+                const thumbBase = `${getBaseUrl()}/files/${note.id}/thumbnail`;
 
                 html += `
                     <div class="gallery-item note-item"
                          data-item-id="${note.id}"
                          data-item-type="item"
                          data-media-type="note"
+                         data-note-ext="${escapeHtml(ext)}"
                          data-thumb-width="280"
                          data-thumb-height="210"
                          ${dateAttrs}>
                         <div class="gallery-link" onclick="openItem('${note.id}')" style="aspect-ratio: 280 / 210;">
-                            <div class="note-placeholder">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
-                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                                    <polyline points="14 2 14 8 20 8"></polyline>
-                                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                                </svg>
-                                <span class="note-ext">${escapeHtml(ext)}</span>
-                            </div>
+                            ${hasCover ? `
+                                <div class="note-placeholder note-cover-fallback hidden">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    </svg>
+                                    <span class="note-ext">${escapeHtml(ext)}</span>
+                                </div>
+                                <img class="note-cover-img"
+                                     alt="${escapeHtml(displayName)}"
+                                     loading="lazy"
+                                     onerror="this.style.display='none'; this.previousElementSibling.classList.remove('hidden'); this.nextElementSibling.style.display='none';"
+                                     src="${thumbBase}">
+                                <span class="note-cover-badge">${escapeHtml(ext)}</span>
+                            ` : `
+                                <div class="note-placeholder">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                    </svg>
+                                    <span class="note-ext">${escapeHtml(ext)}</span>
+                                </div>
+                            `}
                         </div>
                         <div class="select-indicator" title="Select">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">

@@ -271,3 +271,15 @@ class ItemRepository(Repository):
         )
         self._commit()
         return cursor.rowcount > 0
+
+    def touch_updated_at(self, item_id: str) -> None:
+        """Bump the updated_at timestamp without changing any field.
+
+        Args:
+            item_id: Item ID
+        """
+        self._execute(
+            'UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (item_id,),
+        )
+        self._commit()

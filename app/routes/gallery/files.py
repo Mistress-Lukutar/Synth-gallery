@@ -414,6 +414,9 @@ async def get_file_thumbnail(item_id: str, request: Request):
     '''Thumbnail access endpoint. Thumbnails are small JPEGs.'''
     user = require_user(request)
 
+    # Phase 1: DB lookups only. Mass uploads trigger parallel thumbnail
+    # storms, so the pooled connection is released before any slow
+    # storage/decryption work below.
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
@@ -424,47 +427,69 @@ async def get_file_thumbnail(item_id: str, request: Request):
         if not file_record:
             raise HTTPException(status_code=404, detail='Item not found')
 
-        # Notes have no generated thumbnail.
+        # The storage key of the thumbnail file to serve. Notes have no
+        # generated thumbnail of their own; when a cover image is set, its
+        # thumbnail is served instead. Access is checked against the note
+        # itself — the cover is decoration, not protected content.
+        thumb_item_id = item_id
+        cover = None
         if file_record.get('type') == 'note':
-            raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+            from app.infrastructure.repositories import ItemTextRepository
+
+            text = ItemTextRepository(db).get_by_item_id(item_id)
+            cover_item_id = text.get('cover_item_id') if text else None
+            if not cover_item_id:
+                raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+
+            cover = item_repo.get_by_id(cover_item_id)
+            if not cover or cover.get('type') != 'media':
+                raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+            thumb_item_id = cover_item_id
 
         folder_id = file_record.get('folder_id')
         if folder_id and not perm_service.can_access(folder_id, user['id']):
             raise HTTPException(status_code=403, detail='Access denied')
 
-        # Auto-regenerate missing thumbnails.
-        if not storage.exists(item_id, 'thumbnails'):
-            from app.infrastructure.services.thumbnail import regenerate_thumbnail
-
-            if not await regenerate_thumbnail(item_id, user['id']):
-                raise HTTPException(status_code=404, detail='Thumbnail unavailable')
-
-        # Thumbnails are always generated as JPEG, regardless of the original
-        # content type (e.g. image/jxl).
-        thumbnail_content_type = 'image/jpeg'
-
-        owner_id = file_record.get('user_id')
+        # The thumbnail envelope is encrypted with the thumbnail owner's
+        # DEK — for note covers that is the cover item's owner.
+        owner_id = (
+            cover.get('user_id') if cover else file_record.get('user_id')
+        )
         dek = dek_cache.get(owner_id) if owner_id else None
         if not dek:
             raise HTTPException(
                 status_code=403, detail='Encryption key not available'
             )
-
-        data = await storage.download(item_id, 'thumbnails')
-        try:
-            decrypted_data = EncryptionService.decrypt_bytes(data, dek)
-        except EncryptionError as exc:
-            raise HTTPException(
-                status_code=500, detail=f'Thumbnail decryption failed: {exc}'
-            )
-
-        headers = {
-            'Content-Type': thumbnail_content_type,
-            'Cache-Control': 'private, max-age=3600',
-            'Content-Length': str(len(decrypted_data)),
-        }
-        return Response(
-            content=decrypted_data, media_type=thumbnail_content_type, headers=headers
-        )
     finally:
         db.close()
+
+    # Phase 2: storage and decryption with no DB connection held.
+    # Auto-regenerate missing thumbnails.
+    if not storage.exists(thumb_item_id, 'thumbnails'):
+        from app.infrastructure.services.thumbnail import regenerate_thumbnail
+
+        if not await regenerate_thumbnail(thumb_item_id, user['id']):
+            raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+
+    # Thumbnails are always generated as JPEG, regardless of the original
+    # content type (e.g. image/jxl).
+    thumbnail_content_type = 'image/jpeg'
+
+    data = await storage.download(thumb_item_id, 'thumbnails')
+    try:
+        decrypted_data = EncryptionService.decrypt_bytes(data, dek)
+    except EncryptionError as exc:
+        raise HTTPException(
+            status_code=500, detail=f'Thumbnail decryption failed: {exc}'
+        )
+
+    headers = {
+        'Content-Type': thumbnail_content_type,
+        'Cache-Control': 'private, max-age=3600',
+        'Content-Length': str(len(decrypted_data)),
+    }
+    return Response(
+        content=decrypted_data, media_type=thumbnail_content_type, headers=headers
+    )
+
+

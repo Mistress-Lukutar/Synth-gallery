@@ -55,3 +55,31 @@ class ItemTextRepository(Repository):
             (item_id,),
         )
         return self._row_to_dict(cursor.fetchone())
+
+    def update_stats(self, item_id: str, char_count: int, line_count: int) -> None:
+        """Update content counters after a note content edit.
+
+        Args:
+            item_id: Item UUID
+            char_count: New decoded character count
+            line_count: New line count
+        """
+        self._execute(
+            'UPDATE item_texts SET char_count = ?, line_count = ? '
+            'WHERE item_id = ?',
+            (char_count, line_count, item_id),
+        )
+        self._commit()
+
+    def set_cover(self, item_id: str, cover_item_id: Optional[str]) -> None:
+        """Set or clear the cover image reference for a note.
+
+        Args:
+            item_id: Note item UUID
+            cover_item_id: Media item UUID to use as cover, or None to clear
+        """
+        self._execute(
+            'UPDATE item_texts SET cover_item_id = ? WHERE item_id = ?',
+            (cover_item_id, item_id),
+        )
+        self._commit()

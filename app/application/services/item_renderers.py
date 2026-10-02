@@ -94,9 +94,11 @@ class MediaRenderer(ItemRenderer):
 class NoteRenderer(ItemRenderer):
     '''Renderer for text notes (txt/md/json/csv/yaml).
 
-    Notes have no generated thumbnail; the gallery shows an extension-icon
-    card and the lightbox renders the decrypted text with syntax
-    highlighting.
+    Notes have no generated thumbnail of their own. When a cover image is
+    set (``item_texts.cover_item_id``), the note's thumbnail endpoint
+    proxies the cover's thumbnail and the grid renders the image with a
+    format badge; otherwise the grid shows an extension-icon card and the
+    lightbox renders the decrypted text with syntax highlighting.
     '''
 
     def get_thumbnail_url(self, item: Dict) -> str:
@@ -111,6 +113,11 @@ class NoteRenderer(ItemRenderer):
         return 280, 210
 
     @staticmethod
+    def has_cover(item: Dict) -> bool:
+        '''Return True when a cover image reference is present.'''
+        return bool(item.get('cover_item_id'))
+
+    @staticmethod
     def file_extension(item: Dict) -> str:
         '''Return the display extension for the note (e.g. ``md``).'''
         original_name = item.get('original_name') or item.get('title') or ''
@@ -122,16 +129,18 @@ class NoteRenderer(ItemRenderer):
     def render_gallery_item(self, item: Dict) -> Dict:
         '''Render gallery-grid metadata.
 
-        Contract mirrors :class:`MediaRenderer` with ``has_thumbnail``
-        always False so the grid renders an extension-icon card.
+        Contract mirrors :class:`MediaRenderer`. ``has_thumbnail`` is True
+        only when a cover image is set; the thumbnail endpoint then serves
+        the cover's JPEG thumbnail.
         '''
+        has_cover = self.has_cover(item)
         return {
             'type': 'note',
             'media_type': None,
             'width': 280,
             'height': 210,
-            'has_thumbnail': False,
-            'thumbnail_url': None,
+            'has_thumbnail': has_cover,
+            'thumbnail_url': self.get_thumbnail_url(item) if has_cover else None,
             'extension': self.file_extension(item),
         }
 

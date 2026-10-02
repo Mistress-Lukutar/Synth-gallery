@@ -120,7 +120,13 @@ def get_item(item_id: str, request: Request):
         perm_service = get_permission_service(db)
         if not perm_service.can_access(item["folder_id"], user["id"]):
             raise HTTPException(403, "Access denied")
-        
+
+        # Edit permission for the note reader UI: item owner or folder editor
+        item["can_edit"] = (
+            item.get("user_id") == user["id"]
+            or perm_service.can_edit(item.get("folder_id"), user["id"])
+        )
+
         return item
     finally:
         db.close()
@@ -244,6 +250,58 @@ def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Reque
         )
         
         return result
+    finally:
+        db.close()
+
+
+class NoteContentUpdateInput(BaseModel):
+    """Input for note content update."""
+    content: str
+
+
+@router.put("/api/items/{item_id}/content")
+async def update_note_content(item_id: str, data: NoteContentUpdateInput, request: Request):
+    """Replace the stored content of a text note.
+
+    The note is re-encrypted with the owner's DEK; the user must own the
+    item or have editor rights on its folder.
+    """
+    user = require_user(request)
+
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        return await item_service.update_note_content(
+            item_id=item_id,
+            user_id=user["id"],
+            content=data.content,
+        )
+    finally:
+        db.close()
+
+
+class NoteCoverInput(BaseModel):
+    """Input for note cover update."""
+    cover_item_id: Optional[str] = None
+
+
+@router.put("/api/items/{item_id}/cover")
+def update_note_cover(item_id: str, data: NoteCoverInput, request: Request):
+    """Set or clear the cover image of a text note.
+
+    The cover references an image media item whose thumbnail represents
+    the note in the gallery grid. Passing ``null`` clears the cover.
+    """
+    user = require_user(request)
+
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        return item_service.set_note_cover(
+            item_id=item_id,
+            user_id=user["id"],
+            cover_item_id=data.cover_item_id,
+        )
     finally:
         db.close()
 

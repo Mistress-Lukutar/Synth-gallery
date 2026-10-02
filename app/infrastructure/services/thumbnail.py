@@ -202,12 +202,10 @@ async def cleanup_orphaned_uploads() -> dict:
     storage = get_storage()
     db = get_db()
 
-    items = db.execute(
-        """SELECT i.id
-            FROM items i
-            JOIN item_media im ON i.id = im.item_id
-            WHERE i.type = 'media'"""
-    ).fetchall()
+    # The storage key is the item id for every item type (media, notes,
+    # future types), so all items count as valid — not just media. Notes
+    # store their content envelope under ``uploads/{item_id}`` too.
+    items = db.execute("SELECT id FROM items").fetchall()
 
     # ``filename`` is always equal to ``item_id`` (Phase 4 will drop the
     # column); the storage key is the item id in either case.
@@ -424,6 +422,12 @@ async def get_thumbnail_stats() -> dict:
         else:
             healthy += 1
 
+    # Orphan checks must consider every item type: note content lives in
+    # ``uploads/`` under the item id just like media files.
+    all_item_ids = {
+        row['id'] for row in db.execute("SELECT id FROM items").fetchall()
+    }
+
     orphaned_thumbnails = 0
     orphaned_size = 0
     total_thumb_size = 0
@@ -433,7 +437,7 @@ async def get_thumbnail_stats() -> dict:
         except Exception:
             size = 0
         total_thumb_size += size
-        if thumb_id not in valid_item_ids:
+        if thumb_id not in all_item_ids:
             orphaned_thumbnails += 1
             orphaned_size += size
 
@@ -446,7 +450,7 @@ async def get_thumbnail_stats() -> dict:
         except Exception:
             size = 0
         uploads_total_size += size
-        if upload_id not in valid_item_ids:
+        if upload_id not in all_item_ids:
             orphaned_uploads += 1
             orphaned_uploads_size += size
 

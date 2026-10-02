@@ -28,7 +28,7 @@ from app.infrastructure.repositories import (
     ItemRepository,
     ItemTextRepository,
 )
-from app.infrastructure.services.encryption import EncryptionService
+from app.infrastructure.services.encryption import EncryptionService, dek_cache
 from app.infrastructure.services.ffmpeg import (
     extract_video_thumbnail_bytes,
     probe_media,
@@ -726,6 +726,7 @@ class ItemService:
                     'encoding': text.get('encoding'),
                     'char_count': text.get('char_count'),
                     'line_count': text.get('line_count'),
+                    'cover_item_id': text.get('cover_item_id'),
                 })
 
         return base
@@ -776,6 +777,7 @@ class ItemService:
                         'encoding': text.get('encoding'),
                         'char_count': text.get('char_count'),
                         'line_count': text.get('line_count'),
+                        'cover_item_id': text.get('cover_item_id'),
                     })
 
         return items
@@ -1092,3 +1094,128 @@ class ItemService:
                 updated = True
 
         return {'status': 'ok' if updated else 'no_changes', 'updated': updated}
+
+    def _require_edit_access(self, item: Dict, user_id: int) -> None:
+        '''Raise 403 unless the user owns the item or can edit its folder.
+
+        Args:
+            item: Item dict (needs user_id and folder_id)
+            user_id: User performing the action
+        '''
+        from app.infrastructure.repositories import PermissionRepository
+        perm_repo = PermissionRepository(self.item_repo._conn)
+
+        is_owner = item.get('user_id') == user_id
+        can_edit = perm_repo.can_edit(item.get('folder_id'), user_id)
+
+        if not is_owner and not can_edit:
+            raise HTTPException(403, 'Not owner or editor')
+
+    async def update_note_content(
+        self, item_id: str, user_id: int, content: str
+    ) -> Dict:
+        '''Replace the stored content of a text note.
+
+        The new text is validated with the same rules as an upload
+        (non-empty, no NUL bytes, size limit), re-encoded as UTF-8 and
+        written as a fresh SGE1 envelope encrypted with the note owner's
+        DEK — so the stored file stays owned by the original author even
+        when a folder editor performs the edit.
+
+        Args:
+            item_id: Note item ID
+            user_id: User performing the edit (for permission check)
+            content: New full text content
+
+        Returns:
+            Dict with status and updated counters
+        '''
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
+            raise HTTPException(404, 'Item not found')
+        if item.get('type') != ItemType.NOTE.value:
+            raise HTTPException(400, 'Not a text note')
+
+        self._require_edit_access(item, user_id)
+
+        if not content:
+            raise HTTPException(400, 'Empty content')
+        if '\x00' in content:
+            raise HTTPException(400, 'File is not a text file')
+
+        encoded = content.encode('utf-8')
+        if len(encoded) > TEXT_MAX_SIZE:
+            raise HTTPException(
+                413,
+                f'Text file exceeds the {TEXT_MAX_SIZE // (1024 * 1024)} MB limit',
+            )
+
+        # The stored envelope belongs to the note owner, not the editor.
+        owner_dek = dek_cache.get(item.get('user_id'))
+        if owner_dek is None:
+            raise HTTPException(403, 'Encryption key not available')
+
+        import io as _io
+
+        with _io.BytesIO(encoded) as plaintext_reader:
+            await self._encrypt_and_upload(item_id, plaintext_reader, owner_dek)
+
+        line_count = content.count('\n') + (
+            0 if content.endswith('\n') or not content else 1
+        )
+        self.text_repo.update_stats(item_id, len(content), line_count)
+        self.item_repo.touch_updated_at(item_id)
+
+        return {
+            'status': 'ok',
+            'char_count': len(content),
+            'line_count': line_count,
+        }
+
+    def set_note_cover(
+        self, item_id: str, user_id: int, cover_item_id: Optional[str]
+    ) -> Dict:
+        '''Set or clear the cover image of a text note.
+
+        The cover is a reference to a media item (image) whose thumbnail
+        represents the note in the gallery grid, mirroring album covers.
+
+        Args:
+            item_id: Note item ID
+            user_id: User performing the change (for permission check)
+            cover_item_id: Media item to use as cover, or None to clear
+
+        Returns:
+            Dict with status
+        '''
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
+            raise HTTPException(404, 'Item not found')
+        if item.get('type') != ItemType.NOTE.value:
+            raise HTTPException(400, 'Not a text note')
+
+        self._require_edit_access(item, user_id)
+
+        if cover_item_id is not None:
+            cover = self.item_repo.get_by_id(cover_item_id)
+            if not cover:
+                raise HTTPException(400, 'Cover item not found')
+            if cover.get('type') != ItemType.MEDIA.value:
+                raise HTTPException(400, 'Cover must be an image')
+
+            cover_media = self.media_repo.get_by_item_id(cover_item_id)
+            if not cover_media or cover_media.get('media_type') != 'image':
+                raise HTTPException(400, 'Cover must be an image')
+
+            from app.infrastructure.repositories import PermissionRepository
+            perm_repo = PermissionRepository(self.item_repo._conn)
+            has_access = (
+                cover.get('user_id') == user_id
+                or perm_repo.can_access(cover.get('folder_id'), user_id)
+            )
+            if not has_access:
+                raise HTTPException(403, 'No access to cover item')
+
+        self.text_repo.set_cover(item_id, cover_item_id)
+        self.item_repo.touch_updated_at(item_id)
+        return {'status': 'ok'}

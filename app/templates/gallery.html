@@ -15,6 +15,8 @@
 <script src="{{ base_url }}/static/vendor/easymde/easymde.min.js?v={{ app_version }}"></script>
 <!-- Marked.js for rendering -->
 <script src="{{ base_url }}/static/vendor/marked/marked.min.js?v={{ app_version }}"></script>
+<!-- DOMPurify: sanitize rendered markdown before inserting into the DOM -->
+<script src="{{ base_url }}/static/vendor/purify.min.js?v={{ app_version }}"></script>
 {% endblock %}
 
 {% block content %}
@@ -198,6 +200,24 @@
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeAddPhotosModal()">Cancel</button>
             <button class="btn" id="confirm-add-btn" onclick="confirmAddPhotos()" disabled>Add Selected</button>
+        </div>
+    </div>
+</div>
+
+<!-- Note Cover Modal -->
+<div id="note-cover-modal" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Set Note Cover</h3>
+            <button class="btn-close" onclick="NoteViewer.closeCoverPicker()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="note-cover-hint">Pick an image from this folder to represent the note in the gallery.</p>
+            <div class="available-photos-grid" id="note-cover-grid"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-danger" id="note-cover-remove" onclick="NoteViewer.removeCover()">Remove Cover</button>
+            <button class="btn btn-secondary" onclick="NoteViewer.closeCoverPicker()">Close</button>
         </div>
     </div>
 </div>
