@@ -728,6 +728,13 @@ class ItemService:
                     'line_count': text.get('line_count'),
                     'cover_item_id': text.get('cover_item_id'),
                 })
+                if text.get('cover_item_id'):
+                    cover_media = self.media_repo.get_by_item_id(
+                        text['cover_item_id']
+                    )
+                    if cover_media:
+                        base['thumb_width'] = cover_media.get('thumb_width')
+                        base['thumb_height'] = cover_media.get('thumb_height')
 
         return base
 
@@ -785,6 +792,15 @@ class ItemService:
                         'line_count': text.get('line_count'),
                         'cover_item_id': text.get('cover_item_id'),
                     })
+                    # The thumbnail endpoint serves the cover's JPEG, so the
+                    # grid card needs the cover's thumbnail dimensions
+                    if text.get('cover_item_id'):
+                        cover_media = self.media_repo.get_by_item_id(
+                            text['cover_item_id']
+                        )
+                        if cover_media:
+                            item['thumb_width'] = cover_media.get('thumb_width')
+                            item['thumb_height'] = cover_media.get('thumb_height')
 
         return items
 

@@ -489,8 +489,9 @@
         },
 
         // Update the note's grid card in place after a cover change — the
-        // card keeps its fixed aspect ratio, so the masonry layout is stable.
-        updateNoteCard(noteId, hasCover) {
+        // aspect ratio follows the cover's thumbnail dimensions (like media
+        // cards), so masonry gets a rebuild after the data attributes change.
+        updateNoteCard(noteId, hasCover, item) {
             const card = document.querySelector(`.gallery-item[data-item-id="${noteId}"]`);
             const link = card?.querySelector('.gallery-link');
             if (!card || !link) return;
@@ -498,6 +499,18 @@
             const ext = card.dataset.noteExt
                 || noteExtension(currentNote || {});
             card.dataset.noteExt = ext;
+
+            const rawWidth = (hasCover && item && item.thumb_width) ? item.thumb_width : 280;
+            const rawHeight = (hasCover && item && item.thumb_height) ? item.thumb_height : 210;
+            const clamped = window.clampGalleryAspect
+                ? window.clampGalleryAspect(rawWidth, rawHeight)
+                : { width: rawWidth, height: rawHeight };
+            const finalWidth = Math.round(clamped.width);
+            const finalHeight = Math.round(clamped.height);
+            card.dataset.thumbWidth = String(finalWidth);
+            card.dataset.thumbHeight = String(finalHeight);
+            link.style.aspectRatio = `${finalWidth} / ${finalHeight}`;
+
             const placeholderSvg = `
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -520,6 +533,8 @@
                     <div class="note-placeholder">${placeholderSvg}</div>
                 `;
             }
+
+            if (window.rebuildMasonry) window.rebuildMasonry(true);
         },
 
         async setCover(coverItemId) {
@@ -535,7 +550,10 @@
                 );
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 if (window.showToast) window.showToast('Cover updated', false);
-                this.updateNoteCard(currentNote.id, true);
+                // Re-fetch the item for the fresh cover dimensions
+                const itemResp = await fetch(`${getBaseUrl()}/api/items/${currentNote.id}`);
+                const item = itemResp.ok ? await itemResp.json() : null;
+                this.updateNoteCard(currentNote.id, true, item);
                 this.closeCoverPicker();
             } catch (err) {
                 console.error('[notes] Failed to set cover:', err);
@@ -556,7 +574,7 @@
                 );
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 if (window.showToast) window.showToast('Cover removed', false);
-                this.updateNoteCard(currentNote.id, false);
+                this.updateNoteCard(currentNote.id, false, null);
                 this.closeCoverPicker();
             } catch (err) {
                 console.error('[notes] Failed to remove cover:', err);

@@ -286,16 +286,25 @@
                 const hasCover = note.has_thumbnail === true || note.has_thumbnail === 'true';
                 const thumbBase = `${getBaseUrl()}/files/${note.id}/thumbnail`;
 
+                // With a cover, match the media-card contract: use the
+                // cover's thumbnail dimensions (clamped like media items).
+                // Without a cover keep the fixed extension-icon card.
+                const rawWidth = (hasCover && note.thumb_width) ? note.thumb_width : 280;
+                const rawHeight = (hasCover && note.thumb_height) ? note.thumb_height : 210;
+                const clamped = window.clampGalleryAspect ? window.clampGalleryAspect(rawWidth, rawHeight) : { width: rawWidth, height: rawHeight };
+                const finalWidth = Math.round(clamped.width);
+                const finalHeight = Math.round(clamped.height);
+
                 html += `
                     <div class="gallery-item note-item"
                          data-item-id="${note.id}"
                          data-item-type="item"
                          data-media-type="note"
                          data-note-ext="${escapeHtml(ext)}"
-                         data-thumb-width="280"
-                         data-thumb-height="210"
+                         data-thumb-width="${finalWidth}"
+                         data-thumb-height="${finalHeight}"
                          ${dateAttrs}>
-                        <div class="gallery-link" onclick="openItem('${note.id}')" style="aspect-ratio: 280 / 210;">
+                        <div class="gallery-link" onclick="openItem('${note.id}')" style="aspect-ratio: ${finalWidth} / ${finalHeight};">
                             ${hasCover ? `
                                 <div class="note-placeholder note-cover-fallback hidden">
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40">

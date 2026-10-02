@@ -110,6 +110,10 @@ class NoteRenderer(ItemRenderer):
         return f'{BASE_URL}/files/{item["id"]}'
 
     def get_dimensions(self, item: Dict) -> tuple:
+        '''Display dimensions: the cover's thumbnail size when a cover is
+        set (hydrated by ``ItemService``), the fixed card size otherwise.'''
+        if self.has_cover(item) and item.get('thumb_width') and item.get('thumb_height'):
+            return item['thumb_width'], item['thumb_height']
         return 280, 210
 
     @staticmethod
@@ -134,11 +138,12 @@ class NoteRenderer(ItemRenderer):
         the cover's JPEG thumbnail.
         '''
         has_cover = self.has_cover(item)
+        width, height = self.get_dimensions(item)
         return {
             'type': 'note',
             'media_type': None,
-            'width': 280,
-            'height': 210,
+            'width': width,
+            'height': height,
             'has_thumbnail': has_cover,
             'thumbnail_url': self.get_thumbnail_url(item) if has_cover else None,
             'extension': self.file_extension(item),

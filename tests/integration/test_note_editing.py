@@ -372,6 +372,12 @@ class TestCoverHiddenFromListings:
                          if i.get("id") == note["id"])
         assert note_card["has_thumbnail"] is True
 
+        # Card aspect ratio follows the cover's thumbnail dimensions
+        cover_item = authenticated_client.get(
+            f"/api/items/{photo['id']}").json()
+        assert note_card["thumb_width"] == cover_item["thumb_width"]
+        assert note_card["thumb_height"] == cover_item["thumb_height"]
+
     def test_include_covers_returns_cover_for_picker(self, authenticated_client,
                                                      test_folder, csrf_token,
                                                      test_image_bytes):
