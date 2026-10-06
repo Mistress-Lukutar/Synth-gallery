@@ -11,6 +11,11 @@ from ...infrastructure.repositories import (
     TagMutexRepository,
 )
 
+# Single source of truth for tag-name validation (duplicated historically
+# in create_tag/update_tag; new code must use this constant).
+TAG_NAME_PATTERN = r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+'
+TAG_NAME_RE = re.compile(TAG_NAME_PATTERN)
+
 
 class TagService:
     """Service for tag management operations."""
@@ -101,7 +106,7 @@ class TagService:
             Created tag dict
         """
         name = name.lower().strip().replace(' ', '_')
-        if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
+        if not name or not TAG_NAME_RE.fullmatch(name):
             raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores, hyphens, dots, brackets, etc.")
 
         # Check if tag already exists
@@ -111,6 +116,66 @@ class TagService:
 
         tag_id = self.tags.create(name, display_name or name.replace('_', ' ').title(), category_id, description)
         return self.tags.get_by_id(tag_id)
+
+    def resolve_tags(self, names: List[str], create_missing: bool = False) -> List[Dict]:
+        """Resolve tag names to tag records (with usage counts).
+
+        Each name is normalized exactly like create_tag(). Invalid names come
+        back with valid=False and are never created. When create_missing is
+        True, unknown valid names are created in the "general" category
+        (permission check is the caller's responsibility).
+
+        Args:
+            names: Raw tag names as typed by the user
+            create_missing: Create unknown valid names in category "general"
+
+        Returns:
+            List aligned with the input order:
+            {input, name, valid, exists, created, tag}
+            where tag is the highest-usage tag dict for that name or None.
+        """
+        entries = []
+        for raw in names:
+            name = (raw or '').lower().strip().replace(' ', '_')
+            valid = bool(name) and TAG_NAME_RE.fullmatch(name) is not None
+            entries.append({
+                'input': raw,
+                'name': name,
+                'valid': valid,
+                'exists': False,
+                'created': False,
+                'tag': None,
+            })
+
+        valid_names = list({e['name'] for e in entries if e['valid']})
+        found = self.tags.get_by_names(valid_names) if valid_names else {}
+
+        missing = [n for n in valid_names if n not in found]
+        created_tags: Dict[str, Dict] = {}
+        if missing and create_missing:
+            general = self.tags.get_category_by_slug('general')
+            if not general:
+                raise HTTPException(400, "General tag category not found; create it before adding new tags")
+            for name in missing:
+                # Re-check: concurrent requests may have created it already
+                existing = self.tags.get_by_name(name)
+                if existing:
+                    found[name] = existing
+                    continue
+                tag_id = self.tags.create(name, name.replace('_', ' ').title(), general['id'], '')
+                created_tags[name] = self.tags.get_by_id(tag_id)
+
+        for entry in entries:
+            if not entry['valid']:
+                continue
+            matches = found.get(entry['name']) or []
+            if not matches and entry['name'] in created_tags:
+                matches = [created_tags[entry['name']]]
+                entry['created'] = True
+            if matches:
+                entry['exists'] = True
+                entry['tag'] = max(matches, key=lambda t: t.get('usage_count') or 0)
+        return entries
 
     # ========================================================================
     # Item Tagging
@@ -353,7 +418,7 @@ class TagService:
         updates = {}
         if name is not None:
             name = name.lower().strip().replace(' ', '_')
-            if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
+            if not name or not TAG_NAME_RE.fullmatch(name):
                 raise HTTPException(400, "Invalid tag name")
             updates["name"] = name
         if display_name is not None:

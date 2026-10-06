@@ -7,7 +7,7 @@ Date:   2026-07-24
 from typing import List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.database import create_connection
 from app.dependencies import require_user, require_admin
@@ -41,6 +41,10 @@ class TagCreateInput(BaseModel):
 
 class TagAddInput(BaseModel):
     tag_id: int
+
+class TagResolveInput(BaseModel):
+    names: List[str] = Field(..., min_length=1, max_length=50)
+    create_missing: bool = False
 
 
 class TagSetInput(BaseModel):
@@ -173,6 +177,24 @@ def create_tag(data: TagCreateInput, request: Request):
             description=data.description or '',
         )
         return {"status": "ok", "tag": tag}
+    finally:
+        db.close()
+
+
+@router.post("/api/tags/resolve")
+def resolve_tags(data: TagResolveInput, request: Request):
+    """Resolve tag names to tag records with usage counts.
+
+    With create_missing=true (admin only), unknown valid names are created
+    in the "general" category.
+    """
+    user = require_user(request)
+    if data.create_missing and not user.get("is_admin"):
+        raise HTTPException(403, "Admin access required to create tags")
+    db = create_connection()
+    try:
+        service = _tag_service(db)
+        return {"results": service.resolve_tags(data.names, create_missing=data.create_missing)}
     finally:
         db.close()
 

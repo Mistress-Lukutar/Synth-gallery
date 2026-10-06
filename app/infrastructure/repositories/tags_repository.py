@@ -98,6 +98,29 @@ class TagsRepository(Repository):
         """, (name,))
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_by_names(self, names: List[str]) -> Dict[str, List[Dict]]:
+        """Batch fetch tags by exact names.
+
+        Returns:
+            Mapping of name -> list of matching tag rows (names without
+            matches are simply absent from the mapping).
+        """
+        if not names:
+            return {}
+        unique = list(dict.fromkeys(names))
+        placeholders = ','.join('?' * len(unique))
+        cursor = self._execute(f"""
+            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+                   c.name as category_name, c.color as category_color
+            FROM tags t
+            LEFT JOIN tag_categories c ON t.category_id = c.id
+            WHERE t.name IN ({placeholders})
+        """, tuple(unique))
+        result: Dict[str, List[Dict]] = {}
+        for row in cursor.fetchall():
+            result.setdefault(row["name"], []).append(dict(row))
+        return result
+
     def get_tags_by_ids(self, tag_ids: List[int]) -> List[Dict]:
         """Batch fetch tags by IDs."""
         if not tag_ids:
