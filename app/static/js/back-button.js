@@ -174,7 +174,16 @@
      */
     function handleEscape(e) {
         if (e.key !== 'Escape') return;
-        
+
+        // An inner widget may want to consume Escape itself (dismiss its own
+        // suggestions/typed text first). While such an element holds staged
+        // state it marks itself with data-escape-hold="true"; let the event
+        // reach the widget's own handler instead of closing the panel.
+        const holder = e.target && e.target.closest
+            ? e.target.closest('[data-escape-hold="true"]')
+            : null;
+        if (holder) return;
+
         // Set flag so other handlers can check
         escapePressed = true;
         

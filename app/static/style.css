@@ -18,6 +18,7 @@
     --accent: #3b82f6;
     --accent-hover: #2563eb;
     --border: #2a2a2a;
+    --danger: #ef4444;
 }
 
 body {
@@ -4580,6 +4581,64 @@ main {
 .tag-search-container input:focus {
     outline: none;
     border-color: var(--accent-color, #3b82f6);
+}
+
+/* Tag token input (item details panel): chips + free text in one field */
+.tag-input {
+    min-height: 40px;
+    max-height: 120px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    padding: 5px 12px;
+    background: var(--input-bg, #2a2a2a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 6px;
+    color: var(--text-color, #fff);
+    font-size: 14px;
+    line-height: 1.5;
+    cursor: text;
+    word-break: break-word;
+}
+
+.tag-input:focus {
+    outline: none;
+    border-color: var(--accent-color, #3b82f6);
+}
+
+.tag-input[data-empty="true"]::before {
+    content: attr(data-placeholder);
+    color: var(--text-muted, #808080);
+    pointer-events: none;
+}
+
+.tag-input-chip {
+    margin: 2px 6px 2px 0;
+    vertical-align: middle;
+    cursor: text;
+}
+
+.tag-input-chip .chip-count {
+    font-size: 11px;
+    font-weight: 400;
+    opacity: 0.65;
+}
+
+/* Unknown to DB or invalid name: prominent red outline, "?" as count */
+.tag-input-chip.invalid {
+    color: var(--danger, #ef4444);
+    border: 1px solid var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger, #ef4444) 12%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--danger, #ef4444) 45%, transparent);
+}
+
+.tag-input-chip.invalid::before {
+    background: var(--danger, #ef4444);
+}
+
+/* Chip armed by Backspace at a segment boundary, deleted by the next one */
+.tag-input-chip.selected {
+    border-color: var(--accent, #3b82f6);
+    background: color-mix(in srgb, var(--accent, #3b82f6) 18%, transparent);
 }
 
 /* Category Tabs */
