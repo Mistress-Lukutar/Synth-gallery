@@ -30,7 +30,7 @@
 
         bulkTagsBtn.addEventListener('click', openModal);
         aiTagBtn?.addEventListener('click', () => {
-            closeModal();
+            closeBulkTagsModal();
             if (window.startAITagging) window.startAITagging();
         });
 

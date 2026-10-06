@@ -8,13 +8,6 @@
     let currentItemIds = [];
 
     function init() {
-        const btn = document.getElementById('ai-tag-selected-btn');
-        if (btn) {
-            btn.addEventListener('click', () => {
-                startAITagging();
-            });
-        }
-
         // On page load, check for active jobs and reconnect SSE
         checkActiveJobs();
     }
