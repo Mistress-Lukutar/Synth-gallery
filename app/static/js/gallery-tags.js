@@ -802,7 +802,7 @@
                     <div class="search-result-main">
                         <span class="search-result-name"
                               style="--tag-color: ${tag.category_color || '#6b7280'}">
-                            ${escapeHtml(tag.display_name || tag.name)}
+                            ${escapeHtml(tag.name)}
                         </span>
                         <span class="search-result-count">${tag.count || 0}</span>
                     </div>
@@ -834,10 +834,10 @@
         const html = relatedSuggestions.map(tag => `
             <button class="related-tag-btn"
                     style="--tag-color: ${tag.category_color || '#6b7280'}"
-                    title="Add ${escapeHtml(tag.display_name || tag.name)}">
+                    title="Add ${escapeHtml(tag.name)}">
                 <span class="related-tag-add"
                       onclick="window.addTag(${tag.id})">
-                    + ${escapeHtml(tag.display_name || tag.name)}
+                    + ${escapeHtml(tag.name)}
                 </span>
                 <span class="related-tag-reject"
                       onclick="window.rejectSuggestion(${tag.id}); event.stopPropagation();"
@@ -888,7 +888,7 @@
                         ${explicit.map(tag => `
                             <span class="tag-chip tag-chip-editable"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}">
-                                ${escapeHtml(tag.display_name || tag.name)}
+                                ${escapeHtml(tag.name)}
                                 ${isEditMode ? `<button class="tag-remove"
                                         onclick="window.removeTag(${tag.id})"
                                         title="Remove">×</button>` : ''}
@@ -898,7 +898,7 @@
                             <span class="tag-chip tag-chip-implied"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}"
                                   title="Automatically added via implication">
-                                ${escapeHtml(tag.display_name || tag.name)}
+                                ${escapeHtml(tag.name)}
                             </span>
                         `).join('')}
                     </div>

@@ -19,7 +19,6 @@ templates.env.globals["app_version"] = APP_VERSION
 
 class TagUpdateInput(BaseModel):
     name: Optional[str] = None
-    display_name: Optional[str] = None
     category_id: Optional[int] = None
     description: Optional[str] = None
 
@@ -112,7 +111,6 @@ def update_tag(tag_id: int, data: TagUpdateInput, request: Request):
         tag = service.update_tag(
             tag_id,
             name=data.name,
-            display_name=data.display_name,
             category_id=data.category_id,
             description=data.description
         )

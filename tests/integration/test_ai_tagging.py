@@ -42,7 +42,7 @@ class TestAITaggingJobs:
         db_connection.commit()
         tag_ids = []
         for name in ("fox", "wolf", "animal"):
-            tid = repo.create(name, name.title(), 1)
+            tid = repo.create(name, 1)
             tag_ids.append(tid)
         return tag_ids
 
@@ -346,7 +346,6 @@ class TestAITaggingJobs:
         tag = data["tags"][0]
         assert "id" in tag
         assert "name" in tag
-        assert "display_name" in tag
         assert "category" in tag
 
     def test_submit_results_by_tag_names(

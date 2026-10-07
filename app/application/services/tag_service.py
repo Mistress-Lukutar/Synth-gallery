@@ -93,12 +93,11 @@ class TagService:
         """Get tag by ID."""
         return self.tags.get_by_id(tag_id)
 
-    def create_tag(self, name: str, display_name: str, category_id: int, description: str = '') -> Dict:
+    def create_tag(self, name: str, category_id: int, description: str = '') -> Dict:
         """Create a new flat tag.
 
         Args:
             name: Tag name (lowercase, underscore)
-            display_name: Display name
             category_id: Category ID
             description: Markdown description
 
@@ -114,7 +113,7 @@ class TagService:
         if existing:
             raise HTTPException(400, "Tag already exists")
 
-        tag_id = self.tags.create(name, display_name or name.replace('_', ' ').title(), category_id, description)
+        tag_id = self.tags.create(name, category_id, description)
         return self.tags.get_by_id(tag_id)
 
     def resolve_tags(self, names: List[str], create_missing: bool = False) -> List[Dict]:
@@ -162,7 +161,7 @@ class TagService:
                 if existing:
                     found[name] = existing
                     continue
-                tag_id = self.tags.create(name, name.replace('_', ' ').title(), general['id'], '')
+                tag_id = self.tags.create(name, general['id'], '')
                 created_tags[name] = self.tags.get_by_id(tag_id)
 
         for entry in entries:
@@ -407,7 +406,6 @@ class TagService:
         return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     def update_tag(self, tag_id: int, name: Optional[str] = None,
-                   display_name: Optional[str] = None,
                    category_id: Optional[int] = None,
                    description: Optional[str] = None) -> Dict:
         """Update tag fields."""
@@ -421,8 +419,6 @@ class TagService:
             if not name or not TAG_NAME_RE.fullmatch(name):
                 raise HTTPException(400, "Invalid tag name")
             updates["name"] = name
-        if display_name is not None:
-            updates["display_name"] = display_name
         if category_id is not None:
             updates["category_id"] = category_id
         if description is not None:

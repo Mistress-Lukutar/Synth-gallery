@@ -78,7 +78,7 @@ class TagsRepository(Repository):
     def get_by_id(self, tag_id: int) -> Optional[Dict]:
         """Get tag by ID with category info."""
         cursor = self._execute("""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, c.slug as category_slug
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -90,7 +90,7 @@ class TagsRepository(Repository):
     def get_by_name(self, name: str) -> List[Dict]:
         """Get tags by exact name."""
         cursor = self._execute("""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -110,7 +110,7 @@ class TagsRepository(Repository):
         unique = list(dict.fromkeys(names))
         placeholders = ','.join('?' * len(unique))
         cursor = self._execute(f"""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -127,7 +127,7 @@ class TagsRepository(Repository):
             return []
         placeholders = ','.join('?' * len(tag_ids))
         cursor = self._execute(f"""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -144,8 +144,8 @@ class TagsRepository(Repository):
         conditions = []
         params = []
         if query:
-            conditions.append("(t.name LIKE ? OR t.display_name LIKE ?)")
-            params.extend([f"%{query}%", f"%{query}%"])
+            conditions.append("t.name LIKE ?")
+            params.append(f"%{query}%")
         if category_id is not None:
             conditions.append("t.category_id = ?")
             params.append(category_id)
@@ -157,7 +157,7 @@ class TagsRepository(Repository):
             params.extend([limit, offset])
 
         sql = f"""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
@@ -173,8 +173,8 @@ class TagsRepository(Repository):
         conditions = []
         params = []
         if query:
-            conditions.append("(name LIKE ? OR display_name LIKE ?)")
-            params.extend([f"%{query}%", f"%{query}%"])
+            conditions.append("name LIKE ?")
+            params.append(f"%{query}%")
         if category_id is not None:
             conditions.append("category_id = ?")
             params.append(category_id)
@@ -186,7 +186,7 @@ class TagsRepository(Repository):
 
     def update_tag(self, tag_id: int, **fields) -> bool:
         """Update tag fields. Returns True if row updated."""
-        allowed = {"name", "display_name", "category_id", "description"}
+        allowed = {"name", "category_id", "description"}
         updates = {k: v for k, v in fields.items() if k in allowed and v is not None}
         if not updates:
             return False
@@ -283,12 +283,11 @@ class TagsRepository(Repository):
             (target_tag_id, target_tag_id),
         )
 
-    def create(self, name: str, display_name: str, category_id: int, description: str = '') -> int:
+    def create(self, name: str, category_id: int, description: str = '') -> int:
         """Create a new flat tag.
 
         Args:
             name: Tag name (lowercase, underscore)
-            display_name: Display name for UI
             category_id: Category ID
             description: Markdown description
 
@@ -296,9 +295,9 @@ class TagsRepository(Repository):
             New tag ID
         """
         cursor = self._execute("""
-            INSERT INTO tags (name, display_name, category_id, usage_count, description)
-            VALUES (?, ?, ?, 0, ?)
-        """, (name, display_name or name.replace('_', ' ').title(), category_id, description))
+            INSERT INTO tags (name, category_id, usage_count, description)
+            VALUES (?, ?, 0, ?)
+        """, (name, category_id, description))
         self._commit()
         return cursor.lastrowid
 
@@ -307,7 +306,7 @@ class TagsRepository(Repository):
     # ========================================================================
 
     def search(self, query: str, limit: int = 10) -> List[Dict]:
-        """Search tags by name or display_name.
+        """Search tags by name.
 
         Results are ordered by relevance:
         1. Exact name match
@@ -316,11 +315,11 @@ class TagsRepository(Repository):
         Within each group tags are sorted alphabetically by name.
         """
         cursor = self._execute("""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, t.usage_count as count
             FROM tags t
             LEFT JOIN tag_categories c ON t.category_id = c.id
-            WHERE t.name LIKE ? OR t.display_name LIKE ?
+            WHERE t.name LIKE ?
             ORDER BY
                 CASE
                     WHEN t.name = ? THEN 0
@@ -330,7 +329,7 @@ class TagsRepository(Repository):
                 t.usage_count DESC,
                 t.name
             LIMIT ?
-        """, (f"%{query}%", f"%{query}%", query, f"{query}%", limit))
+        """, (f"%{query}%", query, f"{query}%", limit))
         return [dict(row) for row in cursor.fetchall()]
 
     # ========================================================================
@@ -340,7 +339,7 @@ class TagsRepository(Repository):
     def get_item_tags_explicit(self, item_id: str) -> List[Dict]:
         """Get only explicit (user-added) tags for an item."""
         cursor = self._execute("""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
@@ -353,7 +352,7 @@ class TagsRepository(Repository):
     def get_item_tags_implied(self, item_id: str) -> List[Dict]:
         """Get only implied (auto-resolved) tags for an item."""
         cursor = self._execute("""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
@@ -366,7 +365,7 @@ class TagsRepository(Repository):
     def get_item_tags_all(self, item_id: str) -> List[Dict]:
         """Get all tags for item (explicit + implied) with flag."""
         cursor = self._execute("""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, it.is_explicit, c.sort_order as category_order
             FROM item_tags it
             JOIN tags t ON it.tag_id = t.id
@@ -433,7 +432,7 @@ class TagsRepository(Repository):
 
         placeholders = ','.join('?' * len(item_ids))
         cursor = self._execute(f"""
-            SELECT t.id, t.name, t.display_name, t.category_id, t.usage_count, t.description, t.created_at,
+            SELECT t.id, t.name, t.category_id, t.usage_count, t.description, t.created_at,
                    c.name as category_name, c.color as category_color, c.sort_order as category_order,
                    COUNT(DISTINCT it.item_id) as coverage
             FROM tags t

@@ -112,7 +112,7 @@ function renderTagList() {
             const activeClass = tag.id === selectedTagId ? 'active' : '';
             return `
             <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})" style="--tag-color:${cat.color||'#888'}">
-                <span class="tag-name">${escapeHtml(tag.display_name || tag.name)}</span>
+                <span class="tag-name">${escapeHtml(tag.name)}</span>
                 <span class="tag-meta">${tag.usage_count || 0}</span>
             </div>`;
         }).join('');
@@ -182,7 +182,6 @@ function renderDetail() {
             <h3>Properties</h3>
             <div class="inline-form">
                 <input type="text" id="edit-name" value="${escapeHtml(tag.name)}" placeholder="Name">
-                <input type="text" id="edit-display" value="${escapeHtml(tag.display_name || '')}" placeholder="Display name">
                 <select id="edit-category">
                     ${window.__categories?.map(c => `<option value="${c.id}" ${c.id === tag.category_id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('') || ''}
                 </select>
@@ -215,7 +214,7 @@ function renderDetail() {
 
     const impliesItems = implies.map(t => `
         <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
-            <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
+            <span class="tag-name">${escapeHtml(t.name)}</span>
             ${isAdmin ? `<span class="tag-actions" onclick="event.stopPropagation()">
                 <button title="Remove implication" onclick="removeImplication(${tag.id}, ${t.id})">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -240,7 +239,7 @@ function renderDetail() {
 
     panel.innerHTML = `
         <div class="detail-header">
-            <h2>${escapeHtml(tag.display_name || tag.name)}</h2>
+            <h2>${escapeHtml(tag.name)}</h2>
             <span class="tag-chip" style="--tag-color:${color}">${escapeHtml(tag.category_name || 'General')}</span>
         </div>
 
@@ -260,7 +259,7 @@ function renderDetail() {
             <div class="impl-list">
                 ${impliedBy.map(t => `
                     <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
-                        <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
+                        <span class="tag-name">${escapeHtml(t.name)}</span>
                     </div>
                 `).join('') || '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0;">No incoming implications</p>'}
             </div>
@@ -270,7 +269,7 @@ function renderDetail() {
             <h3>Related Tags</h3>
             <div class="related-list">
                 ${related.map(t => `
-                    <span class="related-chip" style="cursor:pointer;" onclick="selectTag(${t.id})">${escapeHtml(t.display_name || t.name)}</span>
+                    <span class="related-chip" style="cursor:pointer;" onclick="selectTag(${t.id})">${escapeHtml(t.name)}</span>
                 `).join('') || '<span style="font-size:0.8125rem;color:var(--text-muted);">No data yet</span>'}
             </div>
         </div>
@@ -299,13 +298,12 @@ function cancelEdit() {
 
 async function saveEdit(tagId) {
     const name = document.getElementById('edit-name').value.trim();
-    const displayName = document.getElementById('edit-display').value.trim();
     const categoryId = parseInt(document.getElementById('edit-category').value, 10);
 
     try {
         const resp = await csrfFetch(`/api/tags/${tagId}`, {
             method: 'PUT',
-            body: JSON.stringify({ name, display_name: displayName || null, category_id: categoryId })
+            body: JSON.stringify({ name, category_id: categoryId })
         });
         if (!resp.ok) {
             const err = await resp.json();
@@ -334,7 +332,7 @@ async function deleteTag(tagId) {
         }
         return null;
     })();
-    const name = tag ? (tag.display_name || tag.name) : 'this tag';
+    const name = tag ? tag.name : 'this tag';
     if (!confirm(`Delete "${name}"?\n\nThis will remove the tag from all items.`)) return;
 
     try {
@@ -412,9 +410,9 @@ async function searchRemapTarget(query) {
         }
         container.innerHTML = data.map(t => `
             <button class="btn btn-small btn-secondary" style="margin:0.125rem;"
-                onclick="selectRemapTarget(${t.id}, '${escapeHtml(t.display_name || t.name)}')">
+                onclick="selectRemapTarget(${t.id}, '${escapeHtml(t.name)}')">
                 <span style="color:${t.category_color || '#888'}">●</span>
-                ${escapeHtml(t.display_name || t.name)}
+                ${escapeHtml(t.name)}
             </button>
         `).join('');
     } catch {
@@ -425,7 +423,7 @@ async function searchRemapTarget(query) {
 async function confirmRemap() {
     if (!remapTagId || !remapTargetId) return;
     const tag = tagDetail?.tag;
-    const name = tag ? (tag.display_name || tag.name) : 'this tag';
+    const name = tag ? tag.name : 'this tag';
     const targetName = document.getElementById('remap-tag-selected-name').textContent;
     const isReplace = remapMode === 'replace';
     const confirmMsg = isReplace
@@ -640,7 +638,7 @@ async function searchForImplication(query) {
             <button class="btn btn-small btn-secondary" style="margin:0.125rem;"
                 onclick="pickImplication(${t.id})">
                 <span style="color:${t.category_color||'#888'}">●</span>
-                ${escapeHtml(t.display_name || t.name)}
+                ${escapeHtml(t.name)}
             </button>
         `).join('');
     } catch {
@@ -662,8 +660,7 @@ async function addImplication(tagId, impliesTagId) {
         const name = input?.value.trim();
         if (!name) return;
         const match = implicationSearchResults.find(t =>
-            t.name.toLowerCase() === name.toLowerCase() ||
-            (t.display_name && t.display_name.toLowerCase() === name.toLowerCase())
+            t.name.toLowerCase() === name.toLowerCase()
         );
         if (match) {
             impliesTagId = match.id;
@@ -714,12 +711,10 @@ function openModal() {
 function closeModal() {
     document.getElementById('new-tag-modal').classList.remove('open');
     document.getElementById('new-tag-name').value = '';
-    document.getElementById('new-tag-display').value = '';
 }
 
 async function createTag() {
     const name = document.getElementById('new-tag-name').value.trim();
-    const displayName = document.getElementById('new-tag-display').value.trim();
     const categoryId = parseInt(document.getElementById('new-tag-category').value, 10);
 
     if (!name) {
@@ -730,7 +725,7 @@ async function createTag() {
     try {
         const resp = await csrfFetch('/api/tags', {
             method: 'POST',
-            body: JSON.stringify({ name, display_name: displayName || null, category_id: categoryId })
+            body: JSON.stringify({ name, category_id: categoryId })
         });
         if (!resp.ok) {
             const err = await resp.json();

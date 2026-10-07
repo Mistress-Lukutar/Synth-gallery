@@ -425,9 +425,7 @@ class TestCoverHiddenFromListings:
         )
         db_connection.commit()
         from app.infrastructure.repositories import TagsRepository
-        tag_id = TagsRepository(db_connection).create(
-            "covertag", "CoverTag", 1
-        )
+        tag_id = TagsRepository(db_connection).create("covertag", 1)
 
         resp = authenticated_client.post(
             f"/api/items/{photo['id']}/tags",

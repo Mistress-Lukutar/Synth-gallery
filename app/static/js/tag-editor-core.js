@@ -42,7 +42,7 @@
                 <div class="search-result-main">
                     <span class="search-result-name"
                           style="--tag-color: ${tag.category_color || '#6b7280'}">
-                        ${escapeHtml(tag.display_name || tag.name)}
+                        ${escapeHtml(tag.name)}
                     </span>
                     <span class="search-result-count">${tag.count || 0}</span>
                 </div>
@@ -106,7 +106,7 @@
                             <span class="tag-chip ${tag.is_partial ? 'tag-chip-implied' : 'tag-chip-editable'}"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}"
                                   ${tag.is_partial ? 'title="Present on some selected items"' : ''}>
-                                ${escapeHtml(tag.display_name || tag.name)}
+                                ${escapeHtml(tag.name)}
                                 ${removable ? `<button class="tag-remove"
                                         onclick="window._tagEditorRemove && window._tagEditorRemove(${tag.id})"
                                         title="Remove">×</button>` : ''}

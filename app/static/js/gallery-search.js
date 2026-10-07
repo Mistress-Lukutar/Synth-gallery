@@ -207,7 +207,7 @@
             suggestions.innerHTML = matches.map(t => `
                 <div class="suggestion-item" data-tag="${escapeHtml(t.name)}" data-negative="${isNegative}" style="--tag-color: ${t.category_color || '#6b7280'}">
                     <span class="tag-dot" style="background-color: ${t.category_color || '#6b7280'}"></span>
-                    <span>${escapeHtml(t.display_name || t.name)}</span>
+                    <span>${escapeHtml(t.name)}</span>
                     <span class="tag-count">${t.count || 0}</span>
                 </div>
             `).join('');

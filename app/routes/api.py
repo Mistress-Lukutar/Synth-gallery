@@ -300,7 +300,6 @@ def get_ai_tags(request: Request):
             {
                 "id": t["id"],
                 "name": t["name"],
-                "display_name": t.get("display_name"),
                 "description": t.get("description"),
                 "category": t.get("category_name"),
             }

@@ -34,7 +34,6 @@ router = APIRouter(tags=["tags"])
 
 class TagCreateInput(BaseModel):
     name: str
-    display_name: Optional[str] = None
     category_id: int
     description: Optional[str] = ''
 
@@ -172,7 +171,6 @@ def create_tag(data: TagCreateInput, request: Request):
         service = _tag_service(db)
         tag = service.create_tag(
             name=data.name,
-            display_name=data.display_name,
             category_id=data.category_id,
             description=data.description or '',
         )

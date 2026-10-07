@@ -126,7 +126,7 @@ class TagCooccurrenceRepository(Repository):
         exclude_ids.append(tag_id)
         placeholders = ','.join('?' * len(exclude_ids))
         cursor = self._execute(f"""
-            SELECT t.id, t.name, t.display_name, t.category_id, c.name as category_name,
+            SELECT t.id, t.name, t.category_id, c.name as category_name,
                    c.color as category_color, tc.count
             FROM (
                 SELECT tag_b_id as related_id, count FROM tag_cooccurrence
@@ -167,7 +167,7 @@ class TagCooccurrenceRepository(Repository):
         placeholders_sel = ','.join('?' * len(selected_tag_ids))
         placeholders_exc = ','.join('?' * len(exclude_ids))
         cursor = self._execute(f"""
-            SELECT t.id, t.name, t.display_name, t.category_id, c.name as category_name,
+            SELECT t.id, t.name, t.category_id, c.name as category_name,
                    c.color as category_color, SUM(tc.count) as score
             FROM (
                 SELECT tag_b_id as related_id, count FROM tag_cooccurrence

@@ -44,7 +44,7 @@ class TestTagResolve:
     @pytest.fixture(scope="function")
     def fox_tag(self, db_connection, general_category) -> int:
         from app.infrastructure.repositories import TagsRepository
-        return TagsRepository(db_connection).create("fox", "Fox", 1)
+        return TagsRepository(db_connection).create("fox", 1)
 
     def test_requires_auth(self, client: TestClient):
         resp = client.post("/api/tags/resolve", json={"names": ["fox"]})
