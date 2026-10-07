@@ -21,14 +21,14 @@ function placeCaretIn(textNode, offset) {
 }
 
 describe('normalizeTagName', () => {
-    test('mirrors backend normalization: lower, strip, spaces to underscores', () => {
-        expect(normalizeTagName('Black White')).toBe('black_white');
+    test('mirrors backend normalization: lower, strip', () => {
+        expect(normalizeTagName('Fox')).toBe('fox');
         expect(normalizeTagName('  Fox ')).toBe('fox');
         expect(normalizeTagName('Fox.Night_1')).toBe('fox.night_1');
     });
 
-    test('replaces every space, like Python str.replace', () => {
-        expect(normalizeTagName('a b  c')).toBe('a_b__c');
+    test('commas stay part of the name', () => {
+        expect(normalizeTagName('a,b')).toBe('a,b');
     });
 
     test('tolerates null/undefined input', () => {
@@ -54,12 +54,12 @@ describe('isValidTagName', () => {
 });
 
 describe('splitTagTokens', () => {
-    test('splits on commas and trims', () => {
-        expect(splitTagTokens('fox, wolf ,night')).toEqual(['fox', 'wolf', 'night']);
+    test('splits on whitespace and trims', () => {
+        expect(splitTagTokens('fox wolf  night')).toEqual(['fox', 'wolf', 'night']);
     });
 
     test('drops empty parts', () => {
-        expect(splitTagTokens(',,fox,,')).toEqual(['fox']);
+        expect(splitTagTokens('   fox   ')).toEqual(['fox']);
         expect(splitTagTokens('   ')).toEqual([]);
         expect(splitTagTokens('')).toEqual([]);
         expect(splitTagTokens(null)).toEqual([]);
@@ -68,18 +68,22 @@ describe('splitTagTokens', () => {
     test('splits on newlines too (paste payloads)', () => {
         expect(splitTagTokens('fox\nwolf\n night')).toEqual(['fox', 'wolf', 'night']);
     });
+
+    test('keeps commas inside names (comma is not a delimiter)', () => {
+        expect(splitTagTokens('a,b c,d')).toEqual(['a,b', 'c,d']);
+    });
 });
 
 describe('endsWithSeparator', () => {
-    test('true for trailing comma or newline, allowing spaces after', () => {
-        expect(endsWithSeparator('fox,')).toBe(true);
-        expect(endsWithSeparator('fox, ')).toBe(true);
+    test('true for trailing whitespace (space or newline)', () => {
+        expect(endsWithSeparator('fox ')).toBe(true);
+        expect(endsWithSeparator('fox  ')).toBe(true);
         expect(endsWithSeparator('fox\n')).toBe(true);
     });
 
     test('false without a trailing separator', () => {
         expect(endsWithSeparator('fox')).toBe(false);
-        expect(endsWithSeparator('fo,x')).toBe(false);
+        expect(endsWithSeparator('fo x')).toBe(false);
         expect(endsWithSeparator('')).toBe(false);
     });
 });
@@ -190,8 +194,8 @@ describe('widget: picking a suggestion', () => {
     });
 });
 
-describe('widget: comma-committed chips resolve to known', () => {
-    test('typing "female, forest, grass" commits clean names and resolves them', async () => {
+describe('widget: space-committed chips resolve to known', () => {
+    test('typing "female forest grass" commits clean names and resolves them', async () => {
         jest.useFakeTimers();
         const container = document.createElement('div');
         document.body.appendChild(container);
@@ -210,12 +214,12 @@ describe('widget: comma-committed chips resolve to known', () => {
             },
         });
 
-        const fullText = 'female, forest, grass';
-        // type "female, forest, grass" one keystroke at a time; each comma
+        const fullText = 'female forest grass';
+        // type "female forest grass" one keystroke at a time; each space
         // segment accumulates in its own text node like the browser does
-        const segments = fullText.split(',');
+        const segments = fullText.split(' ');
         segments.forEach((seg, idx) => {
-            const typed = idx < segments.length - 1 ? seg + ',' : seg;
+            const typed = idx < segments.length - 1 ? seg + ' ' : seg;
             const textNode = document.createTextNode('');
             container.appendChild(textNode);
             for (let i = 1; i <= typed.length; i++) {
@@ -227,15 +231,15 @@ describe('widget: comma-committed chips resolve to known', () => {
         await jest.advanceTimersByTimeAsync(200);
 
         const chips = [...container.querySelectorAll('.tag-input-chip')];
-        // the last segment has no trailing comma, so it stays as typed text
+        // the last segment has no trailing space, so it stays as typed text
         // until Enter commits it
         expect(chips.map(c => c.getAttribute('data-name'))).toEqual(['female', 'forest']);
         chips.forEach(c => {
-            expect(c.getAttribute('data-name')).not.toContain(',');
+            expect(c.getAttribute('data-name')).not.toContain(' ');
             expect(c.getAttribute('data-state')).toBe('known');
         });
         expect(container.textContent).toContain('grass');
-        // the resolve request received the split names, not one comma string
+        // the resolve request received the split names, not one string
         expect(resolvedWith[resolvedWith.length - 1]).toEqual(['female', 'forest']);
 
         jest.useRealTimers();

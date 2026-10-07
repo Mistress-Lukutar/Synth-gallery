@@ -2,13 +2,14 @@
  * Tag Token Input
  *
  * Multi-tag entry widget used by the item-details panel: a contenteditable
- * field mixing tag chips with free text. Tokens are committed by comma,
+ * field mixing tag chips with free text. Tokens are committed by space,
  * suggestion click or Enter; Enter on an empty field confirms the whole
  * input (options.onConfirm). Tags unknown to the DB render with a red
  * outline and a "?" count until the host resolves or creates them.
  *
- * The comma is ALWAYS a delimiter in this widget, even though the backend
- * tag-name grammar allows commas inside names.
+ * Whitespace is ALWAYS a delimiter in this widget: the stored tag-name
+ * grammar forbids spaces, so typed whitespace always separates two tags.
+ * Commas are NOT delimiters — the backend grammar allows commas in names.
  */
 (function() {
     // --- Pure helpers (exported for unit tests) ---------------------------
@@ -16,27 +17,30 @@
     // Mirror of the backend tag-name grammar (tag_service.TAG_NAME_PATTERN).
     const TAG_NAME_RE = /^[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+$/;
 
-    // Mirror of backend normalization: lower, strip, spaces -> underscores.
+    // Mirror of backend normalization: lower, strip. Spaces cannot occur:
+    // the token splitter consumes them before this runs.
     function normalizeTagName(raw) {
-        return String(raw == null ? '' : raw).toLowerCase().trim().replace(/ /g, '_');
+        return String(raw == null ? '' : raw).toLowerCase().trim();
     }
 
     function isValidTagName(name) {
         return typeof name === 'string' && name.length > 0 && TAG_NAME_RE.test(name);
     }
 
-    // Split raw text into tag tokens on commas and newlines.
+    // Split raw text into tag tokens on any whitespace (spaces and
+    // newlines). A space can never be part of a stored tag name, so it
+    // always means "two tags".
     function splitTagTokens(text) {
         return String(text == null ? '' : text)
-            .split(/[,\n]/)
+            .split(/\s+/)
             .map(t => t.trim())
             .filter(t => t.length > 0);
     }
 
-    // True when raw ends with a separator (",", ", ", "\n"...) meaning the
-    // last token is finished too.
+    // True when raw ends with a separator (trailing whitespace) meaning
+    // the last token is finished too.
     function endsWithSeparator(text) {
-        return /[,\n]\s*$/.test(String(text == null ? '' : text));
+        return /\s$/.test(String(text == null ? '' : text));
     }
 
     // Read ordered chip state from a token-input container element.
@@ -189,11 +193,11 @@
 
         // -- committing tokens -------------------------------------------------
 
-        // Split the caret's text node on commas: everything before the last
-        // (still being typed) token becomes chips.
+        // Split the caret's text node on whitespace: everything before the
+        // last (still being typed) token becomes chips.
         function commitTokensFromTextNode(textNode) {
             const raw = textNode.textContent;
-            if (raw.indexOf(',') === -1 && raw.indexOf('\n') === -1) return false;
+            if (!/\s/.test(raw)) return false;
             const tokens = splitTagTokens(raw);
             const all = endsWithSeparator(raw);
             const toCommit = all ? tokens : tokens.slice(0, -1);
@@ -465,7 +469,7 @@
             e.preventDefault();
             const text = (e.clipboardData || window.clipboardData).getData('text') || '';
             // plain-text insert keeps the payload in one text node so the
-            // comma splitter in onInput sees all of it
+            // whitespace splitter in onInput sees all of it
             document.execCommand('insertText', false, text);
         }
 
