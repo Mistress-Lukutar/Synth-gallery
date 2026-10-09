@@ -8,10 +8,48 @@ Date:   2026-07-24
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 from app.infrastructure.repositories.base import Repository
+
+
+@dataclass(frozen=True)
+class AuditCheck:
+    '''One library-audit problem type.
+
+    ``sql`` is a predicate over ``items i LEFT JOIN item_media im``. The
+    same predicate filters the audit query and is selected as a 0/1 flag
+    column, so the WHERE clause and the per-row problem flags cannot
+    diverge.
+    '''
+
+    sql: str
+    description: str
+
+
+# Problem types for ItemRepository.get_audit_problems / the AI audit tool.
+AUDIT_CHECKS: dict[str, AuditCheck] = {
+    'no_tags': AuditCheck(
+        sql='''NOT EXISTS (
+                   SELECT 1 FROM item_tags t
+                   WHERE t.item_id = i.id AND t.is_explicit = 1)''',
+        description='item has no explicit tags',
+    ),
+    'untitled': AuditCheck(
+        sql="(i.title IS NULL OR TRIM(i.title) = '')",
+        description='item has no title',
+    ),
+    'no_thumbnail': AuditCheck(
+        sql="(i.type = 'media' AND im.thumb_width IS NULL)",
+        description='media item has no thumbnail',
+    ),
+    'no_dimensions': AuditCheck(
+        sql="(i.type = 'media' AND (im.width IS NULL OR im.width = 0))",
+        description='media item has no width/height (metadata probe failed)',
+    ),
+}
 
 
 class ItemRepository(Repository):
@@ -259,6 +297,48 @@ class ItemRepository(Repository):
                ORDER BY {order_by}''',
             tuple(params),
         )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_audit_problems(
+        self,
+        user_id: int,
+        checks: list[str],
+        folder_ids: Optional[list[str]] = None,
+    ) -> list[dict]:
+        '''Return the user's items matching any audit check.
+
+        Each row carries base item fields plus one 0/1 flag column per
+        requested check id (the same predicates as the filter), so callers
+        can derive the exact problem list per item without re-querying.
+
+        Args:
+            user_id: Owner ID
+            checks: Audit check ids (keys of AUDIT_CHECKS)
+            folder_ids: Optional folder scope (e.g. a subtree)
+
+        Returns:
+            List of dicts ordered by uploaded_at DESC (id DESC tiebreaker)
+        '''
+        flag_cols = ', '.join(
+            f'CASE WHEN {AUDIT_CHECKS[c].sql} THEN 1 ELSE 0 END AS {c}'
+            for c in checks
+        )
+        where_checks = ' OR '.join(
+            f'({AUDIT_CHECKS[c].sql})' for c in checks
+        )
+        sql = f'''SELECT
+                i.id, i.title, i.type, i.folder_id, i.uploaded_at,
+                im.media_type, {flag_cols}
+               FROM items i
+               LEFT JOIN item_media im ON i.id = im.item_id
+               WHERE i.user_id = ? AND ({where_checks})'''
+        params: list = [user_id]
+        if folder_ids is not None:
+            placeholders = ', '.join('?' * len(folder_ids))
+            sql += f' AND i.folder_id IN ({placeholders})'
+            params.extend(folder_ids)
+        sql += ' ORDER BY i.uploaded_at DESC, i.id DESC'
+        cursor = self._execute(sql, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
     def update_metadata(

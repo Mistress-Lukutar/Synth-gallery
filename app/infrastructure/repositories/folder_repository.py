@@ -96,7 +96,7 @@ class FolderRepository(Repository):
         Returns:
             List of item IDs (used as filenames) that should be deleted from storage
         '''
-        folder_ids = self._get_subtree_ids(folder_id)
+        folder_ids = self.get_subtree_ids(folder_id)
 
         if not folder_ids:
             return []
@@ -247,7 +247,7 @@ class FolderRepository(Repository):
         )
         return cursor.fetchone() is not None
 
-    def _get_subtree_ids(self, folder_id: str) -> list[str]:
+    def get_subtree_ids(self, folder_id: str) -> list[str]:
         '''Get all folder IDs in subtree using recursive CTE.'''
         cursor = self._execute(
             '''WITH RECURSIVE folder_tree AS (

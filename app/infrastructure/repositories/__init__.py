@@ -17,7 +17,7 @@ from .folder_repository import FolderRepository
 from .permission_repository import PermissionRepository
 
 from .webauthn_repository import WebAuthnRepository
-from .item_repository import ItemRepository
+from .item_repository import AUDIT_CHECKS, ItemRepository
 from .item_media_repository import ItemMediaRepository
 from .item_text_repository import ItemTextRepository
 from .album_repository import AlbumRepository
@@ -39,6 +39,7 @@ __all__ = [
     "PermissionRepository",
     "WebAuthnRepository",
     "ItemRepository",
+    "AUDIT_CHECKS",
     "ItemMediaRepository",
     "ItemTextRepository",
     "AlbumRepository",

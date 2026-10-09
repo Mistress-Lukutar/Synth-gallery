@@ -268,6 +268,9 @@ class AiChatService:
             "yourself.\n"
             "- When tagging images in bulk, work in batches of at most 8 "
             "images per view_images call.\n"
+            "- For 'find all items ...' requests (missing tags, untitled, "
+            "broken metadata), call audit_library once instead of "
+            "enumerating items with get_item.\n"
             "- Never invent item ids; obtain them from tools first.\n"
             "- Reply in the user's language. Be concise."
         )

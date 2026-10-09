@@ -14,6 +14,7 @@ from fastapi import HTTPException
 
 from ....database import create_connection
 from ....infrastructure.repositories import (
+    AUDIT_CHECKS,
     AlbumRepository,
     FolderRepository,
     ItemMediaRepository,
@@ -385,6 +386,80 @@ def _tool_get_tag_suggestions(args: dict, ctx: ToolContext) -> str:
             for s in (suggestions or [])
         ]
     }, ensure_ascii=False)
+
+
+def _tool_audit_library(args: dict, ctx: ToolContext) -> str:
+    requested = args.get("checks")
+    if requested is None:
+        checks = list(AUDIT_CHECKS)
+    else:
+        if not isinstance(requested, list) or not requested:
+            raise ToolError("checks must be a non-empty list of check ids")
+        checks = []
+        for raw in requested:
+            name = str(raw)
+            if name not in AUDIT_CHECKS:
+                raise ToolError(
+                    f"unknown check '{name}'; valid checks: "
+                    + ", ".join(AUDIT_CHECKS)
+                )
+            if name not in checks:
+                checks.append(name)
+
+    folder_id = args.get("folder_id") or None
+    limit = _clamp_int(args.get("limit"), 1, 100, 50)
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+
+    db = create_connection()
+    try:
+        folder_ids = None
+        if folder_id is not None:
+            folder_repo = FolderRepository(db)
+            folder = folder_repo.get_by_id(str(folder_id))
+            if folder is None or folder.get("user_id") != ctx.user_id:
+                raise ToolError(f"folder not found: {folder_id}")
+            folder_ids = folder_repo.get_subtree_ids(folder["id"])
+        rows = ItemRepository(db).get_audit_problems(
+            ctx.user_id, checks, folder_ids=folder_ids
+        )
+    finally:
+        db.close()
+
+    summary = {name: 0 for name in checks}
+    for row in rows:
+        for name in checks:
+            if row[name]:
+                summary[name] += 1
+
+    result = {
+        "checks": checks,
+        "check_meanings": {
+            name: AUDIT_CHECKS[name].description for name in checks
+        },
+        "summary": summary,
+        "total": len(rows),
+        "offset": offset,
+        "items": [
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "type": row["type"],
+                "media_type": row.get("media_type"),
+                "folder_id": row["folder_id"],
+                "uploaded_at": (
+                    str(row["uploaded_at"]) if row["uploaded_at"] else None
+                ),
+                "problems": [name for name in checks if row[name]],
+            }
+            for row in rows[offset:offset + limit]
+        ],
+        "truncated": offset + limit < len(rows),
+    }
+    if folder_id is not None:
+        result["folder_id"] = str(folder_id)
+    if result["truncated"]:
+        result["note"] = "page through more items with a larger offset"
+    return json.dumps(result, ensure_ascii=False)
 
 
 # ============================================================================
@@ -812,6 +887,58 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_get_tag_suggestions,
+        ),
+        ToolDef(
+            name="audit_library",
+            description=(
+                "Audit the library metadata in ONE call and list items that "
+                f"have problems. Checks: {', '.join(AUDIT_CHECKS)}. "
+                "Optionally scope to a folder (its whole subtree) and filter "
+                "by checks. Returns per-check counts for the whole scope "
+                "plus one page of offending items. Always use this instead "
+                "of enumerating items with get_item when looking for items "
+                "with missing metadata."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "checks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": list(AUDIT_CHECKS),
+                        },
+                        "description": (
+                            "Optional subset of checks to run; omit to run "
+                            "all of them."
+                        ),
+                    },
+                    "folder_id": {
+                        "type": "string",
+                        "description": (
+                            "Optional folder id; the audit covers this "
+                            "folder and all its subfolders. Omit for the "
+                            "whole library."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 50,
+                        "description": "Maximum items to return per page.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Page offset for paging through large results."
+                        ),
+                    },
+                },
+            },
+            executor=_tool_audit_library,
         ),
         ToolDef(
             name="add_item_tags",

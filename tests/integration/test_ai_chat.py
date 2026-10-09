@@ -8,6 +8,7 @@ single ``_get_llm_client`` access point.
 import asyncio
 import base64
 import json
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,6 +29,7 @@ from app.infrastructure.repositories import (
     FolderRepository,
     ItemMediaRepository,
     ItemRepository,
+    UserRepository,
 )
 from app.infrastructure.services.encryption import (
     EncryptionService,
@@ -871,8 +873,9 @@ def test_tool_registry_has_expected_tools():
     expected = {
         "search_items", "list_folder", "get_item", "list_tags",
         "get_tag_info", "list_folders", "list_albums", "get_tag_suggestions",
-        "add_item_tags", "remove_item_tags", "create_tags", "update_item",
-        "create_folder", "create_album", "add_items_to_album", "view_images",
+        "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
+        "update_item", "create_folder", "create_album", "add_items_to_album",
+        "view_images",
     }
     assert set(TOOL_REGISTRY) == expected
 
@@ -949,3 +952,201 @@ def test_add_item_tags_tool_unknown_tag_errors(
             ToolContext(user_id=test_user["id"]),
         )
     assert "create_tags" in str(excinfo.value).lower()
+
+
+# ============================================================================
+# audit_library tool (tool-level, no LLM involved)
+# ============================================================================
+
+def _seed_audit_item(
+    db, folder_id, user_id, title, uploaded_at, *, item_type="media",
+    width=100, height=100, thumb_width=280, tag_names=None,
+):
+    """Seed one item for audit tests; returns the item id."""
+    item_id = ItemRepository(db).create(
+        item_type=item_type,
+        folder_id=folder_id,
+        user_id=user_id,
+        title=title,
+        uploaded_at=uploaded_at,
+    )
+    if item_type == "media":
+        ItemMediaRepository(db).create(
+            item_id,
+            media_type="image",
+            original_name=f"{title or 'item'}.jpg",
+            content_type="image/jpeg",
+            width=width,
+            height=height,
+            thumb_width=thumb_width,
+            thumb_height=100 if thumb_width else None,
+        )
+    if tag_names:
+        from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+        ctx = ToolContext(user_id=user_id)
+        TOOL_REGISTRY["create_tags"].executor({"tag_names": tag_names}, ctx)
+        TOOL_REGISTRY["add_item_tags"].executor(
+            {"item_id": item_id, "tag_names": tag_names}, ctx
+        )
+    return item_id
+
+
+def test_audit_library_tool_reports_all_problem_kinds(
+    db_connection, test_user, test_folder, general_category
+):
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    base = datetime(2026, 10, 1, 12, 0, 0)
+
+    clean = _seed_audit_item(
+        db_connection, test_folder, user_id, "clean.jpg", base,
+        tag_names=["sunset"],
+    )
+    untagged = _seed_audit_item(
+        db_connection, test_folder, user_id, "untagged.jpg",
+        base + timedelta(minutes=1),
+    )
+    no_thumb = _seed_audit_item(
+        db_connection, test_folder, user_id, "nothumb.jpg",
+        base + timedelta(minutes=2),
+        thumb_width=None, tag_names=["sunset"],
+    )
+    no_dims = _seed_audit_item(
+        db_connection, test_folder, user_id, "nodims.jpg",
+        base + timedelta(minutes=3),
+        width=None, height=None, tag_names=["sunset"],
+    )
+    untagged_note = _seed_audit_item(
+        db_connection, test_folder, user_id, "note.txt",
+        base + timedelta(minutes=4),
+        item_type="note",
+    )
+    # Untitled AND untagged: one item can carry several problems at once.
+    untitled = _seed_audit_item(
+        db_connection, test_folder, user_id, None,
+        base + timedelta(minutes=5),
+    )
+
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {}, ToolContext(user_id=user_id)
+    ))
+
+    assert result["total"] == 5
+    assert result["summary"] == {
+        "no_tags": 3, "untitled": 1, "no_thumbnail": 1, "no_dimensions": 1,
+    }
+    assert set(result["check_meanings"]) == set(result["summary"])
+    by_id = {item["id"]: item for item in result["items"]}
+    assert clean not in by_id
+    assert by_id[untagged]["problems"] == ["no_tags"]
+    assert by_id[no_thumb]["problems"] == ["no_thumbnail"]
+    assert by_id[no_dims]["problems"] == ["no_dimensions"]
+    assert by_id[untagged_note]["problems"] == ["no_tags"]
+    assert by_id[untitled]["problems"] == ["no_tags", "untitled"]
+    # Newest first, deterministic order for stable paging.
+    assert [item["id"] for item in result["items"]] == [
+        untitled, untagged_note, no_dims, no_thumb, untagged,
+    ]
+    assert result["truncated"] is False
+
+
+def test_audit_library_tool_check_filter_and_unknown_check(
+    db_connection, test_user, test_folder, general_category
+):
+    from app.application.services.ai_tools import (
+        TOOL_REGISTRY,
+        ToolContext,
+        ToolError,
+    )
+
+    user_id = test_user["id"]
+    base = datetime(2026, 10, 1, 12, 0, 0)
+    _seed_audit_item(
+        db_connection, test_folder, user_id, "nothumb.jpg", base,
+        thumb_width=None, tag_names=["sunset"],
+    )
+    untagged = _seed_audit_item(
+        db_connection, test_folder, user_id, "untagged.jpg",
+        base + timedelta(minutes=1),
+    )
+
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {"checks": ["no_tags"]}, ToolContext(user_id=user_id)
+    ))
+    assert result["checks"] == ["no_tags"]
+    assert result["summary"] == {"no_tags": 1}
+    assert [item["id"] for item in result["items"]] == [untagged]
+
+    with pytest.raises(ToolError) as excinfo:
+        TOOL_REGISTRY["audit_library"].executor(
+            {"checks": ["bogus"]}, ToolContext(user_id=user_id)
+        )
+    assert "no_tags" in str(excinfo.value)
+
+
+def test_audit_library_tool_scopes_to_folder_subtree(
+    db_connection, test_user, test_folder
+):
+    from app.application.services.ai_tools import (
+        TOOL_REGISTRY,
+        ToolContext,
+        ToolError,
+    )
+
+    user_id = test_user["id"]
+    db = db_connection
+    sub = FolderRepository(db).create("Sub", user_id, parent_id=test_folder)
+    other = FolderRepository(db).create("Other", user_id)
+    base = datetime(2026, 10, 1, 12, 0, 0)
+
+    in_folder = _seed_audit_item(db, test_folder, user_id, "a.jpg", base)
+    in_sub = _seed_audit_item(
+        db, sub, user_id, "b.jpg", base + timedelta(minutes=1)
+    )
+    _seed_audit_item(db, other, user_id, "c.jpg", base + timedelta(minutes=2))
+
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {"folder_id": test_folder}, ToolContext(user_id=user_id)
+    ))
+    assert result["folder_id"] == test_folder
+    assert result["total"] == 2
+    assert sorted(i["id"] for i in result["items"]) == sorted(
+        [in_folder, in_sub]
+    )
+
+    # A foreign folder id must be rejected, not audited.
+    foreign_user_id = UserRepository(db).create(
+        "otheruser", "OtherPass123!", "Other"
+    )
+    foreign_folder = FolderRepository(db).create("Foreign", foreign_user_id)
+    with pytest.raises(ToolError):
+        TOOL_REGISTRY["audit_library"].executor(
+            {"folder_id": foreign_folder}, ToolContext(user_id=user_id)
+        )
+
+
+def test_audit_library_tool_pagination(db_connection, test_user, test_folder):
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    base = datetime(2026, 10, 1, 12, 0, 0)
+    ids = [
+        _seed_audit_item(
+            db_connection, test_folder, user_id, f"item{i}.jpg",
+            base + timedelta(minutes=i),
+        )
+        for i in range(5)
+    ]
+    executor = TOOL_REGISTRY["audit_library"].executor
+    ctx = ToolContext(user_id=user_id)
+
+    pages = [
+        json.loads(executor({"limit": 2, "offset": offset}, ctx))
+        for offset in (0, 2, 4)
+    ]
+    assert all(page["total"] == 5 for page in pages)
+    assert [page["truncated"] for page in pages] == [True, True, False]
+    seen = [item["id"] for page in pages for item in page["items"]]
+    assert seen == ids[::-1]
