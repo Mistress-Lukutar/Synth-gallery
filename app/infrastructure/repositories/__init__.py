@@ -26,8 +26,10 @@ from .tag_implication_repository import TagImplicationRepository
 from .tag_cooccurrence_repository import TagCooccurrenceRepository
 from .tag_mutex_repository import TagMutexRepository
 from .tag_feedback_repository import TagFeedbackRepository
-from .ai_job_repository import AIJobRepository
-from .ai_api_key_repository import AiApiKeyRepository
+from .ai_provider_repository import AiProviderRepository
+from .ai_model_repository import AiModelRepository
+from .ai_chat_settings_repository import AiChatSettingsRepository
+from .ai_chat_repository import AiChatRepository
 
 __all__ = [
     "Repository",
@@ -45,6 +47,8 @@ __all__ = [
     "TagCooccurrenceRepository",
     "TagMutexRepository",
     "TagFeedbackRepository",
-    "AIJobRepository",
-    "AiApiKeyRepository",
+    "AiProviderRepository",
+    "AiModelRepository",
+    "AiChatSettingsRepository",
+    "AiChatRepository",
 ]

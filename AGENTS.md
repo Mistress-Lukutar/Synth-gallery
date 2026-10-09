@@ -12,6 +12,7 @@ Synth Gallery is a **personal media vault** with server-side encryption, hardwar
 - **Folder Hierarchy**: Nested folders with sharing support (Viewer/Editor permissions)
 - **Albums**: Group related media with drag-and-drop reordering
 - **Tags & Search**: Categorize and find content quickly
+- **AI Chat**: In-site assistant sidebar with server-side tool-call agent loop; per-user LLM provider keys encrypted with the user's DEK; vision via user-approved `view_images`
 - **Backup & Recovery**: Full backups with integrity verification and recovery keys
 
 ## Technology Stack
@@ -55,7 +56,9 @@ Synth-Gallery/
 │   │       ├── tag_service.py        # Tag CRUD and bulk operations
 │   │       ├── tag_implication_service.py # Tag implication inheritance
 │   │       ├── tag_suggestion_service.py  # PMI-based tag suggestions
-│   │       ├── ai_tagging_service.py # AI tagging job queue orchestration
+│   │       ├── ai_chat_service.py    # Chat orchestrator: agent loop, SSE, vision pause
+│   │       ├── ai_provider_service.py # Per-user LLM providers/models/settings
+│   │       ├── ai_tools/             # Tool registry the chat model may call
 │   │       └── user_settings_service.py # User preferences
 │   ├── infrastructure/           # Infrastructure layer
 │   │   ├── repositories/         # Repository pattern (DB operations)
@@ -73,8 +76,10 @@ Synth-Gallery/
 │   │   │   ├── tag_cooccurrence_repository.py
 │   │   │   ├── tag_feedback_repository.py
 │   │   │   ├── tag_mutex_repository.py
-│   │   │   ├── ai_job_repository.py      # AI tagging job queue
-│   │   │   ├── ai_api_key_repository.py  # Per-user AI API keys
+│   │   │   ├── ai_chat_repository.py      # Conversations + messages
+│   │   │   ├── ai_chat_settings_repository.py # Active provider/model per user
+│   │   │   ├── ai_model_repository.py     # Models of a provider
+│   │   │   ├── ai_provider_repository.py  # Per-user LLM provider configs
 │   │   │   └── webauthn_repository.py
 │   │   ├── services/             # Infrastructure services
 │   │   │   ├── encryption.py         # Chunked AES-256-GCM streaming envelope, DEK cache
@@ -91,6 +96,7 @@ Synth-Gallery/
 │   │   │   ├── audit_log.py          # Security event audit log
 │   │   │   ├── rate_limiter.py       # Request rate limiting
 │   │   │   ├── tag_stats_scheduler.py # Tag co-occurrence stats scheduler
+│   │   │   ├── llm/                  # LLM clients (OpenAI-compatible, Anthropic, Gemini) + SSE
 │   │   │   └── webauthn.py           # Hardware key support
 │   │   └── storage/              # Storage abstraction layer
 │   │       ├── base.py               # StorageInterface
@@ -99,9 +105,10 @@ Synth-Gallery/
 │   │       └── factory.py            # get_storage() factory
 │   ├── routes/                   # API routes
 │   │   ├── auth.py                   # Login/logout
-│   │   ├── admin.py                  # Admin panel (users, backups, API keys)
+│   │   ├── admin.py                  # Admin panel (users, backups, maintenance)
 │   │   ├── admin_tags.py             # Admin tag operations (delete/remap/sanitize)
-│   │   ├── api.py                    # AI service endpoints (job queue)
+│   │   ├── ai_chat.py                # AI chat conversations, streamed turns, vision decisions
+│   │   ├── ai_provider_settings.py   # Per-user AI provider/model/settings endpoints
 │   │   ├── folders.py                # Folder management
 │   │   ├── tags.py                   # Tag management
 │   │   ├── webauthn.py               # Hardware key registration/auth
@@ -119,6 +126,8 @@ Synth-Gallery/
 │   │       ├── init.js               # Initialization
 │   │       ├── navigation.js         # Navigation
 │   │       ├── upload.js             # Upload handling
+│   │       ├── ai-chat.js            # AI chat panel (SSE streaming, tool cards)
+│   │       ├── settings-ai.js        # AI provider settings tab logic
 │   │       └── gallery-*.js          # Gallery features
 │   └── templates/                # Jinja2 templates
 │       ├── base.html
@@ -128,13 +137,12 @@ Synth-Gallery/
 │       ├── reset_password.html
 │       ├── tags.html
 │       ├── admin_users.html
-│       ├── admin_api_keys.html
 │       ├── admin_backups.html
 │       └── admin_maintenance.html
 ├── migrations/                   # Alembic migration environment
 │   ├── env.py                    # Online migrations via app.database.get_engine()
 │   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
-│   └── versions/                 # Revisions 0001-0006
+│   └── versions/                 # Revisions 0001-0009
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
@@ -372,7 +380,7 @@ items (base)                          item_media (detail: type='media')
 
 ### 6c. Schema Migrations (Alembic)
 
-All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0006 `item_texts`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
+All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0009 `ai_chat`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
 
 - Migrations run **without an enclosing transaction** — SQLite's implicit DDL commits and `PRAGMA foreign_keys` no-ops inside transactions are what the rebuild helpers rely on
 - `migrations/migration_utils.py` provides `rebuild_table()` (SQLite cannot alter CHECK constraints or drop FK-referenced columns in place) and `backup_database()` (pre-migration safety copy). `rebuild_table` commits before toggling `PRAGMA foreign_keys`, otherwise `DROP TABLE` cascades into child rows (`album_items`, `item_media`)
@@ -384,6 +392,7 @@ Notable historical revisions:
 - **0003**: enforced `albums.name NOT NULL` (NULLs backfilled with `Untitled (id8)`); the album API validates names (`min_length=1`)
 - **0004**: dropped the relic `users.password_salt` column
 - **0005/0006**: added the `note` item type and its `item_texts` detail table
+- **0009**: AI chat: per-user provider/model/settings/chat tables; dropped the legacy AI tagging queue (`ai_tagging_jobs`, `ai_api_keys`)
 
 ## Build and Run Commands
 
@@ -533,8 +542,6 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `FFMPEG_TOOL_DIR` | Directory containing `ffmpeg`/`ffprobe` binaries; overrides PATH lookup | - |
 | `TAG_STATS_SCHEDULE` | Tag co-occurrence stats: `daily`, `weekly`, or `disabled` | `weekly` |
 | `TAG_STATS_HOUR` | Hour (0-23) when tag stats run | `3` |
-
-Note: `SYNTH_AI_API_KEY` is **not** read by the code — AI agent access uses per-user API keys managed at `/admin/api-keys`.
 
 ## Git Commits
 

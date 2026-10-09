@@ -15,7 +15,6 @@
     let resultsContainer = null;
     let commonTagsContainer = null;
     let countLabel = null;
-    let aiTagBtn = null;
     let bulkTagsBtn = null;
 
     let currentItemIds = [];
@@ -26,7 +25,6 @@
         resultsContainer = document.getElementById('bulk-tag-results');
         commonTagsContainer = document.getElementById('bulk-common-tags');
         countLabel = document.getElementById('bulk-tag-count');
-        aiTagBtn = document.getElementById('bulk-ai-tag-btn');
         bulkTagsBtn = document.getElementById('bulk-tags-btn');
 
         if (!modal || !bulkTagsBtn) return;
@@ -42,10 +40,6 @@
         }
 
         bulkTagsBtn.addEventListener('click', openModal);
-        aiTagBtn?.addEventListener('click', () => {
-            closeBulkTagsModal();
-            if (window.startAITagging) window.startAITagging();
-        });
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal) closeBulkTagsModal();

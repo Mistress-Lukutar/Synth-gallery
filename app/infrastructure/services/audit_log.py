@@ -62,19 +62,3 @@ def log_session_hijack_detected(
     user_agent: str | None
 ) -> None:
     _log("session_hijack_detected", session_id=session_id, user_id=user_id, ip=ip, user_agent=user_agent)
-
-
-def log_api_key_created(key_id: int, key_name: str, admin_id: int, user_id: int) -> None:
-    _log("api_key_created", key_id=key_id, key_name=key_name, admin_id=admin_id, user_id=user_id)
-
-
-def log_api_key_revoked(key_id: int, admin_id: int) -> None:
-    _log("api_key_revoked", key_id=key_id, admin_id=admin_id)
-
-
-def log_api_key_failure(ip: str | None, reason: str) -> None:
-    _log("api_key_failure", ip=ip, reason=reason)
-
-
-def log_ai_job_claimed(key_id: int, job_id: int, item_id: str) -> None:
-    _log("ai_job_claimed", key_id=key_id, job_id=job_id, item_id=item_id)

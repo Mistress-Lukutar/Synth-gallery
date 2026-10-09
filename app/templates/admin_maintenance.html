@@ -119,7 +119,6 @@
             </h1>
             <nav class="admin-nav">
                 <a href="{{ base_url }}/admin/users">Users</a>
-                <a href="{{ base_url }}/admin/api-keys">API Keys</a>
                 <a href="{{ base_url }}/admin/backups">Backups</a>
                 <a href="{{ base_url }}/admin/maintenance" class="active">Maintenance</a>
                 <a href="{{ base_url }}/tags">Tags</a>
@@ -222,25 +221,6 @@
                     Clean Up Uploads
                 </button>
                 <span id="cleanup-uploads-result" class="result-message"></span>
-            </div>
-        </div>
-
-        <div class="section">
-            <h2>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
-                    <path d="M12 20V10"/>
-                    <path d="M18 20V4"/>
-                    <path d="M6 20v-4"/>
-                </svg>
-                Reap Stuck AI Jobs
-            </h2>
-            <p>
-                Return stuck AI tagging jobs (processing with expired deadline) back to pending queue,
-                or mark them as failed if they exceeded the retry limit.
-            </p>
-            <div class="section-actions">
-                <button id="reap-ai-jobs-btn" class="btn btn-secondary">Reap Jobs</button>
-                <span id="reap-ai-jobs-result" class="result-message"></span>
             </div>
         </div>
 
@@ -361,30 +341,6 @@
                 result.textContent = 'Error: ' + err.message;
                 btn.disabled = false;
                 btn.textContent = 'Clean Up Uploads';
-            }
-        });
-
-        document.getElementById('reap-ai-jobs-btn').addEventListener('click', async function() {
-            const btn = this;
-            const result = document.getElementById('reap-ai-jobs-result');
-            btn.disabled = true;
-            btn.textContent = 'Reaping...';
-            result.textContent = '';
-
-            try {
-                const resp = await csrfFetch('{{ base_url }}/api/ai/jobs/reap', { method: 'POST' });
-                if (!resp.ok) throw new Error('Failed to reap jobs');
-
-                const data = await resp.json();
-                result.className = 'result-message success';
-                result.textContent = data.message || `Reaped ${data.retried || 0} stale jobs`;
-
-                setTimeout(() => location.reload(), 2000);
-            } catch (err) {
-                result.className = 'result-message error';
-                result.textContent = 'Error: ' + err.message;
-                btn.disabled = false;
-                btn.textContent = 'Reap Jobs';
             }
         });
     </script>

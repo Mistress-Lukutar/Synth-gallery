@@ -150,13 +150,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if check_path in PUBLIC_PATHS or check_path.startswith("/static/"):
             return await call_next(request)
 
-        # Allow API paths with API key (for AI service)
-        if check_path.startswith("/api/ai/"):
-            # AI endpoints: allow if API key is present (validated in endpoint)
-            # Otherwise fall through to normal session auth for user-facing endpoints
-            if request.headers.get("X-API-Key"):
-                return await call_next(request)
-
         # Allow WebAuthn authentication paths (for passwordless login)
         if check_path.startswith("/api/webauthn/authenticate/") or check_path.startswith("/api/webauthn/check/"):
             return await call_next(request)
@@ -242,7 +235,6 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
     # Paths exempt from CSRF (e.g., API endpoints with their own auth)
     EXEMPT_PATHS = {
-        "/api/ai/",
         "/api/webauthn/",
         "/api/auth/recover",
     }

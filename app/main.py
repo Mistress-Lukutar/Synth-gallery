@@ -19,7 +19,8 @@ from .routes.admin import router as admin_router
 from .routes.admin_tags import router as admin_tags_router
 from .routes.webauthn import router as webauthn_router, settings_router
 from .routes.user_settings import router as user_settings_router
-from .routes.api import router as api_router
+from .routes.ai_provider_settings import router as ai_provider_settings_router
+from .routes.ai_chat import router as ai_chat_router
 
 
 @asynccontextmanager
@@ -62,4 +63,5 @@ app.include_router(webauthn_router)
 app.include_router(settings_router)
 app.include_router(user_settings_router)
 app.include_router(admin_tags_router)
-app.include_router(api_router)
+app.include_router(ai_provider_settings_router)
+app.include_router(ai_chat_router)

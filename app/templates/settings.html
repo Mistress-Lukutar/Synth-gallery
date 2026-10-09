@@ -347,6 +347,238 @@
             font-weight: 500;
             margin: 0;
         }
+
+        /* AI Assistant section */
+        .ai-providers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .ai-provider-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+        }
+
+        .ai-provider-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .ai-provider-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            min-width: 0;
+        }
+
+        .ai-provider-label {
+            font-weight: 500;
+            color: var(--text);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ai-protocol-badge {
+            padding: 0.15rem 0.45rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            background: rgba(59, 130, 246, 0.12);
+            color: var(--accent);
+            white-space: nowrap;
+        }
+
+        .ai-provider-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 0.15rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            min-width: 0;
+            flex: 1;
+        }
+
+        .ai-provider-meta span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ai-provider-form {
+            margin-top: 0.75rem;
+            padding-top: 0.75rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .ai-provider-form select {
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .ai-provider-form-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .ai-default-model-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .ai-default-model-label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .ai-active-model {
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .ai-active-model .ai-model-none {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .ai-model-modal-content {
+            max-width: 640px;
+        }
+
+        .ai-model-group {
+            margin-bottom: 1rem;
+        }
+
+        .ai-model-group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .ai-model-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.85rem;
+            font-family: inherit;
+            text-align: left;
+            cursor: pointer;
+            margin-bottom: 0.35rem;
+            transition: border-color 0.15s ease, background 0.15s ease;
+        }
+
+        .ai-model-row:hover {
+            border-color: var(--accent);
+            background: var(--bg-secondary);
+        }
+
+        .ai-model-name {
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .ai-model-id {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ai-model-badge {
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.68rem;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .ai-model-badge.vision {
+            background: rgba(34, 197, 94, 0.12);
+            color: #22c55e;
+        }
+
+        .ai-model-badge.tools {
+            background: rgba(59, 130, 246, 0.12);
+            color: var(--accent);
+        }
+
+        .ai-model-ctx {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+
+        .ai-model-warn {
+            color: #eab308;
+            flex-shrink: 0;
+        }
+
+        .ai-model-empty {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            padding: 0.5rem 0;
+        }
+
+        .ai-manual-form {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .ai-manual-form h3 {
+            margin: 0 0 0.75rem 0;
+            font-size: 0.95rem;
+        }
+
+        .ai-manual-form .form-stack select {
+            padding: 0.6rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .ai-no-providers {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 1rem;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -478,6 +710,31 @@
                 </div>
             </div>
         </div>
+
+        <!-- AI Assistant Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 3l1.9 5.7a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-2a2 2 0 0 0 1.3-1.3z"/>
+                    <path d="M19 3v4"/>
+                    <path d="M17 5h4"/>
+                </svg>
+                AI Assistant
+            </h2>
+            <p>Connect an AI provider to use the AI chat in the sidebar. API keys are stored encrypted with your library key.</p>
+
+            <div id="ai-providers-list" class="ai-providers-list">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <button type="button" id="ai-add-provider-btn" class="btn btn-secondary btn-small">Add provider</button>
+
+            <div class="ai-default-model-row">
+                <span class="ai-default-model-label">Default model:</span>
+                <span id="ai-active-model" class="ai-active-model">Loading...</span>
+                <button type="button" id="ai-choose-model-btn" class="btn btn-secondary btn-small">Choose model</button>
+            </div>
+        </div>
     </div>
 
     <!-- Rename Modal -->
@@ -492,10 +749,20 @@
         </div>
     </div>
 
+    <!-- AI model chooser modal -->
+    <div id="ai-model-modal" class="modal hidden">
+        <div class="modal-content ai-model-modal-content">
+            <span class="close" id="ai-model-modal-close">&times;</span>
+            <h2>Choose default model</h2>
+            <div id="ai-model-modal-body"></div>
+        </div>
+    </div>
+
     <script>
         window.SYNTH_BASE_URL = '{{ base_url }}';
     </script>
     <script src="{{ base_url }}/static/js/core.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/settings.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/settings-ai.js?v={{ app_version }}"></script>
 </body>
 </html>

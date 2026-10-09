@@ -282,7 +282,6 @@
             <!-- Selection Menu - inline with folder actions -->
             <div id="selection-menu" class="selection-menu hidden">
                 <span id="selection-count">0</span>
-                <span id="ai-tag-status" class="ai-tag-status hidden"></span>
                 <button id="select-all-btn" class="selection-action-btn" title="Select All">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18">
                         <rect x="5" y="5" width="14" height="14" rx="2" stroke-width="2.5"/>
@@ -321,6 +320,13 @@
                         <line x1="7" y1="7" x2="7.01" y2="7"/>
                     </svg>
                 </button>
+                <button id="selection-ask-ai-btn" class="selection-action-btn" type="button" title="Ask AI">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                        <path d="M12 3l1.9 5.7a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-2a2 2 0 0 0 1.3-1.3z"/>
+                        <path d="M19 3v4"/>
+                        <path d="M17 5h4"/>
+                    </svg>
+                </button>
                 <button id="delete-selected-btn" class="selection-action-btn selection-action-btn--danger" title="Delete">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                         <polyline points="3 6 5 6 21 6"/>
@@ -331,10 +337,6 @@
         </div>
     </div>
     <div class="folder-header-right">
-        <div id="ai-tag-progress" class="ai-tag-progress hidden">
-            <div class="ai-tag-spinner"></div>
-            <div class="ai-tag-tooltip" id="ai-tag-tooltip">AI Tagging: queue 0</div>
-        </div>
         <div id="download-progress" class="download-progress hidden">
             <div class="download-progress-bar">
                 <div id="download-progress-fill" class="download-progress-fill"></div>
@@ -370,9 +372,6 @@
                  autocomplete="off" spellcheck="false"></div>
         </div>
         <div id="bulk-tag-results" class="tag-tree-container"></div>
-        <div class="detail-section" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
-            <button id="bulk-ai-tag-btn" class="btn btn-secondary">AI Tag Selected</button>
-        </div>
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeBulkTagsModal()">Close</button>
         </div>
