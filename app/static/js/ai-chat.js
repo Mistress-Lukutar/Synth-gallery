@@ -463,6 +463,15 @@
     var renderScheduled = false;
     var initialized = false;
     var sending = false;
+    // User-toggled open state of collapsible parts (tool cards / reasoning),
+    // keyed by stable part keys. Survives re-renders.
+    var expandedParts = Object.create(null);
+    // Incremental message rendering: one DOM node + one content signature
+    // per state.messages entry, so unchanged messages keep their DOM
+    // (images don't reload, user-toggled state survives) while streaming.
+    var msgEls = [];
+    var msgSigs = [];
+    var lastVisionKey = null;
 
     // ========================================================================
     // Panel shell (rendered once from a template string)
@@ -541,19 +550,24 @@
             stickToBottom = isNearBottom();
         });
 
-        // Tool card expand/collapse + vision decision (event delegation).
+        // Tool card expand/collapse + reasoning toggle (event delegation).
+        // The open/closed state lives in `expandedParts`, not in the DOM,
+        // so re-renders (streaming tokens) keep blocks open.
         els.messages.addEventListener('click', function (e) {
             var head = e.target.closest('.ai-tool-card-head');
-            if (head) {
-                var body = head.parentElement.querySelector('.ai-tool-card-body');
-                if (body) body.classList.toggle('hidden');
-                return;
+            var root = head ? head.closest('.ai-tool-card') : null;
+            if (!root) {
+                var label = e.target.closest('.ai-reasoning-label');
+                root = label ? label.closest('.ai-reasoning') : null;
             }
-            var reasoning = e.target.closest('.ai-reasoning');
-            if (reasoning) {
-                var rbody = reasoning.querySelector('.ai-reasoning-body');
-                if (rbody) rbody.classList.toggle('hidden');
-            }
+            if (!root) return;
+            var key = root.getAttribute('data-expand-key');
+            var body = root.querySelector('.ai-tool-card-body, .ai-reasoning-body');
+            if (!key || !body) return;
+            var hidden = body.classList.toggle('hidden');
+            root.classList.toggle('open', !hidden);
+            if (hidden) delete expandedParts[key];
+            else expandedParts[key] = true;
         });
         els.visionSlot.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-vision-action]');
@@ -587,6 +601,7 @@
     function toggleList() {
         listVisible = !listVisible;
         panel.classList.toggle('with-list', listVisible);
+        syncBodyClasses();
         if (listVisible) loadConversations();
     }
 
@@ -651,59 +666,147 @@
         }
     }
 
-    function renderMessages() {
-        var container = els.messages;
-        var wasNearBottom = stickToBottom;
-        var html = [];
-
-        if (state.messages.length === 0) {
-            html.push(
-                '<div class="ai-chat-welcome">',
-                '  <div class="ai-chat-welcome-icon">' + SPARKLE_SVG + '</div>',
-                '  <p class="ai-chat-welcome-title">Ask about your library</p>',
-                '  <p class="ai-chat-welcome-hint">Tagging, albums, search \u2014 or anything about your media.</p>',
-                '</div>'
-            );
+    function removeMessageElements() {
+        for (var i = 0; i < msgEls.length; i++) {
+            if (msgEls[i] && msgEls[i].parentNode) {
+                msgEls[i].parentNode.removeChild(msgEls[i]);
+            }
         }
-
-        for (var i = 0; i < state.messages.length; i++) {
-            html.push(renderMessage(state.messages[i]));
-        }
-        if (state.streaming && state.messages.length > 0) {
-            html.push('<div class="ai-chat-typing"><span></span><span></span><span></span></div>');
-        }
-
-        container.innerHTML = html.join('');
-        if (wasNearBottom) scrollToBottom();
+        msgEls = [];
+        msgSigs = [];
     }
 
-    function renderMessage(message) {
+    function removeTypingIndicator() {
+        if (els.typing && els.typing.parentNode) {
+            els.typing.parentNode.removeChild(els.typing);
+        }
+    }
+
+    function partSignature(p) {
+        switch (p.type) {
+            case 'text':
+            case 'reasoning':
+            case 'error':
+                return p.type + ':' + (p.text || '').length;
+            case 'context':
+                return 'context:' + (Array.isArray(p.item_ids) ? p.item_ids.join(',') : '');
+            case 'tool':
+                return 'tool:' + (p.call_id || '') + ':' + (p.status || '') + ':' +
+                    (p.summary == null ? -1 : String(p.summary).length) + ':' +
+                    (p.result == null ? -1 : String(p.result).length) + ':' +
+                    (Array.isArray(p.images) ? p.images.join(',') : '');
+            default:
+                return (p.type || 'part') + ':' + JSON.stringify(p).length;
+        }
+    }
+
+    function messageSignature(m) {
+        var parts = m.parts || [];
+        var s = m.role + '#' + parts.length;
+        for (var i = 0; i < parts.length; i++) s += '|' + partSignature(parts[i]);
+        return s;
+    }
+
+    function messageClassName(message) {
+        if (message.role === 'user') return 'ai-msg-user';
+        if (message.role === 'assistant') return 'ai-msg-assistant';
+        return 'ai-msg-tool';
+    }
+
+    function messageInnerHtml(message, msgIndex) {
         var parts = message.parts || [];
         var html = '';
         for (var i = 0; i < parts.length; i++) {
-            html += renderPart(message, parts[i]);
+            html += renderPart(message, parts[i], msgIndex, i);
         }
-        if (message.role === 'user') {
-            return '<div class="ai-msg-user">' + (html || '&nbsp;') + '</div>';
-        }
-        if (message.role === 'assistant') {
-            return '<div class="ai-msg-assistant">' + (html || '') + '</div>';
-        }
-        return '<div class="ai-msg-tool">' + html + '</div>';
+        if (message.role === 'user' && !html) return '&nbsp;';
+        return html;
     }
 
-    function renderPart(message, part) {
+    /**
+     * Incremental message list rendering: message DOM nodes are cached and
+     * only re-rendered when their content signature changes. This keeps
+     * images from reloading and user-toggled tool/reasoning state intact
+     * while tokens stream in.
+     */
+    function renderMessages() {
+        var container = els.messages;
+        var wasNearBottom = stickToBottom;
+        var msgs = state.messages;
+        var i;
+
+        if (msgs.length === 0) {
+            removeMessageElements();
+            removeTypingIndicator();
+            if (!els.welcome) {
+                els.welcome = document.createElement('div');
+                els.welcome.className = 'ai-chat-welcome';
+                els.welcome.innerHTML =
+                    '<div class="ai-chat-welcome-icon">' + SPARKLE_SVG + '</div>' +
+                    '<p class="ai-chat-welcome-title">Ask about your library</p>' +
+                    '<p class="ai-chat-welcome-hint">Tagging, albums, search \u2014 or anything about your media.</p>';
+            }
+            if (els.welcome.parentNode !== container) {
+                container.innerHTML = '';
+                container.appendChild(els.welcome);
+            }
+            return;
+        }
+
+        if (els.welcome && els.welcome.parentNode) {
+            els.welcome.parentNode.removeChild(els.welcome);
+        }
+
+        // A shrunk message list means the conversation was replaced
+        // (switch / new chat) — rebuild the cached nodes from scratch.
+        if (msgEls.length > msgs.length) removeMessageElements();
+
+        for (i = 0; i < msgs.length; i++) {
+            var sig = messageSignature(msgs[i]);
+            if (!msgEls[i]) {
+                msgEls[i] = document.createElement('div');
+                if (els.typing && els.typing.parentNode) {
+                    container.insertBefore(msgEls[i], els.typing);
+                } else {
+                    container.appendChild(msgEls[i]);
+                }
+            }
+            if (msgSigs[i] !== sig) {
+                msgEls[i].className = messageClassName(msgs[i]);
+                msgEls[i].innerHTML = messageInnerHtml(msgs[i], i);
+                msgSigs[i] = sig;
+            }
+        }
+
+        if (state.streaming) {
+            if (!els.typing) {
+                els.typing = document.createElement('div');
+                els.typing.className = 'ai-chat-typing';
+                els.typing.innerHTML = '<span></span><span></span><span></span>';
+            }
+            if (!els.typing.parentNode) container.appendChild(els.typing);
+        } else {
+            removeTypingIndicator();
+        }
+
+        if (wasNearBottom) scrollToBottom();
+    }
+
+    function renderPart(message, part, msgIndex, partIndex) {
         switch (part.type) {
             case 'text':
                 if (message.role === 'user') {
                     return '<div class="ai-msg-text">' + esc(part.text) + '</div>';
                 }
                 return '<div class="ai-chat-md markdown-preview">' + renderMarkdownHtml(part.text || '') + '</div>';
-            case 'reasoning':
-                return '<div class="ai-reasoning">' +
+            case 'reasoning': {
+                var rkey = 'r:' + msgIndex + ':' + partIndex;
+                var ropen = !!expandedParts[rkey];
+                return '<div class="ai-reasoning' + (ropen ? ' open' : '') + '" data-expand-key="' + esc(rkey) + '">' +
                     '<span class="ai-reasoning-label">Thinking</span>' +
-                    '<div class="ai-reasoning-body hidden">' + esc(part.text) + '</div>' +
+                    '<div class="ai-reasoning-body' + (ropen ? '' : ' hidden') + '">' + esc(part.text) + '</div>' +
                     '</div>';
+            }
             case 'context':
                 return '<div class="ai-chat-chips">' + renderContextChip(part.item_ids) + '</div>';
             case 'tool':
@@ -755,19 +858,27 @@
             body += '</div></div>';
         }
 
-        return '<div class="ai-tool-card ' + toolStatusClass(part.status) + '">' +
+        var tkey = 'tool:' + (part.call_id || '');
+        var topen = !!expandedParts[tkey];
+
+        return '<div class="ai-tool-card ' + toolStatusClass(part.status) + (topen ? ' open' : '') + '" data-expand-key="' + esc(tkey) + '">' +
             '<button type="button" class="ai-tool-card-head">' +
             '  <span class="ai-tool-dot" aria-hidden="true"></span>' +
             '  <span class="ai-tool-name">' + esc(part.name || 'tool') + '</span>' +
             '  <span class="ai-tool-summary">' + esc(toolStatusText(part)) + '</span>' +
             '  <svg class="ai-tool-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>' +
             '</button>' +
-            '<div class="ai-tool-card-body hidden">' + body + '</div>' +
+            '<div class="ai-tool-card-body' + (topen ? '' : ' hidden') + '">' + body + '</div>' +
             '</div>';
     }
 
     function renderVision() {
         var pending = state.pendingVision;
+        // Rebuild only when the pending request actually changed — rebuilding
+        // on every render would reload the preview images each frame.
+        var key = pending ? String(pending.request_id) : '';
+        if (key === lastVisionKey) return;
+        lastVisionKey = key;
         if (!pending) {
             els.visionSlot.innerHTML = '';
             els.visionSlot.classList.add('hidden');
@@ -883,6 +994,7 @@
             }
             var data = await resp.json();
             state = stateFromMessages(data.messages);
+            removeMessageElements(); // full state replacement: rebuild all nodes
             renderConversations();
             render();
         } catch (err) {
@@ -913,6 +1025,7 @@
         if (state.streaming && abortController) abortController.abort();
         conversationId = null;
         state = newChatState();
+        removeMessageElements(); // full state replacement: rebuild all nodes
         renderConversations();
         render();
         if (els.input) els.input.focus();
@@ -1106,12 +1219,26 @@
         return !!panel && !panel.classList.contains('hidden');
     }
 
+    /**
+     * Mirror the panel state onto <body> so CSS can push the page content
+     * aside, then nudge width-dependent layouts (masonry listens for resize).
+     */
+    function syncBodyClasses() {
+        var open = isOpen();
+        document.body.classList.toggle('ai-chat-open', open);
+        document.body.classList.toggle('ai-chat-list-open', open && listVisible);
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new Event('resize'));
+        }
+    }
+
     function open() {
         if (!panel) return;
         if (isOpen()) return;
         buildPanel();
         panel.classList.remove('hidden');
         syncSidebarButton();
+        syncBodyClasses();
         if (typeof window !== 'undefined' && window.BackButtonManager) {
             window.BackButtonManager.register('ai-chat-panel', close);
         }
@@ -1127,6 +1254,7 @@
         if (state.streaming && abortController) abortController.abort();
         panel.classList.add('hidden');
         syncSidebarButton();
+        syncBodyClasses();
         if (typeof window !== 'undefined' && window.BackButtonManager) {
             if (window.BackButtonManager.isRegistered('ai-chat-panel')) {
                 window.BackButtonManager.unregister('ai-chat-panel');

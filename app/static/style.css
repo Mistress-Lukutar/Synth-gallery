@@ -19,6 +19,9 @@
     --accent-hover: #2563eb;
     --border: #2a2a2a;
     --danger: #ef4444;
+    /* AI chat panel widths (shared by the panel and the content push rules) */
+    --ai-chat-w: min(480px, calc(100vw - 260px));
+    --ai-chat-w-list: min(700px, calc(100vw - 260px));
 }
 
 body {
@@ -5812,7 +5815,7 @@ main {
     top: 0;
     bottom: 0;
     left: 260px;
-    width: min(480px, calc(100vw - 260px));
+    width: var(--ai-chat-w);
     background: var(--bg-secondary);
     border-right: 1px solid var(--border);
     box-shadow: 6px 0 24px rgba(0, 0, 0, 0.45);
@@ -5820,11 +5823,24 @@ main {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    transition: width 0.2s ease;
 }
 
 .ai-chat-panel.with-list {
-    width: min(700px, calc(100vw - 260px));
+    width: var(--ai-chat-w-list);
+}
+
+/* Desktop: the open panel pushes the page content aside instead of
+   overlaying it (below 901px the panel covers the viewport instead). */
+@media (min-width: 901px) {
+    body.ai-chat-open .main-content {
+        width: calc(100% - 260px - var(--ai-chat-w));
+        margin-left: calc(260px + var(--ai-chat-w));
+    }
+
+    body.ai-chat-open.ai-chat-list-open .main-content {
+        width: calc(100% - 260px - var(--ai-chat-w-list));
+        margin-left: calc(260px + var(--ai-chat-w-list));
+    }
 }
 
 .ai-chat-inner {
@@ -6191,6 +6207,11 @@ main {
 .ai-tool-chevron {
     flex-shrink: 0;
     color: var(--text-muted);
+    transition: transform 0.15s ease;
+}
+
+.ai-tool-card.open .ai-tool-chevron {
+    transform: rotate(180deg);
 }
 
 .ai-tool-card-body {
