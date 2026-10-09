@@ -871,10 +871,12 @@ def test_tool_registry_has_expected_tools():
     from app.application.services.ai_tools import TOOL_REGISTRY
 
     expected = {
-        "search_items", "list_folder", "get_item", "list_tags",
+        "search_items", "list_folder", "get_item", "get_item_metadata",
+        "read_note", "list_tags",
         "get_tag_info", "list_folders", "list_albums", "get_tag_suggestions",
         "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
-        "update_item", "create_folder", "create_album", "add_items_to_album",
+        "update_item", "create_note", "write_note", "create_folder",
+        "create_album", "add_items_to_album",
         "view_images",
     }
     assert set(TOOL_REGISTRY) == expected

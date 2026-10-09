@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
 import threading
 import time
@@ -271,6 +272,11 @@ class AiChatService:
             "- For 'find all items ...' requests (missing tags, untitled, "
             "broken metadata), call audit_library once instead of "
             "enumerating items with get_item.\n"
+            "- Read text notes with read_note, create/edit them with "
+            "create_note / write_note. For embedded file metadata "
+            "(capture date, GPS, generation prompt/workflow) use "
+            "get_item_metadata - never view_images, which is only for "
+            "actually seeing an image.\n"
             "- Never invent item ids; obtain them from tools first.\n"
             "- Reply in the user's language. Be concise."
         )
@@ -552,7 +558,7 @@ class AiChatService:
                     text_persisted = True
                     paused = False
                     async for event in self._execute_tool_calls(
-                        user_id, conversation_id, calls_ready
+                        user_id, conversation_id, calls_ready, dek
                     ):
                         if event[0] == "vision_request":
                             paused = True
@@ -660,13 +666,15 @@ class AiChatService:
         self.chat_repo.add_message(conversation_id, "assistant", parts)
 
     async def _execute_tool_calls(
-        self, user_id: int, conversation_id: str, calls_ready
+        self, user_id: int, conversation_id: str, calls_ready, dek: bytes
     ):
         """Execute the model's tool calls, persisting each result.
 
         Yields ``(event_name, payload)`` tuples. Ends immediately after a
         ``vision_request`` event when a ``view_images`` call pauses the
-        turn (the caller must then stop the generator).
+        turn (the caller must then stop the generator). Executors may be
+        plain functions or coroutine functions; the session DEK is handed
+        to every executor via the :class:`ToolContext`.
         """
         for call in calls_ready.tool_calls:
             parsed = self._parse_arguments(call.arguments_json)
@@ -687,7 +695,12 @@ class AiChatService:
                 is_error = True
             else:
                 try:
-                    content = tool.executor(parsed, ToolContext(user_id=user_id))
+                    result = tool.executor(
+                        parsed, ToolContext(user_id=user_id, dek=dek)
+                    )
+                    if inspect.iscoroutine(result):
+                        result = await result
+                    content = result
                     is_error = False
                 except VisionRequestSignal as signal:
                     request_id = uuid.uuid4().hex

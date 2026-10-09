@@ -1,20 +1,28 @@
 """AI tool foundation - context, errors and tool definitions.
 
-Every tool executor receives a :class:`ToolContext` (the requesting user)
-and the parsed arguments dict, and returns a plain-text result for the
-model. Executors raise :class:`ToolError` when the model should see an
-error result, and :class:`VisionRequestSignal` when the user must approve
-image viewing first.
+Every tool executor receives a :class:`ToolContext` (the requesting user
+plus the session DEK) and the parsed arguments dict, and returns a
+plain-text result for the model. Executors may be plain functions or
+coroutine functions; the orchestrator awaits coroutine results. They raise
+:class:`ToolError` when the model should see an error result, and
+:class:`VisionRequestSignal` when the user must approve image viewing
+first.
 """
 from dataclasses import dataclass, field
-from typing import Callable, List
+from typing import Awaitable, Callable, List, Optional, Union
 
 
 @dataclass
 class ToolContext:
-    """Context handed to every tool executor."""
+    """Context handed to every tool executor.
+
+    ``dek`` carries the caller's session data-encryption key so tools
+    that read or write stored media bytes (note content, image metadata
+    probes) can decrypt and re-encrypt them.
+    """
 
     user_id: int
+    dek: Optional[bytes] = None
 
 
 class ToolError(Exception):
@@ -40,7 +48,7 @@ class ToolDef:
     name: str
     description: str
     parameters_json_schema: dict
-    executor: Callable[[dict, ToolContext], str]
+    executor: Callable[[dict, ToolContext], Union[str, Awaitable[str]]]
     # Tools listed here are executed but never advertised to models whose
     # provider reports no tool support; reserved for future use.
     metadata: dict = field(default_factory=dict)

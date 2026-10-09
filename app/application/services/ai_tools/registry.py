@@ -7,11 +7,14 @@ not here.
 """
 from __future__ import annotations
 
+import io
 import json
+import uuid
 from typing import Optional
 
 from fastapi import HTTPException
 
+from ....config import TEXT_MAX_SIZE
 from ....database import create_connection
 from ....infrastructure.repositories import (
     AUDIT_CHECKS,
@@ -19,6 +22,7 @@ from ....infrastructure.repositories import (
     FolderRepository,
     ItemMediaRepository,
     ItemRepository,
+    ItemTextRepository,
     PermissionRepository,
     TagCooccurrenceRepository,
     TagFeedbackRepository,
@@ -26,6 +30,9 @@ from ....infrastructure.repositories import (
     TagMutexRepository,
     TagsRepository,
 )
+from ....infrastructure.services.encryption import EncryptionService
+from ....infrastructure.services.metadata import extract_image_exif
+from ....infrastructure.storage import get_storage
 from ..album_service import AlbumService
 from ..folder_service import FolderService
 from ..item_service import ItemService
@@ -35,6 +42,27 @@ from ..tag_suggestion_service import TagSuggestionService
 from .base import ToolContext, ToolDef, ToolError, VisionRequestSignal
 
 MEDIA_TYPE = "media"
+NOTE_TYPE = "note"
+
+# Canonical note content types accepted by create_note (the same set the
+# upload pipeline infers from file extensions).
+NOTE_CONTENT_TYPES = (
+    "text/plain",
+    "text/markdown",
+    "text/yaml",
+    "application/json",
+    "text/csv",
+)
+
+# Token-economy caps: tool results are replayed on every LLM call of the
+# turn, so reads are preview-first and paged instead of dumped in full.
+_METADATA_PREVIEW_CHARS = 200
+_METADATA_MAX_KEYS = 10
+_METADATA_KEY_MAX_CHARS = 6000
+_NOTE_READ_DEFAULT_CHARS = 4000
+_NOTE_READ_MAX_CHARS = 6000
+# Live EXIF probing decrypts the whole image into memory; skip huge files.
+_EXIF_PROBE_MAX_BYTES = 256 * 1024 * 1024
 
 
 # ============================================================================
@@ -133,6 +161,117 @@ def _resolve_category_id(tags_repo: TagsRepository, category_id) -> int:
     return cat_id
 
 
+def _require_dek(ctx: ToolContext) -> bytes:
+    """Return the caller's DEK or fail; file tools cannot work without it."""
+    if not ctx.dek:
+        raise ToolError("encryption key not available")
+    return ctx.dek
+
+
+def _validate_note_content(content) -> tuple[str, int]:
+    """Validate note text like the upload pipeline; return (text, lines)."""
+    if not isinstance(content, str) or not content.strip():
+        raise ToolError("content must be a non-empty string")
+    if "\x00" in content:
+        raise ToolError("content contains NUL bytes; not a text file")
+    if len(content.encode("utf-8")) > TEXT_MAX_SIZE:
+        raise ToolError(
+            f"content exceeds the {TEXT_MAX_SIZE // (1024 * 1024)} MB limit"
+        )
+    line_count = content.count("\n") + (0 if content.endswith("\n") else 1)
+    return content, line_count
+
+
+async def _read_note_text(item_id: str, dek: bytes) -> str:
+    """Download, decrypt and decode a note's stored blob (always UTF-8)."""
+    blob = await get_storage().download(item_id, folder="uploads")
+    plain = EncryptionService.decrypt_bytes(blob, dek)
+    return plain.decode("utf-8", errors="replace")
+
+
+async def _write_note_blob(item_id: str, content: str, dek: bytes) -> None:
+    """Encrypt note text with ``dek`` and store it as the item's blob."""
+    envelope = EncryptionService.encrypt_bytes(content.encode("utf-8"), dek)
+    await get_storage().upload(item_id, io.BytesIO(envelope), folder="uploads")
+
+
+def _count_lines(text: str) -> int:
+    return text.count("\n") + (0 if text.endswith("\n") else 1)
+
+
+async def _probe_exif(item_id: str, media: dict) -> dict:
+    """Decrypt the stored image and extract live EXIF; {} when impossible.
+
+    Videos are never decrypted for a probe, JPEG XL carries no probeable
+    EXIF (djxl yields bare pixels) and oversized files are skipped; the
+    stored png_text_chunks/taken_at still cover those.
+    """
+    if media.get("media_type") != "image":
+        return {}
+    content_type = (media.get("content_type") or "").lower()
+    if content_type == "image/jxl":
+        return {}
+    if (media.get("file_size") or 0) > _EXIF_PROBE_MAX_BYTES:
+        return {}
+    try:
+        blob = await get_storage().download(item_id, folder="uploads")
+        return extract_image_exif(blob)
+    except Exception:
+        return {}
+
+
+def _page_text(value: str, args: dict, key_label: str) -> str:
+    """Slice a full metadata value into one paged tool result."""
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+    max_chars = _clamp_int(
+        args.get("max_chars"), 1000, _METADATA_KEY_MAX_CHARS,
+        _METADATA_KEY_MAX_CHARS,
+    )
+    total = len(value)
+    chunk = value[offset:offset + max_chars]
+    next_offset = offset + len(chunk)
+    return json.dumps({
+        "key": key_label,
+        "value": chunk,
+        "total_chars": total,
+        "next_offset": next_offset if next_offset < total else None,
+    }, ensure_ascii=False)
+
+
+def _metadata_fetch_key(key: str, chunks: dict, args: dict) -> str:
+    """Return the full paged value of one text chunk."""
+    if key in chunks:
+        return _page_text(chunks[key], args, key)
+    raise ToolError(
+        f"unknown metadata key '{key}'; available: "
+        + (", ".join(sorted(chunks)) if chunks else "(none)")
+    )
+
+
+def _summarize_exif(live: dict) -> dict:
+    """Compact JSON-safe summary of a live EXIF probe result."""
+    out = {
+        "camera": live.get("camera"),
+        "lens": live.get("lens"),
+        "iso": live.get("iso"),
+        "exposure_time": live.get("exposure_time"),
+        "f_number": live.get("f_number"),
+        "focal_length_mm": live.get("focal_length_mm"),
+        "gps": live.get("gps"),
+    }
+    for name in ("user_comment", "image_description"):
+        value = live.get(name)
+        if value:
+            out[name] = {
+                "length": len(value),
+                "preview": value[:_METADATA_PREVIEW_CHARS],
+            }
+    xmp = live.get("xmp")
+    if xmp:
+        out["xmp"] = {"length": len(xmp)}
+    return out
+
+
 # ============================================================================
 # READ tools
 # ============================================================================
@@ -218,10 +357,15 @@ def _tool_get_item(args: dict, ctx: ToolContext) -> str:
         _get_owned_item(item_repo, item_id, ctx)
         item = _item_service(db).get_item(item_id)
         tags = _tag_service(db).get_item_tags(item_id)
+        media_detail = (
+            ItemMediaRepository(db).get_by_item_id(item_id)
+            if item.get("type") == MEDIA_TYPE
+            else None
+        )
     finally:
         db.close()
 
-    return json.dumps({
+    result = {
         "id": item["id"],
         "title": item.get("title"),
         "description": item.get("description"),
@@ -238,6 +382,161 @@ def _tool_get_item(args: dict, ctx: ToolContext) -> str:
             "explicit": [t["name"] for t in tags.get("explicit_tags", [])],
             "implied": [t["name"] for t in tags.get("implied_tags", [])],
         },
+    }
+    if media_detail is not None:
+        chunks = media_detail.get("png_text_chunks") or {}
+        result["file_size"] = media_detail.get("file_size")
+        result["original_name"] = media_detail.get("original_name")
+        # Names only: full values can be huge (ComfyUI workflows) and are
+        # fetched on demand via get_item_metadata.
+        result["text_chunks"] = sorted(chunks)
+    if item.get("type") == NOTE_TYPE:
+        result["char_count"] = item.get("char_count")
+        result["line_count"] = item.get("line_count")
+    return json.dumps(result, ensure_ascii=False)
+
+
+async def _tool_get_item_metadata(args: dict, ctx: ToolContext) -> str:
+    item_id = str(args.get("item_id") or "").strip()
+    if not item_id:
+        raise ToolError("item_id is required")
+
+    db = create_connection()
+    try:
+        item = _get_owned_item(ItemRepository(db), item_id, ctx)
+        item_type = item.get("type")
+        if item_type == NOTE_TYPE:
+            text = ItemTextRepository(db).get_by_item_id(item_id)
+            return json.dumps({
+                "type": NOTE_TYPE,
+                "title": item.get("title"),
+                "content_type": text.get("content_type") if text else None,
+                "encoding": text.get("encoding") if text else None,
+                "char_count": text.get("char_count") if text else None,
+                "line_count": text.get("line_count") if text else None,
+                "note": "text note has no embedded file metadata; "
+                        "use read_note for its content",
+            }, ensure_ascii=False)
+        if item_type != MEDIA_TYPE or not is_known_item_type(item_type):
+            raise ToolError(f"unsupported item type: {item_type}")
+        media = ItemMediaRepository(db).get_by_item_id(item_id)
+    finally:
+        db.close()
+    if media is None:
+        raise ToolError(f"media detail not found for item {item_id}")
+
+    chunks = media.get("png_text_chunks") or {}
+    key = str(args.get("key") or "").strip()
+    if key:
+        if key in chunks:
+            return _metadata_fetch_key(key, chunks, args)
+        if key in ("user_comment", "image_description", "xmp"):
+            live = await _probe_exif(item_id, media)
+            value = live.get(key)
+            if not value:
+                raise ToolError(f"item {item_id} has no {key}")
+            return _page_text(value, args, key)
+        raise ToolError(
+            f"unknown metadata key '{key}'; available: "
+            + (
+                ", ".join(sorted(chunks))
+                if chunks
+                else "(none) or user_comment / image_description / xmp"
+            )
+        )
+
+    summary = {
+        "id": item_id,
+        "type": MEDIA_TYPE,
+        "media_type": media.get("media_type"),
+        "content_type": media.get("content_type"),
+        "original_name": media.get("original_name"),
+        "width": media.get("width"),
+        "height": media.get("height"),
+        "duration": media.get("duration"),
+        "file_size": media.get("file_size"),
+        "taken_at": str(media["taken_at"]) if media.get("taken_at") else None,
+    }
+    chunk_entries = [
+        {
+            "key": name,
+            "length": len(value),
+            "preview": value[:_METADATA_PREVIEW_CHARS],
+        }
+        for name, value in sorted(chunks.items())
+    ]
+    summary["text_chunks"] = {
+        "total_keys": len(chunk_entries),
+        "keys": chunk_entries[:_METADATA_MAX_KEYS],
+        "note": (
+            "read a full value with key='<name>'"
+            if chunk_entries
+            else None
+        ),
+    }
+    if media.get("media_type") == "video":
+        summary["exif"] = None
+        summary["probe_note"] = (
+            "live EXIF probe is image-only; videos rely on stored fields"
+        )
+    else:
+        live = await _probe_exif(item_id, media)
+        if live:
+            summary["exif"] = _summarize_exif(live)
+            summary["probe_note"] = (
+                "fetch full user_comment / image_description / xmp "
+                "with key='...'"
+                if any(live.get(k) for k in
+                       ("user_comment", "image_description", "xmp"))
+                else None
+            )
+        else:
+            summary["exif"] = None
+            if (media.get("content_type") or "").lower() == "image/jxl":
+                summary["probe_note"] = (
+                    "JPEG XL carries no probeable EXIF; text_chunks and "
+                    "taken_at come from the database"
+                )
+            else:
+                summary["probe_note"] = "no EXIF found"
+    return json.dumps(summary, ensure_ascii=False)
+
+
+async def _tool_read_note(args: dict, ctx: ToolContext) -> str:
+    item_id = str(args.get("item_id") or "").strip()
+    if not item_id:
+        raise ToolError("item_id is required")
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        item = _get_owned_item(ItemRepository(db), item_id, ctx)
+        if item.get("type") != NOTE_TYPE:
+            raise ToolError(
+                f"item {item_id} is not a text note "
+                f"(type: {item.get('type')}); only notes have readable text"
+            )
+        text = ItemTextRepository(db).get_by_item_id(item_id)
+    finally:
+        db.close()
+
+    content = await _read_note_text(item_id, dek)
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+    max_chars = _clamp_int(
+        args.get("max_chars"), 500, _NOTE_READ_MAX_CHARS,
+        _NOTE_READ_DEFAULT_CHARS,
+    )
+    total = len(content)
+    chunk = content[offset:offset + max_chars]
+    next_offset = offset + len(chunk)
+    return json.dumps({
+        "id": item_id,
+        "title": item.get("title"),
+        "content_type": text.get("content_type") if text else None,
+        "total_chars": total,
+        "offset": offset,
+        "content": chunk,
+        "next_offset": next_offset if next_offset < total else None,
     }, ensure_ascii=False)
 
 
@@ -621,6 +920,100 @@ def _tool_update_item(args: dict, ctx: ToolContext) -> str:
     }, ensure_ascii=False)
 
 
+async def _tool_create_note(args: dict, ctx: ToolContext) -> str:
+    folder_id = str(args.get("folder_id") or "").strip()
+    title = str(args.get("title") or "").strip()
+    if not folder_id:
+        raise ToolError("folder_id is required")
+    if not title:
+        raise ToolError("title is required")
+    content, line_count = _validate_note_content(args.get("content"))
+    content_type = str(args.get("content_type") or "text/plain").strip().lower()
+    if content_type not in NOTE_CONTENT_TYPES:
+        raise ToolError(
+            "content_type must be one of: " + ", ".join(NOTE_CONTENT_TYPES)
+        )
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        folder = FolderRepository(db).get_by_id(folder_id)
+        if folder is None or folder.get("user_id") != ctx.user_id:
+            raise ToolError(f"folder not found: {folder_id}")
+        item_id = str(uuid.uuid4())
+        ItemRepository(db).create(
+            item_type=NOTE_TYPE,
+            folder_id=folder_id,
+            user_id=ctx.user_id,
+            item_id=item_id,
+            title=title,
+        )
+        ItemTextRepository(db).create(
+            item_id=item_id,
+            content_type=content_type,
+            original_name=title,
+            char_count=len(content),
+            line_count=line_count,
+        )
+    finally:
+        db.close()
+
+    await _write_note_blob(item_id, content, dek)
+
+    return json.dumps({
+        "id": item_id,
+        "title": title,
+        "folder_id": folder_id,
+        "content_type": content_type,
+        "char_count": len(content),
+        "line_count": line_count,
+    }, ensure_ascii=False)
+
+
+async def _tool_write_note(args: dict, ctx: ToolContext) -> str:
+    item_id = str(args.get("item_id") or "").strip()
+    if not item_id:
+        raise ToolError("item_id is required")
+    mode = str(args.get("mode") or "replace").strip().lower()
+    if mode not in ("replace", "append"):
+        raise ToolError("mode must be 'replace' or 'append'")
+    content, _ = _validate_note_content(args.get("content"))
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        item = _get_owned_item(ItemRepository(db), item_id, ctx)
+        if item.get("type") != NOTE_TYPE:
+            raise ToolError(
+                f"item {item_id} is not a text note "
+                f"(type: {item.get('type')})"
+            )
+    finally:
+        db.close()
+
+    if mode == "append":
+        content = await _read_note_text(item_id, dek) + content
+    line_count = _count_lines(content)
+
+    await _write_note_blob(item_id, content, dek)
+
+    db = create_connection()
+    try:
+        ItemTextRepository(db).update_stats(item_id, len(content), line_count)
+        ItemRepository(db).touch_updated_at(item_id)
+    finally:
+        db.close()
+
+    # Minimal ack: echoing the content back would only burn tokens.
+    return json.dumps({
+        "status": "ok",
+        "mode": mode,
+        "id": item_id,
+        "char_count": len(content),
+        "line_count": line_count,
+    }, ensure_ascii=False)
+
+
 def _tool_create_folder(args: dict, ctx: ToolContext) -> str:
     name = str(args.get("name") or "").strip()
     parent_id = args.get("parent_id") or None
@@ -791,7 +1184,9 @@ def _build_registry() -> dict:
             name="get_item",
             description=(
                 "Get full metadata of one item (title, description, media "
-                "info, explicit and implied tags)."
+                "info, explicit and implied tags). For media items also "
+                "lists the names of embedded text chunks; fetch their "
+                "values with get_item_metadata."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -804,6 +1199,91 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_get_item,
+        ),
+        ToolDef(
+            name="get_item_metadata",
+            description=(
+                "Read embedded file metadata of one media item: stored "
+                "capture date and size, generation fields (prompt/workflow "
+                "PNG text chunks, kept for JXL too) and a live EXIF probe "
+                "(camera, GPS, UserComment) for images. Without 'key' "
+                "returns a summary with lengths and previews; pass "
+                "key='prompt' (etc.) to read one full value in pages. "
+                "Never use view_images to read text or metadata."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "Media item id.",
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": (
+                            "Full value to fetch: a text-chunk name "
+                            "(e.g. 'prompt', 'workflow') or "
+                            "'user_comment', 'image_description', 'xmp'. "
+                            "Omit for the summary."
+                        ),
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Char offset inside the value; echo "
+                            "next_offset from the previous result."
+                        ),
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 6000,
+                        "default": 6000,
+                        "description": "Maximum chars of the value to return.",
+                    },
+                },
+                "required": ["item_id"],
+            },
+            executor=_tool_get_item_metadata,
+        ),
+        ToolDef(
+            name="read_note",
+            description=(
+                "Read the text content of one note item (txt/md/yaml/"
+                "json/csv stored in the library). Returns a slice plus "
+                "next_offset; page through long files by echoing "
+                "next_offset. Use get_item_metadata for embedded metadata "
+                "and view_images only to actually see an image."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "Note item id.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Char offset; echo next_offset from the "
+                            "previous read."
+                        ),
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "minimum": 500,
+                        "maximum": 6000,
+                        "default": 4000,
+                        "description": "Maximum chars to return.",
+                    },
+                },
+                "required": ["item_id"],
+            },
+            executor=_tool_read_note,
         ),
         ToolDef(
             name="list_tags",
@@ -1042,6 +1522,73 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_update_item,
+        ),
+        ToolDef(
+            name="create_note",
+            description=(
+                "Create a new text note (a text file) in a folder from "
+                "the given content; it is encrypted with the owner's key. "
+                "Include a file extension in the title when the format is "
+                "clear (e.g. 'notes.yaml')."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "folder_id": {
+                        "type": "string",
+                        "description": "Target folder id.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Note title / file name.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full text content.",
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "enum": list(NOTE_CONTENT_TYPES),
+                        "default": "text/plain",
+                        "description": "MIME type of the content.",
+                    },
+                },
+                "required": ["folder_id", "title", "content"],
+            },
+            executor=_tool_create_note,
+        ),
+        ToolDef(
+            name="write_note",
+            description=(
+                "Overwrite (mode 'replace', default) or append to an "
+                "existing note's text content. 'replace' expects the full "
+                "new text; there is no partial editing. Returns only "
+                "status and counters, never the content."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "Note item id.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Full text content to write.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["replace", "append"],
+                        "default": "replace",
+                        "description": (
+                            "'replace' overwrites the whole note, "
+                            "'append' adds to its end."
+                        ),
+                    },
+                },
+                "required": ["item_id", "content"],
+            },
+            executor=_tool_write_note,
         ),
         ToolDef(
             name="create_folder",
