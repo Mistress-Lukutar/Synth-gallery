@@ -66,8 +66,35 @@ def _error_message(body: str) -> str:
     return body[:_MAX_ERROR_BODY]
 
 
+def _tool_image_blocks(images: list[ImagePart]) -> list[dict]:
+    '''Map tool-result images to user-message content blocks.
+
+    The Chat Completions wire format only accepts image content in ``user``
+    messages, so tool-result images are re-sent as a follow-up user turn.
+    '''
+    blocks: list[dict] = [
+        {
+            "type": "text",
+            "text": (
+                "Images for the preceding tool result(s), in the same "
+                "order as the item ids listed in each result:"
+            ),
+        }
+    ]
+    for image in images:
+        url = f"data:{image.mime_type};base64,{image.data_b64}"
+        blocks.append({"type": "image_url", "image_url": {"url": url}})
+    return blocks
+
+
 def _turns_to_messages(turns: list[Turn]) -> list[dict]:
-    '''Map protocol-agnostic turns to OpenAI chat ``messages`` entries.'''
+    '''Map protocol-agnostic turns to OpenAI chat ``messages`` entries.
+
+    Images attached to tool results cannot ride on ``tool`` messages; they
+    are collected per tool turn and appended as ONE user message after that
+    turn's tool messages (strict providers require every tool response to
+    directly follow the assistant ``tool_calls`` message).
+    '''
     messages: list[dict] = []
     for turn in turns:
         if turn.role == "user":
@@ -97,9 +124,11 @@ def _turns_to_messages(turns: list[Turn]) -> list[dict]:
                 ]
             messages.append(message)
         elif turn.role == "tool":
-            # One message per ToolResult.
+            # One message per ToolResult; images follow as a user message.
+            pending_images: list[ImagePart] = []
             for part in turn.parts:
                 if isinstance(part, ToolResult):
+                    pending_images.extend(part.images)
                     messages.append(
                         {
                             "role": "tool",
@@ -107,6 +136,10 @@ def _turns_to_messages(turns: list[Turn]) -> list[dict]:
                             "content": part.content,
                         }
                     )
+            if pending_images:
+                messages.append(
+                    {"role": "user", "content": _tool_image_blocks(pending_images)}
+                )
     return messages
 
 

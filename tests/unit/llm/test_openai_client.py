@@ -133,6 +133,55 @@ async def test_assistant_and_tool_message_mapping():
         "tool_call_id": "call_9",
         "content": '{"temp": 30}',
     }
+    # No images: no follow-up user message may appear.
+    assert len(messages) == 4
+
+
+async def test_tool_result_images_become_followup_user_message():
+    '''Tool messages cannot carry images on the Chat Completions wire, so
+    they must be re-sent as a user message right after the tool turn.'''
+    captured: dict = {}
+    client = _client(captured, STOP_SSE)
+    turns = [
+        Turn("user", [TextPart("Show me")]),
+        Turn("assistant", [ToolCall("c1", "view_images", "{}")]),
+        Turn(
+            "tool",
+            [
+                ToolResult(
+                    "c1",
+                    "view_images",
+                    "User approved. 2 image(s) attached.",
+                    images=[
+                        ImagePart("image/jpeg", "AA"),
+                        ImagePart("image/png", "BB"),
+                    ],
+                ),
+            ],
+        ),
+    ]
+    await collect_events(client, _request(turns))
+    messages = request_json(captured)["messages"]
+
+    assert messages[3] == {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": "User approved. 2 image(s) attached.",
+    }
+    followup = messages[4]
+    assert followup["role"] == "user"
+    caption = followup["content"][0]
+    assert caption["type"] == "text"
+    assert "order" in caption["text"]
+    assert followup["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/jpeg;base64,AA"},
+    }
+    assert followup["content"][2] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,BB"},
+    }
+    assert len(messages) == 5
 
 
 async def test_assistant_text_and_tool_calls_together():

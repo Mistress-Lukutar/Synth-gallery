@@ -256,7 +256,9 @@ class AiChatService:
             "results.\n"
             "- All queries are automatically scoped to the owner of the "
             "library.\n"
-            "- view_images requires the user's approval; never claim to "
+            "- view_images requires the user's approval; when approved, "
+            "the images are delivered immediately after the tool result, "
+            "in the order of the item ids listed in it. Never claim to "
             "see image content you have not actually been shown.\n"
             "- If a vision request is denied or expired, you have no "
             "visual access: say so and continue without it.\n"
@@ -355,7 +357,17 @@ class AiChatService:
                         images[item_id] = loaded
                 if images:
                     _turn_images[(conversation_id, tool_call_id)] = images
+                attached = [
+                    item_id for item_id in request.item_ids if item_id in images
+                ]
+                # The id list is what lets the model map each attached image
+                # (delivered in this order) back to the item it must tag.
                 content = f"User approved. {len(images)} image(s) attached."
+                if attached:
+                    content += (
+                        " Images follow for item ids, in order: "
+                        + ", ".join(attached) + "."
+                    )
                 if failed:
                     content += " Could not load: " + ", ".join(failed) + "."
                 parts = [{
@@ -363,10 +375,7 @@ class AiChatService:
                     "call_id": tool_call_id,
                     "name": "view_images",
                     "content": content,
-                    "images": [
-                        item_id for item_id in request.item_ids
-                        if item_id in images
-                    ],
+                    "images": attached,
                     "is_error": False,
                 }]
             else:

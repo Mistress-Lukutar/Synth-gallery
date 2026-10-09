@@ -462,6 +462,10 @@ def test_vision_approved_attaches_images(
     tool_part = messages[2]["parts"][0]
     assert tool_part["images"] == [uploaded_photo["id"]]
     assert tool_part["is_error"] is False
+    # The content must bind the attached image to its item id so the model
+    # cannot mix up which image belongs to which item.
+    assert tool_part["content"].startswith("User approved. 1 image(s) attached.")
+    assert uploaded_photo["id"] in tool_part["content"]
 
     # The follow-up LLM call carried the decrypted image as an ImagePart.
     resumed = fake.requests[1]
