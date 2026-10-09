@@ -112,7 +112,7 @@ _turn_images: Dict[Tuple[str, str], Dict[str, tuple]] = {}
 class AiChatService:
     """Orchestrates one chat turn: LLM streaming + tool execution."""
 
-    MAX_TOOL_ITERATIONS = 25
+    MAX_TOOL_ITERATIONS = 255
     TOOL_RESULT_LIMIT = 8000
     VISION_MAX_ITEMS = 8
     VISION_TTL_SECONDS = 1800
@@ -505,7 +505,7 @@ class AiChatService:
                         if endpoint.get("temperature") is not None
                         else 0.7
                     ),
-                    max_tokens=None,
+                    max_tokens=endpoint.get("max_output_tokens"),
                 )
 
                 accumulated = ""

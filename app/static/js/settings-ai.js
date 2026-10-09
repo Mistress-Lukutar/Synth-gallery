@@ -11,6 +11,7 @@
  *   PUT    /api/user/ai/providers/{id}       (empty api_key = keep existing)
  *   DELETE /api/user/ai/providers/{id}
  *   POST   /api/user/ai/providers/{id}/fetch-models
+ *   PUT    /api/user/ai/providers/{id}/models/{model_id}/limits
  *   GET    /api/user/ai/settings
  *   PUT    /api/user/ai/settings
  */
@@ -99,6 +100,7 @@
     var settings = null;
     var modelsCache = {};      // providerId -> [model, ...] from fetch-models
     var editingProviderId = null; // provider id | 'new' | null
+    var editingLimits = null;  // { providerId, modelId } while inline form is open
     var loading = false;
 
     var els = {};
@@ -157,13 +159,21 @@
         var el = getEl('ai-active-model');
         if (!el) return;
         var s = settings || {};
+        var text = null;
         if (s.provider_label && (s.model_display_name || s.active_model_id)) {
-            el.textContent = s.provider_label + ' \u00b7 ' + (s.model_display_name || s.active_model_id);
+            text = s.provider_label + ' \u00b7 ' + (s.model_display_name || s.active_model_id);
         } else if (s.active_model_id) {
-            el.textContent = s.active_model_id;
-        } else {
-            el.innerHTML = '<span class="ai-model-none">Not configured</span>';
+            text = s.active_model_id;
         }
+        if (!text) {
+            el.innerHTML = '<span class="ai-model-none">Not configured</span>';
+            return;
+        }
+        var limits = [];
+        if (s.context_tokens) limits.push(formatTokens(s.context_tokens) + ' ctx');
+        if (s.max_output_tokens) limits.push(formatTokens(s.max_output_tokens) + ' out');
+        if (limits.length) text += ' \u00b7 ' + limits.join(' \u00b7 ');
+        el.textContent = text;
     }
 
     // ========================================================================
@@ -386,6 +396,36 @@
     function closeModelModal() {
         var modal = getEl('ai-model-modal');
         if (modal) modal.classList.add('hidden');
+        editingLimits = null;
+    }
+
+    var PENCIL_SVG =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">' +
+        '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
+
+    /**
+     * Inline context/output limits editor; replaces the model row while
+     * open. Empty input = "unknown / provider-reported".
+     */
+    function renderLimitsForm(m, providerId) {
+        var action = ' data-provider-id="' + esc(providerId) + '" data-model-id="' + esc(m.model_id || '') + '"';
+        return '<div class="ai-limits-form" data-provider-id="' + esc(providerId) + '" data-model-id="' + esc(m.model_id || '') + '">' +
+            '<div class="ai-limits-title">' + esc(m.display_name || m.model_id || 'Model') + '</div>' +
+            '<div class="ai-limits-fields">' +
+            '  <label>Context tokens' +
+            '    <input type="number" min="1" step="1" inputmode="numeric" data-limit-field="context_tokens"' +
+            '           placeholder="auto" aria-label="Context tokens" value="' + (m.context_tokens || '') + '">' +
+            '  </label>' +
+            '  <label>Max output tokens' +
+            '    <input type="number" min="1" step="1" inputmode="numeric" data-limit-field="max_output_tokens"' +
+            '           placeholder="auto" aria-label="Max output tokens" value="' + (m.max_output_tokens || '') + '">' +
+            '  </label>' +
+            '</div>' +
+            '<div class="ai-limits-actions">' +
+            '  <button type="button" class="btn btn-small" data-modal-action="limits-save"' + action + '>Save</button>' +
+            '  <button type="button" class="btn btn-small btn-secondary" data-modal-action="limits-cancel">Cancel</button>' +
+            '</div>' +
+            '</div>';
     }
 
     function renderModelModal() {
@@ -407,19 +447,32 @@
             if (models && models.length > 0) {
                 for (var j = 0; j < models.length; j++) {
                     var m = models[j] || {};
-                    var ctx = formatTokens(m.context_tokens);
+                    if (editingLimits &&
+                        String(editingLimits.providerId) === String(p.id) &&
+                        editingLimits.modelId === (m.model_id || '')) {
+                        html += renderLimitsForm(m, p.id);
+                        continue;
+                    }
+                    var manual = m.limits_source === 'manual';
+                    var manualTitle = manual ? ' title="manually set"' : '';
+                    var ctx = m.context_tokens ? formatTokens(m.context_tokens) + ' ctx' : '';
+                    var out = m.max_output_tokens ? formatTokens(m.max_output_tokens) + ' out' : '';
                     var supportsVision = !!m.supports_vision;
-                    html += '<button type="button" class="ai-model-row" data-modal-action="choose"' +
+                    html += '<div class="ai-model-row" role="button" tabindex="0" data-modal-action="choose"' +
                         ' data-provider-id="' + esc(p.id) + '" data-model-id="' + esc(m.model_id || '') + '">' +
                         '  <span class="ai-model-name">' + esc(m.display_name || m.model_id || 'Model') + '</span>' +
                         '  <span class="ai-model-id">' + esc(m.model_id || '') + '</span>' +
                         (supportsVision ? '<span class="ai-model-badge vision">vision</span>' : '') +
                         (m.supports_tools ? '<span class="ai-model-badge tools">tools</span>' : '') +
-                        (ctx ? '<span class="ai-model-ctx">' + esc(ctx) + '</span>' : '') +
+                        (ctx ? '<span class="ai-model-ctx"' + manualTitle + '>' + esc(ctx) + '</span>' : '') +
+                        (out ? '<span class="ai-model-ctx"' + manualTitle + '>' + esc(out) + '</span>' : '') +
                         (supportsVision
                             ? ''
                             : '<svg class="ai-model-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" title="may not support images"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>') +
-                        '</button>';
+                        '<button type="button" class="ai-model-edit" data-modal-action="edit-limits"' +
+                        ' data-provider-id="' + esc(p.id) + '" data-model-id="' + esc(m.model_id || '') + '"' +
+                        ' title="Edit context / output limits" aria-label="Edit limits">' + PENCIL_SVG + '</button>' +
+                        '</div>';
                 }
             } else {
                 html += '<p class="ai-model-empty">No models cached for this provider yet' +
@@ -491,6 +544,67 @@
     }
 
     // ========================================================================
+    // Manual context/output limits
+    // ========================================================================
+
+    async function saveModelLimits(providerId, modelId) {
+        var form = getEl('ai-model-modal-body').querySelector(
+            '.ai-limits-form[data-provider-id="' + CSS.escape(String(providerId)) + '"]' +
+            '[data-model-id="' + CSS.escape(modelId) + '"]'
+        );
+        if (!form) return;
+
+        function readLimit(name) {
+            var raw = form.querySelector('[data-limit-field="' + name + '"]').value.trim();
+            if (!raw) return null; // empty = unknown / provider-reported
+            var n = Number(raw);
+            return (isFinite(n) && n >= 1) ? Math.round(n) : NaN;
+        }
+        var contextTokens = readLimit('context_tokens');
+        var maxOutputTokens = readLimit('max_output_tokens');
+        if (Number.isNaN(contextTokens) || Number.isNaN(maxOutputTokens)) {
+            toast('Limits must be positive integers', true);
+            return;
+        }
+
+        try {
+            var resp = await csrfFetch(
+                BASE_URL + '/api/user/ai/providers/' + encodeURIComponent(providerId) +
+                '/models/' + encodeURIComponent(modelId) + '/limits',
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        context_tokens: contextTokens,
+                        max_output_tokens: maxOutputTokens,
+                    }),
+                }
+            );
+            if (!resp.ok) {
+                var detail = await errorDetail(resp, 'Failed to save limits');
+                toast(detail, true);
+                warnEncryptionKey(detail);
+                return;
+            }
+            var data = await resp.json();
+            var models = modelsCache[String(providerId)] || [];
+            for (var i = 0; i < models.length; i++) {
+                if (models[i].model_id === modelId) {
+                    models[i].context_tokens = data.model.context_tokens;
+                    models[i].max_output_tokens = data.model.max_output_tokens;
+                    models[i].limits_source = data.model.limits_source;
+                }
+            }
+            editingLimits = null;
+            toast('Model limits updated', false);
+            renderModelModal();
+        } catch (err) {
+            console.error('[settings-ai] Failed to save model limits:', err);
+            toast('Failed to save limits', true);
+        }
+    }
+
+    // ========================================================================
     // Wiring
     // ========================================================================
 
@@ -540,7 +654,31 @@
                 case 'manual-save':
                     saveManualModel();
                     break;
+                case 'edit-limits':
+                    e.stopPropagation();
+                    editingLimits = {
+                        providerId: btn.dataset.providerId,
+                        modelId: btn.dataset.modelId,
+                    };
+                    renderModelModal();
+                    break;
+                case 'limits-save':
+                    saveModelLimits(btn.dataset.providerId, btn.dataset.modelId);
+                    break;
+                case 'limits-cancel':
+                    editingLimits = null;
+                    renderModelModal();
+                    break;
             }
+        });
+
+        // Model rows are div[role=button]; keep Enter/Space selecting.
+        getEl('ai-model-modal-body').addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            var row = e.target.closest('.ai-model-row[role="button"]');
+            if (!row || e.target !== row) return;
+            e.preventDefault();
+            chooseModel(row.dataset.providerId, row.dataset.modelId);
         });
 
         loadProviders();

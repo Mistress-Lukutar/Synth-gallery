@@ -239,6 +239,57 @@ def test_plain_answer_streams_tokens_and_persists(
     assert [turn.role for turn in request.turns] == ["user"]
 
 
+def test_max_output_tokens_reaches_llm_request(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    """The active model's max_output_tokens is sent as max_tokens; without
+    one the field stays None (providers keep their defaults)."""
+    provider_id = _configure_provider(db_connection, test_user["id"], dek)
+    AiModelRepository(db_connection).replace_for_provider(
+        provider_id,
+        [
+            {
+                "model_id": "test-model",
+                "display_name": "Test Model",
+                "supports_tools": 1,
+                "supports_vision": 1,
+                "max_output_tokens": 4096,
+            }
+        ],
+    )
+    fake = FakeLLMClient([_text_turn("Hello!")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+    _assert_ok(
+        _post_message(authenticated_client, csrf, conversation["id"], "Hi")
+    )
+    assert fake.requests[0].max_tokens == 4096
+
+    # Without a stored limit the request must not carry max_tokens.
+    AiModelRepository(db_connection).replace_for_provider(
+        provider_id,
+        [
+            {
+                "model_id": "test-model",
+                "display_name": "Test Model",
+                "supports_tools": 1,
+                "supports_vision": 1,
+            }
+        ],
+    )
+    fake = FakeLLMClient([_text_turn("Hello again!")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation2 = _create_conversation(authenticated_client, csrf)
+    _assert_ok(
+        _post_message(authenticated_client, csrf, conversation2["id"], "Hi")
+    )
+    assert fake.requests[0].max_tokens is None
+
+
 def test_conversation_title_truncated_to_60_chars(
     authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
 ):
@@ -591,7 +642,7 @@ def test_tool_iteration_limit(
             ),
             TurnComplete(StopReason.TOOL_USE),
         ]
-        for i in range(30)
+        for i in range(AiChatService.MAX_TOOL_ITERATIONS + 1)
     ]
     fake = FakeLLMClient(script)
     monkeypatch.setattr(

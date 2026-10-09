@@ -122,6 +122,41 @@ class AiModelRepository(Repository):
         )
         return self._row_to_dict(cursor.fetchone())
 
+    def update_limits(
+        self,
+        provider_id: int,
+        model_id: str,
+        context_tokens: Optional[int],
+        max_output_tokens: Optional[int],
+        limits_source: Optional[str],
+    ) -> bool:
+        """Overwrite the stored limits of one model.
+
+        Args:
+            provider_id: Provider ID.
+            model_id: Provider-specific model identifier.
+            context_tokens: Context window in tokens, or None (unknown).
+            max_output_tokens: Max output tokens, or None (unknown).
+            limits_source: ``"manual"`` when the caller set either limit
+                by hand, None for provider-reported values.
+
+        Returns:
+            True if a row was updated.
+        """
+        cursor = self._execute(
+            "UPDATE ai_models SET context_tokens = ?, max_output_tokens = ?, "
+            "limits_source = ? WHERE provider_id = ? AND model_id = ?",
+            (
+                context_tokens,
+                max_output_tokens,
+                limits_source,
+                provider_id,
+                model_id,
+            ),
+        )
+        self._commit()
+        return cursor.rowcount > 0
+
     def set_pinned(self, provider_id: int, model_id: str, pinned: bool) -> bool:
         """Pin or unpin a model.
 

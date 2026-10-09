@@ -20,6 +20,10 @@ class AiProviderService:
 
     VALID_PROTOCOLS = ("openai_compatible", "anthropic", "google_gemini")
 
+    # Sanity cap for manually entered token limits: accepts 1M-class
+    # (and larger) context windows but rejects obvious typos.
+    MAX_MANUAL_TOKEN_LIMIT = 10_000_000
+
     def __init__(self, provider_repo, model_repo, settings_repo):
         """Create the service with its repositories.
 
@@ -271,6 +275,67 @@ class AiProviderService:
         self.model_repo.replace_for_provider(provider_id, merged)
         return merged
 
+    def update_model_limits(
+        self,
+        user_id: int,
+        provider_id: int,
+        model_id: str,
+        context_tokens: Optional[int],
+        max_output_tokens: Optional[int],
+    ) -> dict:
+        """Manually set one model's context/output limits.
+
+        Values are stored with ``limits_source = 'manual'`` so catalogue
+        refreshes never overwrite them (see :meth:`_merge_models`).
+        Clearing both values returns the model to provider-reported (or
+        unknown) limits.
+
+        Args:
+            user_id: Owner's user ID.
+            provider_id: Provider ID.
+            model_id: Provider-specific model identifier.
+            context_tokens: Context window in tokens, or None to clear.
+            max_output_tokens: Max output tokens, or None to clear.
+
+        Returns:
+            The updated model dict.
+
+        Raises:
+            HTTPException: 404 when the provider or model does not exist;
+                400 when a value is out of range.
+        """
+        provider = self.provider_repo.get_by_id(provider_id, user_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if self.model_repo.get(provider_id, model_id) is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        for value in (context_tokens, max_output_tokens):
+            if value is not None and not (
+                1 <= value <= self.MAX_MANUAL_TOKEN_LIMIT
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Token limits must be between 1 and "
+                        f"{self.MAX_MANUAL_TOKEN_LIMIT}"
+                    ),
+                )
+
+        limits_source = (
+            "manual"
+            if context_tokens is not None or max_output_tokens is not None
+            else None
+        )
+        self.model_repo.update_limits(
+            provider_id,
+            model_id,
+            context_tokens=context_tokens,
+            max_output_tokens=max_output_tokens,
+            limits_source=limits_source,
+        )
+        return self.model_repo.get(provider_id, model_id)
+
     # =====================================================================
     # Settings / active endpoint
     # =====================================================================
@@ -283,8 +348,9 @@ class AiProviderService:
 
         Returns:
             Settings dict plus ``provider_label``, ``protocol``,
-            ``model_display_name``, ``supports_vision`` and
-            ``supports_tools`` (None when the selection is unset or
+            ``model_display_name``, ``supports_vision``,
+            ``supports_tools`` and the active model's ``context_tokens``
+            / ``max_output_tokens`` (None when the selection is unset or
             dangling).
         """
         settings = dict(self.settings_repo.ensure(user_id))
@@ -294,6 +360,8 @@ class AiProviderService:
         model_display_name = None
         supports_vision = None
         supports_tools = None
+        context_tokens = None
+        max_output_tokens = None
 
         provider_id = settings.get("active_provider_id")
         model_id = settings.get("active_model_id")
@@ -308,12 +376,16 @@ class AiProviderService:
                         model_display_name = model["display_name"]
                         supports_vision = bool(model["supports_vision"])
                         supports_tools = bool(model["supports_tools"])
+                        context_tokens = model["context_tokens"]
+                        max_output_tokens = model["max_output_tokens"]
 
         settings["provider_label"] = provider_label
         settings["protocol"] = protocol
         settings["model_display_name"] = model_display_name
         settings["supports_vision"] = supports_vision
         settings["supports_tools"] = supports_tools
+        settings["context_tokens"] = context_tokens
+        settings["max_output_tokens"] = max_output_tokens
         return settings
 
     def update_settings(
@@ -376,8 +448,9 @@ class AiProviderService:
 
         Returns:
             Dict with ``base_url``, ``api_key`` (decrypted plaintext),
-            ``model_id``, ``protocol`` and ``temperature``, or None when no
-            provider/model is configured (or the selection is dangling).
+            ``model_id``, ``protocol``, ``temperature`` and the model's
+            ``max_output_tokens`` (None when unset or the selection is
+            dangling), or None when no provider/model is configured.
 
         Raises:
             HTTPException: 403 when the stored key cannot be decrypted.
@@ -392,12 +465,16 @@ class AiProviderService:
         if provider is None:
             return None
 
+        model = self.model_repo.get(provider_id, model_id)
         return {
             "base_url": provider["base_url"],
             "api_key": self._decrypt_key(provider, dek),
             "model_id": model_id,
             "protocol": provider["protocol"],
             "temperature": settings["temperature"],
+            "max_output_tokens": (
+                model["max_output_tokens"] if model is not None else None
+            ),
         }
 
     # =====================================================================
@@ -530,9 +607,9 @@ class AiProviderService:
 
         - ``is_pinned`` is preserved for known models (new entries default
           to 0).
-        - Limits are kept from storage when the fresh entry has no value
-          and the stored entry was maintained manually
-          (``limits_source == 'manual'``).
+        - Manually maintained limits (``limits_source == 'manual'``)
+          always win: provider-reported values (or their absence) never
+          overwrite explicit user input.
         """
         by_model_id = {row["model_id"]: row for row in existing}
 
@@ -545,11 +622,8 @@ class AiProviderService:
             if old is not None:
                 fresh["is_pinned"] = 1 if old["is_pinned"] else 0
                 if old.get("limits_source") == "manual":
-                    if fresh["context_tokens"] is None:
-                        fresh["context_tokens"] = old["context_tokens"]
-                    if fresh["max_output_tokens"] is None:
-                        fresh["max_output_tokens"] = old["max_output_tokens"]
-                    if fresh["limits_source"] is None:
-                        fresh["limits_source"] = old["limits_source"]
+                    fresh["context_tokens"] = old["context_tokens"]
+                    fresh["max_output_tokens"] = old["max_output_tokens"]
+                    fresh["limits_source"] = old["limits_source"]
             merged.append(fresh)
         return merged

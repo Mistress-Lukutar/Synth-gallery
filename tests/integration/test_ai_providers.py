@@ -544,9 +544,11 @@ def test_fetch_models_merges_and_persists(
             model_id="model-a",
             display_name="Model A",
             supports_tools=True,
-            context_tokens=None,
-            max_output_tokens=None,
-            limits_source=None,
+            # Provider now reports its own numbers; the manually entered
+            # limits must still win.
+            context_tokens=999000,
+            max_output_tokens=888000,
+            limits_source="api",
         ),
         _FetchedModel(
             model_id="model-b",
@@ -572,7 +574,8 @@ def test_fetch_models_merges_and_persists(
     assert stub.calls == [("https://api.example.com/v1", RAW_KEY)]
 
     rows = {r["model_id"]: r for r in model_repo.list_for_provider(provider_id)}
-    # Known model: pinned flag and manually maintained limits survive.
+    # Known model: pinned flag and manually maintained limits survive —
+    # even against provider-reported values.
     assert rows["model-a"]["is_pinned"] == 1
     assert rows["model-a"]["context_tokens"] == 123
     assert rows["model-a"]["max_output_tokens"] == 456
@@ -610,6 +613,192 @@ def test_fetch_models_llm_error_maps_to_502(ai_client, dek, monkeypatch):
     )
     assert response.status_code == 502
     assert "provider exploded" in response.json()["detail"]
+
+
+# ============================================================================
+# Manual model limits (context / max output)
+# ============================================================================
+
+def _seed_model(db_connection, provider_id, model_id="m-1", **extra):
+    model = {"model_id": model_id, "display_name": "Model 1"}
+    model.update(extra)
+    AiModelRepository(db_connection).replace_for_provider(provider_id, [model])
+
+
+def _put_limits(client, provider_id, model_id, payload):
+    return client.put(
+        f"/api/user/ai/providers/{provider_id}/models/{model_id}/limits",
+        json=payload,
+    )
+
+
+def test_update_model_limits_sets_manual_source(
+    ai_client, dek, db_connection
+):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id)
+
+    response = _put_limits(
+        ai_client,
+        provider_id,
+        "m-1",
+        {"context_tokens": 1_000_000, "max_output_tokens": 65_536},
+    )
+    assert response.status_code == 200
+    model = response.json()["model"]
+    assert model["context_tokens"] == 1_000_000
+    assert model["max_output_tokens"] == 65_536
+    assert model["limits_source"] == "manual"
+
+    row = AiModelRepository(db_connection).get(provider_id, "m-1")
+    assert row["context_tokens"] == 1_000_000
+    assert row["limits_source"] == "manual"
+
+
+def test_update_model_limits_partial_keeps_other(
+    ai_client, dek, db_connection
+):
+    """Setting only one limit leaves the other cleared (explicit None)."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(
+        db_connection,
+        provider_id,
+        context_tokens=123,
+        max_output_tokens=456,
+        limits_source="manual",
+    )
+
+    response = _put_limits(
+        ai_client, provider_id, "m-1", {"context_tokens": 8_000_000}
+    )
+    assert response.status_code == 200
+    model = response.json()["model"]
+    assert model["context_tokens"] == 8_000_000
+    assert model["max_output_tokens"] is None
+    assert model["limits_source"] == "manual"
+
+
+def test_update_model_limits_clear_resets_source(
+    ai_client, dek, db_connection
+):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(
+        db_connection,
+        provider_id,
+        context_tokens=123,
+        max_output_tokens=456,
+        limits_source="manual",
+    )
+
+    response = _put_limits(
+        ai_client,
+        provider_id,
+        "m-1",
+        {"context_tokens": None, "max_output_tokens": None},
+    )
+    assert response.status_code == 200
+    model = response.json()["model"]
+    assert model["context_tokens"] is None
+    assert model["max_output_tokens"] is None
+    assert model["limits_source"] is None
+
+
+def test_update_model_limits_rejects_out_of_range(ai_client, dek, db_connection):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id)
+
+    assert (
+        _put_limits(ai_client, provider_id, "m-1", {"context_tokens": 0}).status_code
+        == 422
+    )
+    assert (
+        _put_limits(
+            ai_client, provider_id, "m-1", {"max_output_tokens": -5}
+        ).status_code
+        == 422
+    )
+    assert (
+        _put_limits(
+            ai_client, provider_id, "m-1", {"context_tokens": 10_000_001}
+        ).status_code
+        == 422
+    )
+
+
+def test_update_model_limits_missing_model_404(ai_client, dek, db_connection):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    response = _put_limits(
+        ai_client, provider_id, "nope", {"context_tokens": 1000}
+    )
+    assert response.status_code == 404
+
+
+def test_update_model_limits_missing_provider_404(ai_client, dek):
+    response = _put_limits(
+        ai_client, 999999, "m-1", {"context_tokens": 1000}
+    )
+    assert response.status_code == 404
+
+
+def test_update_model_limits_slashed_model_id(ai_client, dek, db_connection):
+    """OpenRouter-style ids with slashes stay addressable (path converter)."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id, model_id="deepseek/deepseek-chat")
+
+    response = _put_limits(
+        ai_client,
+        provider_id,
+        "deepseek/deepseek-chat",
+        {"context_tokens": 128_000, "max_output_tokens": 8_192},
+    )
+    assert response.status_code == 200
+    row = AiModelRepository(db_connection).get(
+        provider_id, "deepseek/deepseek-chat"
+    )
+    assert row["context_tokens"] == 128_000
+    assert row["limits_source"] == "manual"
+
+
+def test_get_active_endpoint_includes_max_output_tokens(
+    ai_client, dek, db_connection, test_user
+):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(
+        db_connection,
+        provider_id,
+        max_output_tokens=4096,
+    )
+
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "m-1"},
+    )
+
+    endpoint = _make_service(db_connection).get_active_endpoint(
+        test_user["id"], dek
+    )
+    assert endpoint is not None
+    assert endpoint["max_output_tokens"] == 4096
+
+
+def test_get_settings_includes_active_model_limits(
+    ai_client, dek, db_connection
+):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(
+        db_connection,
+        provider_id,
+        context_tokens=1_048_576,
+        max_output_tokens=65_536,
+    )
+
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "m-1"},
+    )
+    settings = ai_client.get("/api/user/ai/settings").json()["settings"]
+    assert settings["context_tokens"] == 1_048_576
+    assert settings["max_output_tokens"] == 65_536
 
 
 # ============================================================================

@@ -75,6 +75,16 @@ class UpdateSettingsRequest(BaseModel):
     active_model_id: Optional[str] = None
 
 
+class UpdateModelLimitsRequest(BaseModel):
+    """Manually entered per-model limits; None clears a limit."""
+    context_tokens: Optional[int] = Field(
+        default=None, ge=1, le=10_000_000
+    )
+    max_output_tokens: Optional[int] = Field(
+        default=None, ge=1, le=10_000_000
+    )
+
+
 # ============================================================================
 # Providers
 # ============================================================================
@@ -160,6 +170,33 @@ async def fetch_models(request: Request, provider_id: int):
         service = build_ai_provider_service(db)
         models = await service.fetch_models(user["id"], provider_id, dek)
         return {"models": models, "fetched": len(models)}
+    finally:
+        db.close()
+
+
+@router.put("/providers/{provider_id}/models/{model_id:path}/limits")
+def update_model_limits(
+    request: Request, provider_id: int, model_id: str, data: UpdateModelLimitsRequest
+):
+    """Manually set one model's context/output limits.
+
+    Manual limits survive catalogue refreshes; None values clear a limit.
+    The ``:path`` converter keeps model ids that contain slashes
+    (e.g. OpenRouter's ``deepseek/deepseek-chat``) addressable.
+    """
+    user, _dek = _require_dek(request)
+
+    db = create_connection()
+    try:
+        service = build_ai_provider_service(db)
+        model = service.update_model_limits(
+            user["id"],
+            provider_id,
+            model_id,
+            data.context_tokens,
+            data.max_output_tokens,
+        )
+        return {"model": model}
     finally:
         db.close()
 
