@@ -465,6 +465,37 @@
         return PROTOCOL_LABELS[protocol] || protocol || '';
     }
 
+    // ========================================================================
+    // Reasoning-effort selector (pure helpers, Jest-covered)
+    // ========================================================================
+
+    // Composer choices per effective UI style (server: reasoning_ui).
+    // 'default' = provider default, nothing is sent.
+    var REASONING_UI_CHOICES = {
+        levels: ['default', 'minimal', 'low', 'medium', 'high'],
+        toggle: ['default', 'on', 'off'],
+        enable_toggle: ['default', 'on', 'off'],
+        budget: ['default', 'off', 'low', 'medium', 'high'],
+    };
+
+    var REASONING_CHOICE_LABELS = {
+        default: 'Default',
+        minimal: 'Minimal',
+        low: 'Low',
+        medium: 'Medium',
+        high: 'High',
+        on: 'On',
+        off: 'Off',
+    };
+
+    function reasoningChoices(ui) {
+        return REASONING_UI_CHOICES[ui] || [];
+    }
+
+    function reasoningLabel(value) {
+        return REASONING_CHOICE_LABELS[value] || 'Default';
+    }
+
     function renderMarkdownHtml(text) {
         if (typeof window !== 'undefined' && typeof window.marked !== 'undefined' && window.marked.parse) {
             try {
@@ -502,6 +533,10 @@
     var agents = [];
     var currentAgentId = null;
     var agentMenuOpen = false;
+    // Reasoning-effort choice for the composer chip; mirrors the
+    // server-clamped settings.reasoning_effort (null = provider default).
+    var reasoningEffort = null;
+    var reasoningMenuOpen = false;
     // User-toggled open state of collapsible parts (tool cards / reasoning),
     // keyed by stable part keys. Survives re-renders.
     var expandedParts = Object.create(null);
@@ -549,6 +584,8 @@
         '    <div class="ai-chat-messages" id="ai-chat-messages"></div>',
         '    <div class="ai-chat-vision-slot" id="ai-chat-vision-slot"></div>',
         '    <footer class="ai-chat-composer">',
+        '      <button type="button" class="ai-chat-reasoning-btn hidden" id="ai-chat-reasoning-btn" title="Reasoning effort" aria-label="Reasoning effort"></button>',
+        '      <div class="ai-agent-menu ai-chat-reasoning-menu hidden" id="ai-chat-reasoning-menu"></div>',
         '      <button type="button" class="ai-chat-attach-chip hidden" id="ai-chat-attach-chip" title="Attach the current gallery selection to the next message"></button>',
         '      <div class="ai-chat-input-row">',
         '        <textarea id="ai-chat-input" class="ai-chat-input" rows="1" placeholder="Ask about your library..."></textarea>',
@@ -578,6 +615,8 @@
         els.closeBtn = document.getElementById('ai-chat-close-btn');
         els.messages = document.getElementById('ai-chat-messages');
         els.visionSlot = document.getElementById('ai-chat-vision-slot');
+        els.reasoningBtn = document.getElementById('ai-chat-reasoning-btn');
+        els.reasoningMenu = document.getElementById('ai-chat-reasoning-menu');
         els.attachChip = document.getElementById('ai-chat-attach-chip');
         els.input = document.getElementById('ai-chat-input');
         els.sendBtn = document.getElementById('ai-chat-send-btn');
@@ -594,6 +633,11 @@
         els.agentMenu.addEventListener('click', onAgentMenuClick);
         els.closeBtn.addEventListener('click', close);
         els.sendBtn.addEventListener('click', onSendButton);
+        els.reasoningBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleReasoningMenu();
+        });
+        els.reasoningMenu.addEventListener('click', onReasoningMenuClick);
         els.attachChip.addEventListener('click', function () {
             setAttached(!attachedSelection);
             renderComposer();
@@ -648,6 +692,11 @@
                 !els.agentMenu.contains(e.target) &&
                 !els.agentBtn.contains(e.target)) {
                 closeAgentMenu();
+            }
+            if (reasoningMenuOpen && els.reasoningMenu &&
+                !els.reasoningMenu.contains(e.target) &&
+                !els.reasoningBtn.contains(e.target)) {
+                closeReasoningMenu();
             }
             if (isOpen()) renderComposer();
         });
@@ -1140,6 +1189,98 @@
             attachedSelection = false;
             els.attachChip.classList.add('hidden');
         }
+
+        renderReasoningControl();
+    }
+
+    // ========================================================================
+    // Reasoning-effort selector
+    // ========================================================================
+
+    var THINKING_SVG =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">' +
+        '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/>' +
+        '<path d="M9 18h6"/><path d="M10 22h4"/></svg>';
+
+    var REASONING_CHEVRON_SVG =
+        '<svg class="ai-agent-chip-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+
+    function settingsReasoningUi() {
+        var s = chatSettings && chatSettings.settings ? chatSettings.settings : null;
+        return s ? s.reasoning_ui : null;
+    }
+
+    function renderReasoningControl() {
+        var choices = reasoningChoices(settingsReasoningUi());
+        if (!choices.length) {
+            els.reasoningBtn.classList.add('hidden');
+            closeReasoningMenu();
+            return;
+        }
+        els.reasoningBtn.classList.remove('hidden');
+        els.reasoningBtn.innerHTML = THINKING_SVG +
+            '<span>Thinking \u00b7 ' + esc(reasoningLabel(reasoningEffort)) + '</span>' +
+            REASONING_CHEVRON_SVG;
+        if (reasoningMenuOpen) renderReasoningMenu();
+    }
+
+    function toggleReasoningMenu() {
+        if (reasoningMenuOpen) closeReasoningMenu();
+        else openReasoningMenu();
+    }
+
+    function openReasoningMenu() {
+        reasoningMenuOpen = true;
+        renderReasoningMenu();
+        els.reasoningMenu.classList.remove('hidden');
+    }
+
+    function closeReasoningMenu() {
+        reasoningMenuOpen = false;
+        if (els.reasoningMenu) els.reasoningMenu.classList.add('hidden');
+    }
+
+    function renderReasoningMenu() {
+        var choices = reasoningChoices(settingsReasoningUi());
+        var html = '';
+        for (var i = 0; i < choices.length; i++) {
+            var value = choices[i];
+            var active = (reasoningEffort || 'default') === value;
+            html += '<button type="button" class="ai-agent-menu-item' + (active ? ' active' : '') + '"' +
+                ' data-reasoning-value="' + value + '">' +
+                '<span class="ai-agent-menu-text"><span class="ai-agent-menu-name">' +
+                esc(reasoningLabel(value)) + '</span></span>' +
+                (active ? '<span class="ai-agent-menu-check">\u2713</span>' : '') +
+                '</button>';
+        }
+        els.reasoningMenu.innerHTML = html;
+    }
+
+    function onReasoningMenuClick(e) {
+        var item = e.target.closest('[data-reasoning-value]');
+        if (!item) return;
+        setReasoningEffort(item.dataset.reasoningValue);
+    }
+
+    function setReasoningEffort(value) {
+        closeReasoningMenu();
+        var next = value === 'default' ? null : value;
+        if (next === reasoningEffort) return;
+        // Optimistic update; the PUT persists it (server re-validates
+        // against the active model and clamps on the next load).
+        reasoningEffort = next;
+        renderReasoningControl();
+        persistReasoningEffort(next);
+    }
+
+    function persistReasoningEffort(effort) {
+        try {
+            csrfFetch(baseUrl() + '/api/user/ai/settings/reasoning', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ effort: effort }),
+            }).catch(function () { /* best effort */ });
+        } catch (e) { /* best effort */ }
     }
 
     // ========================================================================
@@ -1375,7 +1516,13 @@
             console.warn('[ai-chat] Failed to load AI settings:', err);
             chatSettings = null;
         }
+        // The server clamps the stored effort to the active model's style
+        // (an incompatible choice degrades to the provider default).
+        reasoningEffort = chatSettings && chatSettings.settings
+            ? (chatSettings.settings.reasoning_effort || null)
+            : null;
         renderHeader();
+        if (panel && panel.dataset.built) renderComposer();
     }
 
     // ========================================================================
@@ -1692,6 +1839,8 @@
             stateFromMessages: stateFromMessages,
             newChatState: newChatState,
             defaultBaseUrl: defaultBaseUrl,
+            reasoningChoices: reasoningChoices,
+            reasoningLabel: reasoningLabel,
         };
     }
 })();

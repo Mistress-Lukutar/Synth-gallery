@@ -6512,9 +6512,55 @@ main {
 
 /* Composer */
 .ai-chat-composer {
+    position: relative;
     border-top: 1px solid var(--border);
     padding: 0.6rem 1rem 0.75rem;
     flex-shrink: 0;
+}
+
+/* Reasoning-effort chip ("Thinking · Medium"), same pill family as the
+   attach chip. Hidden unless the active model supports reasoning. */
+.ai-chat-reasoning-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.5rem;
+    margin-right: 0.4rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.ai-chat-reasoning-btn svg {
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.ai-chat-reasoning-btn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+}
+
+/* Opens upward from the composer; the base .ai-agent-menu positioning
+   (top/left for the header dropdown) is overridden here. The base
+   max-height is percentage-based (of the composer) which would squeeze
+   this menu to a couple of items — the list is at most 5 entries, so it
+   always renders fully, no scrolling. */
+.ai-chat-reasoning-menu {
+    top: auto;
+    bottom: calc(100% - 0.25rem);
+    left: 1rem;
+    right: auto;
+    min-width: 180px;
+    max-height: none;
+    overflow-y: visible;
 }
 
 .ai-chat-attach-chip {

@@ -148,7 +148,7 @@ Synth-Gallery/
 ├── migrations/                   # Alembic migration environment
 │   ├── env.py                    # Online migrations via app.database.get_engine()
 │   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
-│   └── versions/                 # Revisions 0001-0010
+│   └── versions/                 # Revisions 0001-0012
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
@@ -387,7 +387,7 @@ items (base)                          item_media (detail: type='media')
 
 ### 6c. Schema Migrations (Alembic)
 
-All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0010 `ai_agents`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
+All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0012 `ai_reasoning`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
 
 - Migrations run **without an enclosing transaction** — SQLite's implicit DDL commits and `PRAGMA foreign_keys` no-ops inside transactions are what the rebuild helpers rely on
 - `migrations/migration_utils.py` provides `rebuild_table()` (SQLite cannot alter CHECK constraints or drop FK-referenced columns in place) and `backup_database()` (pre-migration safety copy). `rebuild_table` commits before toggling `PRAGMA foreign_keys`, otherwise `DROP TABLE` cascades into child rows (`album_items`, `item_media`)
@@ -401,6 +401,8 @@ Notable historical revisions:
 - **0005/0006**: added the `note` item type and its `item_texts` detail table
 - **0009**: AI chat: per-user provider/model/settings/chat tables; dropped the legacy AI tagging queue (`ai_tagging_jobs`, `ai_api_keys`)
 - **0010**: AI agents: `ai_agents` table (system prompt, icon, `tools_json` allow-list, built-ins) plus `ai_conversations.agent_id` and `ai_chat_settings.active_agent_id` (both FK-free, cleared app-side)
+- **0011**: albums become media-only (notes removed; notes as effective covers caused "Access denied" thumbnails)
+- **0012**: reasoning control: `ai_models.reasoning_support` (manual capability override, validated app-side) + `ai_chat_settings.reasoning_effort`; `recreate_table_without_column` now preserves composite PRIMARY KEYs (table-level constraint)
 
 ### 6d. AI Agents
 
@@ -457,6 +459,38 @@ the default assistant (no agent = every tool, generic prompt).
   and approval cards: after a decision `renderToolConfirm` clears it
   itself — `renderVision`'s key-based early return skips the clear when
   it was already idle.
+
+### 6e. Reasoning-effort control
+
+Models differ wildly in how (and whether) their reasoning can be steered,
+so the capability is a **per-model** property and the effort a **per-user**
+preference:
+
+- **Capability** (`ai_models.reasoning_support`, migration 0012; NULL =
+  auto): `levels` (`reasoning_effort` — OpenAI/OpenRouter-style), `toggle`
+  (`thinking: {type}` — Z.ai/GLM), `enable_toggle` (`enable_thinking` —
+  Qwen3), `none` (explicitly no control). For the dedicated
+  anthropic / google_gemini protocols the wire format is fixed by the
+  protocol (thinking budget / `thinkingConfig`), so any non-`none` value
+  resolves to `budget`. All heuristics and per-protocol payload mapping
+  live in a single module: `app/infrastructure/services/llm/reasoning.py`
+  (conservative by design — unknown model ids send nothing; strict servers
+  that 400 on unknown fields stay safe; the Settings → AI model editor
+  overrides the auto-detection per model and `fetch-models` merges keep
+  the override).
+- **Choice** (`ai_chat_settings.reasoning_effort`, NULL = provider
+  default): set from the chat composer chip ("Thinking · Medium", styled
+  like the attach chip; menu opens upward from the footer) via
+  `PUT /api/user/ai/settings/reasoning` `{effort}`, validated against the
+  active model's effective style. A stored choice that does not fit the
+  active model degrades to the provider default at use time
+  (`normalize_effort`) but is kept in the DB, so switching models back and
+  forth restores it. `get_active_endpoint()` resolves
+  `reasoning_style` + `reasoning` into the endpoint dict;
+  `ChatRequest.reasoning_style` / `.reasoning` carry them to the clients,
+  each of which maps to its wire format (Anthropic clamps the budget under
+  an explicit `max_tokens` and pins `temperature=1` while thinking; Gemini
+  3 uses `thinkingLevel` instead of a budget, and Pro cannot disable).
 
 ## Build and Run Commands
 
