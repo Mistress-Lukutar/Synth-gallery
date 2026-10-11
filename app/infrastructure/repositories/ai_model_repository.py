@@ -36,7 +36,8 @@ class AiModelRepository(Repository):
             models: List of model dicts; recognised keys are
                 ``model_id``, ``display_name``, ``supports_tools``,
                 ``supports_vision``, ``is_pinned``, ``context_tokens``,
-                ``max_output_tokens`` and ``limits_source``.
+                ``max_output_tokens``, ``limits_source`` and
+                ``reasoning_support``.
         """
         self._execute(
             "DELETE FROM ai_models WHERE provider_id = ?",
@@ -47,8 +48,8 @@ class AiModelRepository(Repository):
                 """INSERT INTO ai_models
                    (provider_id, model_id, display_name, supports_tools,
                     supports_vision, is_pinned, context_tokens,
-                    max_output_tokens, limits_source)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    max_output_tokens, limits_source, reasoning_support)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         provider_id,
@@ -60,6 +61,7 @@ class AiModelRepository(Repository):
                         model.get("context_tokens"),
                         model.get("max_output_tokens"),
                         model.get("limits_source"),
+                        model.get("reasoning_support"),
                     )
                     for model in models
                 ],
@@ -97,6 +99,7 @@ class AiModelRepository(Repository):
             """SELECT m.provider_id, m.model_id, m.display_name,
                       m.supports_tools, m.supports_vision, m.is_pinned,
                       m.context_tokens, m.max_output_tokens, m.limits_source,
+                      m.reasoning_support,
                       p.label AS provider_label, p.protocol
                FROM ai_models m
                JOIN ai_providers p ON p.id = m.provider_id
@@ -153,6 +156,29 @@ class AiModelRepository(Repository):
                 provider_id,
                 model_id,
             ),
+        )
+        self._commit()
+        return cursor.rowcount > 0
+
+    def set_reasoning_support(
+        self, provider_id: int, model_id: str, reasoning_support: Optional[str]
+    ) -> bool:
+        """Set the manual reasoning-capability override of one model.
+
+        Args:
+            provider_id: Provider ID.
+            model_id: Provider-specific model identifier.
+            reasoning_support: One of ``levels`` / ``toggle`` /
+                ``enable_toggle`` / ``none``, or None to fall back to
+                auto-detection from the model id.
+
+        Returns:
+            True if a row was updated.
+        """
+        cursor = self._execute(
+            "UPDATE ai_models SET reasoning_support = ? "
+            "WHERE provider_id = ? AND model_id = ?",
+            (reasoning_support, provider_id, model_id),
         )
         self._commit()
         return cursor.rowcount > 0

@@ -12,6 +12,7 @@ from typing import AsyncIterator, Optional
 
 import httpx
 
+from app.infrastructure.services.llm import reasoning
 from app.infrastructure.services.llm.sse import iter_sse_frames
 from app.infrastructure.services.llm.types import (
     ChatRequest,
@@ -159,6 +160,9 @@ def _build_payload(request: ChatRequest) -> dict:
     }
     if request.max_tokens is not None:
         payload["max_tokens"] = request.max_tokens
+    payload.update(
+        reasoning.openai_reasoning_params(request.reasoning_style, request.reasoning)
+    )
     if request.tools:
         payload["tools"] = [
             {

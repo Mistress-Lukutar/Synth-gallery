@@ -810,3 +810,242 @@ def test_mask_key():
     assert AiProviderService.mask_key("short") == "•••"
     assert AiProviderService.mask_key("123456789") == "•••"  # len == 9
     assert AiProviderService.mask_key("1234567890") == "123…7890"
+
+
+# ============================================================================
+# Reasoning capability + effort (migration 0012)
+# ============================================================================
+
+def test_migration_0012_adds_reasoning_columns(fresh_database):
+    """Upgrading to head adds the nullable reasoning columns."""
+    conn = sqlite3.connect(str(fresh_database))
+    try:
+        model_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(ai_models)")
+        }
+        settings_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(ai_chat_settings)")
+        }
+        assert "reasoning_support" in model_cols
+        assert "reasoning_effort" in settings_cols
+    finally:
+        conn.close()
+
+
+def test_migration_0012_downgrade_keeps_composite_pk(tmp_path, monkeypatch):
+    """Downgrading to 0011 drops the reasoning columns and rebuilds
+    ai_models with its composite primary key intact."""
+    import app.database as db_module
+    from app.config import BASE_DIR
+
+    db_path = tmp_path / "migration0012.db"
+    monkeypatch.setattr(db_module, "DATABASE_PATH", db_path)
+
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(db_module.MIGRATIONS_DIR))
+
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "0011")
+
+    conn = sqlite3.connect(db_path)
+    try:
+        model_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(ai_models)")
+        }
+        settings_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(ai_chat_settings)")
+        }
+        assert "reasoning_support" not in model_cols
+        assert "reasoning_effort" not in settings_cols
+        pk = {
+            row[1]: row[5]
+            for row in conn.execute("PRAGMA table_info(ai_models)")
+        }
+        assert pk["provider_id"] == 1
+        assert pk["model_id"] == 2
+    finally:
+        conn.close()
+
+    command.upgrade(cfg, "head")
+
+
+def test_update_reasoning_effort_persists_and_get_settings_reports_ui(
+    ai_client, dek, db_connection
+):
+    """gpt-5.1 auto-detects as 'levels'; a valid effort persists and the
+    enriched settings expose reasoning_ui / reasoning_effort."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id, model_id="gpt-5.1")
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "gpt-5.1"},
+    )
+
+    response = ai_client.put(
+        "/api/user/ai/settings/reasoning", json={"effort": "high"}
+    )
+    assert response.status_code == 200
+    settings = response.json()["settings"]
+    assert settings["reasoning_ui"] == "levels"
+    assert settings["reasoning_effort"] == "high"
+
+    fetched = ai_client.get("/api/user/ai/settings").json()["settings"]
+    assert fetched["reasoning_effort"] == "high"
+    assert fetched["reasoning_support"] is None  # auto-detected, not manual
+
+
+def test_update_reasoning_effort_rejects_wrong_style(ai_client, dek, db_connection):
+    """'on' belongs to the toggle style; a levels model rejects it."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id, model_id="gpt-5.1")
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "gpt-5.1"},
+    )
+
+    response = ai_client.put(
+        "/api/user/ai/settings/reasoning", json={"effort": "on"}
+    )
+    assert response.status_code == 400
+
+
+def test_update_reasoning_effort_requires_active_model(ai_client, dek):
+    """Without an active model there is no style to validate against."""
+    response = ai_client.put(
+        "/api/user/ai/settings/reasoning", json={"effort": "high"}
+    )
+    assert response.status_code == 400
+
+
+def test_reasoning_effort_degrades_for_incompatible_model(
+    ai_client, dek, db_connection
+):
+    """A stored 'on' survives a switch to a levels model as the provider
+    default instead of leaking into the request."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id, model_id="glm-4.6")
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "glm-4.6"},
+    )
+    response = ai_client.put(
+        "/api/user/ai/settings/reasoning", json={"effort": "on"}
+    )
+    assert response.status_code == 200
+    assert response.json()["settings"]["reasoning_ui"] == "toggle"
+
+    _seed_model(db_connection, provider_id, model_id="gpt-5.1")
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "gpt-5.1"},
+    )
+    settings = ai_client.get("/api/user/ai/settings").json()["settings"]
+    assert settings["reasoning_ui"] == "levels"
+    assert settings["reasoning_effort"] is None
+
+
+def test_get_active_endpoint_resolves_reasoning(
+    ai_client, dek, db_connection, test_user
+):
+    """The endpoint dict carries the resolved style + effort for the chat
+    orchestrator."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id, model_id="glm-4.6")
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "glm-4.6"},
+    )
+    ai_client.put("/api/user/ai/settings/reasoning", json={"effort": "on"})
+
+    endpoint = _make_service(db_connection).get_active_endpoint(
+        test_user["id"], dek
+    )
+    assert endpoint["reasoning_style"] == "toggle"
+    assert endpoint["reasoning"] == "on"
+
+
+def test_get_active_endpoint_reasoning_off_for_unknown_model(
+    ai_client, dek, db_connection, test_user
+):
+    """Unknown model ids resolve to 'off' and never send an effort."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id)
+    ai_client.put(
+        "/api/user/ai/settings",
+        json={"active_provider_id": provider_id, "active_model_id": "m-1"},
+    )
+    ai_client.put("/api/user/ai/settings/reasoning", json={"effort": "high"})
+
+    endpoint = _make_service(db_connection).get_active_endpoint(
+        test_user["id"], dek
+    )
+    assert endpoint["reasoning_style"] == "off"
+    assert endpoint["reasoning"] is None
+
+
+def test_update_model_reasoning_override_roundtrip(
+    ai_client, dek, db_connection, test_user
+):
+    """Manual capability override: set, visible in the user-scoped list,
+    invalid rejected, empty string back to auto."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id)
+
+    response = ai_client.put(
+        f"/api/user/ai/providers/{provider_id}/models/m-1/reasoning",
+        json={"support": "toggle"},
+    )
+    assert response.status_code == 200
+    assert response.json()["model"]["reasoning_support"] == "toggle"
+
+    rows = {
+        r["model_id"]: r
+        for r in AiModelRepository(db_connection).list_for_user(test_user["id"])
+    }
+    assert rows["m-1"]["reasoning_support"] == "toggle"
+
+    bad = ai_client.put(
+        f"/api/user/ai/providers/{provider_id}/models/m-1/reasoning",
+        json={"support": "bogus"},
+    )
+    assert bad.status_code == 400
+
+    cleared = ai_client.put(
+        f"/api/user/ai/providers/{provider_id}/models/m-1/reasoning",
+        json={"support": ""},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["model"]["reasoning_support"] is None
+
+
+def test_update_model_reasoning_missing_model_404(ai_client, dek):
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    response = ai_client.put(
+        f"/api/user/ai/providers/{provider_id}/models/nope/reasoning",
+        json={"support": "levels"},
+    )
+    assert response.status_code == 404
+
+
+def test_model_reasoning_override_survives_refresh(
+    ai_client, dek, db_connection, monkeypatch
+):
+    """fetch-models replaces the catalogue but keeps the manual override."""
+    provider_id = _create_provider(ai_client)["provider"]["id"]
+    _seed_model(db_connection, provider_id)
+    ai_client.put(
+        f"/api/user/ai/providers/{provider_id}/models/m-1/reasoning",
+        json={"support": "levels"},
+    )
+
+    stub = _StubClient(
+        models=[_FetchedModel(model_id="m-1", display_name="Model 1")]
+    )
+    _patch_llm(monkeypatch, stub, _StubError)
+    response = ai_client.post(
+        f"/api/user/ai/providers/{provider_id}/fetch-models"
+    )
+    assert response.status_code == 200
+
+    row = AiModelRepository(db_connection).get(provider_id, "m-1")
+    assert row["reasoning_support"] == "levels"

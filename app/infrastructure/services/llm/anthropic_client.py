@@ -12,6 +12,7 @@ from typing import AsyncIterator, Optional
 
 import httpx
 
+from app.infrastructure.services.llm import reasoning
 from app.infrastructure.services.llm.sse import iter_sse_frames
 from app.infrastructure.services.llm.types import (
     ChatRequest,
@@ -159,14 +160,24 @@ def _build_messages(turns: list[Turn]) -> list[dict]:
 
 def _build_payload(request: ChatRequest) -> dict:
     '''Build the ``/messages`` request body.'''
+    max_tokens = request.max_tokens or DEFAULT_MAX_TOKENS
+    thinking, max_tokens, thinking_temperature = reasoning.anthropic_thinking_param(
+        request.reasoning_style, request.reasoning, max_tokens
+    )
     payload: dict = {
         "model": request.endpoint.model_id,
         # Anthropic has no default: max_tokens is mandatory.
-        "max_tokens": request.max_tokens or DEFAULT_MAX_TOKENS,
+        "max_tokens": max_tokens,
         "stream": True,
-        "temperature": request.temperature,
+        "temperature": (
+            thinking_temperature
+            if thinking_temperature is not None
+            else request.temperature
+        ),
         "messages": _build_messages(request.turns),
     }
+    if thinking is not None:
+        payload["thinking"] = thinking
     if request.system_prompt:
         payload["system"] = request.system_prompt
     if request.tools:

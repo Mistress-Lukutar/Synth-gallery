@@ -75,6 +75,11 @@ class UpdateSettingsRequest(BaseModel):
     active_model_id: Optional[str] = None
 
 
+class UpdateReasoningEffortRequest(BaseModel):
+    """Reasoning effort chosen in the chat composer; None = provider default."""
+    effort: Optional[str] = None
+
+
 class UpdateModelLimitsRequest(BaseModel):
     """Manually entered per-model limits; None clears a limit."""
     context_tokens: Optional[int] = Field(
@@ -83,6 +88,11 @@ class UpdateModelLimitsRequest(BaseModel):
     max_output_tokens: Optional[int] = Field(
         default=None, ge=1, le=10_000_000
     )
+
+
+class UpdateModelReasoningRequest(BaseModel):
+    """Manual reasoning-capability override; None/"" re-enables auto-detect."""
+    support: Optional[str] = None
 
 
 # ============================================================================
@@ -201,6 +211,28 @@ def update_model_limits(
         db.close()
 
 
+@router.put("/providers/{provider_id}/models/{model_id:path}/reasoning")
+def update_model_reasoning(
+    request: Request, provider_id: int, model_id: str, data: UpdateModelReasoningRequest
+):
+    """Manually set one model's reasoning-capability override.
+
+    ``support`` accepts ``levels`` / ``toggle`` / ``enable_toggle`` /
+    ``none``; None or "" re-enables auto-detection from the model id.
+    """
+    user, _dek = _require_dek(request)
+
+    db = create_connection()
+    try:
+        service = build_ai_provider_service(db)
+        model = service.update_model_reasoning(
+            user["id"], provider_id, model_id, data.support
+        )
+        return {"model": model}
+    finally:
+        db.close()
+
+
 # ============================================================================
 # Chat settings
 # ============================================================================
@@ -231,6 +263,20 @@ def update_settings(request: Request, data: UpdateSettingsRequest):
             data.active_provider_id,
             data.active_model_id,
         )
+        return {"settings": settings}
+    finally:
+        db.close()
+
+
+@router.put("/settings/reasoning")
+def update_reasoning_effort(request: Request, data: UpdateReasoningEffortRequest):
+    """Set the reasoning effort the chat composer sends to the model."""
+    user, _dek = _require_dek(request)
+
+    db = create_connection()
+    try:
+        service = build_ai_provider_service(db)
+        settings = service.update_reasoning_effort(user["id"], data.effort)
         return {"settings": settings}
     finally:
         db.close()

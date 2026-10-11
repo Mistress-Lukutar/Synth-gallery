@@ -17,6 +17,7 @@ class AiChatSettingsRepository(Repository):
         "active_model_id",
         "temperature",
         "active_agent_id",
+        "reasoning_effort",
     )
 
     def ensure(self, user_id: int) -> dict:
@@ -47,9 +48,10 @@ class AiChatSettingsRepository(Repository):
         Args:
             user_id: Owner's user ID.
             fields: Dict of fields to set; allowed keys are
-                ``active_provider_id``, ``active_model_id`` and
-                ``temperature``. Unknown keys are ignored; ``None`` values
-                are written as-is (they clear the selection).
+                ``active_provider_id``, ``active_model_id``,
+                ``temperature``, ``active_agent_id`` and
+                ``reasoning_effort``. Unknown keys are ignored; ``None``
+                values are written as-is (they clear the selection).
 
         Returns:
             True if a row was updated.

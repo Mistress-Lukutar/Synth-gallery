@@ -55,6 +55,18 @@ class AiProviderService:
 
         return AiProtocol, get_llm_client, LLMError
 
+    @staticmethod
+    def _reasoning():
+        """Lazily import the reasoning helper module.
+
+        Returns:
+            The ``app.infrastructure.services.llm.reasoning`` module
+            (capability heuristics + per-protocol payload mapping).
+        """
+        from app.infrastructure.services.llm import reasoning
+
+        return reasoning
+
     # =====================================================================
     # Providers
     # =====================================================================
@@ -336,6 +348,48 @@ class AiProviderService:
         )
         return self.model_repo.get(provider_id, model_id)
 
+    def update_model_reasoning(
+        self, user_id: int, provider_id: int, model_id: str, support: Optional[str]
+    ) -> dict:
+        """Manually set one model's reasoning-capability override.
+
+        ``None``/"" returns the model to auto-detection from the model id
+        (see :mod:`app.infrastructure.services.llm.reasoning`).
+
+        Args:
+            user_id: Owner's user ID.
+            provider_id: Provider ID.
+            model_id: Provider-specific model identifier.
+            support: One of ``levels`` / ``toggle`` / ``enable_toggle`` /
+                ``none``, or None to clear.
+
+        Returns:
+            The updated model dict.
+
+        Raises:
+            HTTPException: 404 when the provider or model does not exist;
+                400 when ``support`` is not a known value.
+        """
+        provider = self.provider_repo.get_by_id(provider_id, user_id)
+        if provider is None:
+            raise HTTPException(status_code=404, detail="Provider not found")
+        if self.model_repo.get(provider_id, model_id) is None:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        if support == "":
+            support = None
+        if support is not None and support not in self._reasoning().MANUAL_SUPPORT_VALUES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Reasoning support must be one of: "
+                    + ", ".join(self._reasoning().MANUAL_SUPPORT_VALUES)
+                ),
+            )
+
+        self.model_repo.set_reasoning_support(provider_id, model_id, support)
+        return self.model_repo.get(provider_id, model_id)
+
     # =====================================================================
     # Settings / active endpoint
     # =====================================================================
@@ -362,6 +416,8 @@ class AiProviderService:
         supports_tools = None
         context_tokens = None
         max_output_tokens = None
+        reasoning_support = None
+        reasoning_ui = None
 
         provider_id = settings.get("active_provider_id")
         model_id = settings.get("active_model_id")
@@ -378,6 +434,19 @@ class AiProviderService:
                         supports_tools = bool(model["supports_tools"])
                         context_tokens = model["context_tokens"]
                         max_output_tokens = model["max_output_tokens"]
+                        reasoning = self._reasoning()
+                        manual = model["reasoning_support"] or None
+                        reasoning_support = manual
+                        reasoning_ui = reasoning.effective_ui(
+                            protocol, model_id, manual
+                        )
+                        # A stored effort choice that the active model
+                        # cannot express (e.g. "on" after switching from a
+                        # toggle model to a levels model) degrades to the
+                        # provider default.
+                        settings["reasoning_effort"] = reasoning.normalize_effort(
+                            reasoning_ui, settings.get("reasoning_effort")
+                        )
 
         settings["provider_label"] = provider_label
         settings["protocol"] = protocol
@@ -386,6 +455,8 @@ class AiProviderService:
         settings["supports_tools"] = supports_tools
         settings["context_tokens"] = context_tokens
         settings["max_output_tokens"] = max_output_tokens
+        settings["reasoning_support"] = reasoning_support
+        settings["reasoning_ui"] = reasoning_ui
         return settings
 
     def update_settings(
@@ -439,6 +510,45 @@ class AiProviderService:
         )
         return self.get_settings(user_id)
 
+    def update_reasoning_effort(
+        self, user_id: int, effort: Optional[str]
+    ) -> dict:
+        """Set the reasoning-effort choice the chat composer sends.
+
+        The choice is validated against the active model's effective UI
+        style; an incompatible value is rejected instead of silently
+        stored. ``None`` resets to the provider default. The stored value
+        is deliberately kept when the user switches models — it degrades
+        to the default at use time (see :meth:`get_settings`) so switching
+        back restores the choice.
+
+        Args:
+            user_id: Owner's user ID.
+            effort: One of the values valid for the active model's style
+                (see ``VALID_EFFORT_VALUES``), or None.
+
+        Returns:
+            The enriched settings dict (see :meth:`get_settings`).
+
+        Raises:
+            HTTPException: 400 when no provider/model is configured or the
+                value does not fit its reasoning style.
+        """
+        reasoning = self._reasoning()
+        settings = self.get_settings(user_id)
+        ui = settings.get("reasoning_ui") or reasoning.UI_OFF
+        if effort is not None and effort not in reasoning.VALID_EFFORT_VALUES.get(ui, ()):
+            valid = reasoning.VALID_EFFORT_VALUES.get(ui, ())
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Reasoning effort must be one of: "
+                    + (", ".join(valid) if valid else "unset (no reasoning control)")
+                ),
+            )
+        self.settings_repo.update(user_id, {"reasoning_effort": effort})
+        return self.get_settings(user_id)
+
     def get_active_endpoint(self, user_id: int, dek: bytes) -> Optional[dict]:
         """Return the active LLM endpoint for the chat orchestrator.
 
@@ -448,13 +558,16 @@ class AiProviderService:
 
         Returns:
             Dict with ``base_url``, ``api_key`` (decrypted plaintext),
-            ``model_id``, ``protocol``, ``temperature`` and the model's
-            ``max_output_tokens`` (None when unset or the selection is
-            dangling), or None when no provider/model is configured.
+            ``model_id``, ``protocol``, ``temperature``, the model's
+            ``max_output_tokens`` and the resolved reasoning control
+            (``reasoning_style`` + ``reasoning``; ``reasoning`` is None
+            for the provider default), or None when no provider/model is
+            configured.
 
         Raises:
             HTTPException: 403 when the stored key cannot be decrypted.
         """
+        reasoning = self._reasoning()
         settings = self.settings_repo.ensure(user_id)
         provider_id = settings["active_provider_id"]
         model_id = settings["active_model_id"]
@@ -466,6 +579,15 @@ class AiProviderService:
             return None
 
         model = self.model_repo.get(provider_id, model_id)
+        reasoning_style = reasoning.UI_OFF
+        effort = None
+        if model is not None:
+            reasoning_style = reasoning.effective_ui(
+                provider["protocol"], model_id, model["reasoning_support"] or None
+            )
+            effort = reasoning.normalize_effort(
+                reasoning_style, settings["reasoning_effort"]
+            )
         return {
             "base_url": provider["base_url"],
             "api_key": self._decrypt_key(provider, dek),
@@ -475,6 +597,8 @@ class AiProviderService:
             "max_output_tokens": (
                 model["max_output_tokens"] if model is not None else None
             ),
+            "reasoning_style": reasoning_style,
+            "reasoning": effort,
         }
 
     # =====================================================================
@@ -600,6 +724,7 @@ class AiProviderService:
             "context_tokens": self._entry_field(entry, "context_tokens"),
             "max_output_tokens": self._entry_field(entry, "max_output_tokens"),
             "limits_source": self._entry_field(entry, "limits_source"),
+            "reasoning_support": None,
         }
 
     def _merge_models(self, existing: list[dict], fetched: list) -> list[dict]:
@@ -610,6 +735,8 @@ class AiProviderService:
         - Manually maintained limits (``limits_source == 'manual'``)
           always win: provider-reported values (or their absence) never
           overwrite explicit user input.
+        - The reasoning-capability override (``reasoning_support``) is
+          preserved for known models; new entries start at auto-detect.
         """
         by_model_id = {row["model_id"]: row for row in existing}
 
@@ -625,5 +752,6 @@ class AiProviderService:
                     fresh["context_tokens"] = old["context_tokens"]
                     fresh["max_output_tokens"] = old["max_output_tokens"]
                     fresh["limits_source"] = old["limits_source"]
+                fresh["reasoning_support"] = old.get("reasoning_support")
             merged.append(fresh)
         return merged

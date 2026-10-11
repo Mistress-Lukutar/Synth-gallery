@@ -792,6 +792,8 @@ class AiChatService:
                         else 0.7
                     ),
                     max_tokens=endpoint.get("max_output_tokens"),
+                    reasoning_style=endpoint.get("reasoning_style"),
+                    reasoning=endpoint.get("reasoning"),
                 )
 
                 accumulated = ""

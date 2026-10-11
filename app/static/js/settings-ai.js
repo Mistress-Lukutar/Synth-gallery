@@ -12,6 +12,7 @@
  *   DELETE /api/user/ai/providers/{id}
  *   POST   /api/user/ai/providers/{id}/fetch-models
  *   PUT    /api/user/ai/providers/{id}/models/{model_id}/limits
+ *   PUT    /api/user/ai/providers/{id}/models/{model_id}/reasoning
  *   GET    /api/user/ai/settings
  *   PUT    /api/user/ai/settings
  */
@@ -403,12 +404,30 @@
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">' +
         '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
 
+    // Reasoning-capability override options (ai_models.reasoning_support).
+    // Empty value = auto-detect from the model id.
+    var REASONING_SUPPORT_OPTIONS = [
+        { value: '', label: 'Auto (detect)' },
+        { value: 'levels', label: 'Levels (reasoning_effort)' },
+        { value: 'toggle', label: 'On/Off (thinking)' },
+        { value: 'enable_toggle', label: 'On/Off (enable_thinking)' },
+        { value: 'none', label: 'No control' },
+    ];
+
     /**
-     * Inline context/output limits editor; replaces the model row while
-     * open. Empty input = "unknown / provider-reported".
+     * Inline context/output limits + reasoning editor; replaces the model
+     * row while open. Empty inputs = "unknown / provider-reported".
      */
     function renderLimitsForm(m, providerId) {
         var action = ' data-provider-id="' + esc(providerId) + '" data-model-id="' + esc(m.model_id || '') + '"';
+        var currentSupport = m.reasoning_support || '';
+        var reasoningOptions = '';
+        for (var i = 0; i < REASONING_SUPPORT_OPTIONS.length; i++) {
+            var opt = REASONING_SUPPORT_OPTIONS[i];
+            reasoningOptions += '<option value="' + opt.value + '"' +
+                (opt.value === currentSupport ? ' selected' : '') + '>' +
+                esc(opt.label) + '</option>';
+        }
         return '<div class="ai-limits-form" data-provider-id="' + esc(providerId) + '" data-model-id="' + esc(m.model_id || '') + '">' +
             '<div class="ai-limits-title">' + esc(m.display_name || m.model_id || 'Model') + '</div>' +
             '<div class="ai-limits-fields">' +
@@ -419,6 +438,9 @@
             '  <label>Max output tokens' +
             '    <input type="number" min="1" step="1" inputmode="numeric" data-limit-field="max_output_tokens"' +
             '           placeholder="auto" aria-label="Max output tokens" value="' + (m.max_output_tokens || '') + '">' +
+            '  </label>' +
+            '  <label>Reasoning' +
+            '    <select data-limit-field="reasoning_support" aria-label="Reasoning control">' + reasoningOptions + '</select>' +
             '  </label>' +
             '</div>' +
             '<div class="ai-limits-actions">' +
@@ -464,6 +486,7 @@
                         '  <span class="ai-model-id">' + esc(m.model_id || '') + '</span>' +
                         (supportsVision ? '<span class="ai-model-badge vision">vision</span>' : '') +
                         (m.supports_tools ? '<span class="ai-model-badge tools">tools</span>' : '') +
+                        (m.reasoning_support ? '<span class="ai-model-badge tools" title="manual reasoning override">' + esc(m.reasoning_support) + '</span>' : '') +
                         (ctx ? '<span class="ai-model-ctx"' + manualTitle + '>' + esc(ctx) + '</span>' : '') +
                         (out ? '<span class="ai-model-ctx"' + manualTitle + '>' + esc(out) + '</span>' : '') +
                         (supportsVision
@@ -547,6 +570,36 @@
     // Manual context/output limits
     // ========================================================================
 
+    async function saveModelReasoning(providerId, modelId, support) {
+        try {
+            var resp = await csrfFetch(
+                BASE_URL + '/api/user/ai/providers/' + encodeURIComponent(providerId) +
+                '/models/' + encodeURIComponent(modelId) + '/reasoning',
+                {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ support: support || null }),
+                }
+            );
+            if (!resp.ok) {
+                var detail = await errorDetail(resp, 'Failed to save reasoning setting');
+                toast(detail, true);
+                return false;
+            }
+            var models = modelsCache[String(providerId)] || [];
+            for (var i = 0; i < models.length; i++) {
+                if (models[i].model_id === modelId) {
+                    models[i].reasoning_support = support || null;
+                }
+            }
+            return true;
+        } catch (err) {
+            console.error('[settings-ai] Failed to save model reasoning:', err);
+            toast('Failed to save reasoning setting', true);
+            return false;
+        }
+    }
+
     async function saveModelLimits(providerId, modelId) {
         var form = getEl('ai-model-modal-body').querySelector(
             '.ai-limits-form[data-provider-id="' + CSS.escape(String(providerId)) + '"]' +
@@ -595,8 +648,21 @@
                     models[i].limits_source = data.model.limits_source;
                 }
             }
+
+            // Reasoning select: save only when the user changed it.
+            var select = form.querySelector('[data-limit-field="reasoning_support"]');
+            var currentModel = null;
+            for (var j = 0; j < models.length; j++) {
+                if (models[j].model_id === modelId) currentModel = models[j];
+            }
+            var nextSupport = select ? select.value : '';
+            if (nextSupport !== (currentModel && currentModel.reasoning_support || '')) {
+                var saved = await saveModelReasoning(providerId, modelId, nextSupport);
+                if (!saved) return;
+            }
+
             editingLimits = null;
-            toast('Model limits updated', false);
+            toast('Model settings updated', false);
             renderModelModal();
         } catch (err) {
             console.error('[settings-ai] Failed to save model limits:', err);

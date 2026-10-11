@@ -104,6 +104,10 @@ class ChatRequest:
     tools: list = field(default_factory=list)
     temperature: float = 0.7
     max_tokens: Optional[int] = None   # None = omit; Anthropic falls back to 8192
+    # Reasoning control (llm.reasoning): effective UI style + chosen effort.
+    # reasoning=None (provider default) or style UI_OFF means nothing is sent.
+    reasoning_style: Optional[str] = None
+    reasoning: Optional[str] = None
 
 
 class StopReason(str, Enum):

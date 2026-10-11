@@ -12,6 +12,7 @@ from typing import AsyncIterator, Optional
 
 import httpx
 
+from app.infrastructure.services.llm import reasoning
 from app.infrastructure.services.llm.sse import iter_sse_frames
 from app.infrastructure.services.llm.types import (
     ChatRequest,
@@ -168,6 +169,11 @@ def _build_payload(request: ChatRequest) -> dict:
     generation_config: dict = {"temperature": request.temperature}
     if request.max_tokens is not None:
         generation_config["maxOutputTokens"] = request.max_tokens
+    thinking_config = reasoning.gemini_thinking_config(
+        request.reasoning_style, request.reasoning, request.endpoint.model_id
+    )
+    if thinking_config is not None:
+        generation_config.update(thinking_config)
     payload["generationConfig"] = generation_config
     return payload
 

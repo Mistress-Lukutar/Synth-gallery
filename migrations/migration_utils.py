@@ -96,7 +96,15 @@ def recreate_table_without_column(conn, table: str, column: str) -> None:
     ]
     column_names = [c["name"] for c in columns]
 
-    # Build column definitions from PRAGMA output.
+    # Build column definitions from PRAGMA output. A single-column PRIMARY
+    # KEY stays a column-level constraint (keeps "INTEGER PRIMARY KEY"
+    # rowid-alias semantics); a composite PK must become a table-level
+    # constraint — SQLite rejects two column-level PRIMARY KEYs, and a
+    # column-level one would silently turn the first column into a rowid
+    # alias (e.g. ai_models PRIMARY KEY (provider_id, model_id)).
+    pk_columns = sorted(
+        (col for col in columns if col["pk"]), key=lambda c: c["pk"]
+    )
     col_defs = []
     for col in columns:
         parts = [f'"{col["name"]}"', col["type"]]
@@ -104,9 +112,12 @@ def recreate_table_without_column(conn, table: str, column: str) -> None:
             parts.append("NOT NULL")
         if col["dflt_value"] is not None:
             parts.append(f"DEFAULT ({col['dflt_value']})")
-        if col["pk"]:
+        if col["pk"] and len(pk_columns) == 1:
             parts.append("PRIMARY KEY")
         col_defs.append(" ".join(parts))
+    if len(pk_columns) > 1:
+        pk_names = ", ".join(f'"{c["name"]}"' for c in pk_columns)
+        col_defs.append(f"PRIMARY KEY ({pk_names})")
 
     # Keep foreign keys that do not involve the dropped column.
     fks = [
