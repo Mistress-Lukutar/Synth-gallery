@@ -28,3 +28,6 @@ nul
 .claude
 # Node
 node_modules/
+
+# Runtime log
+server.log

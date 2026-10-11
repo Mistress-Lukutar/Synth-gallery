@@ -663,6 +663,213 @@
             padding: 1rem;
             text-align: center;
         }
+
+        /* AI agents */
+        .ai-agents-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .ai-agents-empty {
+            color: var(--text-muted);
+            font-style: italic;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .ai-agent-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.9rem 1rem;
+        }
+
+        .ai-agent-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .ai-agent-avatar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            border: 1px solid;
+            border-radius: 10px;
+        }
+
+        .ai-agent-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ai-agent-name {
+            font-weight: 600;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .ai-agent-badge {
+            font-size: 0.65rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid rgba(59, 130, 246, 0.45);
+            color: #93c5fd;
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .ai-agent-desc {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 0.15rem;
+        }
+
+        .ai-agent-meta {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+        }
+
+        .ai-agent-form {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .ai-agent-form-label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .ai-agent-form textarea {
+            width: 100%;
+            padding: 0.6rem 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.85rem;
+            font-family: 'Consolas', 'Monaco', monospace;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        .ai-agent-form-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.35rem;
+        }
+
+        .ai-icon-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
+        .ai-icon-option {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .ai-icon-option:hover {
+            color: var(--text);
+            border-color: var(--text-muted);
+        }
+
+        .ai-icon-option.selected {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .ai-color-grid {
+            display: flex;
+            gap: 0.4rem;
+        }
+
+        .ai-color-option {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .ai-color-option.selected {
+            border-color: var(--text);
+            box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--text-muted);
+        }
+
+        .ai-tool-groups {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .ai-tool-group {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.5rem 0.65rem;
+        }
+
+        .ai-tool-group-header {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 0.35rem;
+            cursor: pointer;
+        }
+
+        .ai-tool-row {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.15rem 0 0.15rem 1.3rem;
+            font-size: 0.78rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .ai-tool-row:hover {
+            color: var(--text);
+        }
+
+        .ai-tool-name {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .ai-tool-confirm-badge {
+            font-size: 0.62rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 0.05rem 0.35rem;
+            border-radius: 999px;
+            border: 1px solid rgba(245, 158, 11, 0.5);
+            color: #fbbf24;
+            background: rgba(245, 158, 11, 0.08);
+        }
     </style>
 </head>
 <body>
@@ -819,6 +1026,24 @@
                 <button type="button" id="ai-choose-model-btn" class="btn btn-secondary btn-small">Choose model</button>
             </div>
         </div>
+
+        <!-- AI Agents Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20.6 13.4 12 22 2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/>
+                    <circle cx="7.5" cy="7.5" r="1"/>
+                </svg>
+                AI Agents
+            </h2>
+            <p>Agents give the chat a system prompt and a limited set of tools. Pick one in the chat header; built-in agents can be duplicated and customized.</p>
+
+            <div id="ai-agents-list" class="ai-agents-list">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <button type="button" id="ai-add-agent-btn" class="btn btn-secondary btn-small">Add agent</button>
+        </div>
     </div>
 
     <!-- Rename Modal -->
@@ -848,5 +1073,7 @@
     <script src="{{ base_url }}/static/js/core.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/settings.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/settings-ai.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/ai-agents-icons.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/settings-ai-agents.js?v={{ app_version }}"></script>
 </body>
 </html>

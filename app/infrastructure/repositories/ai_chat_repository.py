@@ -27,6 +27,7 @@ class AiChatRepository(Repository):
         user_id: int,
         title: str = "New chat",
         conversation_id: Optional[str] = None,
+        agent_id: Optional[int] = None,
     ) -> dict:
         """Create a conversation owned by a user.
 
@@ -34,15 +35,17 @@ class AiChatRepository(Repository):
             user_id: Owner's user ID.
             title: Conversation title.
             conversation_id: Optional explicit ID (UUID hex when omitted).
+            agent_id: Optional agent the conversation runs with
+                (NULL = the default assistant).
 
         Returns:
             The full conversation row.
         """
         conv_id = conversation_id or uuid.uuid4().hex
         self._execute(
-            """INSERT INTO ai_conversations (id, user_id, title)
-               VALUES (?, ?, ?)""",
-            (conv_id, user_id, title),
+            """INSERT INTO ai_conversations (id, user_id, title, agent_id)
+               VALUES (?, ?, ?, ?)""",
+            (conv_id, user_id, title, agent_id),
         )
         self._commit()
         conversation = self.get_conversation(conv_id, user_id)

@@ -13,6 +13,7 @@ Synth Gallery is a **personal media vault** with server-side encryption, hardwar
 - **Albums**: Group related media with drag-and-drop reordering
 - **Tags & Search**: Categorize and find content quickly
 - **AI Chat**: In-site assistant sidebar with server-side tool-call agent loop; per-user LLM provider keys encrypted with the user's DEK; vision via user-approved `view_images`
+- **AI Agents**: per-user chat personas (system prompt + explicit tool allow-list) with three seeded built-ins; every mutating tool call pauses the turn for an approval card in the chat (optional per-chat "always allow")
 - **Backup & Recovery**: Full backups with integrity verification and recovery keys
 
 ## Technology Stack
@@ -56,7 +57,8 @@ Synth-Gallery/
 │   │       ├── tag_service.py        # Tag CRUD and bulk operations
 │   │       ├── tag_implication_service.py # Tag implication inheritance
 │   │       ├── tag_suggestion_service.py  # PMI-based tag suggestions
-│   │       ├── ai_chat_service.py    # Chat orchestrator: agent loop, SSE, vision pause
+│   │       ├── ai_chat_service.py    # Chat orchestrator: agent loop, SSE, vision pause, tool confirmations
+│   │       ├── ai_agent_service.py   # AI agents: CRUD, validation, built-in seeding
 │   │       ├── ai_provider_service.py # Per-user LLM providers/models/settings
 │   │       ├── ai_tools/             # Tool registry the chat model may call
 │   │       └── user_settings_service.py # User preferences
@@ -77,6 +79,7 @@ Synth-Gallery/
 │   │   │   ├── tag_feedback_repository.py
 │   │   │   ├── tag_mutex_repository.py
 │   │   │   ├── ai_chat_repository.py      # Conversations + messages
+│   │   │   ├── ai_agent_repository.py     # Agent definitions (prompt + tool allow-list)
 │   │   │   ├── ai_chat_settings_repository.py # Active provider/model per user
 │   │   │   ├── ai_model_repository.py     # Models of a provider
 │   │   │   ├── ai_provider_repository.py  # Per-user LLM provider configs
@@ -107,7 +110,8 @@ Synth-Gallery/
 │   │   ├── auth.py                   # Login/logout
 │   │   ├── admin.py                  # Admin panel (users, backups, maintenance)
 │   │   ├── admin_tags.py             # Admin tag operations (delete/remap/sanitize)
-│   │   ├── ai_chat.py                # AI chat conversations, streamed turns, vision decisions
+│   │   ├── ai_chat.py                # AI chat conversations, streamed turns, vision + tool decisions
+│   │   ├── ai_agents.py              # AI agent CRUD + tools catalogue
 │   │   ├── ai_provider_settings.py   # Per-user AI provider/model/settings endpoints
 │   │   ├── folders.py                # Folder management
 │   │   ├── tags.py                   # Tag management
@@ -126,7 +130,9 @@ Synth-Gallery/
 │   │       ├── init.js               # Initialization
 │   │       ├── navigation.js         # Navigation
 │   │       ├── upload.js             # Upload handling
-│   │       ├── ai-chat.js            # AI chat panel (SSE streaming, tool cards)
+│   │       ├── ai-agents-icons.js    # Agent avatar icon/color presets
+│   │       ├── ai-chat.js            # AI chat panel (SSE streaming, tool cards, agent picker)
+│   │       ├── settings-ai-agents.js # AI agent CRUD (settings tab)
 │   │       ├── settings-ai.js        # AI provider settings tab logic
 │   │       └── gallery-*.js          # Gallery features
 │   └── templates/                # Jinja2 templates
@@ -142,7 +148,7 @@ Synth-Gallery/
 ├── migrations/                   # Alembic migration environment
 │   ├── env.py                    # Online migrations via app.database.get_engine()
 │   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
-│   └── versions/                 # Revisions 0001-0009
+│   └── versions/                 # Revisions 0001-0010
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
@@ -276,6 +282,7 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 **File Serving:**
 - `GET /files/{item_id}` streams the plaintext on the fly via `iter_decrypt` (full file) or `decrypt_range` (HTTP Range, returns 206 Partial Content with `Content-Range` / `Accept-Ranges`)
 - `HEAD /files/{item_id}` returns `Content-Length` and `Accept-Ranges` so browsers can probe before requesting byte ranges
+- Cache policy: media answers carry `Cache-Control: private, max-age=3600` (blobs are immutable per item id); **notes are served with `no-store`** because they are rewritten in place under the same id (manual editor and the `write_note` tool) — a cached note would show the pre-edit body after reload
 - The old plaintext-fallback branch was removed; all files are expected to be in SGE1 format
 
 ### 5b. MKV / Large File Support
@@ -380,7 +387,7 @@ items (base)                          item_media (detail: type='media')
 
 ### 6c. Schema Migrations (Alembic)
 
-All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0009 `ai_chat`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
+All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0010 `ai_agents`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
 
 - Migrations run **without an enclosing transaction** — SQLite's implicit DDL commits and `PRAGMA foreign_keys` no-ops inside transactions are what the rebuild helpers rely on
 - `migrations/migration_utils.py` provides `rebuild_table()` (SQLite cannot alter CHECK constraints or drop FK-referenced columns in place) and `backup_database()` (pre-migration safety copy). `rebuild_table` commits before toggling `PRAGMA foreign_keys`, otherwise `DROP TABLE` cascades into child rows (`album_items`, `item_media`)
@@ -393,6 +400,63 @@ Notable historical revisions:
 - **0004**: dropped the relic `users.password_salt` column
 - **0005/0006**: added the `note` item type and its `item_texts` detail table
 - **0009**: AI chat: per-user provider/model/settings/chat tables; dropped the legacy AI tagging queue (`ai_tagging_jobs`, `ai_api_keys`)
+- **0010**: AI agents: `ai_agents` table (system prompt, icon, `tools_json` allow-list, built-ins) plus `ai_conversations.agent_id` and `ai_chat_settings.active_agent_id` (both FK-free, cleared app-side)
+
+### 6d. AI Agents
+
+Conversations can run with an **agent** — a per-user persona stored in
+`ai_agents` (migration 0010): a system prompt, an avatar (preset icon +
+color index) and an explicit tool allow-list (`tools_json`; empty = no
+tools). `ai_conversations.agent_id` binds a conversation to an agent at
+creation time and never changes afterwards; a dangling id falls back to
+the default assistant (no agent = every tool, generic prompt).
+
+- **Built-ins**: `tagger`, `librarian`, `curator` are seeded idempotently
+  per user from `BUILTIN_AGENTS` (`app/application/services/ai_agent_service.py`)
+  on every `GET /api/user/ai/agents` — prompt improvements roll out while
+  row ids stay stable. Built-ins are read-only in the UI (duplicate to
+  customize).
+- **Tool filtering**: `_run_llm_loop` resolves the agent once per turn and
+  advertises only `TOOL_SPECS` entries in the allow-list
+  (`AiChatService._tool_specs`); the allow-list is enforced again at
+  execution time (`_execute_tool_calls` answers off-list calls with an
+  error result instead of executing).
+- **System prompt**: `AiChatService._build_system_prompt(agent, allowed)`
+  = agent prompt (or the generic gallery identity) + house rules, with
+  tool-conditional hints (vision batches, audit, notes, metadata) included
+  only when the corresponding tool is allowed.
+- **Mutation approval**: every `ToolDef` carries a `category` (editor UI
+  grouping) and a `confirmation` level (`none` / `always`). `always`
+  tools (all mutations) pause the turn: the orchestrator stores a
+  `ToolConfirmation` (plus the remaining batch calls), emits SSE
+  `tool_confirm`, and the frontend shows an approval card. The decision
+  endpoint (`POST /api/ai/chat/conversations/{id}/tools/{request_id}/decision`,
+  body `{approved, always_allow}`) executes or denies the call and
+  resumes the turn; `always_allow` remembers `(conversation_id, tool_name)`
+  in-process for the session. Pending confirmations use the same TTL and
+  replay-dropping pattern as vision requests.
+- **Endpoints**: `/api/user/ai/agents` (list + tool catalogue, create),
+  `PUT/DELETE /api/user/ai/agents/{id}` (custom only — built-ins answer
+  403), `POST /api/user/ai/agents/{id}/duplicate`,
+  `PUT /api/user/ai/agents/active` (agent preselected for new chats,
+  stored in `ai_chat_settings.active_agent_id`).
+- **Frontend**: the chat header shows an agent chip whose dropdown starts
+  a new draft with the chosen persona (switching never rewrites an open
+  conversation, mirroring the Synth-music app); agent CRUD lives in
+  Settings → AI Agents (`settings-ai-agents.js`); icon/color presets are
+  shared between server (`AGENT_ICONS` / `AGENT_COLOR_COUNT`) and client
+  (`app/static/js/ai-agents-icons.js`) and must stay in sync. A restored
+  agent (from `active_agent_id` or the conversation) updates the welcome
+  placeholder too, not just the header chip.
+- **Mobile (<901px)**: the chat-list column overlays the panel and hides
+  the header toggle, so the list header carries its own close button
+  (`.ai-chat-list-close`, hidden on desktop) plus swipe gestures — swipe
+  left on the list closes it, swipe right from the left edge of the chat
+  area opens it (same pattern as the gallery sidebar); picking a chat or
+  "New chat" closes the overlay. The vision slot is shared by the vision
+  and approval cards: after a decision `renderToolConfirm` clears it
+  itself — `renderVision`'s key-based early return skips the clear when
+  it was already idle.
 
 ## Build and Run Commands
 

@@ -1004,7 +1004,11 @@ def test_add_item_tags_tool_unknown_tag_errors(
             {"item_id": item_id, "tag_names": ["does_not_exist_tag"]},
             ToolContext(user_id=test_user["id"]),
         )
-    assert "create_tags" in str(excinfo.value).lower()
+    # The error must not push the model towards creating the tag: missing
+    # tags are reported to the user instead.
+    message = str(excinfo.value)
+    assert "unknown tags" in message.lower()
+    assert "create_tags" not in message.lower()
 
 
 # ============================================================================

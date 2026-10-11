@@ -120,7 +120,13 @@
      *   { type: 'error', text }
      */
     function newChatState() {
-        return { messages: [], streaming: false, pendingVision: null, stopReason: null };
+        return {
+            messages: [],
+            streaming: false,
+            pendingVision: null,
+            pendingToolConfirm: null,
+            stopReason: null,
+        };
     }
 
     function cloneState(state) {
@@ -137,6 +143,14 @@
             streaming: !!safe.streaming,
             pendingVision: safe.pendingVision
                 ? { request_id: safe.pendingVision.request_id, items: (safe.pendingVision.items || []).slice() }
+                : null,
+            pendingToolConfirm: safe.pendingToolConfirm
+                ? {
+                    request_id: safe.pendingToolConfirm.request_id,
+                    call_id: safe.pendingToolConfirm.call_id,
+                    name: safe.pendingToolConfirm.name,
+                    arguments: safe.pendingToolConfirm.arguments,
+                }
                 : null,
             stopReason: safe.stopReason == null ? null : safe.stopReason,
         };
@@ -274,6 +288,26 @@
                 return next;
             }
 
+            // A mutating tool pauses the turn for the user's approval.
+            case 'tool_confirm': {
+                next = cloneState(state);
+                next.pendingToolConfirm = {
+                    request_id: ev.request_id,
+                    call_id: ev.call_id,
+                    name: ev.name,
+                    arguments: parseToolArgs(ev.arguments),
+                };
+                return next;
+            }
+
+            // Internal pseudo-event fired after the user answers a
+            // tool confirmation card.
+            case 'confirm_decided': {
+                next = cloneState(state);
+                next.pendingToolConfirm = null;
+                return next;
+            }
+
             case 'turn_done': {
                 next = cloneState(state);
                 next.streaming = false;
@@ -396,7 +430,7 @@
             }
         }
 
-        return { messages: merged, streaming: false, pendingVision: null, stopReason: null };
+        return { messages: merged, streaming: false, pendingVision: null, pendingToolConfirm: null, stopReason: null };
     }
 
     // ========================================================================
@@ -463,6 +497,11 @@
     var renderScheduled = false;
     var initialized = false;
     var sending = false;
+    // Agents (GET /api/user/ai/agents) + the active one: the agent of the
+    // open conversation, or the draft selection for new chats.
+    var agents = [];
+    var currentAgentId = null;
+    var agentMenuOpen = false;
     // User-toggled open state of collapsible parts (tool cards / reasoning),
     // keyed by stable part keys. Survives re-renders.
     var expandedParts = Object.create(null);
@@ -472,6 +511,7 @@
     var msgEls = [];
     var msgSigs = [];
     var lastVisionKey = null;
+    var lastConfirmKey = null;
 
     // ========================================================================
     // Panel shell (rendered once from a template string)
@@ -482,6 +522,9 @@
         '  <aside class="ai-chat-list" id="ai-chat-list">',
         '    <div class="ai-chat-list-header">',
         '      <span class="ai-chat-list-title">Chats</span>',
+        '      <button type="button" id="ai-chat-list-close" class="ai-chat-icon-btn ai-chat-list-close" title="Close chat list" aria-label="Close chat list">',
+        '        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+        '      </button>',
         '      <button type="button" id="ai-chat-new-btn" class="btn btn-small">New chat</button>',
         '    </div>',
         '    <div class="ai-chat-conversations" id="ai-chat-conversations"></div>',
@@ -491,12 +534,18 @@
         '      <button type="button" id="ai-chat-list-toggle" class="ai-chat-icon-btn" title="Toggle chat list" aria-label="Toggle chat list">',
         '        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
         '      </button>',
+        '      <button type="button" id="ai-chat-agent-btn" class="ai-chat-agent-btn" title="Choose agent" aria-label="Choose agent">',
+        '        <span class="ai-agent-chip-icon" id="ai-chat-agent-icon"></span>',
+        '        <span class="ai-agent-chip-name" id="ai-chat-agent-name">Assistant</span>',
+        '        <svg class="ai-agent-chip-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="6 9 12 15 18 9"/></svg>',
+        '      </button>',
         '      <span class="ai-chat-title" id="ai-chat-title">New chat</span>',
         '      <span class="ai-chat-model-badge" id="ai-chat-model-badge" title="Active model"></span>',
         '      <button type="button" id="ai-chat-close-btn" class="ai-chat-icon-btn" title="Close" aria-label="Close AI chat">',
         '        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
         '      </button>',
         '    </header>',
+        '    <div class="ai-agent-menu hidden" id="ai-agent-menu"></div>',
         '    <div class="ai-chat-messages" id="ai-chat-messages"></div>',
         '    <div class="ai-chat-vision-slot" id="ai-chat-vision-slot"></div>',
         '    <footer class="ai-chat-composer">',
@@ -517,8 +566,13 @@
 
         els.list = document.getElementById('ai-chat-list');
         els.listToggle = document.getElementById('ai-chat-list-toggle');
+        els.listClose = document.getElementById('ai-chat-list-close');
         els.newBtn = document.getElementById('ai-chat-new-btn');
         els.conversations = document.getElementById('ai-chat-conversations');
+        els.agentBtn = document.getElementById('ai-chat-agent-btn');
+        els.agentIcon = document.getElementById('ai-chat-agent-icon');
+        els.agentName = document.getElementById('ai-chat-agent-name');
+        els.agentMenu = document.getElementById('ai-agent-menu');
         els.title = document.getElementById('ai-chat-title');
         els.modelBadge = document.getElementById('ai-chat-model-badge');
         els.closeBtn = document.getElementById('ai-chat-close-btn');
@@ -529,7 +583,15 @@
         els.sendBtn = document.getElementById('ai-chat-send-btn');
 
         els.listToggle.addEventListener('click', toggleList);
+        els.listClose.addEventListener('click', hideList);
+        setupListSwipe();
+        setupMainSwipe();
         els.newBtn.addEventListener('click', resetToDraft);
+        els.agentBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            toggleAgentMenu();
+        });
+        els.agentMenu.addEventListener('click', onAgentMenuClick);
         els.closeBtn.addEventListener('click', close);
         els.sendBtn.addEventListener('click', onSendButton);
         els.attachChip.addEventListener('click', function () {
@@ -571,12 +633,22 @@
         });
         els.visionSlot.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-vision-action]');
-            if (!btn) return;
-            decideVision(btn.dataset.visionAction === 'allow');
+            if (btn) {
+                decideVision(btn.dataset.visionAction === 'allow');
+                return;
+            }
+            var confirmBtn = e.target.closest('[data-confirm-action]');
+            if (confirmBtn) decideToolConfirm(confirmBtn.dataset.confirmAction);
         });
 
-        // Selection can change while the panel is open (click-driven).
-        document.addEventListener('click', function () {
+        // Selection can change while the panel is open (click-driven);
+        // also close the agent menu when clicking anywhere else.
+        document.addEventListener('click', function (e) {
+            if (agentMenuOpen && els.agentMenu &&
+                !els.agentMenu.contains(e.target) &&
+                !els.agentBtn.contains(e.target)) {
+                closeAgentMenu();
+            }
             if (isOpen()) renderComposer();
         });
     }
@@ -598,11 +670,69 @@
         els.input.style.height = Math.min(els.input.scrollHeight, 120) + 'px';
     }
 
-    function toggleList() {
-        listVisible = !listVisible;
-        panel.classList.toggle('with-list', listVisible);
+    function isNarrowViewport() {
+        return typeof window !== 'undefined' && !!window.matchMedia &&
+            window.matchMedia('(max-width: 900px)').matches;
+    }
+
+    function showList() {
+        listVisible = true;
+        panel.classList.add('with-list');
         syncBodyClasses();
-        if (listVisible) loadConversations();
+        loadConversations();
+    }
+
+    function hideList() {
+        listVisible = false;
+        panel.classList.remove('with-list');
+        syncBodyClasses();
+    }
+
+    function toggleList() {
+        if (listVisible) hideList();
+        else showList();
+    }
+
+    // Mobile gestures, mirroring the gallery sidebar: swipe left on the
+    // open list closes it, swipe right (from the left edge of the chat
+    // area) opens it. Passive listeners — no rubber-band, just detection.
+    function setupListSwipe() {
+        if (!els.list) return;
+        var startX = 0, startY = 0, tracking = false;
+        els.list.addEventListener('touchstart', function (e) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            tracking = true;
+        }, { passive: true });
+        els.list.addEventListener('touchend', function (e) {
+            if (!tracking) return;
+            tracking = false;
+            var diffX = e.changedTouches[0].clientX - startX;
+            var diffY = e.changedTouches[0].clientY - startY;
+            if (diffX < -50 && Math.abs(diffX) > Math.abs(diffY)) hideList();
+        }, { passive: true });
+    }
+
+    function setupMainSwipe() {
+        if (!els.messages) return;
+        var startX = 0, startY = 0, tracking = false;
+        els.messages.addEventListener('touchstart', function (e) {
+            // Edge zone only: the rest of the message area hosts
+            // horizontally scrollable tool-card bodies.
+            if (e.touches[0].clientX > window.innerWidth * 0.3) return;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            tracking = true;
+        }, { passive: true });
+        els.messages.addEventListener('touchend', function (e) {
+            if (!tracking) return;
+            tracking = false;
+            var diffX = e.changedTouches[0].clientX - startX;
+            var diffY = e.changedTouches[0].clientY - startY;
+            if (diffX > 50 && Math.abs(diffX) > Math.abs(diffY) && !listVisible) {
+                showList();
+            }
+        }, { passive: true });
     }
 
     function setAttached(value) {
@@ -634,8 +764,15 @@
         if (!panel || !panel.dataset.built) return;
         renderHeader();
         renderMessages();
-        renderVision();
+        renderApprovals();
         renderComposer();
+    }
+
+    function currentAgent() {
+        for (var i = 0; i < agents.length; i++) {
+            if (agents[i].id === currentAgentId) return agents[i];
+        }
+        return null;
     }
 
     function renderHeader() {
@@ -649,6 +786,21 @@
             }
         }
         els.title.textContent = title;
+
+        var agent = currentAgent();
+        var iconFn = typeof window !== 'undefined' ? window.agentIconSvg : null;
+        var colorFn = typeof window !== 'undefined' ? window.agentColor : null;
+        var name = agent ? agent.name : 'Assistant';
+        els.agentName.textContent = name;
+        els.agentBtn.title = agent && agent.description
+            ? agent.name + ' — ' + agent.description
+            : 'Choose agent';
+        var color = agent && colorFn ? colorFn(agent.color_index) : '';
+        els.agentIcon.style.color = color;
+        els.agentIcon.innerHTML = iconFn
+            ? iconFn(agent ? agent.icon : 'sparkles', 15)
+            : '';
+        els.agentBtn.classList.toggle('ai-agent-custom', !!agent);
 
         var s = chatSettings && chatSettings.settings ? chatSettings.settings : null;
         if (s && (s.model_display_name || s.active_model_id)) {
@@ -745,6 +897,16 @@
                     '<div class="ai-chat-welcome-icon">' + SPARKLE_SVG + '</div>' +
                     '<p class="ai-chat-welcome-title">Ask about your library</p>' +
                     '<p class="ai-chat-welcome-hint">Tagging, albums, search \u2014 or anything about your media.</p>';
+            }
+            // Reflect the selected agent in the empty state.
+            var wAgent = currentAgent();
+            var wTitle = els.welcome.querySelector('.ai-chat-welcome-title');
+            var wHint = els.welcome.querySelector('.ai-chat-welcome-hint');
+            if (wTitle) wTitle.textContent = wAgent ? wAgent.name : 'Ask about your library';
+            if (wHint) {
+                wHint.textContent = wAgent && wAgent.description
+                    ? wAgent.description
+                    : 'Tagging, albums, search \u2014 or anything about your media.';
             }
             if (els.welcome.parentNode !== container) {
                 container.innerHTML = '';
@@ -872,6 +1034,11 @@
             '</div>';
     }
 
+    function renderApprovals() {
+        renderVision();
+        renderToolConfirm();
+    }
+
     function renderVision() {
         var pending = state.pendingVision;
         // Rebuild only when the pending request actually changed — rebuilding
@@ -903,13 +1070,53 @@
         els.visionSlot.classList.remove('hidden');
     }
 
+    function renderToolConfirm() {
+        var pending = state.pendingToolConfirm;
+        var key = pending ? String(pending.request_id) : '';
+        if (key === lastConfirmKey) return;
+        lastConfirmKey = key;
+        if (!pending) {
+            // Decision made: clear the slot unless the vision card took
+            // it over. renderVision cannot do it here — its key-based
+            // early-return skips the clear when it was already idle.
+            if (!state.pendingVision) {
+                els.visionSlot.innerHTML = '';
+                els.visionSlot.classList.add('hidden');
+            }
+            return;
+        }
+
+        var argsText = pending.arguments == null
+            ? ''
+            : (typeof pending.arguments === 'string'
+                ? pending.arguments
+                : JSON.stringify(pending.arguments, null, 2));
+
+        els.visionSlot.innerHTML =
+            '<div class="ai-vision-card ai-toolconfirm-card">' +
+            '  <div class="ai-vision-title">Run <code>' + esc(pending.name) + '</code>?</div>' +
+            '  <div class="ai-vision-subtitle">This changes your library and needs your approval.</div>' +
+            (argsText
+                ? '<pre class="ai-confirm-args">' + esc(argsText) + '</pre>'
+                : '') +
+            '  <div class="ai-vision-actions">' +
+            '    <button type="button" class="btn btn-small" data-confirm-action="allow">Approve</button>' +
+            '    <button type="button" class="btn btn-small btn-secondary" data-confirm-action="always" title="Run without asking for this tool in this chat">Always allow</button>' +
+            '    <button type="button" class="btn btn-small btn-secondary" data-confirm-action="deny">Deny</button>' +
+            '  </div>' +
+            '</div>';
+        els.visionSlot.classList.remove('hidden');
+    }
+
     function renderComposer() {
-        var pending = !!state.pendingVision;
+        var pending = !!state.pendingVision || !!state.pendingToolConfirm;
         var streaming = !!state.streaming;
 
         els.input.disabled = pending;
         els.input.placeholder = pending
-            ? 'Decide on the image request first...'
+            ? (state.pendingToolConfirm
+                ? 'Approve or deny the action first...'
+                : 'Decide on the image request first...')
             : 'Ask about your library...';
 
         if (streaming) {
@@ -933,6 +1140,118 @@
             attachedSelection = false;
             els.attachChip.classList.add('hidden');
         }
+    }
+
+    // ========================================================================
+    // Agents
+    // ========================================================================
+
+    async function loadAgents() {
+        try {
+            var resp = await fetch(baseUrl() + '/api/user/ai/agents', { credentials: 'include' });
+            if (!resp.ok) return;
+            var data = await resp.json();
+            agents = Array.isArray(data.agents) ? data.agents : [];
+        } catch (err) {
+            console.warn('[ai-chat] Failed to load agents:', err);
+            agents = [];
+        }
+        // A draft chat preselects the agent chosen last (stored server-side
+        // per user); an open conversation keeps its own agent.
+        if (!conversationId && currentAgentId == null && chatSettings) {
+            var s = chatSettings.settings;
+            if (s && s.active_agent_id) currentAgentId = s.active_agent_id;
+        }
+        // Full render: the restored agent must also update the welcome
+        // placeholder, not just the header chip.
+        render();
+        renderAgentMenu();
+    }
+
+    function toggleAgentMenu() {
+        if (agentMenuOpen) closeAgentMenu();
+        else openAgentMenu();
+    }
+
+    function openAgentMenu() {
+        agentMenuOpen = true;
+        renderAgentMenu();
+        els.agentMenu.classList.remove('hidden');
+    }
+
+    function closeAgentMenu() {
+        agentMenuOpen = false;
+        if (els.agentMenu) els.agentMenu.classList.add('hidden');
+    }
+
+    function agentMenuItem(agent) {
+        var iconFn = typeof window !== 'undefined' ? window.agentIconSvg : null;
+        var colorFn = typeof window !== 'undefined' ? window.agentColor : null;
+        var active = (agent ? agent.id : null) === currentAgentId;
+        var icon = iconFn ? iconFn(agent ? agent.icon : 'sparkles', 15) : '';
+        var color = agent && colorFn ? colorFn(agent.color_index) : '';
+        return '<button type="button" class="ai-agent-menu-item' + (active ? ' active' : '') + '" data-agent-id="' + esc(agent ? String(agent.id) : '') + '">' +
+            '<span class="ai-agent-menu-icon" style="color:' + esc(color) + '">' + icon + '</span>' +
+            '<span class="ai-agent-menu-text">' +
+            '<span class="ai-agent-menu-name">' + esc(agent ? agent.name : 'Assistant') + '</span>' +
+            '<span class="ai-agent-menu-desc">' + esc(agent && agent.description ? agent.description : 'No persona, all tools') + '</span>' +
+            '</span>' +
+            (active ? '<span class="ai-agent-menu-check">\u2713</span>' : '') +
+            '</button>';
+    }
+
+    function renderAgentMenu() {
+        if (!els.agentMenu) return;
+        var html = agentMenuItem(null);
+        for (var i = 0; i < agents.length; i++) {
+            html += agentMenuItem(agents[i]);
+        }
+        html += '<div class="ai-agent-menu-separator"></div>' +
+            '<a class="ai-agent-menu-manage" href="' + esc(baseUrl()) + '/settings">Manage agents\u2026</a>';
+        els.agentMenu.innerHTML = html;
+    }
+
+    function onAgentMenuClick(e) {
+        var manage = e.target.closest('.ai-agent-menu-manage');
+        if (manage) {
+            closeAgentMenu();
+            return; // plain link: browser navigates
+        }
+        var item = e.target.closest('.ai-agent-menu-item');
+        if (!item) return;
+        var raw = item.dataset.agentId;
+        selectAgent(raw ? parseInt(raw, 10) : null);
+    }
+
+    function selectAgent(agentId) {
+        closeAgentMenu();
+        if (agentId === currentAgentId) {
+            renderHeader();
+            return;
+        }
+        // A persona switch never rewrites an open conversation: it starts
+        // a new draft (aborting a running stream like "New chat" does).
+        if (conversationId || state.messages.length > 0) {
+            if (state.streaming && abortController) abortController.abort();
+            conversationId = null;
+            state = newChatState();
+            removeMessageElements();
+        }
+        currentAgentId = agentId || null;
+        persistActiveAgent();
+        renderConversations();
+        render();
+        if (els.input && !els.input.disabled) els.input.focus();
+    }
+
+    function persistActiveAgent() {
+        try {
+            csrfFetch(baseUrl() + '/api/user/ai/agents/active', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active_agent_id: currentAgentId }),
+            }).catch(function () { /* best effort */ });
+        } catch (e) { /* best effort */ }
     }
 
     // ========================================================================
@@ -986,6 +1305,7 @@
         if (!id) return;
         if (state.streaming && abortController) abortController.abort();
         conversationId = id;
+        closeAgentMenu();
         try {
             var resp = await fetch(baseUrl() + '/api/ai/chat/conversations/' + encodeURIComponent(id) + '/messages', { credentials: 'include' });
             if (!resp.ok) {
@@ -995,8 +1315,19 @@
             var data = await resp.json();
             state = stateFromMessages(data.messages);
             removeMessageElements(); // full state replacement: rebuild all nodes
+            // The conversation keeps the agent it was created with.
+            currentAgentId = null;
+            for (var i = 0; i < conversations.length; i++) {
+                if (conversations[i].id === id) {
+                    currentAgentId = conversations[i].agent_id || null;
+                    break;
+                }
+            }
             renderConversations();
             render();
+            // On phones the list overlays the conversation — close it,
+            // like the folder sidebar does after picking a folder.
+            if (isNarrowViewport()) hideList();
         } catch (err) {
             console.error('[ai-chat] Failed to load messages:', err);
             toast('Failed to load chat', true);
@@ -1026,6 +1357,7 @@
         conversationId = null;
         state = newChatState();
         removeMessageElements(); // full state replacement: rebuild all nodes
+        if (isNarrowViewport()) hideList();
         renderConversations();
         render();
         if (els.input) els.input.focus();
@@ -1141,10 +1473,12 @@
 
     async function ensureConversation() {
         if (conversationId) return conversationId;
+        var createBody = {};
+        if (currentAgentId) createBody.agent_id = currentAgentId;
         var resp = await csrfFetch(baseUrl() + '/api/ai/chat/conversations', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: '{}',
+            body: JSON.stringify(createBody),
         });
         if (!resp.ok) {
             var detail = null;
@@ -1164,7 +1498,7 @@
 
     async function sendMessage() {
         if (!panel || !panel.dataset.built) return;
-        if (state.pendingVision) return;
+        if (state.pendingVision || state.pendingToolConfirm) return;
         if (state.streaming || sending) return;
 
         var text = els.input.value.trim();
@@ -1211,6 +1545,23 @@
         );
     }
 
+    function decideToolConfirm(action) {
+        var pending = state.pendingToolConfirm;
+        if (!pending || !conversationId) return;
+        // The paused stream (if still open) is replaced by the decision's
+        // continuation stream.
+        if (state.streaming && abortController) abortController.abort();
+        state = applyChatEvent(state, { type: 'confirm_decided' });
+        render();
+        var approved = action !== 'deny';
+        var alwaysAllow = action === 'always';
+        streamChat(
+            '/api/ai/chat/conversations/' + encodeURIComponent(conversationId) +
+            '/tools/' + encodeURIComponent(pending.request_id) + '/decision',
+            { approved: approved, always_allow: alwaysAllow }
+        );
+    }
+
     // ========================================================================
     // Open / close
     // ========================================================================
@@ -1242,7 +1593,7 @@
         if (typeof window !== 'undefined' && window.BackButtonManager) {
             window.BackButtonManager.register('ai-chat-panel', close);
         }
-        loadSettings();
+        loadSettings().then(loadAgents);
         loadConversations();
         render();
         renderComposer();
@@ -1251,8 +1602,11 @@
 
     function close() {
         if (!panel || !isOpen()) return;
-        if (state.streaming && abortController) abortController.abort();
+        // Closing the panel must NOT stop a running turn: generation keeps
+        // streaming in the background and reopens with its current state.
+        // Only the Stop button (and switching chats) aborts the stream.
         panel.classList.add('hidden');
+        closeAgentMenu();
         syncSidebarButton();
         syncBodyClasses();
         if (typeof window !== 'undefined' && window.BackButtonManager) {

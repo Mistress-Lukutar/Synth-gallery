@@ -5876,6 +5876,13 @@ main {
     flex-shrink: 0;
 }
 
+/* Desktop: the list is a static column next to the chat — no close
+   button (the header toggle covers it). Mobile shows it via media query.
+   Extra specificity: .ai-chat-icon-btn's display:flex comes later. */
+.ai-chat-list-header .ai-chat-list-close {
+    display: none;
+}
+
 .ai-chat-list-title {
     font-size: 0.85rem;
     font-weight: 600;
@@ -6017,6 +6024,162 @@ main {
 
 .ai-chat-model-badge.ai-chat-badge-empty {
     border-style: dashed;
+}
+
+/* Agent picker chip + dropdown menu */
+.ai-chat-agent-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+    max-width: 45%;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ai-chat-agent-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--accent);
+}
+
+.ai-agent-chip-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent);
+}
+
+.ai-agent-chip-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-agent-chip-chevron {
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.ai-agent-menu {
+    position: absolute;
+    top: 3.2rem;
+    left: 3.4rem;
+    z-index: 200;
+    min-width: 260px;
+    max-width: min(320px, calc(100% - 1.5rem));
+    max-height: min(420px, 70%);
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    padding: 0.35rem;
+}
+
+.ai-agent-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    padding: 0.45rem 0.55rem;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: var(--text);
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ai-agent-menu-item:hover {
+    background: var(--bg-tertiary);
+}
+
+.ai-agent-menu-item.active {
+    background: rgba(59, 130, 246, 0.12);
+}
+
+.ai-agent-menu-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--accent);
+}
+
+.ai-agent-menu-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.ai-agent-menu-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.ai-agent-menu-desc {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ai-agent-menu-check {
+    margin-left: auto;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.ai-agent-menu-separator {
+    height: 1px;
+    background: var(--border);
+    margin: 0.35rem 0.25rem;
+}
+
+.ai-agent-menu-manage {
+    display: block;
+    padding: 0.45rem 0.55rem;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    text-decoration: none;
+}
+
+.ai-agent-menu-manage:hover {
+    background: var(--bg-tertiary);
+    color: var(--text);
+}
+
+/* Tool confirmation card (mutating tool approval) */
+.ai-toolconfirm-card {
+    border-color: rgba(245, 158, 11, 0.45);
+    background: rgba(245, 158, 11, 0.08);
+}
+
+.ai-vision-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin: -0.25rem 0 0.5rem;
+}
+
+.ai-confirm-args {
+    max-height: 180px;
+    overflow: auto;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 0.6rem;
 }
 
 /* Messages */
@@ -6343,6 +6506,7 @@ main {
 
 .ai-vision-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
 }
 
@@ -6445,5 +6609,16 @@ main {
         left: 0;
         z-index: 2;
         box-shadow: 6px 0 24px rgba(0, 0, 0, 0.45);
+    }
+
+    /* The overlaying list hides the header toggle — give it its own
+       close button (plus the swipe-left gesture). */
+    .ai-chat-list-header .ai-chat-list-close {
+        display: flex;
+    }
+
+    /* Keep the agent chip from squeezing out the chat title and badge. */
+    .ai-agent-chip-name {
+        max-width: 34vw;
     }
 }

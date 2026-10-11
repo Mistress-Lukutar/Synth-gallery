@@ -21,7 +21,7 @@ echo.
 :: ----------------------------------------------------------------
 
 set BASE_PATH=synth
-set SYNTH_ENV=production
+set SYNTH_ENV=development
 
 :: ----------------------------------------------------------------
 :: ADVANCED CONFIGURATION

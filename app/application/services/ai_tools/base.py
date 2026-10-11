@@ -43,12 +43,20 @@ class VisionRequestSignal(Exception):
 
 @dataclass
 class ToolDef:
-    """One tool exposed to the model."""
+    """One tool exposed to the model.
+
+    ``category`` groups tools in the agent editor UI. ``confirmation``
+    controls the mutation-approval flow: ``'none'`` runs silently (read
+    tools), ``'always'`` pauses the turn until the user approves the call
+    in the chat (every mutating tool).
+    """
 
     name: str
     description: str
     parameters_json_schema: dict
     executor: Callable[[dict, ToolContext], Union[str, Awaitable[str]]]
+    category: str = "library"
+    confirmation: str = "none"
     # Tools listed here are executed but never advertised to models whose
     # provider reports no tool support; reserved for future use.
     metadata: dict = field(default_factory=dict)

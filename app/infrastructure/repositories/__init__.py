@@ -30,6 +30,7 @@ from .ai_provider_repository import AiProviderRepository
 from .ai_model_repository import AiModelRepository
 from .ai_chat_settings_repository import AiChatSettingsRepository
 from .ai_chat_repository import AiChatRepository
+from .ai_agent_repository import AiAgentRepository
 
 __all__ = [
     "Repository",
@@ -52,4 +53,5 @@ __all__ = [
     "AiModelRepository",
     "AiChatSettingsRepository",
     "AiChatRepository",
+    "AiAgentRepository",
 ]

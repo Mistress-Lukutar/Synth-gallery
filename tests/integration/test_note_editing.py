@@ -143,6 +143,22 @@ class TestNoteContentUpdate:
         )
         assert resp.status_code == 400
 
+    def test_file_response_not_cached(self, authenticated_client, test_folder,
+                                      csrf_token, test_image_bytes):
+        """Notes are rewritten in place under the same /files/{id} URL, so
+        their responses must be no-store; media stays cacheable."""
+        note = _upload_note(authenticated_client, test_folder, csrf_token)
+        photo = _upload_photo(authenticated_client, test_folder, csrf_token,
+                              test_image_bytes)
+
+        note_resp = authenticated_client.get(f"/files/{note['id']}")
+        assert note_resp.status_code == 200
+        assert note_resp.headers["cache-control"] == "no-store"
+
+        photo_resp = authenticated_client.get(f"/files/{photo['id']}")
+        assert photo_resp.status_code == 200
+        assert photo_resp.headers["cache-control"] == "private, max-age=3600"
+
     def test_update_unknown_item_404(self, authenticated_client, csrf_token):
         resp = _put_json(
             authenticated_client,

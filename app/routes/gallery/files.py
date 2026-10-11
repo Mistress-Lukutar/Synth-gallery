@@ -181,11 +181,17 @@ def _build_headers(
     plaintext_size: int,
     accept_ranges: bool = True,
     content_range: tuple[int, int, int] | None = None,
+    cacheable: bool = True,
 ) -> dict[str, str]:
-    '''Build response headers for a streaming file response.'''
+    '''Build response headers for a streaming file response.
+
+    Notes are rewritten in place under the same item id (manual editor and
+    the write_note tool), so their responses are served with ``no-store`` —
+    a cacheable note lets browsers show the pre-edit body for max-age.
+    '''
     headers: dict[str, str] = {
         'Content-Type': content_type,
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, max-age=3600' if cacheable else 'no-store',
     }
     if accept_ranges:
         headers['Accept-Ranges'] = 'bytes'
@@ -250,7 +256,9 @@ async def file_head(item_id: str, request: Request):
         except EncryptionError:
             plaintext_size = enc_size
 
-        headers = _build_headers(content_type, plaintext_size)
+        headers = _build_headers(
+            content_type, plaintext_size, cacheable=record.get('type') != 'note'
+        )
         return Response(content=b'', headers=headers)
     finally:
         db.close()
@@ -289,6 +297,7 @@ async def get_file(item_id: str, request: Request):
             raise HTTPException(
                 status_code=403, detail='Encryption key not available'
             )
+        cacheable = file_record.get('type') != 'note'
     finally:
         db.close()
 
@@ -365,6 +374,7 @@ async def get_file(item_id: str, request: Request):
                 content_type,
                 plaintext_size,
                 content_range=(start, end, plaintext_size),
+                cacheable=cacheable,
             )
             return StreamingResponse(
                 _gen(), status_code=206, headers=headers,
@@ -403,6 +413,7 @@ async def get_file(item_id: str, request: Request):
         content_type,
         plaintext_size,
         accept_ranges=random_reader is not None or parsed is None,
+        cacheable=cacheable,
     )
     return StreamingResponse(
         _gen_full(), headers=headers, media_type=content_type

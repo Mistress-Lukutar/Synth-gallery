@@ -12,7 +12,12 @@ class AiChatSettingsRepository(Repository):
     """Repository for ``ai_chat_settings`` rows."""
 
     # Columns that update() may write; updated_at is bumped automatically.
-    _UPDATABLE_FIELDS = ("active_provider_id", "active_model_id", "temperature")
+    _UPDATABLE_FIELDS = (
+        "active_provider_id",
+        "active_model_id",
+        "temperature",
+        "active_agent_id",
+    )
 
     def ensure(self, user_id: int) -> dict:
         """Return the user's settings row, creating a default one if absent.
@@ -82,5 +87,23 @@ class AiChatSettingsRepository(Repository):
             "    updated_at = CURRENT_TIMESTAMP "
             "WHERE user_id = ? AND active_provider_id = ?",
             (user_id, provider_id),
+        )
+        self._commit()
+
+    def clear_active_agent(self, user_id: int, agent_id: int) -> None:
+        """Clear ``active_agent_id`` if it points at the given agent.
+
+        Used when an agent is deleted so the settings row never keeps
+        pointing at a dangling agent id.
+
+        Args:
+            user_id: Owner's user ID.
+            agent_id: Agent ID being removed.
+        """
+        self._execute(
+            "UPDATE ai_chat_settings "
+            "SET active_agent_id = NULL, updated_at = CURRENT_TIMESTAMP "
+            "WHERE user_id = ? AND active_agent_id = ?",
+            (user_id, agent_id),
         )
         self._commit()

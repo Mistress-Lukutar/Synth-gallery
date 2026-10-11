@@ -7,6 +7,8 @@ Turn events are delivered as Server-Sent Events. Event names/payloads:
 - ``tool_start``     {"call_id": str, "name": str, "arguments": object|string}
 - ``tool_result``    {"call_id": str, "name": str, "summary": str, "is_error": bool}
 - ``vision_request`` {"request_id": str, "items": [{"id": str, "title": str|None}]}
+- ``tool_confirm``   {"request_id": str, "call_id": str, "name": str,
+                      "arguments": object}
 - ``turn_done``      {"stop_reason": str, "usage": {"input_tokens": int,
                       "output_tokens": int}|null}
 - ``error``          {"message": str}
@@ -18,15 +20,19 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..application.services.ai_agent_service import AgentNotFoundError
 from ..application.services.ai_chat_service import (
     AiChatService,
     ConversationNotFoundError,
+    ToolConfirmationExpiredError,
+    ToolConfirmationNotFoundError,
     VisionRequestExpiredError,
     VisionRequestNotFoundError,
 )
 from ..application.services.ai_provider_service import AiProviderService
 from ..database import create_connection
 from ..dependencies import require_user
+from ..infrastructure.repositories.ai_agent_repository import AiAgentRepository
 from ..infrastructure.repositories.ai_chat_repository import AiChatRepository
 from ..infrastructure.repositories.ai_chat_settings_repository import (
     AiChatSettingsRepository,
@@ -60,6 +66,7 @@ def build_ai_chat_service(db) -> AiChatService:
             model_repo=AiModelRepository(db),
             settings_repo=AiChatSettingsRepository(db),
         ),
+        agent_repo=AiAgentRepository(db),
     )
 
 
@@ -69,6 +76,7 @@ def build_ai_chat_service(db) -> AiChatService:
 
 class CreateConversationRequest(BaseModel):
     title: Optional[str] = None
+    agent_id: Optional[int] = None
 
 
 class SendMessageRequest(BaseModel):
@@ -78,6 +86,12 @@ class SendMessageRequest(BaseModel):
 
 class VisionDecisionRequest(BaseModel):
     approved: bool
+
+
+class ToolDecisionRequest(BaseModel):
+    approved: bool
+    # Remember the approval for this tool in this chat session.
+    always_allow: bool = False
 
 
 # ============================================================================
@@ -139,15 +153,20 @@ def _sse_stream(build_generator):
 
 @router.post("/conversations")
 def create_conversation(request: Request, data: Optional[CreateConversationRequest] = None):
-    """Create a chat conversation."""
+    """Create a chat conversation, optionally bound to an owned agent."""
     user = require_user(request)
 
     db = create_connection()
     try:
         service = build_ai_chat_service(db)
-        conversation = service.create_conversation(
-            user["id"], (data.title if data else None) or "New chat"
-        )
+        try:
+            conversation = service.create_conversation(
+                user["id"],
+                (data.title if data else None) or "New chat",
+                agent_id=(data.agent_id if data else None),
+            )
+        except AgentNotFoundError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         return {"conversation": conversation}
     finally:
         db.close()
@@ -267,6 +286,54 @@ def vision_decision(
     def build_generator(service):
         return service.resume_vision(
             user["id"], dek, conversation_id, request_id, data.approved
+        )
+
+    return _sse_stream(build_generator)
+
+
+@router.post("/conversations/{conversation_id}/tools/{request_id}/decision")
+def tool_decision(
+    request: Request, conversation_id: str, request_id: str,
+    data: ToolDecisionRequest,
+):
+    """Approve or deny a mutating tool call; streams the resumed turn."""
+    user = require_user(request)
+
+    db = create_connection()
+    try:
+        service = build_ai_chat_service(db)
+        service.require_conversation(user["id"], conversation_id)
+        service.check_tool_confirmation(user["id"], conversation_id, request_id)
+        if service.is_busy(user["id"]):
+            raise HTTPException(
+                status_code=409, detail="A chat turn is already running"
+            )
+        dek = dek_cache.get(user["id"])
+        if dek is None:
+            raise HTTPException(
+                status_code=403, detail="Encryption key not available"
+            )
+        if service.provider_service.get_active_endpoint(user["id"], dek) is None:
+            raise HTTPException(
+                status_code=400, detail="AI provider is not configured"
+            )
+    except ConversationNotFoundError:
+        raise _not_found()
+    except ToolConfirmationNotFoundError:
+        raise HTTPException(
+            status_code=404, detail="Tool confirmation not found"
+        )
+    except ToolConfirmationExpiredError:
+        raise HTTPException(
+            status_code=410, detail="Tool confirmation expired"
+        )
+    finally:
+        db.close()
+
+    def build_generator(service):
+        return service.resume_tool_decision(
+            user["id"], dek, conversation_id, request_id,
+            data.approved, data.always_allow,
         )
 
     return _sse_stream(build_generator)

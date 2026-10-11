@@ -575,9 +575,7 @@ def _tool_get_tag_info(args: dict, ctx: ToolContext) -> str:
         tags_repo = TagsRepository(db)
         matches = tags_repo.get_by_name(name)
         if not matches:
-            raise ToolError(
-                f"tag '{name}' not found; use create_tags to create it first"
-            )
+            raise ToolError(f"tag '{name}' not found")
         tag = matches[0]
         implications = _tag_service(db).get_tag_implications(tag["id"])
     finally:
@@ -784,7 +782,8 @@ def _tool_add_item_tags(args: dict, ctx: ToolContext) -> str:
             if unknown:
                 raise ToolError(
                     "unknown tags: " + ", ".join(unknown)
-                    + ". Use create_tags to create them first."
+                    + ". Report missing tags to the user instead of "
+                    "creating them."
                 )
         added = []
         try:
@@ -1153,6 +1152,7 @@ def _build_registry() -> dict:
                 "required": ["query"],
             },
             executor=_tool_search_items,
+            category="library",
         ),
         ToolDef(
             name="list_folder",
@@ -1179,6 +1179,7 @@ def _build_registry() -> dict:
                 },
             },
             executor=_tool_list_folder,
+            category="library",
         ),
         ToolDef(
             name="get_item",
@@ -1199,6 +1200,7 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_get_item,
+            category="library",
         ),
         ToolDef(
             name="get_item_metadata",
@@ -1247,6 +1249,7 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_get_item_metadata,
+            category="library",
         ),
         ToolDef(
             name="read_note",
@@ -1284,6 +1287,7 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_read_note,
+            category="library",
         ),
         ToolDef(
             name="list_tags",
@@ -1308,6 +1312,7 @@ def _build_registry() -> dict:
                 },
             },
             executor=_tool_list_tags,
+            category="tags",
         ),
         ToolDef(
             name="get_tag_info",
@@ -1326,12 +1331,14 @@ def _build_registry() -> dict:
                 "required": ["name"],
             },
             executor=_tool_get_tag_info,
+            category="tags",
         ),
         ToolDef(
             name="list_folders",
             description="List all folders of the library as a flat list.",
             parameters_json_schema={"type": "object", "properties": {}},
             executor=_tool_list_folders,
+            category="library",
         ),
         ToolDef(
             name="list_albums",
@@ -1349,6 +1356,7 @@ def _build_registry() -> dict:
                 },
             },
             executor=_tool_list_albums,
+            category="library",
         ),
         ToolDef(
             name="get_tag_suggestions",
@@ -1367,6 +1375,7 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_get_tag_suggestions,
+            category="tags",
         ),
         ToolDef(
             name="audit_library",
@@ -1419,14 +1428,15 @@ def _build_registry() -> dict:
                 },
             },
             executor=_tool_audit_library,
+            category="library",
         ),
         ToolDef(
             name="add_item_tags",
             description=(
                 "Add existing tags to an item (explicit tags). All tag "
-                "names must already exist; create missing ones with "
-                "create_tags first. Implied tags resolve automatically - "
-                "never add implied tags yourself."
+                "names must already exist; if a tag is missing, report it "
+                "to the user instead of creating it. Implied tags resolve "
+                "automatically - never add implied tags yourself."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -1446,6 +1456,8 @@ def _build_registry() -> dict:
                 "required": ["item_id", "tag_names"],
             },
             executor=_tool_add_item_tags,
+            category="tags",
+            confirmation="always",
         ),
         ToolDef(
             name="remove_item_tags",
@@ -1471,13 +1483,17 @@ def _build_registry() -> dict:
                 "required": ["item_id", "tag_names"],
             },
             executor=_tool_remove_item_tags,
+            category="tags",
+            confirmation="always",
         ),
         ToolDef(
             name="create_tags",
             description=(
                 "Create new tags (in the 'general' category unless another "
                 "category_id is given) and report which names were "
-                "created, already existed or are invalid."
+                "created, already existed or are invalid. The call runs "
+                "only after the user confirms it in the chat, so name the "
+                "exact tags first."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -1499,6 +1515,8 @@ def _build_registry() -> dict:
                 "required": ["tag_names"],
             },
             executor=_tool_create_tags,
+            category="tags",
+            confirmation="always",
         ),
         ToolDef(
             name="update_item",
@@ -1522,6 +1540,8 @@ def _build_registry() -> dict:
                 "required": ["item_id"],
             },
             executor=_tool_update_item,
+            category="items",
+            confirmation="always",
         ),
         ToolDef(
             name="create_note",
@@ -1556,6 +1576,8 @@ def _build_registry() -> dict:
                 "required": ["folder_id", "title", "content"],
             },
             executor=_tool_create_note,
+            category="notes",
+            confirmation="always",
         ),
         ToolDef(
             name="write_note",
@@ -1589,6 +1611,8 @@ def _build_registry() -> dict:
                 "required": ["item_id", "content"],
             },
             executor=_tool_write_note,
+            category="notes",
+            confirmation="always",
         ),
         ToolDef(
             name="create_folder",
@@ -1611,6 +1635,8 @@ def _build_registry() -> dict:
                 "required": ["name"],
             },
             executor=_tool_create_folder,
+            category="structure",
+            confirmation="always",
         ),
         ToolDef(
             name="create_album",
@@ -1641,6 +1667,8 @@ def _build_registry() -> dict:
                 "required": ["name", "folder_id"],
             },
             executor=_tool_create_album,
+            category="structure",
+            confirmation="always",
         ),
         ToolDef(
             name="add_items_to_album",
@@ -1664,6 +1692,8 @@ def _build_registry() -> dict:
                 "required": ["album_id", "item_ids"],
             },
             executor=_tool_add_items_to_album,
+            category="structure",
+            confirmation="always",
         ),
         ToolDef(
             name="view_images",
@@ -1694,6 +1724,7 @@ def _build_registry() -> dict:
                 "required": ["item_ids", "reason"],
             },
             executor=_tool_view_images,
+            category="vision",
         ),
     ]
     return {tool.name: tool for tool in tools}

@@ -4,7 +4,14 @@ The service owns the tool-execution loop: it replays stored messages as
 provider-agnostic LLM turns, streams the model's answer to the route as
 ``(event_name, payload)`` tuples, executes requested tools via the
 :mod:`~app.application.services.ai_tools` registry and persists every
-step. ``view_images`` pauses the turn until the user approves.
+step. ``view_images`` pauses the turn until the user approves; mutating
+tools pause the turn for the same kind of approval and can be remembered
+for the rest of the conversation ("always allow").
+
+Conversations may run with an agent (a per-user system prompt + tool
+allow-list, see :mod:`~app.application.services.ai_agent_service`); the
+tool list advertised to the model is filtered by that allow-list and
+enforced again at execution time.
 
 LLM access goes through the module-level :func:`_get_llm_client` and
 nowhere else, so tests can substitute a fake client at a single point.
@@ -18,7 +25,7 @@ import json
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from io import BytesIO
 from typing import AsyncIterator, Dict, List, Optional, Set, Tuple
@@ -44,6 +51,7 @@ from ...infrastructure.services.llm.types import (
 )
 from ...infrastructure.storage import get_storage
 from ...logging_config import get_logger
+from .ai_agent_service import AgentNotFoundError
 from .ai_tools import (
     TOOL_REGISTRY,
     TOOL_SPECS,
@@ -75,6 +83,14 @@ class VisionRequestExpiredError(Exception):
     """Vision request timed out (410)."""
 
 
+class ToolConfirmationNotFoundError(Exception):
+    """Tool confirmation does not exist or belongs elsewhere (404)."""
+
+
+class ToolConfirmationExpiredError(Exception):
+    """Tool confirmation timed out (410)."""
+
+
 # ============================================================================
 # LLM client access - the single point tests monkeypatch.
 # ============================================================================
@@ -102,9 +118,31 @@ class VisionRequest:
     created_at: float
 
 
+@dataclass
+class ToolConfirmation:
+    """A paused mutating tool call waiting for the user's approval.
+
+    ``remaining_calls`` holds the tool calls of the same LLM batch that
+    follow the paused one; they are executed after the decision so a
+    multi-call batch never loses its tail.
+    """
+
+    request_id: str
+    user_id: int
+    conversation_id: str
+    call_id: str
+    tool_name: str
+    arguments_json: str
+    remaining_calls: List[dict] = field(default_factory=list)
+    created_at: float = 0.0
+
+
 _active_users: Set[int] = set()
 _active_users_lock = threading.Lock()
 _pending_vision: Dict[str, VisionRequest] = {}
+_pending_confirmations: Dict[str, ToolConfirmation] = {}
+# (conversation_id, tool_name) -> always allowed for this chat session.
+_always_allowed: Set[Tuple[str, str]] = set()
 # (conversation_id, tool_call_id) -> {item_id: (mime_type, base64)}
 _turn_images: Dict[Tuple[str, str], Dict[str, tuple]] = {}
 
@@ -116,8 +154,10 @@ class AiChatService:
     TOOL_RESULT_LIMIT = 8000
     VISION_MAX_ITEMS = 8
     VISION_TTL_SECONDS = 1800
+    CONFIRMATION_TTL_SECONDS = 1800
 
-    def __init__(self, chat_repo, item_repo, item_media_repo, provider_service):
+    def __init__(self, chat_repo, item_repo, item_media_repo, provider_service,
+                 agent_repo=None):
         """Create the service with its repositories.
 
         Args:
@@ -125,11 +165,14 @@ class AiChatService:
             item_repo: ItemRepository instance.
             item_media_repo: ItemMediaRepository instance.
             provider_service: AiProviderService instance.
+            agent_repo: Optional AiAgentRepository instance; without it
+                every conversation runs with the default assistant.
         """
         self.chat_repo = chat_repo
         self.item_repo = item_repo
         self.item_media_repo = item_media_repo
         self.provider_service = provider_service
+        self.agent_repo = agent_repo
 
     # =====================================================================
     # User-slot state
@@ -209,6 +252,55 @@ class AiChatService:
         return request
 
     # =====================================================================
+    # Pending tool confirmations (mutation approval)
+    # =====================================================================
+
+    @classmethod
+    def _purge_expired_confirmations(cls) -> None:
+        now = time.time()
+        expired = [
+            request_id
+            for request_id, confirmation in _pending_confirmations.items()
+            if now - confirmation.created_at > cls.CONFIRMATION_TTL_SECONDS
+        ]
+        for request_id in expired:
+            _pending_confirmations.pop(request_id, None)
+
+    @classmethod
+    def get_pending_confirmation(
+        cls, conversation_id: str
+    ) -> Optional[ToolConfirmation]:
+        """Return the active pending tool confirmation for a conversation."""
+        cls._purge_expired_confirmations()
+        for confirmation in _pending_confirmations.values():
+            if confirmation.conversation_id == conversation_id:
+                return confirmation
+        return None
+
+    def check_tool_confirmation(
+        self, user_id: int, conversation_id: str, request_id: str
+    ) -> ToolConfirmation:
+        """Validate a tool confirmation before streaming (404/410 pre-checks).
+
+        Raises:
+            ToolConfirmationNotFoundError: Unknown request or wrong owner.
+            ToolConfirmationExpiredError: The request timed out.
+        """
+        confirmation = _pending_confirmations.get(request_id)
+        if (
+            confirmation is None
+            or confirmation.user_id != user_id
+            or confirmation.conversation_id != conversation_id
+        ):
+            raise ToolConfirmationNotFoundError(
+                f"tool confirmation {request_id} not found"
+            )
+        if time.time() - confirmation.created_at > self.CONFIRMATION_TTL_SECONDS:
+            _pending_confirmations.pop(request_id, None)
+            raise ToolConfirmationExpiredError("tool confirmation expired")
+        return confirmation
+
+    # =====================================================================
     # Ownership-checked thin wrappers
     # =====================================================================
 
@@ -224,8 +316,21 @@ class AiChatService:
     def list_conversations(self, user_id: int) -> List[dict]:
         return self.chat_repo.list_conversations(user_id)
 
-    def create_conversation(self, user_id: int, title: str = "New chat") -> dict:
-        return self.chat_repo.create_conversation(user_id, title)
+    def create_conversation(
+        self,
+        user_id: int,
+        title: str = "New chat",
+        agent_id: Optional[int] = None,
+    ) -> dict:
+        """Create a conversation, optionally bound to an owned agent."""
+        if agent_id is not None:
+            if self.agent_repo is None or self.agent_repo.get_by_id(
+                agent_id, user_id
+            ) is None:
+                raise AgentNotFoundError(f"agent {agent_id} not found")
+        return self.chat_repo.create_conversation(
+            user_id, title, agent_id=agent_id
+        )
 
     def delete_conversation(self, user_id: int, conversation_id: str) -> bool:
         if not self.chat_repo.delete_conversation(conversation_id, user_id):
@@ -241,45 +346,117 @@ class AiChatService:
         return self.chat_repo.get_messages(conversation_id, limit)
 
     # =====================================================================
-    # System prompt
+    # Agents + system prompt
     # =====================================================================
 
+    def _resolve_agent(self, user_id: int, agent_id) -> Optional[dict]:
+        """Load the conversation's agent; None = the default assistant.
+
+        A dangling agent id (agent deleted after the conversation was
+        created) silently falls back to the default assistant.
+        """
+        if agent_id is None or self.agent_repo is None:
+            return None
+        return self.agent_repo.get_by_id(agent_id, user_id)
+
     @staticmethod
-    def _build_system_prompt() -> str:
+    def _agent_tools(agent: Optional[dict]) -> Optional[Set[str]]:
+        """The agent's tool allow-list, or None for "every tool"."""
+        if agent is None:
+            return None
+        return {tool for tool in (agent.get("tools") or []) if tool in TOOL_REGISTRY}
+
+    @staticmethod
+    def _tool_specs(allowed: Optional[Set[str]]) -> list:
+        """Tool specs advertised to the model, filtered by the allow-list."""
+        if allowed is None:
+            return list(TOOL_SPECS)
+        return [spec for spec in TOOL_SPECS if spec.name in allowed]
+
+    @staticmethod
+    def _build_system_prompt(
+        agent: Optional[dict], allowed: Optional[Set[str]]
+    ) -> str:
+        """Assemble the system prompt: agent identity + house rules.
+
+        ``allowed`` is the agent's tool allow-list (None = every tool);
+        tool-specific guidance lines are included only when the tool is
+        actually advertised.
+        """
         today = datetime.now().strftime("%Y-%m-%d")
-        return (
-            "You are the AI assistant of Synth Gallery, a personal "
-            "encrypted media vault that stores the owner's photos, videos "
-            "and text notes, organized into folders, albums and tags.\n"
-            f"Today's date: {today}.\n"
-            "Rules:\n"
+        if agent and (agent.get("system_prompt") or "").strip():
+            identity = agent["system_prompt"].strip()
+        else:
+            identity = (
+                "You are the AI assistant of Synth Gallery, a personal "
+                "encrypted media vault that stores the owner's photos, "
+                "videos and text notes, organized into folders, albums "
+                "and tags."
+            )
+
+        def has(name: str) -> bool:
+            return allowed is None or name in allowed
+
+        lines = [
+            f"Today's date: {today}.",
+            "Rules:",
             "- Act only through the provided tools; never invent tool "
-            "results.\n"
+            "results.",
             "- All queries are automatically scoped to the owner of the "
-            "library.\n"
-            "- view_images requires the user's approval; when approved, "
-            "the images are delivered immediately after the tool result, "
-            "in the order of the item ids listed in it. Never claim to "
-            "see image content you have not actually been shown.\n"
-            "- If a vision request is denied or expired, you have no "
-            "visual access: say so and continue without it.\n"
-            "- Tags must exist before use: check with list_tags / "
-            "get_tag_info and create missing ones with create_tags. "
-            "Implications resolve automatically - never add implied tags "
-            "yourself.\n"
-            "- When tagging images in bulk, work in batches of at most 8 "
-            "images per view_images call.\n"
-            "- For 'find all items ...' requests (missing tags, untitled, "
-            "broken metadata), call audit_library once instead of "
-            "enumerating items with get_item.\n"
-            "- Read text notes with read_note, create/edit them with "
-            "create_note / write_note. For embedded file metadata "
-            "(capture date, GPS, generation prompt/workflow) use "
-            "get_item_metadata - never view_images, which is only for "
-            "actually seeing an image.\n"
-            "- Never invent item ids; obtain them from tools first.\n"
-            "- Reply in the user's language. Be concise."
-        )
+            "library.",
+        ]
+        if has("view_images"):
+            lines.extend([
+                "- view_images requires the user's approval; when approved, "
+                "the images are delivered immediately after the tool "
+                "result, in the order of the item ids listed in it. Never "
+                "claim to see image content you have not actually been "
+                "shown.",
+                "- If a vision request is denied or expired, you have no "
+                "visual access: say so and continue without it.",
+                "- When tagging images in bulk, work in batches of at most "
+                "8 images per view_images call.",
+            ])
+        if has("create_tags"):
+            lines.append(
+                "- Tags must exist before use: check with list_tags / "
+                "get_tag_info. Create tags only when the user explicitly "
+                "asks, announcing the exact names first - create_tags runs "
+                "only after the user confirms the call in the chat. "
+                "Implications resolve automatically - never add implied "
+                "tags yourself."
+            )
+        else:
+            lines.append(
+                "- Tags must exist before use: check with list_tags / "
+                "get_tag_info. If a fitting tag is missing, report it to "
+                "the user instead of creating it - you have no tag "
+                "creation tool. Implications resolve automatically - "
+                "never add implied tags yourself."
+            )
+        if has("audit_library"):
+            lines.append(
+                "- For 'find all items ...' requests (missing tags, "
+                "untitled, broken metadata), call audit_library once "
+                "instead of enumerating items with get_item."
+            )
+        if has("read_note") or has("create_note") or has("write_note"):
+            lines.append(
+                "- Read text notes with read_note, create/edit them with "
+                "create_note / write_note."
+            )
+        if has("get_item_metadata"):
+            lines.append(
+                "- For embedded file metadata (capture date, GPS, "
+                "generation prompt/workflow) use get_item_metadata - "
+                "never view_images, which is only for actually seeing an "
+                "image."
+            )
+        lines.extend([
+            "- Never invent item ids; obtain them from tools first.",
+            "- Reply in the user's language. Be concise.",
+        ])
+        return identity + "\n\n" + "\n".join(lines)
 
     # =====================================================================
     # Turn entry points
@@ -412,6 +589,106 @@ class AiChatService:
             self._release_slot(user_id)
             self._clear_turn_images(conversation_id)
 
+    async def resume_tool_decision(
+        self,
+        user_id: int,
+        dek: bytes,
+        conversation_id: str,
+        request_id: str,
+        approved: bool,
+        always_allow: bool = False,
+    ) -> AsyncIterator:
+        """Resolve a tool confirmation and continue the paused turn.
+
+        On approval the confirmed call (plus the rest of its batch) is
+        executed; on denial the model receives an error result. With
+        ``always_allow`` the tool runs without confirmation for the rest
+        of this conversation session.
+
+        Raises:
+            ConversationNotFoundError: Unknown or foreign conversation.
+            ToolConfirmationNotFoundError / ToolConfirmationExpiredError.
+            BusyError: The user already has a running turn.
+        """
+        self.require_conversation(user_id, conversation_id)
+        confirmation = self.check_tool_confirmation(
+            user_id, conversation_id, request_id
+        )
+        _pending_confirmations.pop(request_id, None)
+        self._acquire_slot(user_id)
+        try:
+            conversation = self.chat_repo.get_conversation(
+                conversation_id, user_id
+            )
+            agent = self._resolve_agent(
+                user_id, (conversation or {}).get("agent_id")
+            )
+            allowed_tools = self._agent_tools(agent)
+
+            if approved and always_allow:
+                _always_allowed.add((conversation_id, confirmation.tool_name))
+
+            calls = []
+            if approved:
+                calls.append(ToolCall(
+                    call_id=confirmation.call_id,
+                    name=confirmation.tool_name,
+                    arguments_json=confirmation.arguments_json,
+                ))
+            else:
+                content = (
+                    "User denied this action. Do not retry it without "
+                    "asking the user first."
+                )
+                self.chat_repo.add_message(conversation_id, "tool", [{
+                    "type": "tool_result",
+                    "call_id": confirmation.call_id,
+                    "name": confirmation.tool_name,
+                    "content": content,
+                    "images": [],
+                    "is_error": True,
+                }])
+                yield ("tool_result", {
+                    "call_id": confirmation.call_id,
+                    "name": confirmation.tool_name,
+                    "summary": content[:200],
+                    "is_error": True,
+                })
+            calls.extend(
+                ToolCall(
+                    call_id=stored["call_id"],
+                    name=stored["name"],
+                    arguments_json=stored["arguments_json"],
+                )
+                for stored in confirmation.remaining_calls
+            )
+
+            if calls:
+                batch = ToolCallsReady(tool_calls=calls, text="")
+                paused = False
+                async for event in self._execute_tool_calls(
+                    user_id, conversation_id, batch, dek,
+                    allowed_tools=allowed_tools,
+                    resume_call_id=(
+                        confirmation.call_id if approved else None
+                    ),
+                ):
+                    if event[0] in ("vision_request", "tool_confirm"):
+                        paused = True
+                    yield event
+                if paused:
+                    return
+
+            inner = self._run_llm_loop(user_id, dek, conversation_id)
+            try:
+                async for event in inner:
+                    yield event
+            finally:
+                await inner.aclose()
+        finally:
+            self._release_slot(user_id)
+            self._clear_turn_images(conversation_id)
+
     # =====================================================================
     # Vision image loading
     # =====================================================================
@@ -476,6 +753,15 @@ class AiChatService:
         usage_reported = False
         interrupted = False
         try:
+            # The agent is resolved once per turn: tool filtering, prompt
+            # assembly and execution-time enforcement all use the same
+            # allow-list.
+            conversation = self.chat_repo.get_conversation(
+                conversation_id, user_id
+            )
+            agent = self._resolve_agent(user_id, (conversation or {}).get("agent_id"))
+            allowed_tools = self._agent_tools(agent)
+
             for _iteration in range(self.MAX_TOOL_ITERATIONS):
                 endpoint = self.provider_service.get_active_endpoint(user_id, dek)
                 if endpoint is None:
@@ -497,9 +783,9 @@ class AiChatService:
                         model_id=endpoint["model_id"],
                         protocol=protocol,
                     ),
-                    system_prompt=self._build_system_prompt(),
+                    system_prompt=self._build_system_prompt(agent, allowed_tools),
                     turns=self._build_llm_turns(conversation_id),
-                    tools=list(TOOL_SPECS),
+                    tools=self._tool_specs(allowed_tools),
                     temperature=(
                         endpoint.get("temperature")
                         if endpoint.get("temperature") is not None
@@ -558,14 +844,16 @@ class AiChatService:
                     text_persisted = True
                     paused = False
                     async for event in self._execute_tool_calls(
-                        user_id, conversation_id, calls_ready, dek
+                        user_id, conversation_id, calls_ready, dek,
+                        allowed_tools=allowed_tools,
                     ):
-                        if event[0] == "vision_request":
+                        if event[0] in ("vision_request", "tool_confirm"):
                             paused = True
                         yield event
                     if paused:
                         # The generator ends here; the turn resumes through
-                        # resume_vision() after the user's decision.
+                        # resume_vision() / resume_tool_decision() after the
+                        # user's decision.
                         return
                     continue
 
@@ -666,17 +954,23 @@ class AiChatService:
         self.chat_repo.add_message(conversation_id, "assistant", parts)
 
     async def _execute_tool_calls(
-        self, user_id: int, conversation_id: str, calls_ready, dek: bytes
+        self, user_id: int, conversation_id: str, calls_ready, dek: bytes,
+        allowed_tools: Optional[Set[str]] = None,
+        resume_call_id: Optional[str] = None,
     ):
         """Execute the model's tool calls, persisting each result.
 
         Yields ``(event_name, payload)`` tuples. Ends immediately after a
-        ``vision_request`` event when a ``view_images`` call pauses the
-        turn (the caller must then stop the generator). Executors may be
-        plain functions or coroutine functions; the session DEK is handed
-        to every executor via the :class:`ToolContext`.
+        ``vision_request`` or ``tool_confirm`` event (a ``view_images``
+        call or a mutating tool pausing the turn); the caller must then
+        stop the generator. Calls not in ``allowed_tools`` are answered
+        with an error result without executing. The call matching
+        ``resume_call_id`` skips its confirmation check — it is the one
+        the user just approved. Executors may be plain functions or
+        coroutine functions; the session DEK is handed to every executor
+        via the :class:`ToolContext`.
         """
-        for call in calls_ready.tool_calls:
+        for index, call in enumerate(calls_ready.tool_calls):
             parsed = self._parse_arguments(call.arguments_json)
             yield ("tool_start", {
                 "call_id": call.call_id,
@@ -690,9 +984,51 @@ class AiChatService:
             if tool is None:
                 content = f"unknown tool: {call.name}"
                 is_error = True
+            elif (
+                allowed_tools is not None and call.name not in allowed_tools
+            ):
+                content = (
+                    f"tool '{call.name}' is not enabled for this "
+                    "assistant; tell the user it is unavailable here"
+                )
+                is_error = True
             elif not isinstance(parsed, dict):
                 content = "invalid arguments JSON"
                 is_error = True
+            elif (
+                tool.confirmation == "always"
+                and call.call_id != resume_call_id
+                and (conversation_id, call.name) not in _always_allowed
+            ):
+                # Mutating tool: pause until the user approves. The rest
+                # of the batch is stored and executed after the decision.
+                request_id = uuid.uuid4().hex
+                _pending_confirmations[request_id] = ToolConfirmation(
+                    request_id=request_id,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    call_id=call.call_id,
+                    tool_name=call.name,
+                    arguments_json=call.arguments_json
+                    if isinstance(call.arguments_json, str)
+                    else json.dumps(call.arguments_json or {}),
+                    remaining_calls=[
+                        {
+                            "call_id": remaining.call_id,
+                            "name": remaining.name,
+                            "arguments_json": remaining.arguments_json,
+                        }
+                        for remaining in calls_ready.tool_calls[index + 1:]
+                    ],
+                    created_at=time.time(),
+                )
+                yield ("tool_confirm", {
+                    "request_id": request_id,
+                    "call_id": call.call_id,
+                    "name": call.name,
+                    "arguments": parsed,
+                })
+                return
             else:
                 try:
                     result = tool.executor(
@@ -769,7 +1105,10 @@ class AiChatService:
         """Convert stored messages into provider-agnostic LLM turns."""
         messages = self.chat_repo.get_messages(conversation_id)
         return self._turns_from_messages(
-            messages, conversation_id, self.get_pending(conversation_id)
+            messages,
+            conversation_id,
+            self.get_pending(conversation_id),
+            self.get_pending_confirmation(conversation_id),
         )
 
     @staticmethod
@@ -777,6 +1116,7 @@ class AiChatService:
         messages: List[dict],
         conversation_id: str,
         pending_vision: Optional[VisionRequest] = None,
+        pending_confirmation: Optional[ToolConfirmation] = None,
     ) -> List[Turn]:
         answered_calls = set()
         for message in messages:
@@ -788,6 +1128,11 @@ class AiChatService:
 
         pending_call_id = (
             pending_vision.tool_call_id if pending_vision is not None else None
+        )
+        pending_confirmation_call_id = (
+            pending_confirmation.call_id
+            if pending_confirmation is not None
+            else None
         )
 
         turns: List[Turn] = []
@@ -829,10 +1174,13 @@ class AiChatService:
                             arguments_json=raw,
                         )
                         if call.call_id not in answered_calls:
-                            if call.call_id == pending_call_id:
-                                # The pending vision request resolves this
-                                # call on resume; dropping it keeps the
-                                # replay valid in the meantime.
+                            if call.call_id in (
+                                pending_call_id, pending_confirmation_call_id
+                            ):
+                                # The pending vision request or tool
+                                # confirmation resolves this call on
+                                # resume; dropping it keeps the replay
+                                # valid in the meantime.
                                 continue
                             synthetic.append(ToolResult(
                                 call_id=call.call_id,

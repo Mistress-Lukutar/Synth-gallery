@@ -21,6 +21,7 @@ from .routes.webauthn import router as webauthn_router, settings_router
 from .routes.user_settings import router as user_settings_router
 from .routes.ai_provider_settings import router as ai_provider_settings_router
 from .routes.ai_chat import router as ai_chat_router
+from .routes.ai_agents import router as ai_agents_router
 
 
 @asynccontextmanager
@@ -65,3 +66,4 @@ app.include_router(user_settings_router)
 app.include_router(admin_tags_router)
 app.include_router(ai_provider_settings_router)
 app.include_router(ai_chat_router)
+app.include_router(ai_agents_router)

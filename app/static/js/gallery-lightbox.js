@@ -1130,7 +1130,9 @@
                 // NoteViewer reader (markdown rendering or syntax highlighting).
                 try {
                     const textUrl = await FileAccessService.getFileUrl(photoId, { photo });
-                    const textResp = await fetch(textUrl);
+                    // cache:'reload' bypasses a stale browser-cached body:
+                    // notes are rewritten under the same /files/{id} URL.
+                    const textResp = await fetch(textUrl, { cache: 'reload' });
                     if (!textResp.ok) throw new Error(`HTTP ${textResp.status}`);
                     const text = await textResp.text();
                     if (currentPhotoId !== photoId) return;  // Navigated away meanwhile
