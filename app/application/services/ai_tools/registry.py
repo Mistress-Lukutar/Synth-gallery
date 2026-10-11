@@ -1071,14 +1071,30 @@ def _tool_add_items_to_album(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
+        item_repo = ItemRepository(db)
+        media_ids = []
+        skipped_notes = 0
+        for raw_id in item_ids:
+            item = item_repo.get_by_id(str(raw_id))
+            if item and item.get("type") != NOTE_TYPE:
+                media_ids.append(str(raw_id))
+            else:
+                skipped_notes += 1
+
         try:
-            added = _album_service(db).add_items(album_id, item_ids, ctx.user_id)
+            added = (
+                _album_service(db).add_items(album_id, media_ids, ctx.user_id)
+                if media_ids else 0
+            )
         except HTTPException as exc:
             raise _http_to_tool_error(exc)
     finally:
         db.close()
 
-    return json.dumps({"added": added})
+    result = {"added": added}
+    if skipped_notes:
+        result["skipped_notes"] = skipped_notes
+    return json.dumps(result)
 
 
 # ============================================================================
@@ -1659,8 +1675,8 @@ def _build_registry() -> dict:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "Optional item ids to add; they must be in the "
-                            "same folder."
+                            "Optional media item ids to add; they must be in "
+                            "the same folder. Notes are skipped."
                         ),
                     },
                 },
@@ -1674,7 +1690,7 @@ def _build_registry() -> dict:
             name="add_items_to_album",
             description=(
                 "Add items to an album. Items must already be in the "
-                "album's folder."
+                "album's folder. Albums hold media only - notes are skipped."
             ),
             parameters_json_schema={
                 "type": "object",
