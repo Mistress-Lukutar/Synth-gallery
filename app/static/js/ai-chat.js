@@ -233,17 +233,27 @@
 
             case 'tool_start': {
                 next = cloneState(state);
-                var tmsg = ensureAssistantMessage(next.messages);
-                tmsg.parts.push({
-                    type: 'tool',
-                    call_id: ev.call_id,
-                    name: ev.name,
-                    args: parseToolArgs(ev.arguments),
-                    status: 'running',
-                    summary: null,
-                    result: null,
-                    images: [],
-                });
+                // A resumed turn (after an approval) re-announces the
+                // confirmed call: update the existing card in place so the
+                // pre-pause card does not stay "Running..." as a duplicate.
+                var started = ev.call_id ? findToolCard(next.messages, ev.call_id) : null;
+                if (started) {
+                    started.name = ev.name;
+                    started.args = parseToolArgs(ev.arguments);
+                    started.status = 'running';
+                } else {
+                    var tmsg = ensureAssistantMessage(next.messages);
+                    tmsg.parts.push({
+                        type: 'tool',
+                        call_id: ev.call_id,
+                        name: ev.name,
+                        args: parseToolArgs(ev.arguments),
+                        status: 'running',
+                        summary: null,
+                        result: null,
+                        images: [],
+                    });
+                }
                 next.streaming = true;
                 return next;
             }
@@ -255,6 +265,7 @@
                 if (card) {
                     card.status = status;
                     if (ev.summary != null) card.summary = ev.summary;
+                    if (ev.content != null) card.result = String(ev.content);
                 } else {
                     // Result without a visible start (e.g. reconnect): keep it.
                     var umsg = ensureAssistantMessage(next.messages);
@@ -265,7 +276,7 @@
                         args: null,
                         status: status,
                         summary: ev.summary != null ? ev.summary : null,
-                        result: null,
+                        result: ev.content != null ? String(ev.content) : null,
                         images: [],
                     });
                 }

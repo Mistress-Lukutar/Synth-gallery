@@ -656,6 +656,7 @@ class AiChatService:
                     "call_id": confirmation.call_id,
                     "name": confirmation.tool_name,
                     "summary": content[:200],
+                    "content": content,
                     "is_error": True,
                 })
             calls.extend(
@@ -1082,6 +1083,7 @@ class AiChatService:
                 "call_id": call.call_id,
                 "name": call.name,
                 "summary": content[:200],
+                "content": content,
                 "is_error": is_error,
             })
         return

@@ -73,6 +73,60 @@ describe('applyChatEvent: tool events', () => {
         expect(state.messages[0].parts[0].args).toEqual({ a: 1 });
     });
 
+    test('tool_start for an existing call_id updates the card instead of duplicating', () => {
+        let state = applyChatEvent(newChatState(), {
+            type: 'tool_start',
+            call_id: 'call-1',
+            name: 'add_item_tags',
+            arguments: { item_id: 'x', tag_names: ['a'] },
+        });
+        // Resumed turn re-announces the confirmed call.
+        state = applyChatEvent(state, {
+            type: 'tool_start',
+            call_id: 'call-1',
+            name: 'add_item_tags',
+            arguments: { item_id: 'x', tag_names: ['b'] },
+        });
+        expect(state.messages[0].parts).toHaveLength(1);
+        const part = state.messages[0].parts[0];
+        expect(part.status).toBe('running');
+        expect(part.args).toEqual({ item_id: 'x', tag_names: ['b'] });
+    });
+
+    test('resume flow: re-announced call keeps a single card that receives the result', () => {
+        let state = applyChatEvent(newChatState(), {
+            type: 'tool_start',
+            call_id: 'call-1',
+            name: 'add_item_tags',
+            arguments: { item_id: 'x' },
+        });
+        state = applyChatEvent(state, {
+            type: 'tool_confirm',
+            request_id: 'r1',
+            call_id: 'call-1',
+            name: 'add_item_tags',
+            arguments: { item_id: 'x' },
+        });
+        state = applyChatEvent(state, {
+            type: 'tool_start',
+            call_id: 'call-1',
+            name: 'add_item_tags',
+            arguments: { item_id: 'x' },
+        });
+        state = applyChatEvent(state, {
+            type: 'tool_result',
+            call_id: 'call-1',
+            name: 'add_item_tags',
+            summary: '2 added',
+            content: '{"added": ["a", "b"]}',
+            is_error: false,
+        });
+        expect(state.messages[0].parts).toHaveLength(1);
+        const part = state.messages[0].parts[0];
+        expect(part.status).toBe('done');
+        expect(part.result).toBe('{"added": ["a", "b"]}');
+    });
+
     test('tool_result updates the matching card by call_id', () => {
         let state = applyChatEvent(newChatState(), {
             type: 'tool_start',
@@ -85,11 +139,30 @@ describe('applyChatEvent: tool events', () => {
             call_id: 'call-1',
             name: 'search_items',
             summary: '3 items found',
+            content: '{"items": [1, 2, 3]}',
             is_error: false,
         });
         const part = state.messages[0].parts[0];
         expect(part.status).toBe('done');
         expect(part.summary).toBe('3 items found');
+        expect(part.result).toBe('{"items": [1, 2, 3]}');
+    });
+
+    test('tool_result without content keeps the card result empty', () => {
+        let state = applyChatEvent(newChatState(), {
+            type: 'tool_start',
+            call_id: 'call-1',
+            name: 'search_items',
+            arguments: {},
+        });
+        state = applyChatEvent(state, {
+            type: 'tool_result',
+            call_id: 'call-1',
+            name: 'search_items',
+            summary: 'done',
+            is_error: false,
+        });
+        expect(state.messages[0].parts[0].result).toBeNull();
     });
 
     test('tool_result marks the card as error', () => {

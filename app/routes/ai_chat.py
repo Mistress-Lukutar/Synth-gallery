@@ -5,7 +5,8 @@ Turn events are delivered as Server-Sent Events. Event names/payloads:
 - ``token``          {"text": str}
 - ``reasoning``      {"text": str}
 - ``tool_start``     {"call_id": str, "name": str, "arguments": object|string}
-- ``tool_result``    {"call_id": str, "name": str, "summary": str, "is_error": bool}
+- ``tool_result``    {"call_id": str, "name": str, "summary": str,
+                      "content": str, "is_error": bool}
 - ``vision_request`` {"request_id": str, "items": [{"id": str, "title": str|None}]}
 - ``tool_confirm``   {"request_id": str, "call_id": str, "name": str,
                       "arguments": object}
