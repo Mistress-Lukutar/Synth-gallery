@@ -656,6 +656,34 @@
             stickToBottom = isNearBottom();
         });
 
+        // Wheel over the panel must never reach the gallery behind it:
+        // inner scrollable areas consume the delta, everything else
+        // (header, composer, an edge-hit container) is blocked instead of
+        // chaining into the document scroll. CSS overscroll-behavior on
+        // the containers handles touch; this covers the mouse wheel.
+        panel.addEventListener('wheel', function (e) {
+            var horizontal = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+            var delta = horizontal ? e.deltaX : e.deltaY;
+            if (!delta) return;
+            var node = e.target;
+            while (node && node !== panel) {
+                if (node.nodeType === 1) {
+                    var style = window.getComputedStyle(node);
+                    var overflow = horizontal ? style.overflowX : style.overflowY;
+                    var content = horizontal ? node.scrollWidth : node.scrollHeight;
+                    var viewport = horizontal ? node.clientWidth : node.clientHeight;
+                    if (/(auto|scroll)/.test(overflow) && content > viewport) {
+                        var pos = horizontal ? node.scrollLeft : node.scrollTop;
+                        var atStart = pos <= 0;
+                        var atEnd = pos + viewport >= content - 1;
+                        if ((delta < 0 && !atStart) || (delta > 0 && !atEnd)) return;
+                    }
+                }
+                node = node.parentNode;
+            }
+            e.preventDefault();
+        }, { passive: false });
+
         // Tool card expand/collapse + reasoning toggle (event delegation).
         // The open/closed state lives in `expandedParts`, not in the DOM,
         // so re-renders (streaming tokens) keep blocks open.

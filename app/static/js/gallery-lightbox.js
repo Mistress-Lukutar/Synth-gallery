@@ -81,16 +81,9 @@
             currentFullImageLoader.onerror = null;
             currentFullImageLoader = null;
         }
-        // Note: window.stop() is NOT used here as it cancels ALL network requests including gallery thumbnails
-    }
-    
-    // Cancel all page loads - used only when closing lightbox
-    function cancelAllLoading() {
-        cancelImageLoading();
-        // Stop browser from continuing to download images when closing lightbox
-        if (window.stop) {
-            window.stop();
-        }
+        // Note: window.stop() must NEVER be used here (or on close): it
+        // cancels ALL page requests, including the AI chat SSE stream and
+        // gallery thumbnails the user is about to see again.
     }
 
     // Show an overlay explaining the video cannot be played inline, with a
@@ -851,8 +844,9 @@
             window.BackButtonManager.unregister('lightbox', true); // skipHistoryBack since we handle it below
         }
         
-        // Cancel any pending image loads (including all network requests)
-        cancelAllLoading();
+        // Cancel any pending image loads (lightbox-scoped only; never
+        // window.stop() — see cancelImageLoading)
+        cancelImageLoading();
 
         // Leaving the note editor saves pending changes (fire-and-forget)
         window.NoteViewer?.saveIfEditing?.();

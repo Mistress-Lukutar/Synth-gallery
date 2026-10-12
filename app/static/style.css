@@ -5894,6 +5894,7 @@ main {
 .ai-chat-conversations {
     flex: 1;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 0.5rem;
 }
 
@@ -6075,6 +6076,7 @@ main {
     max-width: min(320px, calc(100% - 1.5rem));
     max-height: min(420px, 70%);
     overflow-y: auto;
+    overscroll-behavior: contain;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -6186,6 +6188,10 @@ main {
 .ai-chat-messages {
     flex: 1;
     overflow-y: auto;
+    /* Keep the wheel inside the chat: scrolling past an edge must never
+       chain into the gallery behind the panel (and vice versa the gallery
+       only scrolls when the cursor is over it). */
+    overscroll-behavior: contain;
     padding: 1rem;
     min-height: 0;
     display: flex;
