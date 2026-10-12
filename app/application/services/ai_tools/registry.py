@@ -61,6 +61,9 @@ _METADATA_MAX_KEYS = 10
 _METADATA_KEY_MAX_CHARS = 6000
 _NOTE_READ_DEFAULT_CHARS = 4000
 _NOTE_READ_MAX_CHARS = 6000
+# get_tag_info batch size: keeps the JSON answer safely under the
+# orchestrator's TOOL_RESULT_LIMIT even when every tag carries implications.
+_TAG_INFO_MAX_NAMES = 50
 # Live EXIF probing decrypts the whole image into memory; skip huge files.
 _EXIF_PROBE_MAX_BYTES = 256 * 1024 * 1024
 
@@ -582,52 +585,122 @@ async def _tool_read_note(args: dict, ctx: ToolContext) -> str:
 def _tool_list_tags(args: dict, ctx: ToolContext) -> str:
     query = args.get("query") or None
     limit = _clamp_int(args.get("limit"), 1, 100, 50)
-
-    db = create_connection()
-    try:
-        result = _tag_service(db).list_tags(query=query, limit=limit)
-    finally:
-        db.close()
-
-    return json.dumps({
-        "tags": [
-            {
-                "id": t["id"],
-                "name": t["name"],
-                "category": t.get("category_name"),
-                "description": t.get("description"),
-                "usage_count": t.get("usage_count", 0),
-            }
-            for t in result.get("items", [])
-        ],
-        "total": result.get("total", 0),
-    }, ensure_ascii=False)
-
-
-def _tool_get_tag_info(args: dict, ctx: ToolContext) -> str:
-    name = _normalize_tag_name(args.get("name"))
-    if not name:
-        raise ToolError("name is required")
+    category_slug = str(args.get("category") or "").strip().lower() or None
 
     db = create_connection()
     try:
         tags_repo = TagsRepository(db)
-        matches = tags_repo.get_by_name(name)
-        if not matches:
-            raise ToolError(f"tag '{name}' not found")
-        tag = matches[0]
-        implications = _tag_service(db).get_tag_implications(tag["id"])
+        category_id = None
+        if category_slug:
+            category = tags_repo.get_category_by_slug(category_slug)
+            if category is None:
+                matches = [
+                    c for c in tags_repo.get_categories()
+                    if c["name"].lower() == category_slug
+                ]
+                category = matches[0] if matches else None
+            if category is None:
+                raise ToolError(f"tag category '{category_slug}' not found")
+            category_id = category["id"]
+        items = tags_repo.list_tags(query=query, limit=limit, category_id=category_id)
+        total = tags_repo.count_tags(query=query, category_id=category_id)
     finally:
         db.close()
 
+    tags = []
+    for t in items:
+        entry = {
+            "id": t["id"],
+            "name": t["name"],
+            "category": t.get("category_name"),
+            "usage_count": t.get("usage_count", 0),
+        }
+        description = (t.get("description") or "").strip()
+        if description:
+            entry["description"] = description
+        tags.append(entry)
+
+    return json.dumps({"tags": tags, "total": total}, ensure_ascii=False)
+
+
+def _tool_get_tag_info(args: dict, ctx: ToolContext) -> str:
+    raw_names = args.get("names")
+    if not isinstance(raw_names, list) or not raw_names:
+        raise ToolError("names must be a non-empty array of tag names")
+    if len(raw_names) > _TAG_INFO_MAX_NAMES:
+        raise ToolError(
+            f"too many names: {len(raw_names)}; split into batches of at "
+            f"most {_TAG_INFO_MAX_NAMES}"
+        )
+    include_implications = args.get("include_implications") is not False
+
+    db = create_connection()
+    try:
+        tags_repo = TagsRepository(db)
+        resolved = _tag_service(db).resolve_tags([str(n) for n in raw_names])
+        found_entries = [e for e in resolved if e["tag"] is not None]
+        invalid = [e["input"] for e in resolved if not e["valid"]]
+        not_found = sorted({
+            e["name"] for e in resolved if e["valid"] and e["tag"] is None
+        })
+
+        implies_map: dict = {}
+        implied_by_map: dict = {}
+        name_by_id: dict = {}
+        if include_implications and found_entries:
+            impl_repo = TagImplicationRepository(db)
+            ids = [e["tag"]["id"] for e in found_entries]
+            implies_map = impl_repo.get_direct_implications(ids)
+            implied_by_map = impl_repo.get_implied_by_many(ids)
+            implied_ids = {
+                tid
+                for mapping in (implies_map, implied_by_map)
+                for ids_in in mapping.values()
+                for tid in ids_in
+            }
+            if implied_ids:
+                name_by_id = {
+                    t["id"]: t["name"]
+                    for t in tags_repo.get_tags_by_ids(list(implied_ids))
+                }
+    finally:
+        db.close()
+
+    tags = []
+    seen_ids = set()
+    for e in found_entries:
+        tag = e["tag"]
+        if tag["id"] in seen_ids:
+            continue
+        seen_ids.add(tag["id"])
+        entry = {
+            "id": tag["id"],
+            "name": tag["name"],
+            "category": tag.get("category_name"),
+            "usage_count": tag.get("usage_count", 0),
+        }
+        description = (tag.get("description") or "").strip()
+        if description:
+            entry["description"] = description
+        if include_implications:
+            implies = [
+                name_by_id.get(tid, str(tid))
+                for tid in implies_map.get(tag["id"], [])
+            ]
+            implied_by = [
+                name_by_id.get(tid, str(tid))
+                for tid in implied_by_map.get(tag["id"], [])
+            ]
+            if implies:
+                entry["implies"] = implies
+            if implied_by:
+                entry["implied_by"] = implied_by
+        tags.append(entry)
+
     return json.dumps({
-        "id": tag["id"],
-        "name": tag["name"],
-        "description": tag.get("description"),
-        "category": tag.get("category_name"),
-        "usage_count": tag.get("usage_count", 0),
-        "implies": [t["name"] for t in implications.get("implies", [])],
-        "implied_by": [t["name"] for t in implications.get("implied_by", [])],
+        "tags": tags,
+        "not_found": not_found,
+        "invalid": invalid,
     }, ensure_ascii=False)
 
 
@@ -809,8 +882,8 @@ def _tool_add_item_tags(args: dict, ctx: ToolContext) -> str:
     tag_names = args.get("tag_names") or []
     if not item_id:
         raise ToolError("item_id is required")
-    if not isinstance(tag_names, list) or not (1 <= len(tag_names) <= 30):
-        raise ToolError("tag_names must be a list of 1-30 tag names")
+    if not isinstance(tag_names, list) or not (1 <= len(tag_names) <= 100):
+        raise ToolError("tag_names must be a list of 1-100 tag names")
 
     db = create_connection()
     try:
@@ -1352,8 +1425,9 @@ def _build_registry() -> dict:
         ToolDef(
             name="list_tags",
             description=(
-                "List existing tags (optionally filtered by name substring) "
-                "with usage counts. Use this to check which tags exist."
+                "Browse existing tags by name substring and/or category, "
+                "ordered by usage. To verify a known list of tag names use "
+                "get_tag_info with all names in one call instead."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -1361,6 +1435,13 @@ def _build_registry() -> dict:
                     "query": {
                         "type": "string",
                         "description": "Optional name substring filter.",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": (
+                            "Optional category filter: slug or name "
+                            "(e.g. general, character, species, meta)."
+                        ),
                     },
                     "limit": {
                         "type": "integer",
@@ -1377,18 +1458,34 @@ def _build_registry() -> dict:
         ToolDef(
             name="get_tag_info",
             description=(
-                "Get one tag by exact name: description, category, usage "
-                "count and its implications (implies / implied_by)."
+                "Resolve tag names in bulk: for each name return id, "
+                "category, usage count and implications (implies / "
+                "implied_by). Check ALL candidate names with one call "
+                "instead of one call per tag."
             ),
             parameters_json_schema={
                 "type": "object",
                 "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Exact tag name.",
+                    "names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "description": (
+                            "Tag names to resolve, normalized like "
+                            "lower_case_with_underscores."
+                        ),
+                    },
+                    "include_implications": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "Include implies/implied_by name lists; set "
+                            "false to keep the answer small."
+                        ),
                     },
                 },
-                "required": ["name"],
+                "required": ["names"],
             },
             executor=_tool_get_tag_info,
             category="tags",
@@ -1526,7 +1623,7 @@ def _build_registry() -> dict:
                         "type": "array",
                         "items": {"type": "string"},
                         "minItems": 1,
-                        "maxItems": 30,
+                        "maxItems": 100,
                         "description": "Existing tag names to add.",
                     },
                 },

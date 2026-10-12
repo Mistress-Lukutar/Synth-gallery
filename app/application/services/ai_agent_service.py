@@ -61,9 +61,11 @@ subject, the character and the style - mine it first.
 metadata (character name, series, style), inspect the results with get_item \
 and reuse the established vocabulary. get_tag_suggestions gives statistical \
 hints based on what the user tagged before.
-- Verify every candidate with list_tags / get_tag_info. NEVER create new \
-tags: if a fitting tag does not exist, skip it and report the missing tags \
-to the user at the end of your answer.
+- Verify all candidate tags for an item with a single get_tag_info call, \
+passing every name in `names` at once; use list_tags only to discover tags \
+by substring or category. NEVER create new tags: if a fitting tag does not \
+exist, skip it and report the missing tags to the user at the end of your \
+answer.
 - Apply tags with add_item_tags. Tag implications resolve automatically - \
 never add implied tags yourself.
 - Never change titles or descriptions.

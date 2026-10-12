@@ -419,8 +419,10 @@ class AiChatService:
             ])
         if has("create_tags"):
             lines.append(
-                "- Tags must exist before use: check with list_tags / "
-                "get_tag_info. Create tags only when the user explicitly "
+                "- Tags must exist before use: verify all candidates with "
+                "ONE get_tag_info call (every name in `names` at once); "
+                "list_tags is for browsing by substring or category only. "
+                "Create tags only when the user explicitly "
                 "asks, announcing the exact names first - create_tags runs "
                 "only after the user confirms the call in the chat. "
                 "Implications resolve automatically - never add implied "
@@ -428,8 +430,10 @@ class AiChatService:
             )
         else:
             lines.append(
-                "- Tags must exist before use: check with list_tags / "
-                "get_tag_info. If a fitting tag is missing, report it to "
+                "- Tags must exist before use: verify all candidates with "
+                "ONE get_tag_info call (every name in `names` at once); "
+                "list_tags is for browsing by substring or category only. "
+                "If a fitting tag is missing, report it to "
                 "the user instead of creating it - you have no tag "
                 "creation tool. Implications resolve automatically - "
                 "never add implied tags yourself."
