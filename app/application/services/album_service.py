@@ -399,3 +399,7 @@ class AlbumService:
             album['effective_cover_item_id'] = self.album_repo.get_effective_cover(album['id'])
 
         return albums
+
+    def get_albums_for_user(self, user_id: int) -> List[Dict]:
+        '''Get all albums in folders the user owns or can access.'''
+        return self.album_repo.get_for_user(user_id)

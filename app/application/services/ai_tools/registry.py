@@ -131,14 +131,6 @@ def _get_owned_item(item_repo: ItemRepository, item_id, ctx: ToolContext) -> dic
     return item
 
 
-def _resolve_root_folder(folder_service: FolderService, user_id: int) -> str:
-    """Find the user's root folder id (a folder without a parent)."""
-    for node in folder_service.get_folder_tree(user_id):
-        if node.get("parent_id") is None and node.get("user_id") == user_id:
-            return node["id"]
-    raise ToolError("no root folder found; the library is empty")
-
-
 def _resolve_unknown_tags(
     tags_repo: TagsRepository, tag_names
 ) -> tuple[list[str], dict[str, list[dict]]]:
@@ -307,6 +299,12 @@ def _tool_search_items(args: dict, ctx: ToolContext) -> str:
     }, ensure_ascii=False)
 
 
+# Albums shown in one list_folder result; the rest is reachable via
+# list_albums (paged). Keeps the tool result under the orchestrator's
+# TOOL_RESULT_LIMIT so the JSON is not cut mid-array.
+_ALBUMS_PER_FOLDER_LIST = 50
+
+
 def _tool_list_folder(args: dict, ctx: ToolContext) -> str:
     folder_id = args.get("folder_id") or None
     limit = _clamp_int(args.get("limit"), 1, 200, 200)
@@ -315,23 +313,57 @@ def _tool_list_folder(args: dict, ctx: ToolContext) -> str:
     try:
         service = _folder_service(db)
         if folder_id is None:
-            folder_id = _resolve_root_folder(service, ctx.user_id)
-        try:
-            contents = service.get_folder_contents(folder_id, ctx.user_id)
-        except HTTPException as exc:
-            raise _http_to_tool_error(exc)
+            # Virtual library root: every top-level folder with its albums
+            # and standalone items — the same picture the gallery sidebar
+            # shows. A library has many root folders, so listing one of
+            # them would hide the rest.
+            subfolders, albums, items = [], [], []
+            for node in service.get_folder_tree(ctx.user_id):
+                if node.get("parent_id") is not None:
+                    continue
+                try:
+                    contents = service.get_folder_contents(node["id"], ctx.user_id)
+                except HTTPException:
+                    continue  # no access to that top-level folder
+                subfolders.append({
+                    "id": node["id"],
+                    "name": node["name"],
+                    "item_count": node.get("item_count", 0),
+                    "album_count": len(contents.get("albums", [])),
+                })
+                albums.extend(contents.get("albums", []))
+                items.extend(contents.get("items", []))
+            folder_info: dict = {"root": True}
+        else:
+            try:
+                contents = service.get_folder_contents(folder_id, ctx.user_id)
+            except HTTPException as exc:
+                raise _http_to_tool_error(exc)
+            subfolders = [
+                {"id": f["id"], "name": f["name"]}
+                for f in contents.get("subfolders", [])
+            ]
+            albums = contents.get("albums", [])
+            items = contents.get("items", [])
+            folder_row = FolderRepository(db).get_by_id(str(folder_id))
+            folder_info = {
+                "id": folder_id,
+                "name": folder_row.get("name") if folder_row else None,
+            }
     finally:
         db.close()
 
-    items = contents.get("items", [])
-    return json.dumps({
-        "subfolders": [
-            {"id": f["id"], "name": f["name"]}
-            for f in contents.get("subfolders", [])[:limit]
-        ],
+    result = {
+        "folder": folder_info,
+        "subfolders": subfolders[:limit],
         "albums": [
-            {"id": a["id"], "name": a["name"], "item_count": a.get("item_count", 0)}
-            for a in contents.get("albums", [])
+            {
+                "id": a["id"],
+                "name": a["name"],
+                "folder_id": a.get("folder_id"),
+                "item_count": a.get("item_count", 0),
+            }
+            for a in albums[:_ALBUMS_PER_FOLDER_LIST]
         ],
         "items": [
             {
@@ -343,7 +375,14 @@ def _tool_list_folder(args: dict, ctx: ToolContext) -> str:
             for i in items[:limit]
         ],
         "truncated": len(items) > limit,
-    }, ensure_ascii=False)
+    }
+    if len(albums) > _ALBUMS_PER_FOLDER_LIST:
+        result["albums_truncated"] = True
+        result["note"] = (
+            f"{len(albums)} albums in total; page through all of them "
+            "with list_albums"
+        )
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _tool_get_item(args: dict, ctx: ToolContext) -> str:
@@ -610,34 +649,30 @@ def _tool_list_folders(args: dict, ctx: ToolContext) -> str:
 
 def _tool_list_albums(args: dict, ctx: ToolContext) -> str:
     folder_id = args.get("folder_id") or None
-    cap = 50
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+    limit = _clamp_int(args.get("limit"), 1, 200, 50)
 
-    albums = []
     db = create_connection()
     try:
         album_service = _album_service(db)
-        folder_service = _folder_service(db)
         if folder_id is not None:
-            rows = album_service.get_albums_by_folder(folder_id, ctx.user_id)
-            albums.extend(rows)
+            folder = FolderRepository(db).get_by_id(str(folder_id))
+            if folder is None or (
+                folder.get("user_id") != ctx.user_id
+                and PermissionRepository(db).get_permission(
+                    folder_id, ctx.user_id
+                ) not in ("viewer", "editor")
+            ):
+                raise ToolError(f"folder not found: {folder_id}")
+            albums = album_service.get_albums_by_folder(folder_id, ctx.user_id)
         else:
-            for node in folder_service.get_folder_tree(ctx.user_id):
-                if node.get("user_id") != ctx.user_id:
-                    continue
-                if len(albums) >= cap:
-                    break
-                try:
-                    contents = folder_service.get_folder_contents(
-                        node["id"], ctx.user_id
-                    )
-                except HTTPException:
-                    continue
-                albums.extend(contents.get("albums", []))
+            albums = album_service.get_albums_for_user(ctx.user_id)
     finally:
         db.close()
 
-    albums = albums[:cap]
-    return json.dumps({
+    total = len(albums)
+    page = albums[offset:offset + limit]
+    result = {
         "albums": [
             {
                 "id": a["id"],
@@ -645,9 +680,15 @@ def _tool_list_albums(args: dict, ctx: ToolContext) -> str:
                 "folder_id": a.get("folder_id"),
                 "item_count": a.get("item_count", 0),
             }
-            for a in albums
-        ]
-    }, ensure_ascii=False)
+            for a in page
+        ],
+        "total": total,
+        "offset": offset,
+    }
+    if offset + len(page) < total:
+        result["next_offset"] = offset + len(page)
+        result["note"] = "page through more albums with the next_offset"
+    return json.dumps(result, ensure_ascii=False)
 
 
 def _tool_get_tag_suggestions(args: dict, ctx: ToolContext) -> str:
@@ -1174,7 +1215,9 @@ def _build_registry() -> dict:
             name="list_folder",
             description=(
                 "List the contents of one folder: subfolders, albums and "
-                "standalone items. Omit folder_id to list the library root."
+                "standalone items. Without folder_id lists the library "
+                "root: ALL top-level folders with their albums and items. "
+                "Drill into a subfolder id to see its contents."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -1182,7 +1225,8 @@ def _build_registry() -> dict:
                     "folder_id": {
                         "type": "string",
                         "description": (
-                            "Folder id; omit for the library root."
+                            "Folder id; omit for the library root (all "
+                            "top-level folders at once)."
                         ),
                     },
                     "limit": {
@@ -1360,7 +1404,8 @@ def _build_registry() -> dict:
             name="list_albums",
             description=(
                 "List albums, optionally restricted to one folder. Without "
-                "folder_id, albums across the whole library are listed."
+                "folder_id, albums across the whole library are listed; "
+                "page through large libraries by echoing next_offset."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -1368,6 +1413,22 @@ def _build_registry() -> dict:
                     "folder_id": {
                         "type": "string",
                         "description": "Optional folder id.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Page offset; echo next_offset from the "
+                            "previous result."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200,
+                        "default": 50,
+                        "description": "Maximum albums per page.",
                     },
                 },
             },

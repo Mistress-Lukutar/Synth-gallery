@@ -76,6 +76,22 @@ class AlbumRepository(Repository):
         )
         return [self._row_to_dict(row) for row in cursor.fetchall()]
 
+    def get_for_user(self, user_id: int) -> list[dict]:
+        '''Get all albums in folders the user owns or can access.'''
+        cursor = self._execute(
+            '''SELECT a.*,
+                (SELECT COUNT(*) FROM album_items WHERE album_id = a.id) as item_count
+               FROM albums a
+               JOIN folders f ON f.id = a.folder_id
+               WHERE f.user_id = ?
+                  OR a.folder_id IN (
+                      SELECT folder_id FROM folder_permissions WHERE user_id = ?
+                  )
+               ORDER BY a.name COLLATE NOCASE''',
+            (user_id, user_id),
+        )
+        return [self._row_to_dict(row) for row in cursor.fetchall()]
+
     def update(self, album_id: str, **kwargs) -> bool:
         '''Update album fields.'''
         allowed_fields = {'name', 'folder_id', 'cover_item_id'}
