@@ -438,6 +438,14 @@ class AiChatService:
                 "creation tool. Implications resolve automatically - "
                 "never add implied tags yourself."
             )
+        if has("set_tag_descriptions"):
+            lines.append(
+                "- Tag descriptions are Markdown; edit them with "
+                "set_tag_descriptions only when the user asks. Each write "
+                "fully replaces the previous text - read the current one "
+                "with get_tag_info first. Cross-reference related tags "
+                "with [[tag_name]] wiki-links."
+            )
         if has("audit_library"):
             lines.append(
                 "- For 'find all items ...' requests (missing tags, "

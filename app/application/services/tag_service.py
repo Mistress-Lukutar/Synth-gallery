@@ -4,6 +4,7 @@ from typing import Optional, List, Dict, Tuple
 
 from fastapi import HTTPException
 
+from ...config import TAG_DESCRIPTION_MAX_CHARS
 from ...infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
@@ -15,6 +16,19 @@ from ...infrastructure.repositories import (
 # in create_tag/update_tag; new code must use this constant).
 TAG_NAME_PATTERN = r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+'
 TAG_NAME_RE = re.compile(TAG_NAME_PATTERN)
+
+
+def _validate_description(description: str) -> str:
+    """Reject NUL bytes and oversized tag descriptions."""
+    if "\x00" in description:
+        raise HTTPException(400, "Description must not contain NUL bytes")
+    if len(description) > TAG_DESCRIPTION_MAX_CHARS:
+        raise HTTPException(
+            400,
+            f"Description is too long ({len(description)} chars; "
+            f"max {TAG_DESCRIPTION_MAX_CHARS})",
+        )
+    return description
 
 
 class TagService:
@@ -107,6 +121,7 @@ class TagService:
         name = name.lower().strip().replace(' ', '_')
         if not name or not TAG_NAME_RE.fullmatch(name):
             raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores, hyphens, dots, brackets, etc.")
+        _validate_description(description or '')
 
         # Check if tag already exists
         existing = self.tags.get_by_name(name)
@@ -422,6 +437,7 @@ class TagService:
         if category_id is not None:
             updates["category_id"] = category_id
         if description is not None:
+            _validate_description(description)
             updates["description"] = description
 
         self.tags.update_tag(tag_id, **updates)

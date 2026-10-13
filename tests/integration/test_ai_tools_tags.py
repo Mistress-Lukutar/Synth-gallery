@@ -8,12 +8,15 @@ with its category filter.
 import json
 
 import pytest
+from fastapi import HTTPException
 
 from app.application.services.ai_tools import (
     TOOL_REGISTRY,
     ToolContext,
     ToolError,
 )
+from app.application.services.tag_service import TagService
+from app.config import TAG_DESCRIPTION_MAX_CHARS
 from app.infrastructure.repositories import (
     TagImplicationRepository,
     TagsRepository,
@@ -156,3 +159,121 @@ def test_list_tags_category_filter(db_connection, test_user, tag_ids):
     with pytest.raises(ToolError) as excinfo:
         _call("list_tags", {"category": "nope"}, test_user["id"])
     assert "not found" in str(excinfo.value)
+
+
+# ============================================================================
+# set_tag_descriptions (bulk write)
+# ============================================================================
+
+def test_set_tag_descriptions_writes_and_clears(db_connection, test_user, tag_ids):
+    result = _call(
+        "set_tag_descriptions",
+        {"updates": [
+            {"name": "red_fox", "description": "A fox. See also [[canine]]."},
+            {"name": "dragon", "description": ""},  # empty string clears
+        ]},
+        test_user["id"],
+    )
+
+    by_name = {u["name"]: u for u in result["updated"]}
+    assert set(by_name) == {"red_fox", "dragon"}
+    assert by_name["red_fox"]["chars"] == len("A fox. See also [[canine]].")
+    repo = TagsRepository(db_connection)
+    assert repo.get_by_id(tag_ids["red_fox"])["description"] == \
+        "A fox. See also [[canine]]."
+    # "Dragon" normalized to dragon; clearing writes the empty string.
+    assert repo.get_by_id(tag_ids["dragon"])["description"] == ""
+
+
+def test_set_tag_descriptions_dedupes_last_write_wins(
+    db_connection, test_user, tag_ids
+):
+    result = _call(
+        "set_tag_descriptions",
+        {"updates": [
+            {"name": "red_fox", "description": "first"},
+            {"name": "Red Fox", "description": "second"},
+        ]},
+        test_user["id"],
+    )
+    assert len(result["updated"]) == 1
+    assert TagsRepository(db_connection).get_by_id(
+        tag_ids["red_fox"]
+    )["description"] == "second"
+
+
+def test_set_tag_descriptions_unknown_name_writes_nothing(
+    db_connection, test_user, tag_ids
+):
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_tag_descriptions",
+            {"updates": [
+                {"name": "red_fox", "description": "should not persist"},
+                {"name": "ghost_tag", "description": "boo"},
+            ]},
+            test_user["id"],
+        )
+    assert "ghost_tag" in str(excinfo.value)
+    assert TagsRepository(db_connection).get_by_id(
+        tag_ids["red_fox"]
+    )["description"] == "a fox with red fur"
+
+
+def test_set_tag_descriptions_invalid_name_writes_nothing(
+    db_connection, test_user, tag_ids
+):
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_tag_descriptions",
+            {"updates": [{"name": "не_тег", "description": "x"}]},
+            test_user["id"],
+        )
+    assert "invalid" in str(excinfo.value)
+
+
+def test_set_tag_descriptions_validates_arguments(db_connection, test_user, categories):
+    with pytest.raises(ToolError):
+        _call("set_tag_descriptions", {}, test_user["id"])
+    with pytest.raises(ToolError):
+        _call("set_tag_descriptions", {"updates": []}, test_user["id"])
+    with pytest.raises(ToolError):
+        _call("set_tag_descriptions", {"updates": [{"name": "x"}]}, test_user["id"])
+    with pytest.raises(ToolError):
+        _call(
+            "set_tag_descriptions",
+            {"updates": [{"name": "x", "description": 5}]},
+            test_user["id"],
+        )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_tag_descriptions",
+            {"updates": [{"name": f"t{i}", "description": "x"} for i in range(26)]},
+            test_user["id"],
+        )
+    assert "batches" in str(excinfo.value)
+
+
+def test_set_tag_descriptions_rejects_oversized(db_connection, test_user, tag_ids):
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_tag_descriptions",
+            {"updates": [
+                {"name": "red_fox", "description": "x" * (TAG_DESCRIPTION_MAX_CHARS + 1)}
+            ]},
+            test_user["id"],
+        )
+    assert "too long" in str(excinfo.value)
+
+
+def test_tag_service_update_tag_rejects_oversized(db_connection, tag_ids):
+    service = TagService(tags_repo=TagsRepository(db_connection))
+    with pytest.raises(HTTPException) as excinfo:
+        service.update_tag(
+            tag_ids["canine"], description="x" * (TAG_DESCRIPTION_MAX_CHARS + 1)
+        )
+    assert excinfo.value.status_code == 400
+    # The previous description survives a rejected write.
+    assert TagsRepository(db_connection).get_by_id(
+        tag_ids["canine"]
+    )["description"] == ""

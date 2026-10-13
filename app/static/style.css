@@ -5809,6 +5809,27 @@ main {
     flex-shrink: 0;
 }
 
+/* Anchor variant of the sidebar button (Tags link under the AI chat toggle) */
+a.sidebar-ai-btn {
+    text-decoration: none;
+    color: var(--text-secondary);
+}
+
+a.sidebar-ai-btn:hover {
+    color: var(--text);
+}
+
+/* [[tag]] wiki-links inside rendered tag descriptions */
+.markdown-preview .tag-link {
+    color: var(--accent);
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+.markdown-preview .tag-link:hover {
+    text-decoration-style: solid;
+}
+
 /* Panel shell */
 .ai-chat-panel {
     position: fixed;

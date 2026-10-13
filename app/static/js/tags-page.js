@@ -153,6 +153,7 @@ async function selectTag(tagId) {
         ]);
         if (!tagResp.ok) throw new Error('Failed to load tag details');
         const tag = await tagResp.json();
+        syncTagUrl(tag.name);
         const implications = implResp.ok ? await implResp.json() : {implies: [], implied_by: []};
         const related = relatedResp.ok ? await relatedResp.json() : {tags: []};
         tagDetail = {
@@ -277,6 +278,7 @@ function renderDetail() {
         ${deleteSection}
     `;
     addCopyButtonsToCodeBlocks(panel);
+    markTagLinks(panel);
 
     if (isAdmin) {
         initTagDescriptionEditor(descValue);
@@ -290,6 +292,13 @@ function renderDetail() {
             debounce = setTimeout(() => searchForImplication(e.target.value), 200);
         });
     }
+}
+
+function syncTagUrl(tagName) {
+    // Keep ?tag=<name> shareable without adding history entries.
+    try {
+        history.replaceState(null, '', (BASE_URL || '') + '/tags?tag=' + encodeURIComponent(tagName));
+    } catch (err) { /* ignore */ }
 }
 
 function cancelEdit() {
@@ -456,21 +465,61 @@ async function confirmRemap() {
 
 function renderMarkdown(text) {
     if (!text) return '';
-    if (window.marked && window.marked.parse) {
-        return window.marked.parse(text);
+    return renderMarkdownHtml(preprocessTagLinks(text));
+}
+
+// Sanitized Markdown → HTML (same pipeline as gallery notes: marked + DOMPurify).
+function renderMarkdownHtml(text) {
+    let html;
+    try {
+        html = window.marked.parse(text);
+    } catch (err) {
+        console.warn('[tags] marked failed, falling back to escaped text:', err);
+        return '<p>' + escapeHtml(text) + '</p>';
     }
-    // Fallback to simple renderer
-    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-    html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-    html = html.replace(/\n/g, '<br>');
+    if (window.DOMPurify) {
+        html = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    }
     return html;
+}
+
+// Classify links produced from [[tag]] wiki-links (and ?tag= Markdown links).
+function markTagLinks(container) {
+    container.querySelectorAll('a[href]').forEach((a) => {
+        const href = a.getAttribute('href') || '';
+        let name = parseTagLinkHref(href);
+        if (!name && !/^https?:\/\//i.test(href)) {
+            name = parseTagPageHref(href);
+        }
+        if (name) {
+            a.classList.add('tag-link');
+            a.dataset.tagName = name;
+        }
+    });
+}
+
+async function navigateToTagByName(name) {
+    // Instant path: the already-loaded category lists.
+    for (const cat of Object.values(catState)) {
+        const hit = (cat.tags || []).find(t => t.name === name);
+        if (hit) {
+            selectTag(hit.id);
+            return;
+        }
+    }
+    // Fallback: exact match through the search API (covers unloaded pages).
+    try {
+        const resp = await csrfFetch(`/api/tags/search?q=${encodeURIComponent(name)}&limit=50`);
+        if (resp.ok) {
+            const payload = await resp.json();
+            const match = (payload.tags || []).find(t => t.name === name);
+            if (match) {
+                selectTag(match.id);
+                return;
+            }
+        }
+    } catch (err) { /* fall through to the toast */ }
+    showStatus(`Tag "${name}" not found`, true);
 }
 
 function initTagDescriptionEditor(initialValue) {
@@ -524,6 +573,7 @@ function updateTagDescriptionPreview() {
     }
     previewEl.innerHTML = renderMarkdown(markdown);
     addCopyButtonsToCodeBlocks(previewEl);
+    markTagLinks(previewEl);
 }
 
 // Add copy buttons to code blocks in preview
@@ -977,5 +1027,19 @@ document.addEventListener('keydown', (e) => {
         closeRemapModal();
     }
 });
+
+// Tag links inside rendered descriptions navigate in-page.
+document.getElementById('detail-panel').addEventListener('click', (e) => {
+    const link = e.target.closest('a.tag-link');
+    if (!link) return;
+    e.preventDefault();
+    navigateToTagByName(link.dataset.tagName);
+});
+
+// Deep link: /tags?tag=<name> opens that tag on load.
+(function openTagFromUrl() {
+    const name = new URLSearchParams(location.search).get('tag');
+    if (name) navigateToTagByName(name);
+})();
 
 initCategories();

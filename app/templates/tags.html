@@ -11,6 +11,9 @@
     <link rel="stylesheet" href="{{ base_url }}/static/vendor/easymde/easymde.min.css?v={{ app_version }}">
     <link rel="stylesheet" href="{{ base_url }}/static/vendor/font-awesome/css/font-awesome.min.css?v={{ app_version }}">
     <script src="{{ base_url }}/static/vendor/easymde/easymde.min.js?v={{ app_version }}"></script>
+    <!-- Markdown rendering for tag descriptions (marked + DOMPurify) -->
+    <script src="{{ base_url }}/static/vendor/marked/marked.min.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/vendor/purify.min.js?v={{ app_version }}"></script>
     <style>
         .admin-layout {
             max-width: 1400px;
@@ -538,6 +541,7 @@
         window.__categories = {{ categories | tojson }};
     </script>
     <script src="{{ base_url }}/static/js/toast.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/tag-links.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/tags-page.js?v={{ app_version }}"></script>
 </body>
 </html>

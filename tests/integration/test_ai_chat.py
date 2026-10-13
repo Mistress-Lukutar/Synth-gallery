@@ -926,7 +926,8 @@ def test_tool_registry_has_expected_tools():
         "read_note", "list_tags",
         "get_tag_info", "list_folders", "list_albums", "get_tag_suggestions",
         "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
-        "update_item", "create_note", "write_note", "create_folder",
+        "update_item", "set_tag_descriptions",
+        "create_note", "write_note", "create_folder",
         "create_album", "add_items_to_album",
         "view_images",
     }

@@ -11,7 +11,7 @@ Synth Gallery is a **personal media vault** with server-side encryption, hardwar
 - **Hardware Key Login**: WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Folder Hierarchy**: Nested folders with sharing support (Viewer/Editor permissions)
 - **Albums**: Group related media with drag-and-drop reordering
-- **Tags & Search**: Categorize and find content quickly
+- **Tags & Search**: Categorize and find content quickly; tags carry Markdown descriptions (AI-editable via `set_tag_descriptions`, `[[tag]]` wiki-links)
 - **AI Chat**: In-site assistant sidebar with server-side tool-call agent loop; per-user LLM provider keys encrypted with the user's DEK; vision via user-approved `view_images`
 - **AI Agents**: per-user chat personas (system prompt + explicit tool allow-list) with three seeded built-ins; every mutating tool call pauses the turn for an approval card in the chat (optional per-chat "always allow")
 - **Backup & Recovery**: Full backups with integrity verification and recovery keys
@@ -134,6 +134,7 @@ Synth-Gallery/
 │   │       ├── ai-chat.js            # AI chat panel (SSE streaming, tool cards, agent picker)
 │   │       ├── settings-ai-agents.js # AI agent CRUD (settings tab)
 │   │       ├── settings-ai.js        # AI provider settings tab logic
+│   │       ├── tag-links.js          # [[tag]] wiki-link helpers for tag descriptions (Jest-tested)
 │   │       └── gallery-*.js          # Gallery features
 │   └── templates/                # Jinja2 templates
 │       ├── base.html
@@ -437,6 +438,16 @@ the default assistant (no agent = every tool, generic prompt).
   resumes the turn; `always_allow` remembers `(conversation_id, tool_name)`
   in-process for the session. Pending confirmations use the same TTL and
   replay-dropping pattern as vision requests.
+- **Tag descriptions**: tags carry Markdown descriptions
+  (`tags.description`, cap `TAG_DESCRIPTION_MAX_CHARS`). The mutating
+  `set_tag_descriptions` tool (category `tags`, confirmation `always`,
+  Curator built-in) bulk-rewrites them all-or-nothing via
+  `TagService`-style name resolution. Descriptions may cross-reference
+  tags with `[[tag_name]]` wiki-links: preprocessing/parse helpers live in
+  `app/static/js/tag-links.js`, `/tags` renders descriptions with marked +
+  DOMPurify (`tags-page.js`), wiki-links navigate in-page via `selectTag`,
+  and `/tags?tag=<name>` is a shareable deep link (the sidebar has a
+  matching Tags link under the AI-chat toggle).
 - **Endpoints**: `/api/user/ai/agents` (list + tool catalogue, create),
   `PUT/DELETE /api/user/ai/agents/{id}` (custom only — built-ins answer
   403), `POST /api/user/ai/agents/{id}/duplicate`,

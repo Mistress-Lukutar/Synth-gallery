@@ -73,6 +73,8 @@ ALLOWED_NOTE_TYPES = {
 NOTE_EXTENSIONS = {".txt", ".md", ".json", ".csv", ".yaml", ".yml"}
 # Upper bound for text uploads (issue #23 proposes 5-10 MB).
 TEXT_MAX_SIZE = int(os.environ.get("SYNTH_TEXT_MAX_SIZE", str(10 * 1024 * 1024)))
+# Upper bound for one tag description (Markdown source, AI- or admin-written).
+TAG_DESCRIPTION_MAX_CHARS = 20_000
 
 # Encryption (chunked AES-256-GCM streaming format).
 # Each chunk carries its own 12-byte nonce and 16-byte GCM tag, enabling

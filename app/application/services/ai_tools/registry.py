@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-from ....config import TEXT_MAX_SIZE
+from ....config import TAG_DESCRIPTION_MAX_CHARS, TEXT_MAX_SIZE
 from ....database import create_connection
 from ....infrastructure.repositories import (
     AUDIT_CHECKS,
@@ -64,6 +64,8 @@ _NOTE_READ_MAX_CHARS = 6000
 # get_tag_info batch size: keeps the JSON answer safely under the
 # orchestrator's TOOL_RESULT_LIMIT even when every tag carries implications.
 _TAG_INFO_MAX_NAMES = 50
+# set_tag_descriptions batch size: one approval card covers the whole batch.
+_TAG_DESC_MAX_UPDATES = 25
 # Live EXIF probing decrypts the whole image into memory; skip huge files.
 _EXIF_PROBE_MAX_BYTES = 256 * 1024 * 1024
 
@@ -1007,6 +1009,85 @@ def _tool_create_tags(args: dict, ctx: ToolContext) -> str:
     }, ensure_ascii=False)
 
 
+def _tool_set_tag_descriptions(args: dict, ctx: ToolContext) -> str:
+    raw_updates = args.get("updates")
+    if not isinstance(raw_updates, list) or not raw_updates:
+        raise ToolError(
+            "updates must be a non-empty array of {name, description} objects"
+        )
+    if len(raw_updates) > _TAG_DESC_MAX_UPDATES:
+        raise ToolError(
+            f"too many updates: {len(raw_updates)}; split into batches of at "
+            f"most {_TAG_DESC_MAX_UPDATES}"
+        )
+
+    # Validate and dedupe (by normalized name, last write wins) before
+    # touching the database so a bad batch never writes anything.
+    descriptions: dict[str, str] = {}
+    order: list[str] = []
+    for i, raw in enumerate(raw_updates):
+        if not isinstance(raw, dict):
+            raise ToolError(
+                f"updates[{i}] must be an object with name and description"
+            )
+        name = _normalize_tag_name(raw.get("name"))
+        description = raw.get("description")
+        if not name:
+            raise ToolError(f"updates[{i}].name is required")
+        if not isinstance(description, str):
+            raise ToolError(
+                f"updates[{i}].description must be a string "
+                "(empty string clears the description)"
+            )
+        if "\x00" in description:
+            raise ToolError(
+                f"updates[{i}].description must not contain NUL bytes"
+            )
+        if len(description) > TAG_DESCRIPTION_MAX_CHARS:
+            raise ToolError(
+                f"updates[{i}].description is too long "
+                f"({len(description)} chars; max {TAG_DESCRIPTION_MAX_CHARS})"
+            )
+        if name not in descriptions:
+            order.append(name)
+        descriptions[name] = description
+
+    db = create_connection()
+    try:
+        try:
+            entries = _tag_service(db).resolve_tags(order, create_missing=False)
+        except HTTPException as exc:
+            raise _http_to_tool_error(exc)
+
+        invalid = sorted({e["input"] for e in entries if not e["valid"]})
+        not_found = sorted({
+            e["name"] for e in entries if e["valid"] and e["tag"] is None
+        })
+        if invalid or not_found:
+            # All-or-nothing: report everything that is wrong in one go.
+            parts = []
+            if invalid:
+                parts.append("invalid names: " + ", ".join(invalid))
+            if not_found:
+                parts.append("unknown tags: " + ", ".join(not_found))
+            raise ToolError("; ".join(parts))
+
+        tags_repo = TagsRepository(db)
+        updated = []
+        for e in entries:
+            tag = e["tag"]
+            tags_repo.update_tag(tag["id"], description=descriptions[e["name"]])
+            updated.append({
+                "id": tag["id"],
+                "name": tag["name"],
+                "chars": len(descriptions[e["name"]]),
+            })
+    finally:
+        db.close()
+
+    return json.dumps({"updated": updated}, ensure_ascii=False)
+
+
 def _tool_update_item(args: dict, ctx: ToolContext) -> str:
     item_id = str(args.get("item_id") or "").strip()
     title = args.get("title")
@@ -1689,6 +1770,51 @@ def _build_registry() -> dict:
                 "required": ["tag_names"],
             },
             executor=_tool_create_tags,
+            category="tags",
+            confirmation="always",
+        ),
+        ToolDef(
+            name="set_tag_descriptions",
+            description=(
+                "Set Markdown descriptions for existing tags in bulk (one "
+                "call may update several tags). Each description fully "
+                "replaces the previous text; an empty string clears it. "
+                "Cross-reference related tags with [[tag_name]] "
+                "wiki-links. Read the current text with get_tag_info "
+                "before rewriting an existing description."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "updates": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": _TAG_DESC_MAX_UPDATES,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "description": (
+                                        "Existing tag name, normalized like "
+                                        "lower_case_with_underscores."
+                                    ),
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": (
+                                        "Full new Markdown description; an "
+                                        "empty string clears the description."
+                                    ),
+                                },
+                            },
+                            "required": ["name", "description"],
+                        },
+                    },
+                },
+                "required": ["updates"],
+            },
+            executor=_tool_set_tag_descriptions,
             category="tags",
             confirmation="always",
         ),
