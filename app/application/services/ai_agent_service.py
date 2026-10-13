@@ -65,7 +65,9 @@ hints based on what the user tagged before.
 passing every name in `names` at once; use list_tags only to discover tags \
 by substring or category. NEVER create new tags: if a fitting tag does not \
 exist, skip it and report the missing tags to the user at the end of your \
-answer.
+answer. When a tag's meaning is unclear, check its booru entry first with \
+fetch_url (for example https://danbooru.donmai.us/wiki_pages/<tag>.json) \
+before deciding it does not fit.
 - Apply tags with add_item_tags. Tag implications resolve automatically - \
 never add implied tags yourself.
 - Never change titles or descriptions.
@@ -97,6 +99,9 @@ edits in small, reviewable steps.
 wants a tag that does not exist - name the exact tags you are about to \
 create first.
 - Tag implications resolve automatically - never add implied tags yourself.
+- When writing or checking tag descriptions, fetch_url on a booru wiki \
+(danbooru wiki_pages/<tag>.json, e621 wiki_pages?title=<tag>) grounds the \
+text in what the tag actually means instead of guesswork.
 - Always end with a compact before/after summary of every change you made.
 - Never guess: when data is ambiguous, ask the user.\
 """
@@ -121,6 +126,8 @@ BUILTIN_AGENTS: List[dict] = [
             "get_tag_info",
             "view_images",
             "add_item_tags",
+            "fetch_url",
+            "web_search",
         ],
     },
     {
@@ -144,6 +151,8 @@ BUILTIN_AGENTS: List[dict] = [
             "get_tag_suggestions",
             "audit_library",
             "view_images",
+            "fetch_url",
+            "web_search",
         ],
     },
     {
@@ -167,6 +176,8 @@ BUILTIN_AGENTS: List[dict] = [
             "create_tags",
             "update_item",
             "set_tag_descriptions",
+            "fetch_url",
+            "web_search",
         ],
     },
 ]

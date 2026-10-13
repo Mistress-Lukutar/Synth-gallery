@@ -40,6 +40,7 @@ from ..item_types import is_known_item_type
 from ..tag_service import TagService
 from ..tag_suggestion_service import TagSuggestionService
 from .base import ToolContext, ToolDef, ToolError, VisionRequestSignal
+from .web import FETCH_URL_DEF, WEB_SEARCH_DEF
 
 MEDIA_TYPE = "media"
 NOTE_TYPE = "note"
@@ -2026,6 +2027,8 @@ def _build_registry() -> dict:
             executor=_tool_view_images,
             category="vision",
         ),
+        FETCH_URL_DEF,
+        WEB_SEARCH_DEF,
     ]
     return {tool.name: tool for tool in tools}
 

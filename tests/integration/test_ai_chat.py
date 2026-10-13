@@ -930,6 +930,7 @@ def test_tool_registry_has_expected_tools():
         "create_note", "write_note", "create_folder",
         "create_album", "add_items_to_album",
         "view_images",
+        "fetch_url", "web_search",
     }
     assert set(TOOL_REGISTRY) == expected
 

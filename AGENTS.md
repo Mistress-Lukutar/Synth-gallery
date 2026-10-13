@@ -438,6 +438,20 @@ the default assistant (no agent = every tool, generic prompt).
   resumes the turn; `always_allow` remembers `(conversation_id, tool_name)`
   in-process for the session. Pending confirmations use the same TTL and
   replay-dropping pattern as vision requests.
+- **Web access**: `fetch_url` (one public URL → readable text; HTML is
+  reduced to text, JSON/XML passes through; long pages paged via
+  `next_offset`) and `web_search` (keyless DuckDuckGo HTML scrape) live
+  in `app/application/services/ai_tools/web.py` under category `web`.
+  Both are `confirmation="always"` (data can leave via the URL/query)
+  and push the blocking HTTP into a worker thread via
+  `asyncio.to_thread` — network I/O must never touch the event loop.
+  SSRF guard: http(s) only, the host must resolve to a public address,
+  every redirect hop is re-validated, responses capped at 2 MB / 15 s.
+  Tag research targets keyless booru APIs (danbooru `tags.json` /
+  `wiki_pages/<tag>.json`, e621 `tags.json`) — hinted in the
+  tool-conditional system-prompt block and the built-in prompts. Unit
+  tests stub the HTTP seam (`web._http_request`) — tests never touch
+  the network.
 - **Tag descriptions**: tags carry Markdown descriptions
   (`tags.description`, cap `TAG_DESCRIPTION_MAX_CHARS`). The mutating
   `set_tag_descriptions` tool (category `tags`, confirmation `always`,

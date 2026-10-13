@@ -23,8 +23,9 @@
         notes: 'Notes',
         structure: 'Folders & albums',
         vision: 'Vision',
+        web: 'Web (external sites, confirmed)',
     };
-    var CATEGORY_ORDER = ['library', 'tags', 'items', 'notes', 'structure', 'vision'];
+    var CATEGORY_ORDER = ['library', 'tags', 'items', 'notes', 'structure', 'vision', 'web'];
 
     var agents = [];
     var toolCatalogue = [];
