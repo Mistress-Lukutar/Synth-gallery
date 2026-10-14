@@ -1781,7 +1781,9 @@ def _build_registry() -> dict:
                 "call may update several tags). Each description fully "
                 "replaces the previous text; an empty string clears it. "
                 "Cross-reference related tags with [[tag_name]] "
-                "wiki-links. Read the current text with get_tag_info "
+                "wiki-links. Use standard Markdown lists: nest sub-items "
+                "by indenting them with two spaces ('  * sub'), never with "
+                "'**' prefixes. Read the current text with get_tag_info "
                 "before rewriting an existing description."
             ),
             parameters_json_schema={

@@ -472,7 +472,7 @@ function renderMarkdown(text) {
 function renderMarkdownHtml(text) {
     let html;
     try {
-        html = window.marked.parse(text);
+        html = window.marked.parse(normalizeMarkdownLists(text));
     } catch (err) {
         console.warn('[tags] marked failed, falling back to escaped text:', err);
         return '<p>' + escapeHtml(text) + '</p>';

@@ -510,7 +510,7 @@
     function renderMarkdownHtml(text) {
         if (typeof window !== 'undefined' && typeof window.marked !== 'undefined' && window.marked.parse) {
             try {
-                var html = window.marked.parse(text);
+                var html = window.marked.parse(normalizeMarkdownLists(text));
                 if (window.DOMPurify) {
                     html = window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
                 }

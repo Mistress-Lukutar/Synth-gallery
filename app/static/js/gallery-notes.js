@@ -114,7 +114,7 @@
     function renderMarkdownHtml(text) {
         let html;
         try {
-            html = window.marked.parse(text);
+            html = window.marked.parse(normalizeMarkdownLists(text));
         } catch (e) {
             console.warn('[notes] marked failed, falling back to escaped text:', e);
             return `<p>${escapeHtml(text)}</p>`;

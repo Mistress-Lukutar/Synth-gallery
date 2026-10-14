@@ -499,7 +499,7 @@
     function renderMarkdown(text) {
         if (!text) return '';
         if (window.marked && window.marked.parse) {
-            return window.marked.parse(text);
+            return window.marked.parse(normalizeMarkdownLists(text));
         }
         // Fallback to simple renderer
         let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
