@@ -256,20 +256,29 @@ def test_create_note_creates_readable_note(db_connection, test_user, test_folder
     )
     assert result["content_type"] == "text/yaml"
     assert result["line_count"] == 2
+    # The tool answers with the 12-char short id; recover the full row id.
+    row = db_connection.execute(
+        "SELECT id FROM items WHERE folder_id = ? AND user_id = ?",
+        (test_folder, test_user["id"]),
+    ).fetchone()
+    item_id = row["id"]
+    assert result["id"] == item_id[:12]
 
     # The stored blob decrypts back to the content under the same DEK.
     blob = asyncio.run(
-        get_storage().download(result["id"], folder="uploads")
+        get_storage().download(item_id, folder="uploads")
     )
     plain = EncryptionService.decrypt_bytes(blob, DEK)
     assert plain.decode("utf-8") == "size: large\nquality: high\n"
 
-    text = ItemTextRepository(db_connection).get_by_item_id(result["id"])
+    text = ItemTextRepository(db_connection).get_by_item_id(item_id)
     assert text["content_type"] == "text/yaml"
     assert text["char_count"] == len("size: large\nquality: high\n")
 
+    # read_note accepts the short id and resolves it back.
     read_back = _call("read_note", {"item_id": result["id"]}, test_user["id"])
     assert read_back["content"] == "size: large\nquality: high\n"
+    assert read_back["id"] == item_id[:12]
 
 
 def test_create_note_validations(db_connection, test_user, test_folder):

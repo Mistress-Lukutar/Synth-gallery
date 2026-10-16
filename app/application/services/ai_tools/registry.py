@@ -96,6 +96,148 @@ def _http_to_tool_error(exc: HTTPException) -> ToolError:
     return ToolError(str(exc.detail))
 
 
+# ============================================================================
+# Short id helpers
+# ============================================================================
+
+# Tool outputs carry 12-char id prefixes instead of full 36-char UUIDs to
+# save context tokens; every id-accepting tool resolves prefixes back to
+# full ids (an exact full id is always accepted too). Tag ids are small
+# integers and are never shortened.
+ID_SHORT_LEN = 12
+
+
+def short_id(value) -> str:
+    """Display form of an item/folder/album id: a 12-char prefix."""
+    return str(value or "")[:ID_SHORT_LEN]
+
+
+def _pick_prefix_match(matches: list[dict], value: str, label: str) -> str:
+    """Return the single full id among prefix candidates, else ToolError.
+
+    ``label`` is the entity kind ("item", "folder", "album") used in the
+    error text.
+    """
+    if not matches:
+        raise ToolError(f"{label} not found: {value}")
+    if len(matches) == 1:
+        return matches[0]["id"]
+    listed = ", ".join(
+        "{} ({})".format(m.get("name") or m.get("title") or m["id"], m["id"])
+        for m in matches[:10]
+    )
+    raise ToolError(
+        f"ambiguous {label} id prefix '{value}'; pass more characters. "
+        f"Candidates: {listed}"
+    )
+
+
+# A folder (or album via its folder) is visible to the resolver when the
+# user owns it or holds an explicit viewer/editor permission — the same
+# visibility the listing tools apply.
+_SHARED_FOLDER_SQL = (
+    "EXISTS (SELECT 1 FROM folder_permissions p WHERE p.folder_id = "
+    "folders.id AND p.user_id = ? AND p.permission IN ('viewer', 'editor'))"
+)
+
+
+def _resolve_item_id(db, user_id: int, value, label: str = "item_id") -> str:
+    """Resolve a full id or a unique short prefix to an owned item id."""
+    value = str(value or "").strip()
+    if not value:
+        raise ToolError(f"{label} is required")
+    if len(value) >= 36:
+        row = db.execute(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?",
+            (value, user_id),
+        ).fetchone()
+        if row is None:
+            raise ToolError(f"item not found: {value}")
+        return value
+    rows = [
+        dict(r)
+        for r in db.execute(
+            "SELECT id, title FROM items WHERE user_id = ? AND id LIKE ?",
+            (user_id, value + "%"),
+        ).fetchall()
+    ]
+    return _pick_prefix_match(rows, value, "item")
+
+
+def _resolve_folder_id(
+    db, user_id: int, value, *, owner_only: bool = False,
+    label: str = "folder_id",
+) -> str:
+    """Resolve a full id or a unique short prefix to a visible folder id.
+
+    ``owner_only`` limits the search to folders the user owns; otherwise
+    shared viewer/editor folders resolve too.
+    """
+    value = str(value or "").strip()
+    if not value:
+        raise ToolError(f"{label} is required")
+    if owner_only:
+        scope, params = "user_id = ?", [user_id]
+    else:
+        scope = f"user_id = ? OR {_SHARED_FOLDER_SQL}"
+        params = [user_id, user_id]
+    if len(value) >= 36:
+        row = db.execute(
+            f"SELECT id FROM folders WHERE id = ? AND ({scope})",
+            (value, *params),
+        ).fetchone()
+        if row is None:
+            raise ToolError(f"folder not found: {value}")
+        return value
+    rows = [
+        dict(r)
+        for r in db.execute(
+            f"SELECT id, name FROM folders WHERE id LIKE ? AND ({scope})",
+            (value + "%", *params),
+        ).fetchall()
+    ]
+    return _pick_prefix_match(rows, value, "folder")
+
+
+def _resolve_album_id(db, user_id: int, value, label: str = "album_id") -> str:
+    """Resolve a full id or a unique short prefix to an album id visible
+    through its folder (owned or shared viewer/editor)."""
+    value = str(value or "").strip()
+    if not value:
+        raise ToolError(f"{label} is required")
+    visible = (
+        "f.user_id = ? OR EXISTS (SELECT 1 FROM folder_permissions p "
+        "WHERE p.folder_id = f.id AND p.user_id = ? "
+        "AND p.permission IN ('viewer', 'editor'))"
+    )
+    if len(value) >= 36:
+        row = db.execute(
+            f"SELECT a.id FROM albums a JOIN folders f ON f.id = a.folder_id "
+            f"WHERE a.id = ? AND ({visible})",
+            (value, user_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise ToolError(f"album not found: {value}")
+        return value
+    rows = [
+        dict(r)
+        for r in db.execute(
+            f"SELECT a.id, a.name FROM albums a "
+            f"JOIN folders f ON f.id = a.folder_id "
+            f"WHERE a.id LIKE ? AND ({visible})",
+            (value + "%", user_id, user_id),
+        ).fetchall()
+    ]
+    return _pick_prefix_match(rows, value, "album")
+
+
+def _resolve_item_id_list(db, user_id: int, values, label: str) -> list[str]:
+    """Resolve a list of ids/prefixes; duplicates keep their positions."""
+    if not isinstance(values, list) or not values:
+        raise ToolError(f"{label} must be a non-empty list")
+    return [_resolve_item_id(db, user_id, v, label=label) for v in values]
+
+
 def _tag_service(db) -> TagService:
     return TagService(
         tags_repo=TagsRepository(db),
@@ -129,9 +271,13 @@ def _item_service(db) -> ItemService:
     )
 
 
-def _get_owned_item(item_repo: ItemRepository, item_id, ctx: ToolContext) -> dict:
-    """Return the item row when it exists and belongs to the caller."""
-    item = item_repo.get_by_id(str(item_id))
+def _get_owned_item(db, item_id, ctx: ToolContext) -> dict:
+    """Return the item row when it exists and belongs to the caller.
+
+    ``item_id`` may be a full id or a unique short prefix (resolved here).
+    """
+    item_id = _resolve_item_id(db, ctx.user_id, item_id)
+    item = ItemRepository(db).get_by_id(item_id)
     if item is None or item.get("user_id") != ctx.user_id:
         raise ToolError(f"item not found: {item_id}")
     return item
@@ -278,11 +424,15 @@ def _tool_search_items(args: dict, ctx: ToolContext) -> str:
     query = str(args.get("query") or "").strip()
     if not query:
         raise ToolError("query is required")
-    folder_id = args.get("folder_id") or None
     limit = _clamp_int(args.get("limit"), 1, 50, 20)
 
     db = create_connection()
     try:
+        folder_id = (
+            _resolve_folder_id(db, ctx.user_id, args.get("folder_id"))
+            if args.get("folder_id")
+            else None
+        )
         result = _tag_service(db).search_items(query, folder_id, sort_by="uploaded")
     finally:
         db.close()
@@ -290,12 +440,12 @@ def _tool_search_items(args: dict, ctx: ToolContext) -> str:
     items = []
     for row in result.get("items", [])[:limit]:
         items.append({
-            "id": row.get("id"),
+            "id": short_id(row.get("id")),
             "title": row.get("title"),
             "type": MEDIA_TYPE,
             "media_type": row.get("media_type"),
             "content_type": row.get("content_type"),
-            "folder_id": row.get("folder_id"),
+            "folder_id": short_id(row.get("folder_id")),
             "uploaded_at": str(row.get("uploaded_at")) if row.get("uploaded_at") else None,
         })
     return json.dumps({
@@ -313,11 +463,16 @@ _ALBUMS_PER_FOLDER_LIST = 50
 
 def _tool_list_folder(args: dict, ctx: ToolContext) -> str:
     folder_id = args.get("folder_id") or None
-    limit = _clamp_int(args.get("limit"), 1, 200, 200)
+    # Large pages are safe now that ids are short: with the default
+    # TOOL_RESULT_LIMIT (16k) several hundred compact entries fit.
+    limit = _clamp_int(args.get("limit"), 1, 1000, 200)
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
 
     db = create_connection()
     try:
         service = _folder_service(db)
+        if folder_id is not None:
+            folder_id = _resolve_folder_id(db, ctx.user_id, folder_id)
         if folder_id is None:
             # Virtual library root: every top-level folder with its albums
             # and standalone items — the same picture the gallery sidebar
@@ -359,35 +514,53 @@ def _tool_list_folder(args: dict, ctx: ToolContext) -> str:
     finally:
         db.close()
 
+    total_items = len(items)
+    page = items[offset:offset + limit]
     result = {
-        "folder": folder_info,
-        "subfolders": subfolders[:limit],
+        "folder": (
+            folder_info
+            if folder_info.get("root")
+            else {**folder_info, "id": short_id(folder_info.get("id"))}
+        ),
+        "subfolders": [
+            {**s, "id": short_id(s["id"])} for s in subfolders
+        ],
         "albums": [
             {
-                "id": a["id"],
+                "id": short_id(a["id"]),
                 "name": a["name"],
-                "folder_id": a.get("folder_id"),
+                "folder_id": short_id(a.get("folder_id")),
                 "item_count": a.get("item_count", 0),
             }
             for a in albums[:_ALBUMS_PER_FOLDER_LIST]
         ],
+        # Standalone items only (album members live in their albums);
+        # items are always media, so no per-item "type" field.
         "items": [
             {
-                "id": i["id"],
+                "id": short_id(i["id"]),
                 "title": i.get("title"),
-                "type": i.get("type"),
                 "media_type": i.get("media_type"),
             }
-            for i in items[:limit]
+            for i in page
         ],
-        "truncated": len(items) > limit,
+        "total": total_items,
+        "offset": offset,
     }
+    if offset + len(page) < total_items:
+        result["next_offset"] = offset + len(page)
     if len(albums) > _ALBUMS_PER_FOLDER_LIST:
         result["albums_truncated"] = True
-        result["note"] = (
-            f"{len(albums)} albums in total; page through all of them "
-            "with list_albums"
-        )
+    if "next_offset" in result or "albums_truncated" in result:
+        notes = []
+        if "next_offset" in result:
+            notes.append("page through more items with the next_offset")
+        if "albums_truncated" in result:
+            notes.append(
+                f"{len(albums)} albums in total; page through all of them "
+                "with list_albums"
+            )
+        result["note"] = "; ".join(notes)
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -398,8 +571,7 @@ def _tool_get_item(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
-        item_repo = ItemRepository(db)
-        _get_owned_item(item_repo, item_id, ctx)
+        item_id = _get_owned_item(db, item_id, ctx)["id"]
         item = _item_service(db).get_item(item_id)
         tags = _tag_service(db).get_item_tags(item_id)
         media_detail = (
@@ -411,11 +583,11 @@ def _tool_get_item(args: dict, ctx: ToolContext) -> str:
         db.close()
 
     result = {
-        "id": item["id"],
+        "id": short_id(item["id"]),
         "title": item.get("title"),
         "description": item.get("description"),
         "type": item.get("type"),
-        "folder_id": item.get("folder_id"),
+        "folder_id": short_id(item.get("folder_id")),
         "uploaded_at": str(item.get("uploaded_at")) if item.get("uploaded_at") else None,
         "media_type": item.get("media_type"),
         "content_type": item.get("content_type"),
@@ -448,7 +620,8 @@ async def _tool_get_item_metadata(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
-        item = _get_owned_item(ItemRepository(db), item_id, ctx)
+        item = _get_owned_item(db, item_id, ctx)
+        item_id = item["id"]
         item_type = item.get("type")
         if item_type == NOTE_TYPE:
             text = ItemTextRepository(db).get_by_item_id(item_id)
@@ -491,7 +664,7 @@ async def _tool_get_item_metadata(args: dict, ctx: ToolContext) -> str:
         )
 
     summary = {
-        "id": item_id,
+        "id": short_id(item_id),
         "type": MEDIA_TYPE,
         "media_type": media.get("media_type"),
         "content_type": media.get("content_type"),
@@ -555,7 +728,8 @@ async def _tool_read_note(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
-        item = _get_owned_item(ItemRepository(db), item_id, ctx)
+        item = _get_owned_item(db, item_id, ctx)
+        item_id = item["id"]
         if item.get("type") != NOTE_TYPE:
             raise ToolError(
                 f"item {item_id} is not a text note "
@@ -575,7 +749,7 @@ async def _tool_read_note(args: dict, ctx: ToolContext) -> str:
     chunk = content[offset:offset + max_chars]
     next_offset = offset + len(chunk)
     return json.dumps({
-        "id": item_id,
+        "id": short_id(item_id),
         "title": item.get("title"),
         "content_type": text.get("content_type") if text else None,
         "total_chars": total,
@@ -716,7 +890,11 @@ def _tool_list_folders(args: dict, ctx: ToolContext) -> str:
 
     return json.dumps({
         "folders": [
-            {"id": f["id"], "name": f["name"], "parent_id": f.get("parent_id")}
+            {
+                "id": short_id(f["id"]),
+                "name": f["name"],
+                "parent_id": short_id(f.get("parent_id")),
+            }
             for f in tree
             if f.get("user_id") == ctx.user_id
         ]
@@ -730,6 +908,11 @@ def _tool_list_albums(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
+        folder_id = (
+            _resolve_folder_id(db, ctx.user_id, folder_id)
+            if folder_id is not None
+            else None
+        )
         album_service = _album_service(db)
         if folder_id is not None:
             folder = FolderRepository(db).get_by_id(str(folder_id))
@@ -751,9 +934,9 @@ def _tool_list_albums(args: dict, ctx: ToolContext) -> str:
     result = {
         "albums": [
             {
-                "id": a["id"],
+                "id": short_id(a["id"]),
                 "name": a["name"],
-                "folder_id": a.get("folder_id"),
+                "folder_id": short_id(a.get("folder_id")),
                 "item_count": a.get("item_count", 0),
             }
             for a in page
@@ -775,7 +958,7 @@ def _tool_get_tag_suggestions(args: dict, ctx: ToolContext) -> str:
     try:
         db = create_connection()
         try:
-            _get_owned_item(ItemRepository(db), item_id, ctx)
+            item_id = _get_owned_item(db, item_id, ctx)["id"]
             service = TagSuggestionService(
                 cooccurrence_repo=TagCooccurrenceRepository(db),
                 tags_repo=TagsRepository(db),
@@ -855,11 +1038,11 @@ def _tool_audit_library(args: dict, ctx: ToolContext) -> str:
         "offset": offset,
         "items": [
             {
-                "id": row["id"],
+                "id": short_id(row["id"]),
                 "title": row["title"],
                 "type": row["type"],
                 "media_type": row.get("media_type"),
-                "folder_id": row["folder_id"],
+                "folder_id": short_id(row["folder_id"]),
                 "uploaded_at": (
                     str(row["uploaded_at"]) if row["uploaded_at"] else None
                 ),
@@ -870,7 +1053,7 @@ def _tool_audit_library(args: dict, ctx: ToolContext) -> str:
         "truncated": offset + limit < len(rows),
     }
     if folder_id is not None:
-        result["folder_id"] = str(folder_id)
+        result["folder_id"] = short_id(folder_id)
     if result["truncated"]:
         result["note"] = "page through more items with a larger offset"
     return json.dumps(result, ensure_ascii=False)
@@ -892,7 +1075,7 @@ def _tool_add_item_tags(args: dict, ctx: ToolContext) -> str:
     try:
         tags_repo = TagsRepository(db)
         tag_service = _tag_service(db)
-        _get_owned_item(ItemRepository(db), item_id, ctx)
+        item_id = _get_owned_item(db, item_id, ctx)["id"]
         unique, found = _resolve_unknown_tags(tags_repo, tag_names)
         if unique:
             unknown = [n for n in unique if not found.get(n)]
@@ -933,7 +1116,7 @@ def _tool_remove_item_tags(args: dict, ctx: ToolContext) -> str:
     try:
         tags_repo = TagsRepository(db)
         tag_service = _tag_service(db)
-        _get_owned_item(ItemRepository(db), item_id, ctx)
+        item_id = _get_owned_item(db, item_id, ctx)["id"]
         unique, found = _resolve_unknown_tags(tags_repo, tag_names)
         if unique:
             unknown = [n for n in unique if not found.get(n)]
@@ -1101,7 +1284,7 @@ def _tool_update_item(args: dict, ctx: ToolContext) -> str:
     db = create_connection()
     try:
         item_repo = ItemRepository(db)
-        _get_owned_item(item_repo, item_id, ctx)
+        item_id = _get_owned_item(db, item_id, ctx)["id"]
         # update_metadata writes title/description and bumps updated_at.
         item_repo.update_metadata(item_id, title=title, description=description)
         updated = item_repo.get_by_id(item_id)
@@ -1109,7 +1292,7 @@ def _tool_update_item(args: dict, ctx: ToolContext) -> str:
         db.close()
 
     return json.dumps({
-        "id": item_id,
+        "id": short_id(item_id),
         "title": updated.get("title") if updated else title,
         "description": updated.get("description") if updated else description,
     }, ensure_ascii=False)
@@ -1132,6 +1315,9 @@ async def _tool_create_note(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
+        folder_id = _resolve_folder_id(
+            db, ctx.user_id, folder_id, owner_only=True
+        )
         folder = FolderRepository(db).get_by_id(folder_id)
         if folder is None or folder.get("user_id") != ctx.user_id:
             raise ToolError(f"folder not found: {folder_id}")
@@ -1156,9 +1342,9 @@ async def _tool_create_note(args: dict, ctx: ToolContext) -> str:
     await _write_note_blob(item_id, content, dek)
 
     return json.dumps({
-        "id": item_id,
+        "id": short_id(item_id),
         "title": title,
-        "folder_id": folder_id,
+        "folder_id": short_id(folder_id),
         "content_type": content_type,
         "char_count": len(content),
         "line_count": line_count,
@@ -1177,7 +1363,8 @@ async def _tool_write_note(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
-        item = _get_owned_item(ItemRepository(db), item_id, ctx)
+        item = _get_owned_item(db, item_id, ctx)
+        item_id = item["id"]
         if item.get("type") != NOTE_TYPE:
             raise ToolError(
                 f"item {item_id} is not a text note "
@@ -1203,7 +1390,7 @@ async def _tool_write_note(args: dict, ctx: ToolContext) -> str:
     return json.dumps({
         "status": "ok",
         "mode": mode,
-        "id": item_id,
+        "id": short_id(item_id),
         "char_count": len(content),
         "line_count": line_count,
     }, ensure_ascii=False)
@@ -1217,6 +1404,10 @@ def _tool_create_folder(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
+        if parent_id:
+            parent_id = _resolve_folder_id(
+                db, ctx.user_id, parent_id, owner_only=True
+            )
         try:
             folder = _folder_service(db).create_folder(
                 name, ctx.user_id, parent_id
@@ -1226,7 +1417,7 @@ def _tool_create_folder(args: dict, ctx: ToolContext) -> str:
     finally:
         db.close()
 
-    return json.dumps({"id": folder["id"], "name": folder["name"]},
+    return json.dumps({"id": short_id(folder["id"]), "name": folder["name"]},
                       ensure_ascii=False)
 
 
@@ -1241,6 +1432,11 @@ def _tool_create_album(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
+        folder_id = _resolve_folder_id(db, ctx.user_id, folder_id)
+        if item_ids:
+            item_ids = _resolve_item_id_list(
+                db, ctx.user_id, item_ids, "item_ids"
+            )
         try:
             album = _album_service(db).create_album(
                 name, folder_id, ctx.user_id, item_ids or None
@@ -1251,7 +1447,7 @@ def _tool_create_album(args: dict, ctx: ToolContext) -> str:
         db.close()
 
     return json.dumps({
-        "id": album["id"],
+        "id": short_id(album["id"]),
         "name": album["name"],
         "item_count": album.get("item_count", 0),
     }, ensure_ascii=False)
@@ -1267,13 +1463,15 @@ def _tool_add_items_to_album(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
+        album_id = _resolve_album_id(db, ctx.user_id, album_id)
+        item_ids = _resolve_item_id_list(db, ctx.user_id, item_ids, "item_ids")
         item_repo = ItemRepository(db)
         media_ids = []
         skipped_notes = 0
-        for raw_id in item_ids:
-            item = item_repo.get_by_id(str(raw_id))
+        for resolved_id in item_ids:
+            item = item_repo.get_by_id(resolved_id)
             if item and item.get("type") != NOTE_TYPE:
-                media_ids.append(str(raw_id))
+                media_ids.append(resolved_id)
             else:
                 skipped_notes += 1
 
@@ -1308,18 +1506,16 @@ def _tool_view_images(args: dict, ctx: ToolContext) -> str:
     validated = []
     db = create_connection()
     try:
-        item_repo = ItemRepository(db)
         for raw_id in item_ids:
-            item_id = str(raw_id)
-            item = _get_owned_item(item_repo, item_id, ctx)
+            item = _get_owned_item(db, raw_id, ctx)
             if item.get("type") != MEDIA_TYPE or not is_known_item_type(
                 item.get("type")
             ):
                 raise ToolError(
-                    f"item {item_id} is not a media item; "
+                    f"item {item['id']} is not a media item; "
                     "notes have no images"
                 )
-            validated.append(item_id)
+            validated.append(item["id"])
     finally:
         db.close()
 

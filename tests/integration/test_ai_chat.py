@@ -924,7 +924,8 @@ def test_tool_registry_has_expected_tools():
     expected = {
         "search_items", "list_folder", "get_item", "get_item_metadata",
         "read_note", "list_tags",
-        "get_tag_info", "list_folders", "list_albums", "get_tag_suggestions",
+        "get_tag_info", "list_folders", "list_albums", "list_album_items",
+        "get_tag_suggestions",
         "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
         "update_item", "set_tag_descriptions",
         "create_note", "write_note", "create_folder",
@@ -1098,15 +1099,15 @@ def test_audit_library_tool_reports_all_problem_kinds(
     }
     assert set(result["check_meanings"]) == set(result["summary"])
     by_id = {item["id"]: item for item in result["items"]}
-    assert clean not in by_id
-    assert by_id[untagged]["problems"] == ["no_tags"]
-    assert by_id[no_thumb]["problems"] == ["no_thumbnail"]
-    assert by_id[no_dims]["problems"] == ["no_dimensions"]
-    assert by_id[untagged_note]["problems"] == ["no_tags"]
-    assert by_id[untitled]["problems"] == ["no_tags", "untitled"]
-    # Newest first, deterministic order for stable paging.
+    assert clean[:12] not in by_id
+    assert by_id[untagged[:12]]["problems"] == ["no_tags"]
+    assert by_id[no_thumb[:12]]["problems"] == ["no_thumbnail"]
+    assert by_id[no_dims[:12]]["problems"] == ["no_dimensions"]
+    assert by_id[untagged_note[:12]]["problems"] == ["no_tags"]
+    assert by_id[untitled[:12]]["problems"] == ["no_tags", "untitled"]
+    # Newest first, deterministic order for stable paging; ids are short.
     assert [item["id"] for item in result["items"]] == [
-        untitled, untagged_note, no_dims, no_thumb, untagged,
+        i[:12] for i in (untitled, untagged_note, no_dims, no_thumb, untagged)
     ]
     assert result["truncated"] is False
 
@@ -1136,7 +1137,7 @@ def test_audit_library_tool_check_filter_and_unknown_check(
     ))
     assert result["checks"] == ["no_tags"]
     assert result["summary"] == {"no_tags": 1}
-    assert [item["id"] for item in result["items"]] == [untagged]
+    assert [item["id"] for item in result["items"]] == [untagged[:12]]
 
     with pytest.raises(ToolError) as excinfo:
         TOOL_REGISTRY["audit_library"].executor(
@@ -1169,10 +1170,10 @@ def test_audit_library_tool_scopes_to_folder_subtree(
     result = json.loads(TOOL_REGISTRY["audit_library"].executor(
         {"folder_id": test_folder}, ToolContext(user_id=user_id)
     ))
-    assert result["folder_id"] == test_folder
+    assert result["folder_id"] == test_folder[:12]
     assert result["total"] == 2
     assert sorted(i["id"] for i in result["items"]) == sorted(
-        [in_folder, in_sub]
+        [in_folder[:12], in_sub[:12]]
     )
 
     # A foreign folder id must be rejected, not audited.
@@ -1208,4 +1209,67 @@ def test_audit_library_tool_pagination(db_connection, test_user, test_folder):
     assert all(page["total"] == 5 for page in pages)
     assert [page["truncated"] for page in pages] == [True, True, False]
     seen = [item["id"] for page in pages for item in page["items"]]
-    assert seen == ids[::-1]
+    assert seen == [i[:12] for i in ids[::-1]]
+
+
+# ============================================================================
+# Short id prefix resolution (tool-level, no LLM involved)
+# ============================================================================
+
+def test_tool_short_id_prefix_resolution(db_connection, test_user, test_folder):
+    """Full ids and unique 12-char prefixes resolve; ambiguity is an error."""
+    from app.application.services.ai_tools import (
+        TOOL_REGISTRY,
+        ToolContext,
+        ToolError,
+    )
+
+    user_id = test_user["id"]
+    db = db_connection
+    item_id = _seed_audit_item(
+        db, test_folder, user_id, "x.jpg", datetime(2026, 10, 1, 12)
+    )
+    # A second item crafted onto the same 12-char prefix: ambiguity bait.
+    from app.infrastructure.repositories import ItemMediaRepository
+
+    colliding_id = item_id[:12] + "0" * 24
+    ItemRepository(db).create(
+        item_type="media",
+        folder_id=test_folder,
+        user_id=user_id,
+        item_id=colliding_id,
+        title="y.jpg",
+    )
+    ItemMediaRepository(db).create(
+        colliding_id,
+        media_type="image",
+        original_name="y.jpg",
+        content_type="image/jpeg",
+        width=100,
+        height=100,
+        thumb_width=280,
+        thumb_height=100,
+    )
+
+    ctx = ToolContext(user_id=user_id)
+    get_item = TOOL_REGISTRY["get_item"].executor
+
+    # A full id is accepted as-is.
+    assert json.loads(get_item({"item_id": item_id}, ctx))["id"] == item_id[:12]
+    # A prefix long enough to be unique resolves (past the collision point).
+    assert json.loads(
+        get_item({"item_id": colliding_id[:16]}, ctx)
+    )["id"] == colliding_id[:12]
+
+    with pytest.raises(ToolError) as excinfo:
+        get_item({"item_id": item_id[:12] + "zz"}, ctx)
+    assert "not found" in str(excinfo.value)
+
+    # The shared prefix is ambiguous: candidates are listed, nothing matches.
+    with pytest.raises(ToolError) as excinfo:
+        get_item({"item_id": item_id[:12]}, ctx)
+    message = str(excinfo.value)
+    assert "ambiguous" in message
+    assert "Candidates" in message
+
+

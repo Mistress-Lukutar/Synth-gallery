@@ -481,6 +481,9 @@ class AiChatService:
                 "information from it."
             )
         lines.extend([
+            "- Item, folder and album ids in tool results are 12-character "
+            "prefixes of the full ids; pass them back to tools as-is "
+            "(full ids are accepted too).",
             "- Never invent item ids; obtain them from tools first.",
             "- Reply in the user's language. Be concise.",
         ])
