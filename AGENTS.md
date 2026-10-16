@@ -149,7 +149,7 @@ Synth-Gallery/
 ├── migrations/                   # Alembic migration environment
 │   ├── env.py                    # Online migrations via app.database.get_engine()
 │   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
-│   └── versions/                 # Revisions 0001-0012
+│   └── versions/                 # Revisions 0001-0013
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
@@ -404,6 +404,7 @@ Notable historical revisions:
 - **0010**: AI agents: `ai_agents` table (system prompt, icon, `tools_json` allow-list, built-ins) plus `ai_conversations.agent_id` and `ai_chat_settings.active_agent_id` (both FK-free, cleared app-side)
 - **0011**: albums become media-only (notes removed; notes as effective covers caused "Access denied" thumbnails)
 - **0012**: reasoning control: `ai_models.reasoning_support` (manual capability override, validated app-side) + `ai_chat_settings.reasoning_effort`; `recreate_table_without_column` now preserves composite PRIMARY KEYs (table-level constraint)
+- **0013**: chat message tree: `ai_messages.parent_id` (previous message in the branch) + `ai_conversations.active_leaf_id` (leaf of the branch history replay walks); enables edit/retry branching (see 6d)
 
 ### 6d. AI Agents
 
@@ -516,6 +517,69 @@ preference:
   each of which maps to its wire format (Anthropic clamps the budget under
   an explicit `max_tokens` and pins `temperature=1` while thinking; Gemini
   3 uses `thinkingLevel` instead of a budget, and Pro cannot disable).
+
+### 6f. Chat message tree (edit / retry / versions)
+
+Messages form a tree (migration 0013): `ai_messages.parent_id` chains a
+message to its predecessor inside one branch and
+`ai_conversations.active_leaf_id` names the leaf of the branch that new
+messages append to and that history replay walks.
+
+- **Appending**: `AiChatRepository.add_message(..., parent_id=...)` uses a
+  sentinel (`_AUTO_PARENT`) — omitting the argument chains onto the active
+  leaf (legacy conversations: `MAX(id)`), passing `None` explicitly anchors
+  a new branch root. The inserted row becomes the active leaf.
+- **Reading**: `get_messages` walks parent links from the active leaf to
+  the root (legacy `active_leaf_id` NULL = old "newest N by id" behavior);
+  LLM replay and the GET history endpoint share it.
+- **Edit/retry**: `POST .../messages` with `edit_of_message_id` replaces an
+  earlier user message as a NEW sibling version (branching off the
+  original's parent — the old branch is kept, never deleted).
+  `check_edit_target` prevalidates in the route (404 before the stream);
+  paused vision/confirmation requests of the conversation are dropped
+  (`_drop_pending_for_conversation`) — resolving them later would append to
+  the abandoned branch.
+- **Version switch**: `POST .../branch` body `{message_id}` activates the
+  branch through a user message (`deepest_leaf` follows the newest-child
+  chain down); 409 while a turn is running. Pending decisions are dropped
+  the same way.
+- **Version metadata**: `GET .../messages` enriches every user message with
+  `parent_id`, `sibling_ids` (the whole version group), and
+  `version`/`version_count` so the frontend renders the ‹k/n› chips without
+  extra round-trips.
+- **Frontend** (`ai-chat.js`): stored user messages get hover Edit/Retry
+  actions (hidden while streaming; always visible on touch) and an inline
+  edit box (Enter = save, Escape = cancel). Edit/retry POST
+  `edit_of_message_id` and optimistic-echo the new message; every finished
+  stream (or branch switch) triggers a history refetch that binds server
+  message ids and shows the active branch. Message signatures include the
+  editing/version state so the incremental renderer swaps the action bar.
+
+### 6g. Chat tool ids and result limits
+
+- **Short ids**: tool outputs emit 12-char id prefixes (`short_id()`,
+  `ID_SHORT_LEN`) instead of full 36-char UUIDs to save context. Every
+  id-accepting tool resolves a full id or a unique prefix via
+  `_resolve_item_id` / `_resolve_folder_id` / `_resolve_album_id`
+  (`registry.py`): exact match first, then `LIKE 'prefix%'` scoped to the
+  visible set (owner or viewer/editor folder permission); an ambiguous
+  prefix raises `ToolError` with a candidate list. `_get_owned_item(db, ...)`
+  resolves and callers re-read the full id from the returned row — never
+  keep using the raw short argument downstream. Tag ids are small integers
+  and are never shortened. The system prompt tells the model to pass the
+  prefixes back as-is.
+- **Album contents**: `list_album_items` (category `library`, Librarian)
+  pages one album's items (`album_id` + `offset`/`limit`, `total` +
+  `next_offset`); visibility = the album's folder owner or viewer/editor.
+- **Audit scope**: `audit_library` takes `include_subfolders` (default
+  true = the folder's whole subtree; false = the folder itself only).
+  Album items always appear in audits (`album_items` is a junction table;
+  `items.folder_id` never changes) — regression-tested.
+- **Result size**: `_truncate` caps one tool result at
+  `config.TOOL_RESULT_LIMIT` (env `SYNTH_TOOL_RESULT_LIMIT`, default
+  16000) BEFORE persisting, so truncation is visible in the stored
+  history. `list_folder` pages its items with `offset` (max limit 1000,
+  compact entries without the constant `type` field).
 
 ## Build and Run Commands
 
@@ -662,6 +726,7 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `SYNTH_ENCRYPTION_CHUNK_SIZE` | Plaintext chunk size for the chunked AEAD envelope (bytes) | `1048576` (1 MiB) |
 | `SYNTH_DOWNLOAD_WORKERS` | Worker threads preparing batch-download items in parallel | `4` |
 | `SYNTH_TEXT_MAX_SIZE` | Max text-note upload size (bytes) | `10485760` (10 MiB) |
+| `SYNTH_TOOL_RESULT_LIMIT` | Max chars of one AI chat tool result (stored/replayed truncated) | `16000` |
 | `FFMPEG_TOOL_DIR` | Directory containing `ffmpeg`/`ffprobe` binaries; overrides PATH lookup | - |
 | `TAG_STATS_SCHEDULE` | Tag co-occurrence stats: `daily`, `weekly`, or `disabled` | `weekly` |
 | `TAG_STATS_HOUR` | Hour (0-23) when tag stats run | `3` |
