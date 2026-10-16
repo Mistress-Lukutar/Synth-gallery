@@ -1212,6 +1212,61 @@ def test_audit_library_tool_pagination(db_connection, test_user, test_folder):
     assert seen == [i[:12] for i in ids[::-1]]
 
 
+def test_audit_library_tool_can_skip_subfolders(
+    db_connection, test_user, test_folder
+):
+    """include_subfolders=false audits the folder itself only."""
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    db = db_connection
+    sub = FolderRepository(db).create("Sub", user_id, parent_id=test_folder)
+    base = datetime(2026, 10, 1, 12, 0, 0)
+
+    in_folder = _seed_audit_item(db, test_folder, user_id, "a.jpg", base)
+    in_sub = _seed_audit_item(
+        db, sub, user_id, "b.jpg", base + timedelta(minutes=1)
+    )
+
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {"folder_id": test_folder, "include_subfolders": False},
+        ToolContext(user_id=user_id),
+    ))
+    assert [item["id"] for item in result["items"]] == [in_folder[:12]]
+    assert result["total"] == 1
+
+    # Default stays subtree-wide.
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {"folder_id": test_folder}, ToolContext(user_id=user_id)
+    ))
+    assert sorted(i["id"] for i in result["items"]) == sorted(
+        [in_folder[:12], in_sub[:12]]
+    )
+
+
+def test_audit_library_tool_includes_album_items(
+    db_connection, test_user, test_folder
+):
+    """Album membership must not hide items from the audit: albums are a
+    junction table, items keep their folder_id."""
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+    from app.infrastructure.repositories import AlbumRepository
+
+    user_id = test_user["id"]
+    db = db_connection
+    item_id = _seed_audit_item(
+        db, test_folder, user_id, "albummed.jpg", datetime(2026, 10, 1, 12)
+    )
+    album_id = AlbumRepository(db).create(test_folder, user_id, "Pics")
+    AlbumRepository(db).add_item(album_id, item_id)
+
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {"folder_id": test_folder}, ToolContext(user_id=user_id)
+    ))
+    assert result["total"] == 1
+    assert [item["id"] for item in result["items"]] == [item_id[:12]]
+
+
 # ============================================================================
 # Short id prefix resolution (tool-level, no LLM involved)
 # ============================================================================

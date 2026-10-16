@@ -1004,6 +1004,7 @@ def _tool_audit_library(args: dict, ctx: ToolContext) -> str:
                 checks.append(name)
 
     folder_id = args.get("folder_id") or None
+    include_subfolders = args.get("include_subfolders") is not False
     limit = _clamp_int(args.get("limit"), 1, 100, 50)
     offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
 
@@ -1012,10 +1013,17 @@ def _tool_audit_library(args: dict, ctx: ToolContext) -> str:
         folder_ids = None
         if folder_id is not None:
             folder_repo = FolderRepository(db)
+            folder_id = _resolve_folder_id(
+                db, ctx.user_id, folder_id, owner_only=True
+            )
             folder = folder_repo.get_by_id(str(folder_id))
             if folder is None or folder.get("user_id") != ctx.user_id:
                 raise ToolError(f"folder not found: {folder_id}")
-            folder_ids = folder_repo.get_subtree_ids(folder["id"])
+            folder_ids = (
+                folder_repo.get_subtree_ids(folder["id"])
+                if include_subfolders
+                else [folder["id"]]
+            )
         rows = ItemRepository(db).get_audit_problems(
             ctx.user_id, checks, folder_ids=folder_ids
         )
@@ -1834,11 +1842,12 @@ def _build_registry() -> dict:
             description=(
                 "Audit the library metadata in ONE call and list items that "
                 f"have problems. Checks: {', '.join(AUDIT_CHECKS)}. "
-                "Optionally scope to a folder (its whole subtree) and filter "
-                "by checks. Returns per-check counts for the whole scope "
-                "plus one page of offending items. Always use this instead "
-                "of enumerating items with get_item when looking for items "
-                "with missing metadata."
+                "Optionally scope to a folder (its whole subtree by "
+                "default; include_subfolders=false audits the folder "
+                "itself only) and filter by checks. Returns per-check "
+                "counts for the whole scope plus one page of offending "
+                "items. Always use this instead of enumerating items with "
+                "get_item when looking for items with missing metadata."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -1860,6 +1869,14 @@ def _build_registry() -> dict:
                             "Optional folder id; the audit covers this "
                             "folder and all its subfolders. Omit for the "
                             "whole library."
+                        ),
+                    },
+                    "include_subfolders": {
+                        "type": "boolean",
+                        "default": True,
+                        "description": (
+                            "With folder_id: include items of subfolders "
+                            "(default) or audit only the folder itself."
                         ),
                     },
                     "limit": {
