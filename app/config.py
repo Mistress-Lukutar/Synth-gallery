@@ -75,6 +75,10 @@ NOTE_EXTENSIONS = {".txt", ".md", ".json", ".csv", ".yaml", ".yml"}
 TEXT_MAX_SIZE = int(os.environ.get("SYNTH_TEXT_MAX_SIZE", str(10 * 1024 * 1024)))
 # Upper bound for one tag description (Markdown source, AI- or admin-written).
 TAG_DESCRIPTION_MAX_CHARS = 20_000
+# Upper bound for one chat tool result before it is stored/replayed;
+# larger values let list-style tools return more per call at the cost of
+# conversation context.
+TOOL_RESULT_LIMIT = max(1000, int(os.environ.get("SYNTH_TOOL_RESULT_LIMIT", "16000")))
 
 # Encryption (chunked AES-256-GCM streaming format).
 # Each chunk carries its own 12-byte nonce and 16-byte GCM tag, enabling

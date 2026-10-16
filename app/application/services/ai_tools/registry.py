@@ -1647,9 +1647,18 @@ def _build_registry() -> dict:
                     "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": 200,
+                        "maximum": 1000,
                         "default": 200,
                         "description": "Maximum items to return.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Page offset for the items list; echo "
+                            "next_offset from the previous result."
+                        ),
                     },
                 },
             },

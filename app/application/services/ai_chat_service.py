@@ -32,6 +32,8 @@ from typing import AsyncIterator, Dict, List, Optional, Set, Tuple
 
 from PIL import Image
 
+from ...config import TOOL_RESULT_LIMIT as DEFAULT_TOOL_RESULT_LIMIT
+
 from ...infrastructure.services.encryption import EncryptionService
 from ...infrastructure.services.llm.types import (
     AiProtocol,
@@ -151,7 +153,9 @@ class AiChatService:
     """Orchestrates one chat turn: LLM streaming + tool execution."""
 
     MAX_TOOL_ITERATIONS = 255
-    TOOL_RESULT_LIMIT = 8000
+    # Per-tool-result cap (SYNTH_TOOL_RESULT_LIMIT env); applied before the
+    # tool message is persisted, so truncation is visible in the history.
+    TOOL_RESULT_LIMIT = DEFAULT_TOOL_RESULT_LIMIT
     VISION_MAX_ITEMS = 8
     VISION_TTL_SECONDS = 1800
     CONFIRMATION_TTL_SECONDS = 1800

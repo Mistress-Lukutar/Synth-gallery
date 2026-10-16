@@ -1410,3 +1410,45 @@ def test_tool_short_id_prefix_resolution(db_connection, test_user, test_folder):
     assert "Candidates" in message
 
 
+# ============================================================================
+# list_folder tool paging (tool-level, no LLM involved)
+# ============================================================================
+
+def test_list_folder_tool_pages_items(db_connection, test_user, test_folder):
+    """offset/next_offset page the standalone items; output stays compact."""
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    db = db_connection
+    ids = [
+        _seed_audit_item(
+            db, test_folder, user_id, f"f{i}.jpg",
+            datetime(2026, 10, 1, 12, i),
+        )
+        for i in range(5)
+    ]
+
+    executor = TOOL_REGISTRY["list_folder"].executor
+    ctx = ToolContext(user_id=user_id)
+
+    first = json.loads(executor(
+        {"folder_id": test_folder, "limit": 2}, ctx
+    ))
+    assert first["folder"]["id"] == test_folder[:12]
+    assert first["total"] == 5
+    assert [i["id"] for i in first["items"]] == [
+        i[:12] for i in ids[::-1][:2]
+    ]
+    assert first["next_offset"] == 2
+    # Compact shape: items are always media, so no per-item type field.
+    assert all(set(i) == {"id", "title", "media_type"} for i in first["items"])
+
+    tail = json.loads(executor(
+        {"folder_id": test_folder, "limit": 3, "offset": 3}, ctx
+    ))
+    assert [i["id"] for i in tail["items"]] == [
+        i[:12] for i in ids[::-1][3:]
+    ]
+    assert "next_offset" not in tail
+
+
