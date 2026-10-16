@@ -115,7 +115,12 @@ def _get_llm_client(protocol: AiProtocol):
 
 @dataclass
 class VisionRequest:
-    """A paused ``view_images`` call waiting for the user's decision."""
+    """A paused ``view_images`` call waiting for the user's decision.
+
+    ``remaining_calls`` holds the tool calls of the same LLM batch that
+    follow the paused one; they are executed after the decision so a
+    multi-call batch never loses its tail.
+    """
 
     request_id: str
     user_id: int
@@ -123,6 +128,7 @@ class VisionRequest:
     tool_call_id: str
     item_ids: List[str]
     created_at: float
+    remaining_calls: List[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -374,6 +380,34 @@ class AiChatService:
             message["version_count"] = len(siblings)
         return messages
 
+    def pending_decisions(self, conversation_id: str) -> dict:
+        """Payloads of the conversation's paused vision/confirmation cards.
+
+        Returned alongside GET /messages so the frontend can restore the
+        approval cards after a reload or conversation switch — the paused
+        requests live in process memory and would otherwise be invisible
+        until their TTL expires, leaving the turn unresumable.
+        """
+        vision = self.get_pending(conversation_id)
+        confirmation = self.get_pending_confirmation(conversation_id)
+        result: dict = {"pending_vision": None, "pending_tool_confirm": None}
+        if vision is not None:
+            result["pending_vision"] = {
+                "request_id": vision.request_id,
+                "call_id": vision.tool_call_id,
+                "items": self._item_titles(vision.item_ids),
+            }
+        if confirmation is not None:
+            result["pending_tool_confirm"] = {
+                "request_id": confirmation.request_id,
+                "call_id": confirmation.call_id,
+                "name": confirmation.tool_name,
+                "arguments": self._parse_arguments(
+                    confirmation.arguments_json
+                ),
+            }
+        return result
+
     @staticmethod
     def _drop_pending_for_conversation(conversation_id: str) -> None:
         """Discard paused vision/confirmation requests of one conversation.
@@ -553,7 +587,16 @@ class AiChatService:
                 "- For embedded file metadata (capture date, GPS, "
                 "generation prompt/workflow) use get_item_metadata - "
                 "never view_images, which is only for actually seeing an "
-                "image."
+                "image. Base64-stored chunks (e.g. the 'chara' block of "
+                "character cards) read as clean text with "
+                "decode_base64=true."
+            )
+        if has("set_item_metadata"):
+            lines.append(
+                "- Write library-side metadata blocks (PNG text chunks) "
+                "with set_item_metadata; encode_base64=true stores the "
+                "clean text you pass as base64 (e.g. a 'chara' block). "
+                "Only the database copy changes, never the file."
             )
         if has("fetch_url") or has("web_search"):
             lines.append(
@@ -609,7 +652,16 @@ class AiChatService:
         self.require_conversation(user_id, conversation_id)
         self._acquire_slot(user_id)
         try:
-            parent_id = None
+            # A new user message supersedes a paused turn (e.g. the client
+            # reloaded, lost the approval card and just typed again): its
+            # pending vision/confirmation requests must not linger.
+            self._drop_pending_for_conversation(conversation_id)
+            # A normal message must CHAIN onto the active leaf: only an
+            # explicit parent_id (edit/retry, branching off the original's
+            # parent) may deviate — passing parent_id=None unconditionally
+            # would anchor every message as a fresh branch root and orphan
+            # the conversation history.
+            parent: dict = {}
             if edit_of_message_id is not None:
                 original = self.chat_repo.get_message(
                     conversation_id, edit_of_message_id
@@ -618,17 +670,14 @@ class AiChatService:
                     raise MessageNotFoundError(
                         f"message {edit_of_message_id} not found"
                     )
-                self._drop_pending_for_conversation(conversation_id)
-                parent_id = original.get("parent_id")
+                parent["parent_id"] = original.get("parent_id")
             parts = [{"type": "text", "text": text}]
             if attached_item_ids:
                 parts.append({
                     "type": "context",
                     "item_ids": [str(item_id) for item_id in attached_item_ids],
                 })
-            self.chat_repo.add_message(
-                conversation_id, "user", parts, parent_id=parent_id
-            )
+            self.chat_repo.add_message(conversation_id, "user", parts, **parent)
 
             user_message_count = sum(
                 1
@@ -721,6 +770,47 @@ class AiChatService:
                     "is_error": False,
                 }]
             self.chat_repo.add_message(conversation_id, "tool", parts)
+
+            # Surface the stored result immediately: without this event the
+            # resumed stream's first event is LLM output and the client's
+            # view_images card stays "Running..." until the post-turn
+            # history refetch (or forever, if that never happens).
+            yield ("tool_result", {
+                "call_id": tool_call_id,
+                "name": "view_images",
+                "summary": content[:200],
+                "content": content,
+                "is_error": False,
+            })
+
+            # Execute the rest of the paused batch (the calls that followed
+            # view_images) before the LLM loop continues.
+            calls = [
+                ToolCall(
+                    call_id=stored["call_id"],
+                    name=stored["name"],
+                    arguments_json=stored["arguments_json"],
+                )
+                for stored in request.remaining_calls
+            ]
+            if calls:
+                conversation = self.chat_repo.get_conversation(
+                    conversation_id, user_id
+                )
+                agent = self._resolve_agent(
+                    user_id, (conversation or {}).get("agent_id")
+                )
+                batch = ToolCallsReady(tool_calls=calls, text="")
+                paused = False
+                async for event in self._execute_tool_calls(
+                    user_id, conversation_id, batch, dek,
+                    allowed_tools=self._agent_tools(agent),
+                ):
+                    if event[0] in ("vision_request", "tool_confirm"):
+                        paused = True
+                    yield event
+                if paused:
+                    return
 
             inner = self._run_llm_loop(user_id, dek, conversation_id)
             try:
@@ -1192,6 +1282,14 @@ class AiChatService:
                         conversation_id=conversation_id,
                         tool_call_id=call.call_id,
                         item_ids=list(signal.item_ids),
+                        remaining_calls=[
+                            {
+                                "call_id": remaining.call_id,
+                                "name": remaining.name,
+                                "arguments_json": remaining.arguments_json,
+                            }
+                            for remaining in calls_ready.tool_calls[index + 1:]
+                        ],
                         created_at=time.time(),
                     )
                     yield ("vision_request", {

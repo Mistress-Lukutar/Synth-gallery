@@ -39,6 +39,7 @@ from app.infrastructure.services.llm.types import (
     ImagePart,
     StopReason,
     TextDelta,
+    TextPart,
     ToolCall,
     ToolCallsReady,
     ToolResult,
@@ -503,6 +504,14 @@ def test_vision_approved_attaches_images(
     assert response.status_code == 200
     events = _parse_sse(response.text)
 
+    # The view_images result is streamed immediately: the client's tool
+    # card must not stay "Running..." until the post-turn refetch.
+    results = _events_by_name(events, "tool_result")
+    assert results and results[0]["call_id"] == "v1"
+    assert results[0]["name"] == "view_images"
+    assert results[0]["is_error"] is False
+    assert events[0][0] == "tool_result"
+
     tokens = "".join(p["text"] for p in _events_by_name(events, "token"))
     assert tokens == "I see it"
     assert events[-1][0] == "turn_done"
@@ -558,6 +567,10 @@ def test_vision_denied_continues_without_images(
     )
     assert response.status_code == 200
     events = _parse_sse(response.text)
+    # The denial result is streamed to the client immediately as well.
+    results = _events_by_name(events, "tool_result")
+    assert results and results[0]["call_id"] == "v1"
+    assert events[0][0] == "tool_result"
     assert events[-1][0] == "turn_done"
 
     resumed = fake.requests[1]
@@ -625,6 +638,148 @@ def test_vision_decision_unknown_request_404_and_expired_410(
 def test_vision_request_not_found_error_class():
     """Unknown vision requests surface the dedicated error class."""
     assert issubclass(VisionRequestNotFoundError, Exception)
+
+
+def test_vision_pause_keeps_remaining_batch_calls(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch,
+    uploaded_photo,
+):
+    """A batch like [view_images, get_item] must not lose its tail: the
+    calls after the pausing view_images run after the decision."""
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient([
+        [
+            ToolCallsReady(
+                [
+                    ToolCall(
+                        "v1", "view_images",
+                        json.dumps({
+                            "item_ids": [uploaded_photo["id"]],
+                            "reason": "tag",
+                        }),
+                    ),
+                    ToolCall("g1", "get_item", json.dumps(
+                        {"item_id": uploaded_photo["id"]}
+                    )),
+                ],
+                "",
+            ),
+            TurnComplete(StopReason.TOOL_USE),
+        ],
+        _text_turn("done"),
+    ])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+    response = _post_message(
+        authenticated_client, csrf, conversation["id"], "look and fetch"
+    )
+    assert response.status_code == 200
+    events = _parse_sse(response.text)
+    # The pause happens at view_images; get_item has not run yet.
+    assert len(_events_by_name(events, "vision_request")) == 1
+    assert _events_by_name(events, "tool_result") == []
+
+    approve = authenticated_client.post(
+        f"/api/ai/chat/conversations/{conversation['id']}"
+        f"/vision/{_events_by_name(events, 'vision_request')[0]['request_id']}"
+        f"/decision",
+        json={"approved": True},
+        headers=csrf,
+    )
+    assert approve.status_code == 200
+    resumed = _parse_sse(approve.text)
+
+    starts = _events_by_name(resumed, "tool_start")
+    assert [s["call_id"] for s in starts] == ["g1"]
+    results = _events_by_name(resumed, "tool_result")
+    assert [r["call_id"] for r in results] == ["v1", "g1"]
+    assert _events_by_name(events, "turn_done") == []
+    assert resumed[-1][0] == "turn_done"
+
+    messages = AiChatRepository(db_connection).get_messages(conversation["id"])
+    assert [m["role"] for m in messages] == [
+        "user", "assistant", "tool", "tool", "assistant",
+    ]
+
+
+def test_get_messages_returns_pending_decisions(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch,
+    uploaded_photo,
+):
+    """GET /messages exposes the paused vision request so the frontend can
+    restore the approval card after a reload or chat switch."""
+    conversation, request_id, _ = _run_vision_pause(
+        authenticated_client, csrf, db_connection, test_user, dek,
+        monkeypatch, uploaded_photo,
+    )
+
+    response = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conversation['id']}/messages",
+        headers=csrf,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    pending = data["pending_vision"]
+    assert pending["request_id"] == request_id
+    assert pending["call_id"] == "v1"
+    assert pending["items"] == [
+        {"id": uploaded_photo["id"], "title": "test.jpg"}
+    ]
+    assert data["pending_tool_confirm"] is None
+
+    # Resolving the request clears it from the endpoint too.
+    approved = authenticated_client.post(
+        f"/api/ai/chat/conversations/{conversation['id']}"
+        f"/vision/{request_id}/decision",
+        json={"approved": True},
+        headers=csrf,
+    )
+    assert approved.status_code == 200
+    data = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conversation['id']}/messages",
+        headers=csrf,
+    ).json()
+    assert data["pending_vision"] is None
+
+
+def test_new_message_drops_pending_vision(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch,
+    uploaded_photo,
+):
+    """A fresh user message supersedes a paused turn: its pending vision
+    request is dropped and the dangling call replays with an error."""
+    conversation, request_id, fake = _run_vision_pause(
+        authenticated_client, csrf, db_connection, test_user, dek,
+        monkeypatch, uploaded_photo,
+    )
+    fake.script = [_text_turn("starting over")]
+
+    response = _post_message(
+        authenticated_client, csrf, conversation["id"], "forget it"
+    )
+    assert response.status_code == 200
+
+    assert not ai_chat_service_module._pending_vision
+    # The replay answered the dangling view_images call with an error so
+    # the provider turn stays valid.
+    replay = fake.requests[-1]
+    tool_parts = [
+        part
+        for turn in replay.turns
+        if turn.role == "tool"
+        for part in turn.parts
+        if isinstance(part, ToolResult)
+    ]
+    assert any(part.is_error for part in tool_parts)
+    # A normal message chains onto the active leaf — the replay carries
+    # the whole prior branch, not just the new message.
+    user_turns = [
+        turn for turn in replay.turns if turn.role == "user"
+    ]
+    assert ["".join(p.text for p in turn.parts if isinstance(p, TextPart))
+            for turn in user_turns] == ["tag this photo", "forget it"]
 
 
 # ============================================================================
@@ -927,7 +1082,7 @@ def test_tool_registry_has_expected_tools():
         "get_tag_info", "list_folders", "list_albums", "list_album_items",
         "get_tag_suggestions",
         "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
-        "update_item", "set_tag_descriptions",
+        "update_item", "set_item_metadata", "set_tag_descriptions",
         "create_note", "write_note", "create_folder",
         "create_album", "add_items_to_album",
         "view_images",

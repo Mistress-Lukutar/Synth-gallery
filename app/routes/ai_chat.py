@@ -213,13 +213,21 @@ def delete_conversation(request: Request, conversation_id: str):
 
 @router.get("/conversations/{conversation_id}/messages")
 def get_messages(request: Request, conversation_id: str):
-    """Get the stored messages of a conversation."""
+    """Get the stored messages of a conversation.
+
+    The response also carries ``pending_vision`` / ``pending_tool_confirm``
+    when the conversation's turn is paused on an approval, so the frontend
+    can restore the decision cards after a reload.
+    """
     user = require_user(request)
 
     db = create_connection()
     try:
         service = build_ai_chat_service(db)
-        return {"messages": service.get_messages(user["id"], conversation_id)}
+        return {
+            "messages": service.get_messages(user["id"], conversation_id),
+            **service.pending_decisions(conversation_id),
+        }
     except ConversationNotFoundError:
         raise _not_found()
     finally:
