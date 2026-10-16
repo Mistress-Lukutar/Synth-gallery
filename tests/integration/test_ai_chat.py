@@ -1268,6 +1268,88 @@ def test_audit_library_tool_includes_album_items(
 
 
 # ============================================================================
+# list_album_items tool (tool-level, no LLM involved)
+# ============================================================================
+
+def _seed_album_with_items(db, folder_id, user_id, titles):
+    """Create an album and one media item per title; returns (album_id, ids)."""
+    from app.infrastructure.repositories import AlbumRepository
+
+    album_id = AlbumRepository(db).create(folder_id, user_id, "Pics")
+    ids = []
+    for index, title in enumerate(titles, start=1):
+        item_id = _seed_audit_item(
+            db, folder_id, user_id, title, datetime(2026, 10, 1, 12, index)
+        )
+        AlbumRepository(db).add_item(album_id, item_id, position=index)
+        ids.append(item_id)
+    return album_id, ids
+
+
+def test_list_album_items_tool_pages_items(db_connection, test_user, test_folder):
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    album_id, ids = _seed_album_with_items(
+        db_connection, test_folder, user_id,
+        ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"],
+    )
+    executor = TOOL_REGISTRY["list_album_items"].executor
+    ctx = ToolContext(user_id=user_id)
+
+    first = json.loads(executor({"album_id": album_id, "limit": 2}, ctx))
+    assert first["album"]["id"] == album_id[:12]
+    assert first["album"]["item_count"] == 5
+    assert first["total"] == 5
+    assert [i["id"] for i in first["items"]] == [i[:12] for i in ids[:2]]
+    assert [i["position"] for i in first["items"]] == [1, 2]
+    assert first["next_offset"] == 2
+
+    second = json.loads(executor(
+        {"album_id": album_id, "limit": 2, "offset": 2}, ctx
+    ))
+    assert [i["id"] for i in second["items"]] == [i[:12] for i in ids[2:4]]
+
+    tail = json.loads(executor(
+        {"album_id": album_id, "limit": 2, "offset": 4}, ctx
+    ))
+    assert [i["id"] for i in tail["items"]] == [i[:12] for i in ids[4:]]
+    assert "next_offset" not in tail
+
+
+def test_list_album_items_tool_access_and_unknown(db_connection, test_user):
+    """Albums of folders without permission are invisible; unknown id errors."""
+    from app.application.services.ai_tools import (
+        TOOL_REGISTRY,
+        ToolContext,
+        ToolError,
+    )
+    from app.infrastructure.repositories import (
+        AlbumRepository,
+        FolderRepository,
+        UserRepository,
+    )
+
+    user_id = test_user["id"]
+    other_user_id = UserRepository(db_connection).create(
+        "otheruser", "OtherPass123!", "Other"
+    )
+    foreign_folder = FolderRepository(db_connection).create(
+        "Foreign", other_user_id
+    )
+    album_id, _ = _seed_album_with_items(
+        db_connection, foreign_folder, other_user_id, ["x.jpg"]
+    )
+    executor = TOOL_REGISTRY["list_album_items"].executor
+    ctx = ToolContext(user_id=user_id)
+
+    with pytest.raises(ToolError):
+        executor({"album_id": album_id}, ctx)
+    with pytest.raises(ToolError):
+        executor({"album_id": "00000000-0000-0000-0000-000000000000"}, ctx)
+
+
+# ============================================================================
 # Short id prefix resolution (tool-level, no LLM involved)
 # ============================================================================
 

@@ -143,6 +143,7 @@ BUILTIN_AGENTS: List[dict] = [
             "list_folder",
             "list_folders",
             "list_albums",
+            "list_album_items",
             "get_item",
             "get_item_metadata",
             "read_note",

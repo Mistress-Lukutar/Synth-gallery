@@ -452,6 +452,11 @@ class AiChatService:
                 "untitled, broken metadata), call audit_library once "
                 "instead of enumerating items with get_item."
             )
+        if has("list_album_items"):
+            lines.append(
+                "- To see what is inside an album, page through it with "
+                "list_album_items (list_albums only shows item counts)."
+            )
         if has("read_note") or has("create_note") or has("write_note"):
             lines.append(
                 "- Read text notes with read_note, create/edit them with "

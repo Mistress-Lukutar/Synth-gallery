@@ -950,6 +950,62 @@ def _tool_list_albums(args: dict, ctx: ToolContext) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+def _tool_list_album_items(args: dict, ctx: ToolContext) -> str:
+    album_id = str(args.get("album_id") or "").strip()
+    if not album_id:
+        raise ToolError("album_id is required")
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+    limit = _clamp_int(args.get("limit"), 1, 200, 50)
+
+    db = create_connection()
+    try:
+        album_repo = AlbumRepository(db)
+        album_id = _resolve_album_id(db, ctx.user_id, album_id)
+        album = album_repo.get_by_id(album_id)
+        if album is None:
+            raise ToolError(f"album not found: {album_id}")
+        # Same visibility rule as list_albums: owner of the album's folder
+        # or an explicit viewer/editor permission on it.
+        folder_id = album.get("folder_id")
+        folder = FolderRepository(db).get_by_id(str(folder_id))
+        if folder is None or (
+            folder.get("user_id") != ctx.user_id
+            and PermissionRepository(db).get_permission(
+                folder_id, ctx.user_id
+            ) not in ("viewer", "editor")
+        ):
+            raise ToolError(f"album not found: {album_id}")
+        items = album_repo.get_items(album_id)
+    finally:
+        db.close()
+
+    total = len(items)
+    page = items[offset:offset + limit]
+    result = {
+        "album": {
+            "id": short_id(album["id"]),
+            "name": album["name"],
+            "folder_id": short_id(album.get("folder_id")),
+            "item_count": album.get("item_count", total),
+        },
+        "total": total,
+        "offset": offset,
+        "items": [
+            {
+                "id": short_id(i["id"]),
+                "title": i.get("title"),
+                "media_type": i.get("media_type"),
+                "position": i.get("position"),
+            }
+            for i in page
+        ],
+    }
+    if offset + len(page) < total:
+        result["next_offset"] = offset + len(page)
+        result["note"] = "page through more items with the next_offset"
+    return json.dumps(result, ensure_ascii=False)
+
+
 def _tool_get_tag_suggestions(args: dict, ctx: ToolContext) -> str:
     item_id = str(args.get("item_id") or "").strip()
     if not item_id:
@@ -1816,6 +1872,41 @@ def _build_registry() -> dict:
                 },
             },
             executor=_tool_list_albums,
+            category="library",
+        ),
+        ToolDef(
+            name="list_album_items",
+            description=(
+                "List the items inside one album (id, title, media type, "
+                "position), paged. Use list_albums first to find album ids."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "album_id": {
+                        "type": "string",
+                        "description": "Album id.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Page offset; echo next_offset from the "
+                            "previous result."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200,
+                        "default": 50,
+                        "description": "Maximum items per page.",
+                    },
+                },
+                "required": ["album_id"],
+            },
+            executor=_tool_list_album_items,
             category="library",
         ),
         ToolDef(
