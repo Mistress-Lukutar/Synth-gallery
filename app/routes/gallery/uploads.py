@@ -10,13 +10,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 
-from app.application.services import FolderService, ItemService
+from app.application.services import ItemService
 from app.application.services.item_types import ItemType
 from app.database import create_connection
 from app.dependencies import require_user
 from app.infrastructure.repositories import (
     AlbumRepository,
-    FolderRepository,
     ItemMediaRepository,
     ItemRepository,
 )
@@ -166,8 +165,9 @@ async def upload_bulk(
 ):
     '''Bulk upload a folder structure with files.
 
-    Creates subfolders and albums from the directory structure. Files in the
-    root go to the target folder; files in subfolders create albums.
+    Files in the root go to the target folder; files in subdirectories become
+    albums (named after the subdirectory) placed directly in the target folder.
+    No intermediate subfolders are created.
     '''
     user = require_user(request)
 
@@ -212,9 +212,7 @@ async def upload_bulk(
 
     db = create_connection()
     try:
-        folder_repo = FolderRepository(db)
         album_repo = AlbumRepository(db)
-        folder_service = FolderService(folder_repo)
 
         # Root-level files go straight into the target folder.
         for file, filename in root_files:
@@ -227,21 +225,15 @@ async def upload_bulk(
                 failed += 1
                 errors.append(f'{filename}: {exc}')
 
-        # Subfolders become albums.
+        # Subfolders become albums in the target folder (no subfolder created).
         for album_name, album_files in album_groups.items():
             try:
-                subfolder = folder_service.create_folder(
-                    name=album_name,
-                    user_id=user['id'],
-                    parent_id=folder_id,
-                )
-
                 item_ids = []
                 for file, _ in album_files:
                     try:
                         item = await _process_upload(
                             file=file,
-                            folder_id=subfolder['id'],
+                            folder_id=folder_id,
                             user=user,
                         )
                         item_ids.append(item['id'])
@@ -252,7 +244,7 @@ async def upload_bulk(
 
                 if item_ids:
                     album_id = album_repo.create(
-                        folder_id=subfolder['id'],
+                        folder_id=folder_id,
                         user_id=user['id'],
                         name=album_name,
                     )

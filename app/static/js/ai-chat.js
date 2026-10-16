@@ -425,13 +425,42 @@
     }
 
     /**
-     * Build chat state from GET .../messages history.
-     * Tool_call parts without any matching tool_result become 'expired'.
+     * Build chat state from GET .../messages history. Accepts either the
+     * bare message list or the full endpoint payload — the latter carries
+     * the conversation's paused vision/confirmation requests, which are
+     * restored so the approval cards survive a reload or chat switch.
+     * Tool_call parts without any matching tool_result become 'expired',
+     * unless they ARE the pending call (still waiting: 'running').
      */
     function stateFromMessages(list) {
+        var payload = (list && !Array.isArray(list) && Array.isArray(list.messages))
+            ? list : null;
+        var items = payload ? payload.messages : (Array.isArray(list) ? list : []);
         var messages = [];
-        var items = Array.isArray(list) ? list : [];
         var resultCallIds = {};
+
+        var pendingVision = null;
+        var pendingToolConfirm = null;
+        var pendingCallIds = {};
+        if (payload && payload.pending_vision) {
+            var pv = payload.pending_vision;
+            pendingVision = {
+                request_id: pv.request_id,
+                call_id: pv.call_id || null,
+                items: Array.isArray(pv.items) ? pv.items.slice() : [],
+            };
+            if (pendingVision.call_id) pendingCallIds[pendingVision.call_id] = true;
+        }
+        if (payload && payload.pending_tool_confirm) {
+            var pc = payload.pending_tool_confirm;
+            pendingToolConfirm = {
+                request_id: pc.request_id,
+                call_id: pc.call_id || null,
+                name: pc.name || null,
+                arguments: parseToolArgs(pc.arguments),
+            };
+            if (pendingToolConfirm.call_id) pendingCallIds[pendingToolConfirm.call_id] = true;
+        }
 
         var i, j, m, part;
         for (i = 0; i < items.length; i++) {
@@ -494,14 +523,20 @@
                 for (j = 0; j < m.parts.length; j++) {
                     part = m.parts[j];
                     if (part.type === 'tool' && !(part.call_id && resultCallIds[part.call_id])) {
-                        part.status = 'expired';
+                        part.status = pendingCallIds[part.call_id] ? 'running' : 'expired';
                     }
                 }
                 merged.push(m);
             }
         }
 
-        return { messages: merged, streaming: false, pendingVision: null, pendingToolConfirm: null, stopReason: null };
+        return {
+            messages: merged,
+            streaming: false,
+            pendingVision: pendingVision,
+            pendingToolConfirm: pendingToolConfirm,
+            stopReason: null,
+        };
     }
 
     // ========================================================================
@@ -741,6 +776,11 @@
                 cancelEdit();
             }
         });
+        // Inline edit box grows with its content (capped, then scrolls).
+        els.messages.addEventListener('input', function (e) {
+            var ta = e.target.closest ? e.target.closest('[data-edit-input]') : null;
+            if (ta) autoSizeEditInput(ta);
+        });
 
         // Wheel over the panel must never reach the gallery behind it:
         // inner scrollable areas consume the delta, everything else
@@ -772,7 +812,34 @@
 
         // Tool card expand/collapse + reasoning toggle (event delegation).
         // The open/closed state lives in `expandedParts`, not in the DOM,
-        // so re-renders (streaming tokens) keep blocks open.
+        // so re-renders (streaming tokens) keep blocks open. The toggle
+        // fires on pointerdown: during streaming the message node is
+        // replaced between mousedown and click, which swallowed clicks —
+        // pointerdown reacts before any re-render can interfere. The click
+        // handler below only serves keyboard activation (e.detail === 0).
+        function expandRootFromEvent(e) {
+            var head = e.target.closest('.ai-tool-card-head');
+            var root = head ? head.closest('.ai-tool-card') : null;
+            if (!root) {
+                var label = e.target.closest('.ai-reasoning-label');
+                root = label ? label.closest('.ai-reasoning') : null;
+            }
+            return root;
+        }
+        function toggleExpandRoot(root) {
+            var key = root.getAttribute('data-expand-key');
+            var body = root.querySelector('.ai-tool-card-body, .ai-reasoning-body');
+            if (!key || !body) return;
+            var hidden = body.classList.toggle('hidden');
+            root.classList.toggle('open', !hidden);
+            if (hidden) delete expandedParts[key];
+            else expandedParts[key] = true;
+        }
+        els.messages.addEventListener('pointerdown', function (e) {
+            if (e.button !== 0) return;
+            var root = expandRootFromEvent(e);
+            if (root) toggleExpandRoot(root);
+        });
         els.messages.addEventListener('click', function (e) {
             // Message actions: edit / retry / version switch / edit box.
             var actionBtn = e.target.closest('[data-msg-action]');
@@ -793,20 +860,10 @@
                 cancelEdit();
                 return;
             }
-            var head = e.target.closest('.ai-tool-card-head');
-            var root = head ? head.closest('.ai-tool-card') : null;
-            if (!root) {
-                var label = e.target.closest('.ai-reasoning-label');
-                root = label ? label.closest('.ai-reasoning') : null;
+            if (e.detail === 0) {
+                var root = expandRootFromEvent(e);
+                if (root) toggleExpandRoot(root);
             }
-            if (!root) return;
-            var key = root.getAttribute('data-expand-key');
-            var body = root.querySelector('.ai-tool-card-body, .ai-reasoning-body');
-            if (!key || !body) return;
-            var hidden = body.classList.toggle('hidden');
-            root.classList.toggle('open', !hidden);
-            if (hidden) delete expandedParts[key];
-            else expandedParts[key] = true;
         });
         els.visionSlot.addEventListener('click', function (e) {
             var btn = e.target.closest('[data-vision-action]');
@@ -850,6 +907,16 @@
         if (!els.input) return;
         els.input.style.height = 'auto';
         els.input.style.height = Math.min(els.input.scrollHeight, 120) + 'px';
+    }
+
+    // The inline edit box must fit the message it edits: a fixed 2-row
+    // textarea makes editing long prompts uncomfortable.
+    var EDIT_INPUT_MAX_HEIGHT = 220;
+
+    function autoSizeEditInput(ta) {
+        if (!ta) return;
+        ta.style.height = 'auto';
+        ta.style.height = Math.min(ta.scrollHeight, EDIT_INPUT_MAX_HEIGHT) + 'px';
     }
 
     function isNarrowViewport() {
@@ -1652,7 +1719,7 @@
                 return;
             }
             var data = await resp.json();
-            state = stateFromMessages(data.messages);
+            state = stateFromMessages(data);
             editingMessageId = null;
             removeMessageElements(); // full state replacement: rebuild all nodes
             // The conversation keeps the agent it was created with.
@@ -1941,6 +2008,7 @@
         render();
         var ta = els.messages.querySelector('[data-edit-input]');
         if (ta) {
+            autoSizeEditInput(ta);
             ta.focus();
             ta.setSelectionRange(ta.value.length, ta.value.length);
         }
@@ -2065,7 +2133,7 @@
             );
             if (!resp.ok) return;
             var data = await resp.json();
-            state = stateFromMessages(data.messages);
+            state = stateFromMessages(data);
             removeMessageElements(); // full state replacement
             render();
         } catch (err) {

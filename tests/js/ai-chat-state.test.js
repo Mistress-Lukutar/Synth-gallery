@@ -361,6 +361,61 @@ describe('stateFromMessages (history hydration)', () => {
         expect(state2.messages).toHaveLength(1);
         expect(state2.messages[0].parts).toEqual([]);
     });
+
+    test('restores a pending vision request from the endpoint payload', () => {
+        const state = stateFromMessages({
+            messages: [
+                { role: 'user', parts: [{ type: 'text', text: 'look' }] },
+                { role: 'assistant', parts: [{ type: 'tool_call', call_id: 'v1', name: 'view_images', arguments: {} }] },
+            ],
+            pending_vision: {
+                request_id: 'req-1',
+                call_id: 'v1',
+                items: [{ id: 'i1', title: 'a.jpg' }],
+            },
+            pending_tool_confirm: null,
+        });
+        // The approval card comes back after a reload...
+        expect(state.pendingVision).toEqual({
+            request_id: 'req-1',
+            call_id: 'v1',
+            items: [{ id: 'i1', title: 'a.jpg' }],
+        });
+        // ...and the paused call shows as running, not expired.
+        expect(state.messages[1].parts[0].status).toBe('running');
+    });
+
+    test('restores a pending tool confirmation from the endpoint payload', () => {
+        const state = stateFromMessages({
+            messages: [
+                { role: 'assistant', parts: [{ type: 'tool_call', call_id: 'm1', name: 'add_item_tags', arguments: {} }] },
+            ],
+            pending_vision: null,
+            pending_tool_confirm: {
+                request_id: 'req-2',
+                call_id: 'm1',
+                name: 'add_item_tags',
+                arguments: { item_id: 'i1', tag_names: ['fox'] },
+            },
+        });
+        expect(state.pendingToolConfirm).toEqual({
+            request_id: 'req-2',
+            call_id: 'm1',
+            name: 'add_item_tags',
+            arguments: { item_id: 'i1', tag_names: ['fox'] },
+        });
+        expect(state.pendingVision).toBeNull();
+        expect(state.messages[0].parts[0].status).toBe('running');
+    });
+
+    test('a bare message list still loads without pendings', () => {
+        const state = stateFromMessages([
+            { role: 'assistant', parts: [{ type: 'tool_call', call_id: 'c9', name: 'search', arguments: {} }] },
+        ]);
+        expect(state.pendingVision).toBeNull();
+        expect(state.pendingToolConfirm).toBeNull();
+        expect(state.messages[0].parts[0].status).toBe('expired');
+    });
 });
 
 describe('message tree metadata (edit/retry/version switch)', () => {

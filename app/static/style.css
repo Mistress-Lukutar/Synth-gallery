@@ -6339,8 +6339,10 @@ a.sidebar-ai-btn:hover {
 
 .ai-msg-edit-input {
     width: 100%;
-    resize: vertical;
+    resize: none;
+    overflow-y: auto;
     min-height: 2.4rem;
+    max-height: 220px; /* JS grows the box to content up to this cap */
     background: var(--bg);
     color: var(--text);
     border: 1px solid rgba(59, 130, 246, 0.5);
@@ -6507,6 +6509,10 @@ a.sidebar-ai-btn:hover {
 .ai-tool-card-body {
     border-top: 1px solid var(--border);
     padding: 0.6rem;
+    /* An expanded card must not stretch the whole chat: cap it and scroll
+       its content instead (long tool results, big argument dumps). */
+    max-height: 320px;
+    overflow-y: auto;
 }
 
 .ai-tool-section {
