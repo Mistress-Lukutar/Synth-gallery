@@ -357,13 +357,19 @@
 
     /**
      * Append a locally-echoed user message (pure). The echo has no server
-     * id yet, so no edit/retry actions are rendered for it.
+     * id yet, so no edit/retry actions are rendered for it. With
+     * ``atIndex`` (edit/retry) the message at that index and everything
+     * after it are replaced: the new sibling version becomes the visible
+     * tail, so the edit never shows up as a second user turn.
      */
-    function appendUserMessage(state, text, itemIds) {
+    function appendUserMessage(state, text, itemIds, atIndex) {
         var next = cloneState(state);
         var parts = [{ type: 'text', text: text || '' }];
         if (Array.isArray(itemIds) && itemIds.length > 0) {
             parts.push({ type: 'context', item_ids: itemIds.slice() });
+        }
+        if (typeof atIndex === 'number' && atIndex >= 0) {
+            next.messages = next.messages.slice(0, atIndex);
         }
         next.messages.push({
             role: 'user',
@@ -1798,8 +1804,13 @@
             renderComposer();
             loadConversations();
             // Bind server message ids / show the final branch state
-            // (edit & retry replace the visible tail on the server).
-            if (conversationId) refetchHistory();
+            // (edit & retry replace the visible tail on the server). A
+            // paused turn (vision / tool approval pending) is not finished:
+            // the pending call has no stored result yet, so a refetch would
+            // drop the approval card and mark the call expired.
+            if (conversationId && !state.pendingVision && !state.pendingToolConfirm) {
+                refetchHistory();
+            }
         }
     }
 
@@ -1980,8 +1991,13 @@
             if (itemIds.length > 0) body.item_ids = itemIds;
 
             // Optimistic echo; the post-turn history refetch binds the
-            // server ids and drops the replaced branch from view.
-            state = appendUserMessage(state, text, itemIds);
+            // server ids and shows the real tree with version chips. The
+            // echo replaces the original message and the old branch's tail
+            // (that is what the new sibling version hides on the server).
+            var echoIndex = state.messages.indexOf(message);
+            state = appendUserMessage(
+                state, text, itemIds, echoIndex >= 0 ? echoIndex : undefined
+            );
             stickToBottom = true;
             render();
 

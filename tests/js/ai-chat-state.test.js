@@ -277,6 +277,36 @@ describe('appendUserMessage', () => {
         const state = appendUserMessage(newChatState(), 'hello', []);
         expect(state.messages[0].parts).toEqual([{ type: 'text', text: 'hello' }]);
     });
+
+    test('atIndex replaces the target message and the tail (edit/retry echo)', () => {
+        const state = stateFromMessages([
+            { id: 1, role: 'user', parent_id: null, parts: [{ type: 'text', text: 'first' }] },
+            { id: 2, role: 'assistant', parent_id: 1, parts: [{ type: 'text', text: 'answer' }] },
+            {
+                id: 3, role: 'user', parent_id: 2,
+                sibling_ids: [3], version: 1, version_count: 1,
+                parts: [{ type: 'text', text: 'second' }],
+            },
+            { id: 4, role: 'assistant', parent_id: 3, parts: [{ type: 'text', text: 'answer 2' }] },
+        ]);
+        const next = appendUserMessage(state, 'second (edited)', null, 2);
+        // Earlier messages stay, the retried message + its answer are gone.
+        expect(next.messages).toHaveLength(3);
+        expect(next.messages[1].parts[0].text).toBe('answer');
+        expect(next.messages[2].role).toBe('user');
+        expect(next.messages[2].parts[0].text).toBe('second (edited)');
+        expect(next.messages[2].id).toBeNull();
+    });
+
+    test('atIndex leaves the input state untouched', () => {
+        const state = stateFromMessages([
+            { id: 1, role: 'user', parent_id: null, parts: [{ type: 'text', text: 'q' }] },
+            { id: 2, role: 'assistant', parent_id: 1, parts: [{ type: 'text', text: 'a' }] },
+        ]);
+        const snapshot = JSON.stringify(state);
+        appendUserMessage(state, 'q2', null, 0);
+        expect(JSON.stringify(state)).toBe(snapshot);
+    });
 });
 
 describe('stateFromMessages (history hydration)', () => {
