@@ -176,6 +176,7 @@ BUILTIN_AGENTS: List[dict] = [
             "remove_item_tags",
             "create_tags",
             "update_item",
+            "set_item_metadata",
             "set_tag_descriptions",
             "fetch_url",
             "web_search",

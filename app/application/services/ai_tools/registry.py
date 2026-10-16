@@ -7,6 +7,8 @@ not here.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import io
 import json
 import uuid
@@ -69,6 +71,10 @@ _TAG_INFO_MAX_NAMES = 50
 _TAG_DESC_MAX_UPDATES = 25
 # Live EXIF probing decrypts the whole image into memory; skip huge files.
 _EXIF_PROBE_MAX_BYTES = 256 * 1024 * 1024
+# set_item_metadata guards: chunk keys stay short, the whole dict must not
+# bloat the item_media row (ComfyUI workflows are big but not THIS big).
+_METADATA_SET_KEY_MAX_CHARS = 200
+_METADATA_SET_TOTAL_MAX_CHARS = 4 * 1024 * 1024
 
 
 # ============================================================================
@@ -364,7 +370,26 @@ async def _probe_exif(item_id: str, media: dict) -> dict:
         return {}
 
 
-def _page_text(value: str, args: dict, key_label: str) -> str:
+def _decode_base64_text(value: str, label: str) -> str:
+    """Decode one base64 value into clean text, with tool-visible errors."""
+    compact = "".join(value.split())
+    try:
+        raw = base64.b64decode(compact, validate=True)
+        return raw.decode("utf-8")
+    # UnicodeDecodeError is a ValueError subclass: catch it first.
+    except UnicodeDecodeError:
+        raise ToolError(
+            f"base64 value of '{label}' does not decode to UTF-8 text"
+        )
+    except (binascii.Error, ValueError):
+        raise ToolError(
+            f"value of '{label}' is not valid base64; "
+            "retry without decode_base64 to read the raw stored text"
+        )
+
+
+def _page_text(value: str, args: dict, key_label: str,
+               base64_decoded: bool = False) -> str:
     """Slice a full metadata value into one paged tool result."""
     offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
     max_chars = _clamp_int(
@@ -374,18 +399,25 @@ def _page_text(value: str, args: dict, key_label: str) -> str:
     total = len(value)
     chunk = value[offset:offset + max_chars]
     next_offset = offset + len(chunk)
-    return json.dumps({
+    result = {
         "key": key_label,
         "value": chunk,
         "total_chars": total,
         "next_offset": next_offset if next_offset < total else None,
-    }, ensure_ascii=False)
+    }
+    if base64_decoded:
+        result["base64_decoded"] = True
+    return json.dumps(result, ensure_ascii=False)
 
 
-def _metadata_fetch_key(key: str, chunks: dict, args: dict) -> str:
+def _metadata_fetch_key(key: str, chunks: dict, args: dict,
+                        decode_base64: bool = False) -> str:
     """Return the full paged value of one text chunk."""
     if key in chunks:
-        return _page_text(chunks[key], args, key)
+        value = chunks[key]
+        if decode_base64:
+            value = _decode_base64_text(value, key)
+        return _page_text(value, args, key, base64_decoded=decode_base64)
     raise ToolError(
         f"unknown metadata key '{key}'; available: "
         + (", ".join(sorted(chunks)) if chunks else "(none)")
@@ -645,15 +677,19 @@ async def _tool_get_item_metadata(args: dict, ctx: ToolContext) -> str:
 
     chunks = media.get("png_text_chunks") or {}
     key = str(args.get("key") or "").strip()
+    decode_base64 = bool(args.get("decode_base64"))
     if key:
         if key in chunks:
-            return _metadata_fetch_key(key, chunks, args)
+            return _metadata_fetch_key(key, chunks, args, decode_base64)
         if key in ("user_comment", "image_description", "xmp"):
             live = await _probe_exif(item_id, media)
             value = live.get(key)
             if not value:
                 raise ToolError(f"item {item_id} has no {key}")
-            return _page_text(value, args, key)
+            if decode_base64:
+                value = _decode_base64_text(value, key)
+            return _page_text(value, args, key,
+                              base64_decoded=decode_base64)
         raise ToolError(
             f"unknown metadata key '{key}'; available: "
             + (
@@ -718,6 +754,76 @@ async def _tool_get_item_metadata(args: dict, ctx: ToolContext) -> str:
             else:
                 summary["probe_note"] = "no EXIF found"
     return json.dumps(summary, ensure_ascii=False)
+
+
+def _tool_set_item_metadata(args: dict, ctx: ToolContext) -> str:
+    item_id = str(args.get("item_id") or "").strip()
+    if not item_id:
+        raise ToolError("item_id is required")
+    chunks_arg = args.get("chunks")
+    if not isinstance(chunks_arg, dict) or not chunks_arg:
+        raise ToolError("chunks must be a non-empty object of key -> text")
+    mode = str(args.get("mode") or "merge").strip().lower()
+    if mode not in ("merge", "replace_all"):
+        raise ToolError("mode must be 'merge' or 'replace_all'")
+    encode_base64 = bool(args.get("encode_base64"))
+
+    updates = {}
+    for raw_key, raw_value in chunks_arg.items():
+        key = str(raw_key).strip()
+        if not key:
+            raise ToolError("metadata keys must be non-empty")
+        if len(key) > _METADATA_SET_KEY_MAX_CHARS:
+            raise ToolError(
+                f"metadata key must be at most "
+                f"{_METADATA_SET_KEY_MAX_CHARS} chars: '{key[:50]}...'"
+            )
+        if not isinstance(raw_value, str):
+            raise ToolError(f"metadata value of '{key}' must be a string")
+        if encode_base64:
+            updates[key] = base64.b64encode(
+                raw_value.encode("utf-8")
+            ).decode("ascii")
+        else:
+            updates[key] = raw_value
+
+    db = create_connection()
+    try:
+        item = _get_owned_item(db, item_id, ctx)
+        item_id = item["id"]
+        if item.get("type") != MEDIA_TYPE or not is_known_item_type(item.get("type")):
+            raise ToolError(
+                f"item {item_id} is not a media item "
+                f"(type: {item.get('type')}); metadata blocks are "
+                "media-only"
+            )
+        media = ItemMediaRepository(db).get_by_item_id(item_id)
+        if media is None:
+            raise ToolError(f"media detail not found for item {item_id}")
+        existing = media.get("png_text_chunks") or {}
+        merged = existing if mode == "merge" else {}
+        merged = {**merged, **updates}
+        if sum(len(k) + len(v) for k, v in merged.items()) > \
+                _METADATA_SET_TOTAL_MAX_CHARS:
+            raise ToolError(
+                "combined metadata blocks exceed the "
+                f"{_METADATA_SET_TOTAL_MAX_CHARS} chars size limit"
+            )
+        ItemMediaRepository(db).update(item_id, png_text_chunks=merged)
+        ItemRepository(db).touch_updated_at(item_id)
+    finally:
+        db.close()
+
+    result = {
+        "id": short_id(item_id),
+        "updated_keys": sorted(updates),
+        "text_chunks": sorted(merged),
+        "base64_encoded": encode_base64,
+    }
+    removed = sorted(set(existing) - set(merged))
+    if removed:
+        result["removed_keys"] = removed
+    return json.dumps(result, ensure_ascii=False)
 
 
 async def _tool_read_note(args: dict, ctx: ToolContext) -> str:
@@ -1695,6 +1801,9 @@ def _build_registry() -> dict:
                 "(camera, GPS, UserComment) for images. Without 'key' "
                 "returns a summary with lengths and previews; pass "
                 "key='prompt' (etc.) to read one full value in pages. "
+                "Some chunks are stored base64 (e.g. 'chara' of a "
+                "character-card PNG holds base64 JSON) - set "
+                "decode_base64=true to get clean text. "
                 "Never use view_images to read text or metadata."
             ),
             parameters_json_schema={
@@ -1729,11 +1838,75 @@ def _build_registry() -> dict:
                         "default": 6000,
                         "description": "Maximum chars of the value to return.",
                     },
+                    "decode_base64": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Decode the stored value from base64 and "
+                            "return clean text (offset/max_chars then "
+                            "apply to the decoded text). Off by default."
+                        ),
+                    },
                 },
                 "required": ["item_id"],
             },
             executor=_tool_get_item_metadata,
             category="library",
+        ),
+        ToolDef(
+            name="set_item_metadata",
+            description=(
+                "Create or rewrite metadata blocks (PNG text chunks) of "
+                "one media item in the library. Values are clean text; "
+                "with encode_base64=true each value of this call is "
+                "stored base64-encoded (how character cards embed their "
+                "'chara' JSON) - read such values back with "
+                "get_item_metadata(decode_base64=true). mode 'merge' "
+                "(default) adds/overwrites the given keys and keeps the "
+                "rest, 'replace_all' makes the block set exactly "
+                "'chunks'. Only the library-side copy is updated, never "
+                "the file bytes."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "Media item id.",
+                    },
+                    "chunks": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "minProperties": 1,
+                        "description": (
+                            "Metadata blocks to write, keyed by chunk "
+                            "name (e.g. 'prompt', 'workflow', 'chara')."
+                        ),
+                    },
+                    "encode_base64": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Base64-encode every value of this call "
+                            "before storing. Off by default."
+                        ),
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["merge", "replace_all"],
+                        "default": "merge",
+                        "description": (
+                            "'merge' keeps other existing blocks, "
+                            "'replace_all' removes blocks not listed in "
+                            "'chunks'."
+                        ),
+                    },
+                },
+                "required": ["item_id", "chunks"],
+            },
+            executor=_tool_set_item_metadata,
+            category="items",
+            confirmation="always",
         ),
         ToolDef(
             name="read_note",

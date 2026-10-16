@@ -6,6 +6,7 @@ Covers get_item_metadata, read_note, create_note, write_note and the
 enriched get_item output.
 """
 import asyncio
+import base64
 import io
 import json
 
@@ -175,6 +176,188 @@ def test_get_item_metadata_requires_ownership(
     )
     with pytest.raises(ToolError) as excinfo:
         _call("get_item_metadata", {"item_id": item_id}, second_user["id"])
+    assert "not found" in str(excinfo.value)
+
+
+def test_get_item_metadata_decodes_base64_key_fetch(
+    db_connection, test_user, test_folder
+):
+    card = json.dumps({"name": "Taya", "creator": "Lukutar"})
+    stored = base64.b64encode(card.encode("utf-8")).decode("ascii")
+    item_id = _make_media(
+        db_connection, test_folder, test_user["id"],
+        chunks={"chara": stored},
+    )
+
+    raw = _call(
+        "get_item_metadata",
+        {"item_id": item_id, "key": "chara"},
+        test_user["id"],
+    )
+    assert raw["value"] == stored
+    assert raw["total_chars"] == len(stored)
+    assert "base64_decoded" not in raw
+
+    clean = _call(
+        "get_item_metadata",
+        {"item_id": item_id, "key": "chara", "decode_base64": True},
+        test_user["id"],
+    )
+    assert clean["value"] == card
+    assert clean["total_chars"] == len(card)
+    assert clean["base64_decoded"] is True
+    assert clean["next_offset"] is None
+
+
+def test_get_item_metadata_decode_base64_pages_decoded_text(
+    db_connection, test_user, test_folder
+):
+    # max_chars is floored at 1000: keep the decoded text longer than
+    # that so the second page is actually needed.
+    card = json.dumps({"bio": "x" * 1500})
+    stored = base64.b64encode(card.encode("utf-8")).decode("ascii")
+    item_id = _make_media(
+        db_connection, test_folder, test_user["id"],
+        chunks={"chara": stored},
+    )
+
+    first = _call(
+        "get_item_metadata",
+        {"item_id": item_id, "key": "chara", "decode_base64": True,
+         "max_chars": 1000},
+        test_user["id"],
+    )
+    assert first["total_chars"] == len(card)
+    assert len(first["value"]) == 1000
+    assert first["next_offset"] == 1000
+
+    tail = _call(
+        "get_item_metadata",
+        {"item_id": item_id, "key": "chara", "decode_base64": True,
+         "offset": first["next_offset"], "max_chars": 1000},
+        test_user["id"],
+    )
+    assert first["value"] + tail["value"] == card
+    assert tail["next_offset"] is None
+
+
+def test_get_item_metadata_decode_base64_rejects_non_base64(
+    db_connection, test_user, test_folder
+):
+    item_id = _make_media(
+        db_connection, test_folder, test_user["id"],
+        chunks={"prompt": "a red fox, highly detailed"},
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "get_item_metadata",
+            {"item_id": item_id, "key": "prompt", "decode_base64": True},
+            test_user["id"],
+        )
+    assert "not valid base64" in str(excinfo.value)
+
+
+# ============================================================================
+# set_item_metadata
+# ============================================================================
+
+def test_set_item_metadata_merges_and_replaces(
+    db_connection, test_user, test_folder
+):
+    item_id = _make_media(
+        db_connection, test_folder, test_user["id"],
+        chunks={"prompt": "old prompt", "workflow": "{\"nodes\": 1}"},
+    )
+
+    merged = _call(
+        "set_item_metadata",
+        {"item_id": item_id, "chunks": {"prompt": "new prompt"}},
+        test_user["id"],
+    )
+    assert merged["updated_keys"] == ["prompt"]
+    assert merged["text_chunks"] == ["prompt", "workflow"]
+    assert merged["base64_encoded"] is False
+    assert "removed_keys" not in merged
+
+    stored = ItemMediaRepository(db_connection).get_by_item_id(item_id)
+    assert stored["png_text_chunks"]["prompt"] == "new prompt"
+    assert stored["png_text_chunks"]["workflow"] == "{\"nodes\": 1}"
+
+    replaced = _call(
+        "set_item_metadata",
+        {"item_id": item_id, "chunks": {"chara": "{}"},
+         "mode": "replace_all"},
+        test_user["id"],
+    )
+    assert replaced["removed_keys"] == ["prompt", "workflow"]
+    assert replaced["text_chunks"] == ["chara"]
+    stored = ItemMediaRepository(db_connection).get_by_item_id(item_id)
+    assert set(stored["png_text_chunks"]) == {"chara"}
+
+
+def test_set_item_metadata_encode_base64_roundtrip(
+    db_connection, test_user, test_folder
+):
+    card = json.dumps({"name": "Taya", "data": "base64 me"})
+    encoded = base64.b64encode(card.encode("utf-8")).decode("ascii")
+    item_id = _make_media(db_connection, test_folder, test_user["id"])
+
+    result = _call(
+        "set_item_metadata",
+        {"item_id": item_id, "chunks": {"chara": card},
+         "encode_base64": True},
+        test_user["id"],
+    )
+    assert result["base64_encoded"] is True
+
+    stored = ItemMediaRepository(db_connection).get_by_item_id(item_id)
+    assert stored["png_text_chunks"]["chara"] == encoded
+
+    read_back = _call(
+        "get_item_metadata",
+        {"item_id": item_id, "key": "chara", "decode_base64": True},
+        test_user["id"],
+    )
+    assert read_back["value"] == card
+
+
+def test_set_item_metadata_validations(
+    db_connection, test_user, second_user, test_folder
+):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "a: 1\n"
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_item_metadata",
+            {"item_id": note_id, "chunks": {"k": "v"}},
+            test_user["id"],
+        )
+    assert "not a media item" in str(excinfo.value)
+
+    item_id = _make_media(db_connection, test_folder, test_user["id"])
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_item_metadata",
+            {"item_id": item_id, "chunks": {"k": 5}},
+            test_user["id"],
+        )
+    assert "must be a string" in str(excinfo.value)
+
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_item_metadata",
+            {"item_id": item_id, "chunks": {"k": "v"}, "mode": "wipe"},
+            test_user["id"],
+        )
+    assert "mode" in str(excinfo.value)
+
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "set_item_metadata",
+            {"item_id": item_id, "chunks": {"k": "v"}},
+            second_user["id"],
+        )
     assert "not found" in str(excinfo.value)
 
 
