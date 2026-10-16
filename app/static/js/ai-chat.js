@@ -7,6 +7,8 @@
  *   DELETE /api/ai/chat/conversations/{id}
  *   GET    /api/ai/chat/conversations/{id}/messages
  *   POST   /api/ai/chat/conversations/{id}/messages            (SSE stream)
+ *   POST   /api/ai/chat/conversations/{id}/messages  edit_of_message_id
+ *   POST   /api/ai/chat/conversations/{id}/branch          version switch
  *   POST   /api/ai/chat/conversations/{id}/vision/{req}/decision (SSE stream)
  *
  * Global API: window.AiChat = { open, close, toggle, isOpen, openWithSelection }
@@ -134,9 +136,18 @@
         var messages = [];
         for (var i = 0; i < safe.messages.length; i++) {
             var m = safe.messages[i];
-            messages.push({ role: m.role, parts: (m.parts || []).map(function (p) {
-                return Object.assign({}, p);
-            }) });
+            messages.push({
+                role: m.role,
+                parts: (m.parts || []).map(function (p) {
+                    return Object.assign({}, p);
+                }),
+                // Tree metadata (history-loaded user messages only).
+                id: m.id != null ? m.id : null,
+                parentId: m.parentId != null ? m.parentId : null,
+                siblingIds: Array.isArray(m.siblingIds) ? m.siblingIds.slice() : [],
+                version: m.version != null ? m.version : null,
+                versionCount: m.versionCount != null ? m.versionCount : null,
+            });
         }
         return {
             messages: messages,
@@ -345,7 +356,8 @@
     }
 
     /**
-     * Append a locally-echoed user message (pure).
+     * Append a locally-echoed user message (pure). The echo has no server
+     * id yet, so no edit/retry actions are rendered for it.
      */
     function appendUserMessage(state, text, itemIds) {
         var next = cloneState(state);
@@ -353,8 +365,40 @@
         if (Array.isArray(itemIds) && itemIds.length > 0) {
             parts.push({ type: 'context', item_ids: itemIds.slice() });
         }
-        next.messages.push({ role: 'user', parts: parts });
+        next.messages.push({
+            role: 'user',
+            parts: parts,
+            id: null,
+            parentId: null,
+            siblingIds: [],
+            version: null,
+            versionCount: null,
+        });
         return next;
+    }
+
+    /**
+     * The context part of a stored/optimistic user message, if any.
+     */
+    function messageContextIds(message) {
+        var parts = message.parts || [];
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i].type === 'context' && Array.isArray(parts[i].item_ids)) {
+                return parts[i].item_ids.slice();
+            }
+        }
+        return [];
+    }
+
+    /**
+     * First text part of a message ('' when missing).
+     */
+    function messageText(message) {
+        var parts = message.parts || [];
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i].type === 'text') return parts[i].text || '';
+        }
+        return '';
     }
 
     function normalizeHistoryPart(part) {
@@ -392,7 +436,17 @@
                     resultCallIds[parts[j].call_id] = true;
                 }
             }
-            messages.push({ role: m.role, parts: parts });
+            messages.push({
+                role: m.role,
+                parts: parts,
+                // Tree metadata from the server (user messages carry the
+                // version group for the ‹k/n› switcher).
+                id: m.id != null ? m.id : null,
+                parentId: m.parent_id != null ? m.parent_id : null,
+                siblingIds: Array.isArray(m.sibling_ids) ? m.sibling_ids.slice() : [],
+                version: m.version != null ? m.version : null,
+                versionCount: m.version_count != null ? m.version_count : null,
+            });
         }
 
         // Merge tool_result parts (role 'tool' messages) into their tool cards.
@@ -558,6 +612,9 @@
     var msgSigs = [];
     var lastVisionKey = null;
     var lastConfirmKey = null;
+    // Server id of the user message currently being edited inline
+    // (null = no edit box open).
+    var editingMessageId = null;
 
     // ========================================================================
     // Panel shell (rendered once from a template string)
@@ -666,6 +723,18 @@
         els.messages.addEventListener('scroll', function () {
             stickToBottom = isNearBottom();
         });
+        // Inline edit box keyboard: Enter saves, Escape cancels.
+        els.messages.addEventListener('keydown', function (e) {
+            var ta = e.target.closest ? e.target.closest('[data-edit-input]') : null;
+            if (!ta) return;
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                saveEdit();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelEdit();
+            }
+        });
 
         // Wheel over the panel must never reach the gallery behind it:
         // inner scrollable areas consume the delta, everything else
@@ -699,6 +768,25 @@
         // The open/closed state lives in `expandedParts`, not in the DOM,
         // so re-renders (streaming tokens) keep blocks open.
         els.messages.addEventListener('click', function (e) {
+            // Message actions: edit / retry / version switch / edit box.
+            var actionBtn = e.target.closest('[data-msg-action]');
+            if (actionBtn) {
+                onMessageAction(actionBtn.dataset.msgAction, actionBtn);
+                return;
+            }
+            var stepBtn = e.target.closest('[data-version-step]');
+            if (stepBtn) {
+                onVersionStep(stepBtn);
+                return;
+            }
+            if (e.target.closest('[data-edit-save]')) {
+                saveEdit();
+                return;
+            }
+            if (e.target.closest('[data-edit-cancel]')) {
+                cancelEdit();
+                return;
+            }
             var head = e.target.closest('.ai-tool-card-head');
             var root = head ? head.closest('.ai-tool-card') : null;
             if (!root) {
@@ -944,6 +1032,12 @@
         var parts = m.parts || [];
         var s = m.role + '#' + parts.length;
         for (var i = 0; i < parts.length; i++) s += '|' + partSignature(parts[i]);
+        // Action buttons / version chips / edit box depend on these.
+        if (m.role === 'user' && m.id != null) {
+            s += '|u' + m.id + ':' + m.version + '/' + m.versionCount +
+                (m.id === editingMessageId ? ':edit' : ':view') +
+                (state.streaming ? ':streaming' : '');
+        }
         return s;
     }
 
@@ -954,12 +1048,64 @@
     }
 
     function messageInnerHtml(message, msgIndex) {
+        if (message.role === 'user' && message.id != null &&
+            message.id === editingMessageId) {
+            return userEditHtml(message);
+        }
         var parts = message.parts || [];
         var html = '';
         for (var i = 0; i < parts.length; i++) {
             html += renderPart(message, parts[i], msgIndex, i);
         }
-        if (message.role === 'user' && !html) return '&nbsp;';
+        if (message.role === 'user') {
+            html += userMessageExtrasHtml(message, msgIndex);
+            if (!html) return '&nbsp;';
+        }
+        return html;
+    }
+
+    /**
+     * Inline edit box for a stored user message (edit + retry).
+     */
+    function userEditHtml(message) {
+        var text = messageText(message);
+        return '<div class="ai-msg-edit">' +
+            '<textarea class="ai-msg-edit-input" data-edit-input rows="2">' +
+            esc(text) + '</textarea>' +
+            '<div class="ai-msg-edit-buttons">' +
+            '<button type="button" class="btn btn-small" data-edit-cancel>Cancel</button>' +
+            '<button type="button" class="btn btn-small btn-primary" data-edit-save>Save</button>' +
+            '</div>' +
+            '</div>';
+    }
+
+    /**
+     * Version chips (‹k/n›) and Edit/Retry actions under a stored user
+     * message. Optimistic messages (id == null) get nothing yet.
+     */
+    function userMessageExtrasHtml(message, msgIndex) {
+        if (message.id == null || state.streaming) return '';
+        var html = '';
+        if (message.versionCount > 1 && Array.isArray(message.siblingIds)) {
+            html += '<div class="ai-msg-versions">' +
+                '<button type="button" class="ai-msg-version-btn"' +
+                ' data-version-step="-1" data-msg-index="' + msgIndex + '"' +
+                (message.version <= 1 ? ' disabled' : '') +
+                ' title="Previous version">&lsaquo;</button>' +
+                '<span class="ai-msg-version-label">' + message.version +
+                '/' + message.versionCount + '</span>' +
+                '<button type="button" class="ai-msg-version-btn"' +
+                ' data-version-step="1" data-msg-index="' + msgIndex + '"' +
+                (message.version >= message.versionCount ? ' disabled' : '') +
+                ' title="Next version">&rsaquo;</button>' +
+                '</div>';
+        }
+        html += '<div class="ai-msg-actions" data-msg-index="' + msgIndex + '">' +
+            '<button type="button" class="ai-msg-action-btn" data-msg-action="edit"' +
+            ' title="Edit and resend">' + PENCIL_SVG + '</button>' +
+            '<button type="button" class="ai-msg-action-btn" data-msg-action="retry"' +
+            ' title="Retry from this message">' + RETRY_SVG + '</button>' +
+            '</div>';
         return html;
     }
 
@@ -1026,6 +1172,13 @@
                 msgEls[i].innerHTML = messageInnerHtml(msgs[i], i);
                 msgSigs[i] = sig;
             }
+        }
+
+        // Keep the caret in the open inline edit box across re-renders.
+        var editInput = els.messages.querySelector('[data-edit-input]');
+        if (editInput && document.activeElement !== editInput &&
+            document.activeElement !== els.input) {
+            editInput.focus();
         }
 
         if (state.streaming) {
@@ -1494,6 +1647,7 @@
             }
             var data = await resp.json();
             state = stateFromMessages(data.messages);
+            editingMessageId = null;
             removeMessageElements(); // full state replacement: rebuild all nodes
             // The conversation keeps the agent it was created with.
             currentAgentId = null;
@@ -1535,6 +1689,7 @@
     function resetToDraft() {
         if (state.streaming && abortController) abortController.abort();
         conversationId = null;
+        editingMessageId = null;
         state = newChatState();
         removeMessageElements(); // full state replacement: rebuild all nodes
         if (isNarrowViewport()) hideList();
@@ -1642,6 +1797,9 @@
             render();
             renderComposer();
             loadConversations();
+            // Bind server message ids / show the final branch state
+            // (edit & retry replace the visible tail on the server).
+            if (conversationId) refetchHistory();
         }
     }
 
@@ -1749,6 +1907,157 @@
     }
 
     // ========================================================================
+    // Message tree: edit / retry / version switch
+    // ========================================================================
+
+    function messageByIndex(btn) {
+        var host = btn.closest('[data-msg-index]');
+        var index = host ? parseInt(host.getAttribute('data-msg-index'), 10) : -1;
+        return index >= 0 ? state.messages[index] : null;
+    }
+
+    function onMessageAction(action, btn) {
+        var message = messageByIndex(btn);
+        if (!message || message.id == null) return;
+        if (action === 'edit') startEdit(message);
+        else if (action === 'retry') retryMessage(message);
+    }
+
+    function startEdit(message) {
+        if (state.streaming || sending) return;
+        if (state.pendingVision || state.pendingToolConfirm) return;
+        editingMessageId = message.id;
+        render();
+        var ta = els.messages.querySelector('[data-edit-input]');
+        if (ta) {
+            ta.focus();
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+    }
+
+    function cancelEdit() {
+        if (editingMessageId == null) return;
+        editingMessageId = null;
+        render();
+    }
+
+    function saveEdit() {
+        if (editingMessageId == null) return;
+        var ta = els.messages.querySelector('[data-edit-input]');
+        var message = null;
+        for (var i = 0; i < state.messages.length; i++) {
+            if (state.messages[i].id === editingMessageId) {
+                message = state.messages[i];
+                break;
+            }
+        }
+        if (!ta || !message) {
+            cancelEdit();
+            return;
+        }
+        var text = ta.value.trim();
+        if (!text) return;
+        editingMessageId = null;
+        sendEditedMessage(message, text);
+    }
+
+    function retryMessage(message) {
+        if (state.streaming || sending) return;
+        if (state.pendingVision || state.pendingToolConfirm) return;
+        sendEditedMessage(message, messageText(message));
+    }
+
+    /**
+     * Edit/retry: send the new text as a sibling version of an earlier
+     * user message and stream the replacement turn.
+     */
+    async function sendEditedMessage(message, text) {
+        if (!conversationId || state.streaming || sending) return;
+        sending = true;
+        try {
+            var itemIds = messageContextIds(message);
+            var body = { text: text, edit_of_message_id: message.id };
+            if (itemIds.length > 0) body.item_ids = itemIds;
+
+            // Optimistic echo; the post-turn history refetch binds the
+            // server ids and drops the replaced branch from view.
+            state = appendUserMessage(state, text, itemIds);
+            stickToBottom = true;
+            render();
+
+            await streamChat(
+                '/api/ai/chat/conversations/' + encodeURIComponent(conversationId) +
+                '/messages',
+                body
+            );
+        } finally {
+            sending = false;
+        }
+    }
+
+    /**
+     * Switch the conversation to the previous/next version of a user
+     * message, then reload the (branch-filtered) history.
+     */
+    async function onVersionStep(btn) {
+        var message = messageByIndex(btn);
+        if (!message || !Array.isArray(message.siblingIds) ||
+            message.id == null || state.streaming || sending) {
+            return;
+        }
+        var step = parseInt(btn.dataset.versionStep, 10) || 0;
+        var current = message.siblingIds.indexOf(message.id);
+        var target = message.siblingIds[current + step];
+        if (target == null || target === message.id) return;
+        try {
+            var resp = await csrfFetch(
+                baseUrl() + '/api/ai/chat/conversations/' +
+                encodeURIComponent(conversationId) + '/branch',
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message_id: target }),
+                }
+            );
+            if (!resp.ok) {
+                var detail = null;
+                try {
+                    var data = await resp.json();
+                    detail = data ? data.detail : null;
+                } catch (e) { /* ignore */ }
+                toast(detail || 'Failed to switch version (' + resp.status + ')', true);
+                return;
+            }
+            await refetchHistory();
+        } catch (err) {
+            console.error('[ai-chat] Failed to switch version:', err);
+            toast('Failed to switch version', true);
+        }
+    }
+
+    /**
+     * Reload the conversation history from the server (binds message ids
+     * after a turn, shows the active branch after a version switch).
+     */
+    async function refetchHistory() {
+        if (!conversationId) return;
+        try {
+            var resp = await fetch(
+                baseUrl() + '/api/ai/chat/conversations/' +
+                encodeURIComponent(conversationId) + '/messages',
+                { credentials: 'include' }
+            );
+            if (!resp.ok) return;
+            var data = await resp.json();
+            state = stateFromMessages(data.messages);
+            removeMessageElements(); // full state replacement
+            render();
+        } catch (err) {
+            console.warn('[ai-chat] Failed to refresh history:', err);
+        }
+    }
+
+    // ========================================================================
     // Open / close
     // ========================================================================
 
@@ -1831,6 +2140,14 @@
         '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>' +
         '</svg>';
 
+    var PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">' +
+        '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>' +
+        '</svg>';
+
+    var RETRY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">' +
+        '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>' +
+        '</svg>';
+
     // ========================================================================
     // Init
     // ========================================================================
@@ -1880,6 +2197,8 @@
             defaultBaseUrl: defaultBaseUrl,
             reasoningChoices: reasoningChoices,
             reasoningLabel: reasoningLabel,
+            messageContextIds: messageContextIds,
+            messageText: messageText,
         };
     }
 })();

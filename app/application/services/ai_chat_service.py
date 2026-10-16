@@ -77,6 +77,11 @@ class BusyError(Exception):
     """The user already has a chat turn running (409)."""
 
 
+class MessageNotFoundError(Exception):
+    """Message does not exist in the conversation or is not a user
+    message (404) - referenced by edit/retry or a branch switch."""
+
+
 class VisionRequestNotFoundError(Exception):
     """Vision request does not exist or belongs elsewhere (404)."""
 
@@ -346,8 +351,85 @@ class AiChatService:
     def get_messages(
         self, user_id: int, conversation_id: str, limit: int = 100
     ) -> List[dict]:
+        """Return the active branch's messages with version metadata.
+
+        User messages carry ``parent_id``, ``sibling_ids`` (the whole
+        version group), and ``version``/``version_count`` so the frontend
+        can render the ‹k/n› switcher without extra round-trips.
+        """
         self.require_conversation(user_id, conversation_id)
-        return self.chat_repo.get_messages(conversation_id, limit)
+        messages = self.chat_repo.get_messages(conversation_id, limit)
+        siblings_cache: Dict[Optional[int], List[int]] = {}
+        for message in messages:
+            if message["role"] != "user":
+                continue
+            parent = message.get("parent_id")
+            if parent not in siblings_cache:
+                siblings_cache[parent] = self.chat_repo.get_user_siblings(
+                    conversation_id, parent
+                )
+            siblings = siblings_cache[parent]
+            message["sibling_ids"] = siblings
+            message["version"] = siblings.index(message["id"]) + 1
+            message["version_count"] = len(siblings)
+        return messages
+
+    @staticmethod
+    def _drop_pending_for_conversation(conversation_id: str) -> None:
+        """Discard paused vision/confirmation requests of one conversation.
+
+        Used when the active branch moves away from a paused turn: letting
+        the decision endpoints fire later would append to the wrong branch.
+        """
+        for request_id, request in list(_pending_vision.items()):
+            if request.conversation_id == conversation_id:
+                _pending_vision.pop(request_id, None)
+        for request_id, confirmation in list(_pending_confirmations.items()):
+            if confirmation.conversation_id == conversation_id:
+                _pending_confirmations.pop(request_id, None)
+
+    def check_edit_target(
+        self, user_id: int, conversation_id: str, message_id: int
+    ) -> None:
+        """Validate an edit/retry target before the turn streams.
+
+        Raises:
+            ConversationNotFoundError: Unknown or foreign conversation.
+            MessageNotFoundError: Unknown message or not a user message.
+        """
+        self.require_conversation(user_id, conversation_id)
+        message = self.chat_repo.get_message(conversation_id, message_id)
+        if message is None or message["role"] != "user":
+            raise MessageNotFoundError(f"message {message_id} not found")
+
+    def switch_branch(
+        self, user_id: int, conversation_id: str, message_id: int
+    ) -> int:
+        """Activate the branch through a user message (version switch).
+
+        Pending vision/confirmation requests of the conversation are
+        dropped: they belong to the branch being left.
+
+        Args:
+            user_id: Owner's user ID.
+            conversation_id: Conversation ID.
+            message_id: The user-message version to activate.
+
+        Returns:
+            The new active leaf id.
+
+        Raises:
+            ConversationNotFoundError: Unknown or foreign conversation.
+            MessageNotFoundError: Unknown message or not a user message.
+        """
+        self.require_conversation(user_id, conversation_id)
+        message = self.chat_repo.get_message(conversation_id, message_id)
+        if message is None or message["role"] != "user":
+            raise MessageNotFoundError(f"message {message_id} not found")
+        self._drop_pending_for_conversation(conversation_id)
+        leaf = self.chat_repo.deepest_leaf(conversation_id, message_id)
+        self.chat_repo.set_active_leaf(conversation_id, leaf)
+        return leaf
 
     # =====================================================================
     # Agents + system prompt
@@ -509,23 +591,44 @@ class AiChatService:
         conversation_id: str,
         text: str,
         attached_item_ids: Optional[List[str]] = None,
+        edit_of_message_id: Optional[int] = None,
     ) -> AsyncIterator:
         """Run one user-message turn, yielding ``(event, payload)`` tuples.
+
+        With ``edit_of_message_id`` the turn is an edit/retry of an
+        earlier user message: the new message branches off that message's
+        parent (a sibling version) and becomes the active branch; paused
+        vision/confirmation requests of the conversation are dropped.
 
         Raises:
             ConversationNotFoundError: Unknown or foreign conversation.
             BusyError: The user already has a running turn.
+            MessageNotFoundError: ``edit_of_message_id`` is not a user
+                message of this conversation.
         """
         self.require_conversation(user_id, conversation_id)
         self._acquire_slot(user_id)
         try:
+            parent_id = None
+            if edit_of_message_id is not None:
+                original = self.chat_repo.get_message(
+                    conversation_id, edit_of_message_id
+                )
+                if original is None or original["role"] != "user":
+                    raise MessageNotFoundError(
+                        f"message {edit_of_message_id} not found"
+                    )
+                self._drop_pending_for_conversation(conversation_id)
+                parent_id = original.get("parent_id")
             parts = [{"type": "text", "text": text}]
             if attached_item_ids:
                 parts.append({
                     "type": "context",
                     "item_ids": [str(item_id) for item_id in attached_item_ids],
                 })
-            self.chat_repo.add_message(conversation_id, "user", parts)
+            self.chat_repo.add_message(
+                conversation_id, "user", parts, parent_id=parent_id
+            )
 
             user_message_count = sum(
                 1

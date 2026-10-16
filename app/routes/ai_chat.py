@@ -25,6 +25,7 @@ from ..application.services.ai_agent_service import AgentNotFoundError
 from ..application.services.ai_chat_service import (
     AiChatService,
     ConversationNotFoundError,
+    MessageNotFoundError,
     ToolConfirmationExpiredError,
     ToolConfirmationNotFoundError,
     VisionRequestExpiredError,
@@ -83,6 +84,14 @@ class CreateConversationRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     text: str = Field(min_length=1)
     item_ids: Optional[List[str]] = None
+    # Edit/retry: the user message this turn replaces with a new version.
+    # The new message branches off the original's parent and becomes the
+    # active branch; the old branch stays in the tree.
+    edit_of_message_id: Optional[int] = None
+
+
+class BranchSwitchRequest(BaseModel):
+    message_id: int
 
 
 class VisionDecisionRequest(BaseModel):
@@ -225,24 +234,60 @@ def get_messages(request: Request, conversation_id: str):
 def post_message(
     request: Request, conversation_id: str, data: SendMessageRequest
 ):
-    """Send a message and stream the assistant's turn as SSE."""
+    """Send a message and stream the assistant's turn as SSE.
+
+    With ``edit_of_message_id`` the message replaces an earlier user
+    message as a new branch version (edit/retry).
+    """
     user = require_user(request)
 
     db = create_connection()
     try:
         service = build_ai_chat_service(db)
         dek = _precheck_turn(service, user, conversation_id)
+        if data.edit_of_message_id is not None:
+            service.check_edit_target(
+                user["id"], conversation_id, data.edit_of_message_id
+            )
     except ConversationNotFoundError:
         raise _not_found()
+    except MessageNotFoundError:
+        raise HTTPException(status_code=404, detail="Message not found")
     finally:
         db.close()
 
     def build_generator(service):
         return service.run_message_turn(
-            user["id"], dek, conversation_id, data.text, data.item_ids
+            user["id"], dek, conversation_id, data.text, data.item_ids,
+            edit_of_message_id=data.edit_of_message_id,
         )
 
     return _sse_stream(build_generator)
+
+
+@router.post("/conversations/{conversation_id}/branch")
+def switch_branch(
+    request: Request, conversation_id: str, data: BranchSwitchRequest
+):
+    """Activate the branch through a user message (version switch)."""
+    user = require_user(request)
+
+    db = create_connection()
+    try:
+        service = build_ai_chat_service(db)
+        service.require_conversation(user["id"], conversation_id)
+        if service.is_busy(user["id"]):
+            raise HTTPException(
+                status_code=409, detail="A chat turn is already running"
+            )
+        service.switch_branch(user["id"], conversation_id, data.message_id)
+    except ConversationNotFoundError:
+        raise _not_found()
+    except MessageNotFoundError:
+        raise HTTPException(status_code=404, detail="Message not found")
+    finally:
+        db.close()
+    return {"status": "ok"}
 
 
 @router.post("/conversations/{conversation_id}/vision/{request_id}/decision")

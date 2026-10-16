@@ -6261,6 +6261,106 @@ a.sidebar-ai-btn:hover {
     color: var(--text);
 }
 
+/* User message extras: version switcher + edit/retry actions */
+.ai-msg-versions {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    justify-content: flex-end;
+    margin-top: 0.3rem;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.ai-msg-version-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.9rem;
+    line-height: 1;
+    padding: 0 0.25rem;
+    border-radius: 4px;
+}
+
+.ai-msg-version-btn:hover:not(:disabled) {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.ai-msg-version-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.ai-msg-actions {
+    display: flex;
+    gap: 0.15rem;
+    justify-content: flex-end;
+    margin-top: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.ai-msg-user:hover .ai-msg-actions,
+.ai-msg-actions:focus-within {
+    opacity: 1;
+}
+
+.ai-msg-action-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.2rem;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+}
+
+.ai-msg-action-btn:hover {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* Touch devices have no hover: keep the actions visible. */
+@media (hover: none) {
+    .ai-msg-actions {
+        opacity: 1;
+    }
+}
+
+/* Inline edit box for a stored user message */
+.ai-msg-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.ai-msg-edit-input {
+    width: 100%;
+    resize: vertical;
+    min-height: 2.4rem;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid rgba(59, 130, 246, 0.5);
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    font: inherit;
+    font-size: 0.9rem;
+}
+
+.ai-msg-edit-input:focus {
+    outline: none;
+    border-color: var(--primary, #3b82f6);
+}
+
+.ai-msg-edit-buttons {
+    display: flex;
+    gap: 0.4rem;
+    justify-content: flex-end;
+}
+
 .ai-msg-assistant {
     align-self: stretch;
     width: 100%;

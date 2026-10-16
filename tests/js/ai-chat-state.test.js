@@ -332,3 +332,58 @@ describe('stateFromMessages (history hydration)', () => {
         expect(state2.messages[0].parts).toEqual([]);
     });
 });
+
+describe('message tree metadata (edit/retry/version switch)', () => {
+    test('stateFromMessages carries id/parent/version metadata', () => {
+        const state = stateFromMessages([
+            {
+                id: 1, role: 'user', parent_id: null,
+                sibling_ids: [1, 5], version: 1, version_count: 2,
+                parts: [{ type: 'text', text: 'v1' }],
+            },
+            { id: 2, role: 'assistant', parent_id: 1, parts: [{ type: 'text', text: 'a' }] },
+        ]);
+        expect(state.messages[0].id).toBe(1);
+        expect(state.messages[0].parentId).toBeNull();
+        expect(state.messages[0].siblingIds).toEqual([1, 5]);
+        expect(state.messages[0].version).toBe(1);
+        expect(state.messages[0].versionCount).toBe(2);
+        // Assistant messages carry the row id too (no actions rendered).
+        expect(state.messages[1].id).toBe(2);
+    });
+
+    test('cloneState preserves the tree metadata across event updates', () => {
+        let state = stateFromMessages([
+            {
+                id: 7, role: 'user', parent_id: 3,
+                sibling_ids: [5, 7], version: 2, version_count: 2,
+                parts: [{ type: 'text', text: 'q' }],
+            },
+        ]);
+        state = applyChatEvent(state, { type: 'token', text: 'answer' });
+        const user = state.messages[0];
+        expect(user.id).toBe(7);
+        expect(user.parentId).toBe(3);
+        expect(user.siblingIds).toEqual([5, 7]);
+        expect(user.versionCount).toBe(2);
+    });
+
+    test('optimistic user messages have no id (no actions rendered yet)', () => {
+        const state = appendUserMessage(newChatState(), 'hello', null);
+        expect(state.messages[0].id).toBeNull();
+        expect(state.messages[0].siblingIds).toEqual([]);
+    });
+
+    test('messageText/messageContextIds read user message parts', () => {
+        const mod = require('../../app/static/js/ai-chat.js');
+        const message = {
+            parts: [
+                { type: 'text', text: 'describe this' },
+                { type: 'context', item_ids: ['abc', 'def'] },
+            ],
+        };
+        expect(mod.messageText(message)).toBe('describe this');
+        expect(mod.messageContextIds(message)).toEqual(['abc', 'def']);
+        expect(mod.messageContextIds({ parts: [{ type: 'text', text: 'x' }] })).toEqual([]);
+    });
+});

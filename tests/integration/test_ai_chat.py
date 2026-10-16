@@ -1452,3 +1452,225 @@ def test_list_folder_tool_pages_items(db_connection, test_user, test_folder):
     assert "next_offset" not in tail
 
 
+# ============================================================================
+# Message tree: edit/retry branches, version switch
+# ============================================================================
+
+def _edit_message(client, csrf_headers, conversation_id, text, edit_of):
+    return client.post(
+        f"/api/ai/chat/conversations/{conversation_id}/messages",
+        json={"text": text, "edit_of_message_id": edit_of},
+        headers=csrf_headers,
+    )
+
+
+def _switch_branch(client, csrf_headers, conversation_id, message_id):
+    return client.post(
+        f"/api/ai/chat/conversations/{conversation_id}/branch",
+        json={"message_id": message_id},
+        headers=csrf_headers,
+    )
+
+
+def test_edit_creates_sibling_branch_and_version_switch_works(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    """Retry/edit of an earlier user message forks a sibling branch; the
+    version switch moves the conversation between the two branches."""
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient([
+        _text_turn("answer one"),
+        _text_turn("answer two"),
+    ])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+    conv_id = conversation["id"]
+    repo = AiChatRepository(db_connection)
+
+    _assert_ok(_post_message(authenticated_client, csrf, conv_id, "question v1"))
+    history = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conv_id}/messages"
+    ).json()["messages"]
+    user_v1 = history[0]
+    assert user_v1["role"] == "user"
+    assert user_v1["parent_id"] is None
+    assert user_v1["version_count"] == 1  # no siblings yet
+
+    # Retry the same question: a sibling user message branches off the
+    # same parent (None) and the active leaf moves to the new branch.
+    _assert_ok(
+        _edit_message(authenticated_client, csrf, conv_id, "question v2", user_v1["id"])
+    )
+    branch = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conv_id}/messages"
+    ).json()["messages"]
+    assert [m["role"] for m in branch] == ["user", "assistant"]
+    assert branch[0]["parts"][0]["text"] == "question v2"
+    assert branch[1]["parts"][0]["text"] == "answer two"
+    # Version metadata describes the whole group, not the active path.
+    assert branch[0]["version"] == 2
+    assert branch[0]["version_count"] == 2
+    assert branch[0]["sibling_ids"] == [user_v1["id"], branch[0]["id"]]
+
+    # The old branch is still stored.
+    old_user = repo.get_message(conv_id, user_v1["id"])
+    assert old_user is not None and old_user["role"] == "user"
+
+    # Switch back to version 1: the path now shows the original branch.
+    _assert_ok(
+        _switch_branch(authenticated_client, csrf, conv_id, user_v1["id"])
+    )
+    restored = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conv_id}/messages"
+    ).json()["messages"]
+    assert [m["parts"][0]["text"] for m in restored] == ["question v1", "answer one"]
+    assert restored[0]["version"] == 1
+
+    # ...and forward again to version 2.
+    _assert_ok(
+        _switch_branch(authenticated_client, csrf, conv_id, branch[0]["id"])
+    )
+    again = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conv_id}/messages"
+    ).json()["messages"]
+    assert again[0]["parts"][0]["text"] == "question v2"
+
+    # All four messages chained: new leaf = the newest assistant message.
+    stored_conv = repo.get_conversation(conv_id, test_user["id"])
+    assert stored_conv["active_leaf_id"] == again[1]["id"]
+
+
+def test_edit_of_unknown_message_is_404(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient([_text_turn("ok")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+
+    response = _edit_message(
+        authenticated_client, csrf, conversation["id"], "x", 999999
+    )
+    assert response.status_code == 404
+    # Foreign conversation id: 404 as well.
+    response = _edit_message(
+        authenticated_client, csrf, "no-such-conversation", "x", 1
+    )
+    assert response.status_code == 404
+
+
+def test_switch_branch_validates_message_and_role(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient([_text_turn("ok")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+    conv_id = conversation["id"]
+    _assert_ok(_post_message(authenticated_client, csrf, conv_id, "Hi"))
+
+    history = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conv_id}/messages"
+    ).json()["messages"]
+    assistant_id = history[1]["id"]
+
+    # Unknown message id.
+    response = _switch_branch(authenticated_client, csrf, conv_id, 999999)
+    assert response.status_code == 404
+    # Assistant messages are not switch targets (only user versions).
+    response = _switch_branch(authenticated_client, csrf, conv_id, assistant_id)
+    assert response.status_code == 404
+
+
+def test_switch_branch_is_rejected_while_busy(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    _configure_provider(db_connection, test_user["id"], dek)
+    conversation = _create_conversation(authenticated_client, csrf)
+    ai_chat_service_module._active_users.add(test_user["id"])
+    try:
+        response = _switch_branch(
+            authenticated_client, csrf, conversation["id"], 1
+        )
+        assert response.status_code == 409
+    finally:
+        ai_chat_service_module._active_users.discard(test_user["id"])
+
+
+def test_switch_branch_drops_pending_decisions(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    """Leaving the branch of a paused turn discards its pending vision and
+    confirmation requests (resolving them would append to the wrong branch)."""
+    from app.application.services.ai_chat_service import (
+        ToolConfirmation,
+        VisionRequest,
+    )
+
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient([_text_turn("ok")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+    conv_id = conversation["id"]
+    _assert_ok(_post_message(authenticated_client, csrf, conv_id, "Hi"))
+    history = authenticated_client.get(
+        f"/api/ai/chat/conversations/{conv_id}/messages"
+    ).json()["messages"]
+
+    vision = VisionRequest(
+        request_id="req-v", user_id=test_user["id"], conversation_id=conv_id,
+        tool_call_id="c1", item_ids=[], created_at=0.0,
+    )
+    confirmation = ToolConfirmation(
+        request_id="req-c", user_id=test_user["id"], conversation_id=conv_id,
+        call_id="c2", tool_name="update_item", arguments_json="{}",
+        remaining_calls=[], created_at=0.0,
+    )
+    ai_chat_service_module._pending_vision["req-v"] = vision
+    ai_chat_service_module._pending_confirmations["req-c"] = confirmation
+    try:
+        _assert_ok(
+            _switch_branch(authenticated_client, csrf, conv_id, history[0]["id"])
+        )
+        assert "req-v" not in ai_chat_service_module._pending_vision
+        assert "req-c" not in ai_chat_service_module._pending_confirmations
+    finally:
+        ai_chat_service_module._pending_vision.pop("req-v", None)
+        ai_chat_service_module._pending_confirmations.pop("req-c", None)
+
+
+def test_tool_turns_chain_onto_the_branch(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch
+):
+    """A tool flow (user, assistant tool_call, tool result, assistant)
+    keeps a single parent chain in the tree."""
+    scripted = [
+        [
+            TextDelta("Let me look."),
+            ToolCallsReady([ToolCall("c1", "list_folders", "{}")], ""),
+        ],
+        [TextDelta("Done."), TurnComplete(StopReason.END_TURN, 1, 1)],
+    ]
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient(scripted)
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+    conv_id = conversation["id"]
+    _assert_ok(_post_message(authenticated_client, csrf, conv_id, "Hi"))
+
+    repo = AiChatRepository(db_connection)
+    messages = repo.get_messages(conv_id)
+    roles = [m["role"] for m in messages]
+    assert roles == ["user", "assistant", "tool", "assistant"]
+    for prev, nxt in zip(messages, messages[1:]):
+        assert nxt["parent_id"] == prev["id"]
