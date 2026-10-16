@@ -330,6 +330,7 @@
                                         <line x1="16" y1="17" x2="8" y2="17"></line>
                                     </svg>
                                     <span class="note-ext">${escapeHtml(ext)}</span>
+                                    <span class="note-filename" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</span>
                                 </div>
                             `}
                         </div>
