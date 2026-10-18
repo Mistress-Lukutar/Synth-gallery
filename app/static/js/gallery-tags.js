@@ -729,9 +729,11 @@
     async function rejectSuggestion(tagId) {
         const contextIds = currentTags.map(t => t.id);
         await recordFeedback(tagId, 'rejected', contextIds);
-        // Remove from UI immediately
+        // Remove from UI immediately, then let the server refill the list
+        // with the next-best candidates (rejected tags are excluded per item)
         relatedSuggestions = relatedSuggestions.filter(t => t.id !== tagId);
         renderRelatedSuggestions();
+        await loadRelatedSuggestions();
     }
 
     async function removeTag(tagId) {

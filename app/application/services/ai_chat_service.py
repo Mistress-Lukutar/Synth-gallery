@@ -566,6 +566,15 @@ class AiChatService:
                 "with get_tag_info first. Cross-reference related tags "
                 "with [[tag_name]] wiki-links."
             )
+        if has("record_tag_feedback"):
+            lines.append(
+                "- When the user judges tag suggestions (get_tag_suggestions), "
+                "record every verdict with ONE record_tag_feedback batch "
+                "call: outcome 'accepted' means the suggestion fits "
+                "(it does NOT add the tag - apply tags with add_item_tags), "
+                "'rejected' means it does not - the tag then disappears from "
+                "suggestions for that item."
+            )
         if has("audit_library"):
             lines.append(
                 "- For 'find all items ...' requests (missing tags, "

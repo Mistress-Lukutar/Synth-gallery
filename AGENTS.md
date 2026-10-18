@@ -11,7 +11,7 @@ Synth Gallery is a **personal media vault** with server-side encryption, hardwar
 - **Hardware Key Login**: WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Folder Hierarchy**: Nested folders with sharing support (Viewer/Editor permissions)
 - **Albums**: Group related media with drag-and-drop reordering
-- **Tags & Search**: Categorize and find content quickly; tags carry Markdown descriptions (AI-editable via `set_tag_descriptions`, `[[tag]]` wiki-links)
+- **Tags & Search**: Categorize and find content quickly; tags carry Markdown descriptions (AI-editable via `set_tag_descriptions`, `[[tag]]` wiki-links); PMI-based tag suggestions learn from accept/reject feedback — a rejected tag is hidden from that item's suggestions for good
 - **AI Chat**: In-site assistant sidebar with server-side tool-call agent loop; per-user LLM provider keys encrypted with the user's DEK; vision via user-approved `view_images`
 - **AI Agents**: per-user chat personas (system prompt + explicit tool allow-list) with three seeded built-ins; every mutating tool call pauses the turn for an approval card in the chat (optional per-chat "always allow")
 - **Backup & Recovery**: Full backups with integrity verification and recovery keys
@@ -580,6 +580,15 @@ messages append to and that history replay walks.
   16000) BEFORE persisting, so truncation is visible in the stored
   history. `list_folder` pages its items with `offset` (max limit 1000,
   compact entries without the constant `type` field).
+- **Suggestion feedback**: `record_tag_feedback` (category `tags`,
+  confirmation `always`, Tagger + Curator) batch-records
+  accepted/rejected verdicts on `get_tag_suggestions` output (accepting
+  does NOT add the tag — that is `add_item_tags`). A rejection is a
+  per-item blocklist: `TagSuggestionService.get_suggestions_for_item`
+  excludes tags rejected for that item forever, and the gallery panel
+  (`gallery-tags.js` `rejectSuggestion`) refetches right after a reject
+  so the list refills with the next-best candidates instead of
+  shrinking.
 
 ## Build and Run Commands
 

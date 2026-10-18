@@ -1147,6 +1147,81 @@ def _tool_get_tag_suggestions(args: dict, ctx: ToolContext) -> str:
     }, ensure_ascii=False)
 
 
+_FEEDBACK_OUTCOMES = ("accepted", "rejected")
+
+
+def _tool_record_tag_feedback(args: dict, ctx: ToolContext) -> str:
+    item_id = str(args.get("item_id") or "").strip()
+    decisions = args.get("decisions")
+    if not item_id:
+        raise ToolError("item_id is required")
+    if not isinstance(decisions, list) or not (1 <= len(decisions) <= 50):
+        raise ToolError(
+            "decisions must be a list of 1-50 {tag_id, outcome} objects"
+        )
+
+    # Last decision per tag wins; keep first-seen order for the summary.
+    by_tag: dict[int, str] = {}
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            raise ToolError(
+                "each decision must be an object with tag_id and outcome"
+            )
+        tag_id = decision.get("tag_id")
+        outcome = decision.get("outcome")
+        if isinstance(tag_id, bool) or not isinstance(tag_id, int):
+            raise ToolError("decision.tag_id must be an integer")
+        if outcome not in _FEEDBACK_OUTCOMES:
+            raise ToolError(
+                "decision.outcome must be one of: "
+                + ", ".join(_FEEDBACK_OUTCOMES)
+            )
+        by_tag[tag_id] = outcome
+
+    db = create_connection()
+    try:
+        item_id = _get_owned_item(db, item_id, ctx)["id"]
+        tags_repo = TagsRepository(db)
+        unknown = [
+            tag_id for tag_id in by_tag
+            if tags_repo.get_by_id(tag_id) is None
+        ]
+        if unknown:
+            raise ToolError(
+                "unknown tag ids: " + ", ".join(str(t) for t in unknown)
+            )
+        context_ids = [t["id"] for t in tags_repo.get_item_tags_all(item_id)]
+        service = TagSuggestionService(
+            cooccurrence_repo=TagCooccurrenceRepository(db),
+            tags_repo=tags_repo,
+            mutex_repo=TagMutexRepository(db),
+            feedback_repo=TagFeedbackRepository(db),
+        )
+        recorded = []
+        for tag_id, outcome in by_tag.items():
+            service.record_feedback(item_id, context_ids, tag_id, outcome)
+            recorded.append({
+                "tag": tags_repo.get_by_id(tag_id)["name"],
+                "outcome": outcome,
+            })
+    finally:
+        db.close()
+
+    notes = []
+    if any(r["outcome"] == "accepted" for r in recorded):
+        notes.append(
+            "accepted does not add the tag; use add_item_tags to apply it"
+        )
+    if any(r["outcome"] == "rejected" for r in recorded):
+        notes.append(
+            "rejected tags no longer appear in suggestions for this item"
+        )
+    return json.dumps(
+        {"recorded": recorded, "note": "; ".join(notes)},
+        ensure_ascii=False,
+    )
+
+
 def _tool_audit_library(args: dict, ctx: ToolContext) -> str:
     requested = args.get("checks")
     if requested is None:
@@ -2095,7 +2170,9 @@ def _build_registry() -> dict:
             name="get_tag_suggestions",
             description=(
                 "Get statistically related tag suggestions for an item "
-                "based on its current tags and library co-occurrence."
+                "based on its current tags, library co-occurrence and past "
+                "feedback. Tags the user rejected for this item are already "
+                "excluded."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -2109,6 +2186,54 @@ def _build_registry() -> dict:
             },
             executor=_tool_get_tag_suggestions,
             category="tags",
+        ),
+        ToolDef(
+            name="record_tag_feedback",
+            description=(
+                "Record feedback on tag suggestions for an item in ONE "
+                "batch call. outcome 'accepted' = the suggestion fits; "
+                "'rejected' = it does not, and the tag disappears from "
+                "future get_tag_suggestions for this item. Accepting does "
+                "NOT add the tag to the item — use add_item_tags for that."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "Item id.",
+                    },
+                    "decisions": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "description": (
+                            "Batch of decisions; a repeated tag_id resolves "
+                            "to the last decision for it."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tag_id": {
+                                    "type": "integer",
+                                    "description": (
+                                        "Tag id from get_tag_suggestions."
+                                    ),
+                                },
+                                "outcome": {
+                                    "type": "string",
+                                    "enum": list(_FEEDBACK_OUTCOMES),
+                                },
+                            },
+                            "required": ["tag_id", "outcome"],
+                        },
+                    },
+                },
+                "required": ["item_id", "decisions"],
+            },
+            executor=_tool_record_tag_feedback,
+            category="tags",
+            confirmation="always",
         ),
         ToolDef(
             name="audit_library",

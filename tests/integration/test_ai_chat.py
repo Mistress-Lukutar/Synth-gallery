@@ -1080,7 +1080,7 @@ def test_tool_registry_has_expected_tools():
         "search_items", "list_folder", "get_item", "get_item_metadata",
         "read_note", "list_tags",
         "get_tag_info", "list_folders", "list_albums", "list_album_items",
-        "get_tag_suggestions",
+        "get_tag_suggestions", "record_tag_feedback",
         "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
         "update_item", "set_item_metadata", "set_tag_descriptions",
         "create_note", "write_note", "create_folder",
