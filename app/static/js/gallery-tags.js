@@ -955,13 +955,17 @@
     // Load and display item details (used when panel is already open)
     window.loadItemDetails = async function(itemId) {
         if (!itemId) return;
-        editingItemId = itemId;
+        const previousItemId = editingItemId;
 
-        // Save any pending changes for previous item
+        // Save any pending changes for the previous item; the target id must
+        // be captured before editingItemId moves to the new item, otherwise
+        // the old item's edits are written to the new one
         clearTimeout(saveTimeout);
-        if (hasChanges()) {
-            await autoSave();
+        if (previousItemId && hasChanges()) {
+            await autoSave(previousItemId);
         }
+
+        editingItemId = itemId;
 
         // Staged chips belong to the previous item
         if (tagInput) tagInput.clear();
@@ -994,10 +998,20 @@
     };
 
     window.openItemDetails = async function(itemId) {
+        const previousItemId = editingItemId;
         editingItemId = itemId || window.currentLightboxPhotoId;
         if (!editingItemId) {
             console.error('[gallery-tags] No item ID');
             return;
+        }
+
+        // Panel was open on another item (toolbar button): flush its pending
+        // edits before the fields are reloaded for the new one
+        if (previousItemId && previousItemId !== editingItemId) {
+            clearTimeout(saveTimeout);
+            if (hasChanges()) {
+                await autoSave(previousItemId);
+            }
         }
 
         // Close album editor if open
@@ -1072,14 +1086,18 @@
         if (!editingItemId) return;
         if (!hasChanges()) return; // Don't save if nothing changed
 
+        const itemId = editingItemId;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
-            autoSave();
+            autoSave(itemId);
         }, SAVE_DELAY);
     }
 
-    async function autoSave() {
-        if (!editingItemId) return;
+    async function autoSave(targetId = null) {
+        // Resolve the target synchronously: an explicit id pins the save to
+        // the item that was edited even if editingItemId changes in-flight
+        const itemId = targetId ?? editingItemId;
+        if (!itemId) return;
         if (!hasChanges()) return; // Skip if nothing changed
 
         // Get values
@@ -1093,7 +1111,7 @@
         };
 
         try {
-            const resp = await saveMetadata(editingItemId, metadata);
+            const resp = await saveMetadata(itemId, metadata);
             if (resp.ok) {
                 // Update cached metadata
                 const data = await resp.json();
@@ -1127,18 +1145,25 @@
     }
 
     window.closeItemDetails = async function() {
+        const closingItemId = editingItemId;
+
         // Save any pending changes before closing (only if changed)
         clearTimeout(saveTimeout);
-        if (hasChanges()) {
-            await autoSave();
+        const hadChanges = Boolean(closingItemId) && hasChanges();
+
+        // Detach the panel before awaiting the save: a navigation landing
+        // mid-save must not reroute through loadItemDetails and reopen it
+        itemDetailsPanel?.classList.remove('open');
+        lightbox?.classList.remove('panel-open');
+
+        if (hadChanges) {
+            await autoSave(closingItemId);
         }
 
         if (window.BackButtonManager) {
             window.BackButtonManager.unregister('item-details', true);
         }
 
-        itemDetailsPanel?.classList.remove('open');
-        lightbox?.classList.remove('panel-open');
         editingItemId = null;
         currentTags = [];
         currentItemMetadata = null;
