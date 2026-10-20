@@ -23,6 +23,7 @@ from app.config import CSRF_COOKIE_NAME
 from app.database import create_connection
 from app.infrastructure.repositories import (
     AiChatRepository,
+    AlbumRepository,
     AiChatSettingsRepository,
     AiModelRepository,
     AiProviderRepository,
@@ -175,10 +176,14 @@ def _create_conversation(client: TestClient, csrf_headers) -> dict:
     return response.json()["conversation"]
 
 
-def _post_message(client, csrf_headers, conversation_id, text, item_ids=None):
+def _post_message(
+    client, csrf_headers, conversation_id, text, item_ids=None, album_ids=None
+):
     body = {"text": text}
     if item_ids is not None:
         body["item_ids"] = item_ids
+    if album_ids is not None:
+        body["album_ids"] = album_ids
     return client.post(
         f"/api/ai/chat/conversations/{conversation_id}/messages",
         json=body,
@@ -238,6 +243,114 @@ def test_plain_answer_streams_tokens_and_persists(
     assert request.system_prompt and "Synth Gallery" in request.system_prompt
     assert request.tools, "tool specs must be advertised"
     assert [turn.role for turn in request.turns] == ["user"]
+
+
+# ============================================================================
+# 1b. Album attachment expansion
+# ============================================================================
+
+
+def test_album_ids_expand_into_context_part(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch,
+    test_folder, csrf_token,
+):
+    """Album ids attached to a message are expanded into their member item
+    ids and stored as a context part alongside the user text."""
+    _configure_provider(db_connection, test_user["id"], dek)
+
+    # Upload two photos into the test folder.
+    from PIL import Image
+    import io
+
+    img = Image.new("RGB", (100, 100), color="red")
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format="JPEG", quality=85)
+    raw = img_bytes.getvalue()
+
+    response = authenticated_client.post(
+        "/api/uploads",
+        data={"folder_id": test_folder},
+        files={"file": ("a.jpg", raw, "image/jpeg")},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    photo_a = response.json()["id"]
+
+    response = authenticated_client.post(
+        "/api/uploads",
+        data={"folder_id": test_folder},
+        files={"file": ("b.jpg", raw, "image/jpeg")},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    photo_b = response.json()["id"]
+
+    # Upload a third photo (will be passed via item_ids).
+    response = authenticated_client.post(
+        "/api/uploads",
+        data={"folder_id": test_folder},
+        files={"file": ("c.jpg", raw, "image/jpeg")},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert response.status_code == 200
+    photo_c = response.json()["id"]
+
+    # Create an album with photos a and b.
+    album_id = AlbumRepository(db_connection).create(test_folder, test_user["id"], "Pics")
+    AlbumRepository(db_connection).add_item(album_id, photo_a, position=1)
+    AlbumRepository(db_connection).add_item(album_id, photo_b, position=2)
+
+    fake = FakeLLMClient([_text_turn("ok")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+
+    response = _post_message(
+        authenticated_client,
+        csrf,
+        conversation["id"],
+        "look at these",
+        item_ids=[photo_c],
+        album_ids=[album_id],
+    )
+    assert response.status_code == 200
+
+    # Verify the persisted user message carries the deduped union.
+    repo = AiChatRepository(db_connection)
+    messages = repo.get_messages(conversation["id"])
+    parts = messages[0]["parts"]
+    text_part = [p for p in parts if p["type"] == "text"][0]
+    assert text_part["text"] == "look at these"
+    ctx_part = [p for p in parts if p["type"] == "context"][0]
+    assert ctx_part["item_ids"] == [photo_c, photo_a, photo_b]
+
+
+def test_unknown_album_id_rejected_before_stream(
+    authenticated_client, csrf, db_connection, test_user, dek, monkeypatch,
+):
+    """An unknown album id causes a 404 before SSE streaming starts."""
+    _configure_provider(db_connection, test_user["id"], dek)
+    fake = FakeLLMClient([_text_turn("ok")])
+    monkeypatch.setattr(
+        ai_chat_service_module, "_get_llm_client", lambda protocol: fake
+    )
+    conversation = _create_conversation(authenticated_client, csrf)
+
+    response = _post_message(
+        authenticated_client,
+        csrf,
+        conversation["id"],
+        "hello",
+        album_ids=["00000000-0000-0000-0000-000000000000"],
+    )
+    assert response.status_code == 404
+    assert "Album not found" in response.json()["detail"]
+
+    # No user message was persisted.
+    repo = AiChatRepository(db_connection)
+    messages = repo.get_messages(conversation["id"])
+    assert len([m for m in messages if m["role"] == "user"]) == 0
 
 
 def test_max_output_tokens_reaches_llm_request(

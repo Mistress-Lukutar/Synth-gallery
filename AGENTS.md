@@ -439,6 +439,15 @@ the default assistant (no agent = every tool, generic prompt).
   resumes the turn; `always_allow` remembers `(conversation_id, tool_name)`
   in-process for the session. Pending confirmations use the same TTL and
   replay-dropping pattern as vision requests.
+- **Message attachments**: `SendMessageRequest` accepts `item_ids` and
+  `album_ids`; the route expands each album to its member item ids via
+  `AlbumService.list_album_item_ids` (visibility-checked — unknown or
+  invisible albums answer 404 before streaming starts) and merges both
+  lists deduped into the user message's `context` part. The composer
+  chip attaches the gallery selection (`selectedPhotos` +
+  `selectedAlbums`); messages render attachments as a count chip plus up
+  to 8 square thumbnails (`/files/{id}/thumbnail`, cap + "+N" tile,
+  unloadable thumbnails collapse into a placeholder tile).
 - **Web access**: `fetch_url` (one public URL → readable text; HTML is
   reduced to text, JSON/XML passes through; long pages paged via
   `next_offset`) and `web_search` (keyless DuckDuckGo HTML scrape) live

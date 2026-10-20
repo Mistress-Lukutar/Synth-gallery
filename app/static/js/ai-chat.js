@@ -982,10 +982,23 @@
                 showList();
             }
         }, { passive: true });
+
+        // Broken-thumbnail handling via capture-phase delegation (error events do not bubble).
+        els.messages.addEventListener('error', function (e) {
+            var img = e.target;
+            if (!img || img.tagName !== 'IMG') return;
+            var cell = img.closest ? img.closest('.ai-msg-thumb') : null;
+            if (cell) { img.remove(); cell.classList.add('ai-thumb-broken'); }
+        }, true);
+    }
+
+    function albumSelectionIds() {
+        if (typeof window === 'undefined' || !window.selectedAlbums) return [];
+        return Array.from(window.selectedAlbums || []);
     }
 
     function setAttached(value) {
-        attachedSelection = !!value && selectionIds().length > 0;
+        attachedSelection = !!value && (selectionIds().length + albumSelectionIds().length) > 0;
     }
 
     function selectionIds() {
@@ -1284,7 +1297,7 @@
                     '</div>';
             }
             case 'context':
-                return '<div class="ai-chat-chips">' + renderContextChip(part.item_ids) + '</div>';
+                return '<div class="ai-chat-chips">' + renderContextChip(part.item_ids) + '</div>' + renderContextThumbs(part.item_ids);
             case 'tool':
                 return renderToolCard(part);
             case 'error':
@@ -1300,6 +1313,30 @@
         return '<span class="ai-chip" title="' + esc(ids.join(', ')) + '">' +
             CONTEXT_SVG + ' ' + ids.length + (ids.length === 1 ? ' item' : ' items') +
             '</span>';
+    }
+
+    var CONTEXT_THUMB_CAP = 8;
+
+    function contextThumbIds(itemIds, cap) {
+        var ids = Array.isArray(itemIds) ? itemIds : [];
+        var limit = typeof cap === 'number' && cap > 0 ? cap : CONTEXT_THUMB_CAP;
+        return { shown: ids.slice(0, limit), hidden: Math.max(0, ids.length - limit) };
+    }
+
+    function renderContextThumbs(itemIds) {
+        var split = contextThumbIds(itemIds);
+        if (split.shown.length === 0) return '';
+        var html = '<div class="ai-msg-thumbs">';
+        for (var i = 0; i < split.shown.length; i++) {
+            html += '<span class="ai-msg-thumb" title="' + esc(split.shown[i]) + '">' +
+                '<img src="' + esc(baseUrl()) + '/files/' + esc(split.shown[i]) + '/thumbnail" loading="lazy" alt="">' +
+                '</span>';
+        }
+        if (split.hidden > 0) {
+            html += '<span class="ai-msg-thumb ai-msg-thumb-more">+' + split.hidden + '</span>';
+        }
+        html += '</div>';
+        return html;
     }
 
     function toolStatusClass(status) {
@@ -1422,6 +1459,13 @@
         els.visionSlot.classList.remove('hidden');
     }
 
+    function attachChipLabel(photoCount, albumCount) {
+        var parts = [];
+        if (photoCount > 0) parts.push(photoCount + (photoCount === 1 ? ' item' : ' items'));
+        if (albumCount > 0) parts.push(albumCount + (albumCount === 1 ? ' album' : ' albums'));
+        return 'Attach selection (' + parts.join(', ') + ')';
+    }
+
     function renderComposer() {
         var pending = !!state.pendingVision || !!state.pendingToolConfirm;
         var streaming = !!state.streaming;
@@ -1445,10 +1489,11 @@
             els.sendBtn.title = 'Send message';
         }
 
-        var ids = selectionIds();
-        if (ids.length > 0) {
+        var photoCount = selectionIds().length;
+        var albumCount = albumSelectionIds().length;
+        if (photoCount + albumCount > 0) {
             els.attachChip.classList.remove('hidden');
-            els.attachChip.innerHTML = CONTEXT_SVG + ' Attach selection (' + ids.length + ')' + (attachedSelection ? ' \u2713' : '');
+            els.attachChip.innerHTML = CONTEXT_SVG + ' ' + attachChipLabel(photoCount, albumCount) + (attachedSelection ? ' \u2713' : '');
             els.attachChip.classList.toggle('ai-chat-attach-on', attachedSelection);
         } else {
             attachedSelection = false;
@@ -1936,8 +1981,11 @@
             }
 
             var itemIds = attachedSelection ? selectionIds() : [];
+            // Album ids are expanded server-side; optimistic echo stays photo-only.
+            var albumIds = attachedSelection ? albumSelectionIds() : [];
             var body = { text: text };
             if (itemIds.length > 0) body.item_ids = itemIds;
+            if (albumIds.length > 0) body.album_ids = albumIds;
 
             state = appendUserMessage(state, text, itemIds);
             els.input.value = '';
@@ -2283,6 +2331,8 @@
             reasoningLabel: reasoningLabel,
             messageContextIds: messageContextIds,
             messageText: messageText,
+            contextThumbIds: contextThumbIds,
+            attachChipLabel: attachChipLabel,
         };
     }
 })();

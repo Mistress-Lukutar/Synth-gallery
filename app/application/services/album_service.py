@@ -138,6 +138,18 @@ class AlbumService:
             'can_edit': self._can_edit(album_id, user_id),
         }
 
+    def list_album_item_ids(self, album_id: str, user_id: int) -> Optional[List[str]]:
+        '''Ordered item ids of an album, or None if it does not exist or the
+        user cannot view it (owner or viewer/editor of the album's folder).'''
+        album = self.album_repo.get_by_id(album_id)
+        if not album:
+            return None
+
+        if not self._can_view(album_id, user_id):
+            return None
+
+        return [item['id'] for item in self.album_repo.get_items(album_id)]
+
     def delete_album(self, album_id: str, user_id: int) -> bool:
         '''Delete album and all its items including files.'''
         if not self._can_delete(album_id, user_id):

@@ -31,6 +31,7 @@ from ..application.services.ai_chat_service import (
     VisionRequestExpiredError,
     VisionRequestNotFoundError,
 )
+from ..application.services.album_service import AlbumService
 from ..application.services.ai_provider_service import AiProviderService
 from ..database import create_connection
 from ..dependencies import require_user
@@ -43,10 +44,13 @@ from ..infrastructure.repositories.ai_model_repository import AiModelRepository
 from ..infrastructure.repositories.ai_provider_repository import (
     AiProviderRepository,
 )
+from ..infrastructure.repositories.album_repository import AlbumRepository
+from ..infrastructure.repositories.folder_repository import FolderRepository
 from ..infrastructure.repositories.item_media_repository import (
     ItemMediaRepository,
 )
 from ..infrastructure.repositories.item_repository import ItemRepository
+from ..infrastructure.repositories.permission_repository import PermissionRepository
 from ..infrastructure.services.encryption import dek_cache
 
 router = APIRouter(prefix="/api/ai/chat", tags=["ai-chat"])
@@ -84,6 +88,8 @@ class CreateConversationRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     text: str = Field(min_length=1)
     item_ids: Optional[List[str]] = None
+    # Attached albums are expanded to their member items before the turn.
+    album_ids: Optional[List[str]] = None
     # Edit/retry: the user message this turn replaces with a new version.
     # The new message branches off the original's parent and becomes the
     # active branch; the old branch stays in the tree.
@@ -257,6 +263,23 @@ def post_message(
             service.check_edit_target(
                 user["id"], conversation_id, data.edit_of_message_id
             )
+        # Expand attached albums into their member item ids.
+        album_service = AlbumService(
+            album_repository=AlbumRepository(db),
+            item_repository=ItemRepository(db),
+            folder_repository=FolderRepository(db),
+            permission_repository=PermissionRepository(db),
+            item_media_repository=ItemMediaRepository(db),
+        )
+        expanded: List[str] = []
+        for album_id in (data.album_ids or []):
+            ids = album_service.list_album_item_ids(album_id, user["id"])
+            if ids is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Album not found: {album_id}"
+                )
+            expanded.extend(ids)
+        merged = list(dict.fromkeys(list(data.item_ids or []) + expanded))
     except ConversationNotFoundError:
         raise _not_found()
     except MessageNotFoundError:
@@ -266,7 +289,7 @@ def post_message(
 
     def build_generator(service):
         return service.run_message_turn(
-            user["id"], dek, conversation_id, data.text, data.item_ids,
+            user["id"], dek, conversation_id, data.text, merged,
             edit_of_message_id=data.edit_of_message_id,
         )
 
