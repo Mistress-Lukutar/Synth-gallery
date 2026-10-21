@@ -141,6 +141,7 @@ BUILTIN_AGENTS: List[dict] = [
         "sort_order": 1,
         "tools": [
             "search_items",
+            "grep_library",
             "list_folder",
             "list_folders",
             "list_albums",
@@ -167,6 +168,7 @@ BUILTIN_AGENTS: List[dict] = [
         "sort_order": 2,
         "tools": [
             "search_items",
+            "grep_library",
             "list_folder",
             "get_item",
             "get_item_metadata",

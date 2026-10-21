@@ -371,7 +371,7 @@ items (base)                          item_media (detail: type='media')
                                       ├── item_id (PK/FK → items.id)
                                       ├── content_type (text/plain, text/markdown, ...)
                                       ├── original_name, encoding
-                                      └── char_count, line_count, file_size
+                                      └── char_count, line_count
 ```
 
 - **`items.type`** → coarse polymorphic kind (`media`, `note`; future `audio`/`model`)
@@ -598,6 +598,24 @@ messages append to and that history replay walks.
   (`gallery-tags.js` `rejectSuggestion`) refetches right after a reject
   so the list refills with the next-best candidates instead of
   shrinking.
+- **grep_library**: grep-like full-text search over the library's text data.
+  Sources (multi-select, default all six): item `titles`, item `descriptions`,
+  `notes` bodies (decrypted with the session DEK), `tags` (names + descriptions,
+  global dictionary — never folder-scoped), media `metadata` (PNG text chunk
+  keys and values from `item_media.png_text_chunks`), original `filenames`
+  (`item_media.original_name`). Matching is uniform Python `re` over fetched
+  rows (substring escaped by default, case-insensitive; `regex=true` for Python
+  regex syntax; `case_sensitive=true` opt-in). Results carry short context
+  snippets (`context_chars`, max `_GREP_CONTEXT_MAX_CHARS` / 200) and per-source
+  paging (`limit`/`offset` + `next_offset`); item/folder ids are 12-char prefixes
+  like everywhere else. `folder_id` scopes item sources to a folder subtree
+  (owner-only resolve, like `audit_library`); `include_subfolders=false` restricts
+  to the folder itself. Notes scanning is capped: the `_GREP_MAX_NOTES` / 300 most
+  recent eligible notes, size estimated as `char_count * 4` bytes against a
+  `_GREP_NOTE_MAX_BYTES` / 512 KiB cap (oversized/capped/decrypt-failed counts
+  reported in a `notes` warnings list); without a DEK the notes source answers
+  empty with a warning. Registered in the `librarian` and `curator` built-in agent
+  allow-lists.
 
 ## Build and Run Commands
 

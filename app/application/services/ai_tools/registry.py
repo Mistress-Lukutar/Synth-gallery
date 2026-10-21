@@ -11,6 +11,7 @@ import base64
 import binascii
 import io
 import json
+import re
 import uuid
 from typing import Optional
 
@@ -75,6 +76,14 @@ _EXIF_PROBE_MAX_BYTES = 256 * 1024 * 1024
 # bloat the item_media row (ComfyUI workflows are big but not THIS big).
 _METADATA_SET_KEY_MAX_CHARS = 200
 _METADATA_SET_TOTAL_MAX_CHARS = 4 * 1024 * 1024
+# grep_library: matching is done in Python (uniform for substring/regex);
+# notes are decrypted per blob, so scanning is capped.
+_GREP_SOURCES = ("titles", "descriptions", "notes", "tags", "metadata",
+                 "filenames")
+_GREP_DEFAULT_CONTEXT_CHARS = 60
+_GREP_CONTEXT_MAX_CHARS = 200
+_GREP_MAX_NOTES = 300
+_GREP_NOTE_MAX_BYTES = 512 * 1024
 
 
 # ============================================================================
@@ -448,6 +457,37 @@ def _summarize_exif(live: dict) -> dict:
     return out
 
 
+def _compile_grep(pattern: str, case_sensitive: bool, regex: bool):
+    """Compile the grep pattern; substring mode escapes it.
+
+    Always returns a compiled ``re.Pattern`` so span extraction is uniform.
+    Raises ToolError on an invalid regular expression.
+    """
+    flags = 0 if case_sensitive else re.IGNORECASE
+    source = pattern if regex else re.escape(pattern)
+    try:
+        return re.compile(source, flags)
+    except re.error as exc:
+        raise ToolError(f"invalid regex pattern: {exc}")
+
+
+def _grep_snippet(text: str, match, context_chars: int) -> str:
+    """Text around a regex match, ellipsized when cut."""
+    start = match.start()
+    end = match.end()
+    half = context_chars // 2
+    ctx_start = max(0, start - half)
+    ctx_end = min(len(text), end + half)
+    prefix = "..." if ctx_start > 0 else ""
+    suffix = "..." if ctx_end < len(text) else ""
+    return f"{prefix}{text[ctx_start:ctx_end]}{suffix}"
+
+
+def _grep_count(compiled, text: str) -> int:
+    """Occurrence count of the pattern in text (for match_count fields)."""
+    return sum(1 for _ in compiled.finditer(text))
+
+
 # ============================================================================
 # READ tools
 # ============================================================================
@@ -485,6 +525,287 @@ def _tool_search_items(args: dict, ctx: ToolContext) -> str:
         "total": result.get("total", len(items)),
         "note": "tag search; prefix a tag with '-' to exclude",
     }, ensure_ascii=False)
+
+
+async def _tool_grep_library(args: dict, ctx: ToolContext) -> str:
+    pattern = str(args.get("pattern") or "").strip()
+    if not pattern:
+        raise ToolError("pattern is required")
+
+    requested_sources = args.get("sources")
+    if requested_sources is not None:
+        if not isinstance(requested_sources, list):
+            raise ToolError("sources must be a list of source names")
+        for src in requested_sources:
+            if src not in _GREP_SOURCES:
+                raise ToolError(
+                    f"unknown source '{src}'; valid sources: "
+                    + ", ".join(_GREP_SOURCES)
+                )
+        sources = requested_sources
+    else:
+        sources = list(_GREP_SOURCES)
+
+    regex = bool(args.get("regex"))
+    case_sensitive = bool(args.get("case_sensitive"))
+    compiled = _compile_grep(pattern, case_sensitive, regex)
+
+    context_chars = _clamp_int(
+        args.get("context_chars"), 0, _GREP_CONTEXT_MAX_CHARS,
+        _GREP_DEFAULT_CONTEXT_CHARS,
+    )
+    limit = _clamp_int(args.get("limit"), 1, 50, 20)
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+
+    folder_id_arg = args.get("folder_id") or None
+    db = create_connection()
+    try:
+        folder_filter_sql = ""
+        folder_filter_params: list = []
+        if folder_id_arg is not None:
+            folder_id_resolved = _resolve_folder_id(
+                db, ctx.user_id, folder_id_arg, owner_only=True
+            )
+            folder_repo = FolderRepository(db)
+            folder = folder_repo.get_by_id(str(folder_id_resolved))
+            if folder is None or folder.get("user_id") != ctx.user_id:
+                raise ToolError(f"folder not found: {folder_id_arg}")
+            subtree_ids = (
+                folder_repo.get_subtree_ids(folder["id"])
+                if args.get("include_subfolders") is not False
+                else [folder["id"]]
+            )
+            placeholders = ",".join("?" for _ in subtree_ids)
+            folder_filter_sql = f" AND folder_id IN ({placeholders})"
+            folder_filter_params = list(subtree_ids)
+            folder_id_out = short_id(folder_id_resolved)
+        else:
+            folder_id_out = None
+
+        # ------------------------------------------------------------------
+        # Per-source match collection
+        # ------------------------------------------------------------------
+        results: dict[str, dict] = {}
+        skipped_oversized = 0
+        not_scanned = False
+        decrypt_failed = 0
+        has_more = False
+        _dek_warnings: list[str] = []
+
+        for source in sources:
+            matches: list[dict] = []
+
+            if source == "titles":
+                rows = [
+                    dict(r)
+                    for r in db.execute(
+                        f"SELECT id, title, folder_id FROM items "
+                        f"WHERE user_id = ? AND title IS NOT NULL AND title != ''"
+                        f"{folder_filter_sql}",
+                        [ctx.user_id, *folder_filter_params],
+                    ).fetchall()
+                ]
+                for row in rows:
+                    text = row["title"] or ""
+                    for m in compiled.finditer(text):
+                        matches.append({
+                            "id": short_id(row["id"]),
+                            "title": row["title"],
+                            "folder_id": short_id(row.get("folder_id")),
+                            "snippet": _grep_snippet(text, m, context_chars),
+                        })
+
+            elif source == "descriptions":
+                rows = [
+                    dict(r)
+                    for r in db.execute(
+                        f"SELECT id, title, description, folder_id FROM items "
+                        f"WHERE user_id = ? AND description IS NOT NULL "
+                        f"AND description != ''{folder_filter_sql}",
+                        [ctx.user_id, *folder_filter_params],
+                    ).fetchall()
+                ]
+                for row in rows:
+                    text = row["description"] or ""
+                    for m in compiled.finditer(text):
+                        matches.append({
+                            "id": short_id(row["id"]),
+                            "title": row["title"],
+                            "folder_id": short_id(row.get("folder_id")),
+                            "snippet": _grep_snippet(text, m, context_chars),
+                        })
+
+            elif source == "filenames":
+                rows = [
+                    dict(r)
+                    for r in db.execute(
+                        f"SELECT i.id, i.title, i.folder_id, m.original_name "
+                        f"FROM items i JOIN item_media m ON m.item_id = i.id "
+                        f"WHERE i.user_id = ? AND m.original_name IS NOT NULL "
+                        f"AND m.original_name != ''{folder_filter_sql}",
+                        [ctx.user_id, *folder_filter_params],
+                    ).fetchall()
+                ]
+                for row in rows:
+                    text = row["original_name"] or ""
+                    for m in compiled.finditer(text):
+                        matches.append({
+                            "id": short_id(row["id"]),
+                            "title": row["title"],
+                            "original_name": row["original_name"],
+                            "folder_id": short_id(row.get("folder_id")),
+                            "snippet": _grep_snippet(text, m, context_chars),
+                        })
+
+            elif source == "tags":
+                all_tags = [
+                    dict(r)
+                    for r in db.execute(
+                        "SELECT id, name, description FROM tags"
+                    ).fetchall()
+                ]
+                for tag in all_tags:
+                    for field in ("name", "description"):
+                        text = tag.get(field) or ""
+                        for m in compiled.finditer(text):
+                            entry: dict = {
+                                "id": str(tag["id"]),
+                                "name": tag["name"],
+                                "field": field,
+                            }
+                            if field == "description":
+                                entry["snippet"] = _grep_snippet(
+                                    text, m, context_chars
+                                )
+                            matches.append(entry)
+
+            elif source == "metadata":
+                rows = [
+                    dict(r)
+                    for r in db.execute(
+                        f"SELECT i.id, i.title, i.folder_id, m.png_text_chunks "
+                        f"FROM items i JOIN item_media m ON m.item_id = i.id "
+                        f"WHERE i.user_id = ? AND m.png_text_chunks IS NOT NULL "
+                        f"AND m.png_text_chunks NOT IN ('', '{{}}')"
+                        f"{folder_filter_sql}",
+                        [ctx.user_id, *folder_filter_params],
+                    ).fetchall()
+                ]
+                for row in rows:
+                    chunks_str = row["png_text_chunks"] or "{}"
+                    try:
+                        chunks = json.loads(chunks_str)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(chunks, dict):
+                        continue
+                    for chunk_key, chunk_val in chunks.items():
+                        val_str = str(chunk_val) if chunk_val is not None else ""
+                        key_match = compiled.search(str(chunk_key))
+                        val_match = compiled.search(val_str)
+                        if key_match or val_match:
+                            entry = {
+                                "id": short_id(row["id"]),
+                                "title": row["title"],
+                                "chunk": chunk_key,
+                            }
+                            if val_match:
+                                entry["snippet"] = _grep_snippet(
+                                    val_str, val_match, context_chars
+                                )
+                            matches.append(entry)
+
+            elif source == "notes":
+                if ctx.dek is None:
+                    _dek_warnings.append(
+                        "notes source skipped: encryption key not available"
+                    )
+                    matches = []
+                else:
+                    note_rows = [
+                        dict(r)
+                        for r in db.execute(
+                            f"SELECT i.id, i.title, i.folder_id, t.char_count "
+                            f"FROM items i JOIN item_texts t ON t.item_id = i.id "
+                            f"WHERE i.user_id = ? AND i.type = 'note'"
+                            f"{folder_filter_sql} ORDER BY i.uploaded_at DESC",
+                            [ctx.user_id, *folder_filter_params],
+                        ).fetchall()
+                    ]
+
+                    eligible_count = 0
+                    for row in note_rows:
+                        # char_count approximates file size for UTF-8 text.
+                        file_size = (row.get("char_count") or 0) * 4
+                        if file_size > _GREP_NOTE_MAX_BYTES:
+                            skipped_oversized += 1
+                            continue
+                        eligible_count += 1
+                        if eligible_count > _GREP_MAX_NOTES:
+                            not_scanned = True
+                            break
+
+                        item_id = row["id"]
+                        title = row["title"]
+                        try:
+                            note_text = await _read_note_text(item_id, ctx.dek)
+                        except Exception:
+                            decrypt_failed += 1
+                            continue
+
+                        note_matches = list(compiled.finditer(note_text))
+                        if not note_matches:
+                            continue
+
+                        mc = _grep_count(compiled, note_text)
+                        first_m = note_matches[0]
+                        matches.append({
+                            "id": short_id(item_id),
+                            "title": title,
+                            "folder_id": short_id(row.get("folder_id")),
+                            "match_count": mc,
+                            "snippet": _grep_snippet(note_text, first_m, context_chars),
+                        })
+
+            # Pagination per source
+            page = matches[offset:offset + limit]
+            results[source] = {"total": len(matches), "items": page}
+
+            if offset + limit < len(matches):
+                has_more = True
+
+    finally:
+        db.close()
+
+    # Build warnings list from accumulated counts
+    notes_list = []
+    if skipped_oversized > 0:
+        notes_list.append(
+            f"{skipped_oversized} note(s) skipped (too large)"
+        )
+    if not_scanned:
+        notes_list.append(
+            f"more eligible notes exist but scanning was capped at "
+            f"{_GREP_MAX_NOTES}"
+        )
+    if decrypt_failed > 0:
+        notes_list.append(f"{decrypt_failed} note(s) failed to decrypt")
+    notes_list.extend(_dek_warnings)
+
+    result = {
+        "pattern": pattern,
+        "regex": regex,
+        "case_sensitive": case_sensitive,
+        "folder_id": folder_id_out,
+        "results": results,
+    }
+    if has_more:
+        result["next_offset"] = offset + limit
+        result["note"] = "page through more matches with next_offset"
+    if notes_list:
+        result["notes"] = notes_list
+
+    return json.dumps(result, ensure_ascii=False)
 
 
 # Albums shown in one list_folder result; the rest is reachable via
@@ -1805,6 +2126,84 @@ def _build_registry() -> dict:
                 "required": ["query"],
             },
             executor=_tool_search_items,
+            category="library",
+        ),
+        ToolDef(
+            name="grep_library",
+            description=(
+                "Full-text search across the library's text data, like grep: "
+                "item titles, item descriptions, note bodies, tag names and "
+                "descriptions, embedded metadata blocks (PNG text chunks of "
+                "media) and original file names. Substring match, case-"
+                "insensitive by default; set regex=true for a regular "
+                "expression (Python re syntax). Returns matches with short "
+                "context snippets — read the whole document with read_note / "
+                "get_item_metadata once located. For tag-based media search "
+                "use search_items instead."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Text to search for.",
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": list(_GREP_SOURCES)},
+                        "description": (
+                            "Sources to search; omit to search all."
+                        ),
+                    },
+                    "regex": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Treat pattern as a Python regular expression."
+                        ),
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Case-sensitive matching; off by default."
+                        ),
+                    },
+                    "folder_id": {
+                        "type": "string",
+                        "description": (
+                            "Scope item sources to this folder and its "
+                            "subfolders; tags stay global."
+                        ),
+                    },
+                    "context_chars": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": _GREP_CONTEXT_MAX_CHARS,
+                        "default": _GREP_DEFAULT_CONTEXT_CHARS,
+                        "description": (
+                            "Context chars around each match in snippets."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50,
+                        "default": 20,
+                        "description": "Max matches per source.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": (
+                            "Page offset per source; echo next_offset."
+                        ),
+                    },
+                },
+                "required": ["pattern"],
+            },
+            executor=_tool_grep_library,
             category="library",
         ),
         ToolDef(

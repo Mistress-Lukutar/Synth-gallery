@@ -581,6 +581,14 @@ class AiChatService:
                 "untitled, broken metadata), call audit_library once "
                 "instead of enumerating items with get_item."
             )
+        if has("grep_library"):
+            lines.append(
+                "- Full-text search across item titles, descriptions, note "
+                "bodies, tag descriptions, embedded metadata blocks and file "
+                "names goes through grep_library (case-insensitive substring "
+                "by default, regex with regex=true); read whole documents "
+                "with read_note / get_item_metadata once located."
+            )
         if has("list_album_items"):
             lines.append(
                 "- To see what is inside an album, page through it with "
