@@ -594,10 +594,16 @@ class AiChatService:
                 "- To see what is inside an album, page through it with "
                 "list_album_items (list_albums only shows item counts)."
             )
-        if has("read_note") or has("create_note") or has("write_note"):
+        if (
+            has("read_note") or has("create_note")
+            or has("write_note") or has("edit_note")
+        ):
             lines.append(
-                "- Read text notes with read_note, create/edit them with "
-                "create_note / write_note."
+                "- Read text notes with read_note, create them with "
+                "create_note. To change an existing note prefer edit_note "
+                "(exact old_string/new_string swap - read the note first "
+                "and copy the fragment verbatim); use write_note only for "
+                "full rewrites or appends."
             )
         if has("get_item_metadata"):
             lines.append(

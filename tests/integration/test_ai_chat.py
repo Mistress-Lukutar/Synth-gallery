@@ -1196,7 +1196,7 @@ def test_tool_registry_has_expected_tools():
         "get_tag_suggestions", "record_tag_feedback",
         "audit_library", "add_item_tags", "remove_item_tags", "create_tags",
         "update_item", "set_item_metadata", "set_tag_descriptions",
-        "create_note", "write_note", "create_folder",
+        "create_note", "write_note", "edit_note", "create_folder",
         "create_album", "add_items_to_album",
         "view_images",
         "fetch_url", "web_search",

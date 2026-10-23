@@ -1962,6 +1962,76 @@ async def _tool_write_note(args: dict, ctx: ToolContext) -> str:
     }, ensure_ascii=False)
 
 
+async def _tool_edit_note(args: dict, ctx: ToolContext) -> str:
+    item_id = str(args.get("item_id") or "").strip()
+    if not item_id:
+        raise ToolError("item_id is required")
+    old_string = args.get("old_string")
+    new_string = args.get("new_string")
+    if not isinstance(old_string, str) or not old_string:
+        raise ToolError("old_string must be a non-empty string")
+    if not isinstance(new_string, str):
+        raise ToolError("new_string must be a string (empty = deletion)")
+    if old_string == new_string:
+        raise ToolError("old_string and new_string are identical; nothing to do")
+    replace_all = args.get("replace_all") is True
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        item = _get_owned_item(db, item_id, ctx)
+        item_id = item["id"]
+        if item.get("type") != NOTE_TYPE:
+            raise ToolError(
+                f"item {item_id} is not a text note "
+                f"(type: {item.get('type')})"
+            )
+    finally:
+        db.close()
+
+    content = await _read_note_text(item_id, dek)
+    occurrences = content.count(old_string)
+    if occurrences == 0:
+        raise ToolError(
+            "old_string not found in the note; re-read it with read_note "
+            "and copy a fragment exactly as it appears (paging: the "
+            f"fragment may sit outside the fetched window, the note has "
+            f"{len(content)} chars)"
+        )
+    if occurrences > 1 and not replace_all:
+        raise ToolError(
+            f"old_string matches {occurrences} times; provide a longer, "
+            "unique fragment or pass replace_all=true to replace every "
+            "occurrence"
+        )
+
+    new_content = (
+        content.replace(old_string, new_string)
+        if replace_all
+        else content.replace(old_string, new_string, 1)
+    )
+    # Revalidate the whole result: NUL bytes, size cap, non-empty note.
+    new_content, line_count = _validate_note_content(new_content)
+
+    await _write_note_blob(item_id, new_content, dek)
+
+    db = create_connection()
+    try:
+        ItemTextRepository(db).update_stats(item_id, len(new_content), line_count)
+        ItemRepository(db).touch_updated_at(item_id)
+    finally:
+        db.close()
+
+    # Minimal ack: echoing content back would only burn tokens.
+    return json.dumps({
+        "status": "ok",
+        "id": short_id(item_id),
+        "replacements": occurrences if replace_all else 1,
+        "char_count": len(new_content),
+        "line_count": line_count,
+    }, ensure_ascii=False)
+
+
 def _tool_create_folder(args: dict, ctx: ToolContext) -> str:
     name = str(args.get("name") or "").strip()
     parent_id = args.get("parent_id") or None
@@ -2897,8 +2967,8 @@ def _build_registry() -> dict:
             description=(
                 "Overwrite (mode 'replace', default) or append to an "
                 "existing note's text content. 'replace' expects the full "
-                "new text; there is no partial editing. Returns only "
-                "status and counters, never the content."
+                "new text; for small targeted changes prefer edit_note. "
+                "Returns only status and counters, never the content."
             ),
             parameters_json_schema={
                 "type": "object",
@@ -2924,6 +2994,56 @@ def _build_registry() -> dict:
                 "required": ["item_id", "content"],
             },
             executor=_tool_write_note,
+            category="notes",
+            confirmation="always",
+        ),
+        ToolDef(
+            name="edit_note",
+            description=(
+                "Make a targeted string replacement inside an existing "
+                "note's text: the first exact occurrence of old_string "
+                "becomes new_string (every occurrence with "
+                "replace_all=true). Copy old_string verbatim from "
+                "read_note output and include enough surrounding context "
+                "to make it unique - it must match the stored text "
+                "exactly. Fails when old_string is not found or matches "
+                "more than once without replace_all. Much cheaper than "
+                "rewriting the whole note with write_note. Returns only "
+                "status and counters."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "item_id": {
+                        "type": "string",
+                        "description": "Note item id.",
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": (
+                            "Exact text to replace, copied verbatim from "
+                            "the note."
+                        ),
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": (
+                            "Replacement text (empty string deletes the "
+                            "fragment)."
+                        ),
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Replace every occurrence instead of only "
+                            "the first."
+                        ),
+                    },
+                },
+                "required": ["item_id", "old_string", "new_string"],
+            },
+            executor=_tool_edit_note,
             category="notes",
             confirmation="always",
         ),

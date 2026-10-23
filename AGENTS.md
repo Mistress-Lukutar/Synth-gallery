@@ -616,6 +616,19 @@ messages append to and that history replay walks.
   reported in a `notes` warnings list); without a DEK the notes source answers
   empty with a warning. Registered in the `librarian` and `curator` built-in agent
   allow-lists.
+- **Note tools**: `read_note` reads a note paged (decrypt + offset/max_chars),
+  `create_note` creates one. Existing notes change through `write_note`
+  (`replace` = full rewrite, `append` = add to the end) or `edit_note`
+  (targeted exact-string swap: first occurrence of `old_string` becomes
+  `new_string`, every occurrence with `replace_all=true`; fails when the
+  fragment is not found or matches more than once without `replace_all`,
+  so the model must copy the fragment verbatim from `read_note` output).
+  `edit_note` revalidates the patched result against the same
+  NUL/size/non-empty rules as uploads before re-encrypting it. All three
+  mutation tools are category `notes`, confirmation `always`, and their
+  acks carry only counters (`replacements`/`char_count`/`line_count`),
+  never content. Built-in agents carry no note mutations (Librarian is
+  read-only: `read_note` only) — custom agents list them explicitly.
 
 ## Build and Run Commands
 

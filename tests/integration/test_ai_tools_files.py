@@ -2,8 +2,8 @@
 
 Tool-level tests (no LLM involved): executors are called directly with a
 ``ToolContext``, mirroring the registry sanity tests in test_ai_chat.py.
-Covers get_item_metadata, read_note, create_note, write_note and the
-enriched get_item output.
+Covers get_item_metadata, read_note, create_note, write_note, edit_note
+and the enriched get_item output.
 """
 import asyncio
 import base64
@@ -541,6 +541,165 @@ def test_write_note_rejects_bad_mode(db_connection, test_user, test_folder):
             test_user["id"],
         )
     assert "mode" in str(excinfo.value)
+
+
+# ============================================================================
+# edit_note
+# ============================================================================
+
+def test_edit_note_replaces_first_occurrence(db_connection, test_user,
+                                             test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"],
+        "color: red\ncount: 1\n"
+    )
+
+    result = _call(
+        "edit_note",
+        {"item_id": note_id, "old_string": "red", "new_string": "blue"},
+        test_user["id"],
+    )
+    assert result["status"] == "ok"
+    assert result["replacements"] == 1
+
+    read_back = _call("read_note", {"item_id": note_id}, test_user["id"])
+    assert read_back["content"] == "color: blue\ncount: 1\n"
+
+    text = ItemTextRepository(db_connection).get_by_item_id(note_id)
+    assert text["char_count"] == len("color: blue\ncount: 1\n")
+    assert text["line_count"] == 2
+
+
+def test_edit_note_requires_unique_match(db_connection, test_user,
+                                         test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "same same\n"
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "edit_note",
+            {"item_id": note_id, "old_string": "same", "new_string": "x"},
+            test_user["id"],
+        )
+    assert "matches 2 times" in str(excinfo.value)
+    read_back = _call("read_note", {"item_id": note_id}, test_user["id"])
+    assert read_back["content"] == "same same\n"
+
+
+def test_edit_note_replace_all(db_connection, test_user, test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "same same\n"
+    )
+    result = _call(
+        "edit_note",
+        {
+            "item_id": note_id,
+            "old_string": "same",
+            "new_string": "done",
+            "replace_all": True,
+        },
+        test_user["id"],
+    )
+    assert result["replacements"] == 2
+    read_back = _call("read_note", {"item_id": note_id}, test_user["id"])
+    assert read_back["content"] == "done done\n"
+
+
+def test_edit_note_missing_fragment(db_connection, test_user, test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "hello\n"
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "edit_note",
+            {"item_id": note_id, "old_string": "world", "new_string": "x"},
+            test_user["id"],
+        )
+    assert "not found" in str(excinfo.value)
+    read_back = _call("read_note", {"item_id": note_id}, test_user["id"])
+    assert read_back["content"] == "hello\n"
+
+
+def test_edit_note_deletes_fragment(db_connection, test_user, test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "keep DROP keep\n"
+    )
+    _call(
+        "edit_note",
+        {"item_id": note_id, "old_string": "DROP ", "new_string": ""},
+        test_user["id"],
+    )
+    read_back = _call("read_note", {"item_id": note_id}, test_user["id"])
+    assert read_back["content"] == "keep keep\n"
+
+
+def test_edit_note_short_id_and_multiline(db_connection, test_user,
+                                          test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"],
+        "# Title\n\nold paragraph\n\ntail\n"
+    )
+    result = _call(
+        "edit_note",
+        {
+            "item_id": note_id[:12],
+            "old_string": "old paragraph",
+            "new_string": "new paragraph\nwith two lines",
+        },
+        test_user["id"],
+    )
+    assert result["status"] == "ok"
+    read_back = _call("read_note", {"item_id": note_id}, test_user["id"])
+    assert read_back["content"] == (
+        "# Title\n\nnew paragraph\nwith two lines\n\ntail\n"
+    )
+
+
+def test_edit_note_validations(db_connection, test_user, test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "hello\n"
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "edit_note",
+            {"item_id": note_id, "old_string": "", "new_string": "x"},
+            test_user["id"],
+        )
+    assert "old_string" in str(excinfo.value)
+
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "edit_note",
+            {"item_id": note_id, "old_string": "hello",
+             "new_string": "hello"},
+            test_user["id"],
+        )
+    assert "identical" in str(excinfo.value)
+
+
+def test_edit_note_rejects_media(db_connection, test_user, test_folder):
+    item_id = _make_media(db_connection, test_folder, test_user["id"])
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "edit_note",
+            {"item_id": item_id, "old_string": "x", "new_string": "y"},
+            test_user["id"],
+        )
+    assert "not a text note" in str(excinfo.value)
+
+
+def test_edit_note_requires_ownership(db_connection, test_user, second_user,
+                                      test_folder):
+    note_id = _make_note(
+        db_connection, test_folder, test_user["id"], "hello\n"
+    )
+    with pytest.raises(ToolError) as excinfo:
+        _call(
+            "edit_note",
+            {"item_id": note_id, "old_string": "hello", "new_string": "x"},
+            second_user["id"],
+        )
+    assert "not found" in str(excinfo.value)
 
 
 # ============================================================================
