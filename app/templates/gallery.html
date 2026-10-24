@@ -105,7 +105,7 @@
             <!-- TAGS SECTION -->
             <div class="tags-section-panel">
                 <div class="field-group">
-                    <label><a href="{{ base_url }}/tags" title="Manage tags">Tags</a></label>
+                    <label><a href="{{ base_url }}/?view=tags" title="Manage tags">Tags</a></label>
                     <div class="current-tags-section">
                         <div id="current-tags-container" class="selected-tags-container">
                             <span class="no-tags-hint">No tags selected</span>
@@ -479,8 +479,127 @@
     </div>
 </div>
 
+<!-- In-gallery Tags view (SPA; shown via showTagsView()) -->
+<div id="tags-view" style="display: none;">
+    <div class="main-layout">
+        <div class="left-col">
+            <div class="toolbar">
+                <input type="search" id="tag-search" placeholder="Search tags..." autocomplete="off">
+                {% if user and user.is_admin %}
+                <button id="new-tag-btn" class="btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    New Tag
+                </button>
+                <button id="manage-cats-btn" class="btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                    </svg>
+                    Categories
+                </button>
+                <button id="sanitize-tags-btn" class="btn btn-secondary" title="Recalculate implied tags for all items">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                        <polyline points="22,6 12,13 2,6"/>
+                    </svg>
+                    Sanitize
+                </button>
+                <button id="rebuild-mutex-btn" class="btn btn-secondary" title="Rebuild mutex statistics">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M12 20V10"/>
+                        <path d="M18 20V4"/>
+                        <path d="M6 20v-4"/>
+                    </svg>
+                    Rebuild Mutex
+                </button>
+                {% endif %}
+            </div>
+
+            <div class="tag-list-wrapper">
+                <div id="tag-list" class="tag-list">
+                    <div class="empty-state">Loading tags...</div>
+                </div>
+                <div id="pagination-info" class="pagination-info"></div>
+            </div>
+        </div>
+
+        <div class="right-col">
+            <aside id="detail-panel" class="detail-panel empty">
+                <p>Select a tag to view details</p>
+            </aside>
+        </div>
+    </div>
+
+    {% if user and user.is_admin %}
+    <!-- Categories Modal -->
+    <div id="categories-modal" class="modal-overlay">
+        <div class="modal-box" style="max-width: 480px;">
+            <h2>Categories</h2>
+            <div id="categories-list" style="margin-bottom: 1rem;"></div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;">
+                <input type="text" id="new-cat-name" placeholder="Name" style="flex:1;">
+                <input type="color" id="new-cat-color" value="#888888" style="width: 48px; height: 32px; padding: 0; border: none; background: none; cursor: pointer;">
+                <button class="btn btn-small" onclick="createCategory()">Add</button>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeCategoriesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Remap Tag Modal -->
+    <div id="remap-tag-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>Delete & Remap Tag</h2>
+            <p style="font-size:0.8125rem;color:var(--text-muted);margin:0 0 0.75rem 0;">
+                The selected tag will be deleted and replaced with the target tag on all items.
+            </p>
+            <div class="form-group">
+                <label>Target Tag</label>
+                <input type="text" id="remap-tag-search" placeholder="Search for a tag..." autocomplete="off">
+            </div>
+            <div id="remap-tag-results" style="display:flex;flex-wrap:wrap;gap:0.25rem;margin-bottom:0.75rem;max-height:200px;overflow-y:auto;"></div>
+            <div id="remap-tag-selected" style="display:none;font-size:0.8125rem;margin-bottom:0.75rem;">
+                Selected: <strong id="remap-tag-selected-name"></strong>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeRemapModal()">Cancel</button>
+                <button class="btn btn-danger" id="remap-tag-confirm" onclick="confirmRemap()" disabled>Delete & Remap</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Tag Modal -->
+    <div id="new-tag-modal" class="modal-overlay">
+        <div class="modal-box">
+            <h2>Create Tag</h2>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="new-tag-name" placeholder="e.g. silver_fox">
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="new-tag-category"></select>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn" onclick="createTag()">Create</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
 <!-- Initial folder ID for init.js -->
 <script>
 window.INITIAL_FOLDER_ID = '{{ initial_folder_id }}';
+window.__isAdmin = {{ 'true' if user and user.is_admin else 'false' }};
 </script>
+
+<!-- Script includes for tags-page.js (tags-page.js requires end-of-body placement) -->
+<script src="{{ base_url }}/static/js/tag-links.js?v={{ app_version }}"></script>
+<script src="{{ base_url }}/static/js/tags-page.js?v={{ app_version }}"></script>
 {% endblock %}

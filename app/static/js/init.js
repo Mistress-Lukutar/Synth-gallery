@@ -55,5 +55,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Deep link to the in-gallery tags view: /?view=tags[&tag=<name>]
+    if (urlParams.get('view') === 'tags' && document.getElementById('tags-view') && typeof window.showTagsView === 'function') {
+        const tagName = urlParams.get('tag');
+        window.showTagsView('replace');
+        if (tagName && typeof window.navigateToTagByName === 'function') {
+            window.navigateToTagByName(decodeURIComponent(tagName));
+        }
+    }
+
 });
 

@@ -7,6 +7,9 @@
     // Current sort preference
     let currentSort = 'uploaded';
 
+    // Saved inline display values of gallery sections, captured by showTagsView.
+    const tagsViewSaved = { subfolders: '' };
+
     // Expose to window for masonry sorting
     window.currentSortMode = currentSort;
 
@@ -15,6 +18,13 @@
     // SPA URL for a folder view.
     function buildFolderUrl(baseUrl, folderId) {
         return `${baseUrl}/?folder_id=${folderId}`;
+    }
+
+    // SPA URL for the in-gallery tags view (with optional tag name).
+    function buildTagsUrl(baseUrl, tagName) {
+        return tagName
+            ? `${baseUrl}/?view=tags&tag=${encodeURIComponent(tagName)}`
+            : `${baseUrl}/?view=tags`;
     }
 
     // Display extension for a note card (e.g. "notes.MD" -> "md").
@@ -28,16 +38,22 @@
         return sort === 'taken' ? 'Sort: Date Taken' : 'Sort: Date Uploaded';
     }
     window.getSortLabel = getSortLabel;
+    window.buildTagsUrl = buildTagsUrl;
 
     // Navigate to folder via SPA
     // pushState: true = add history entry, false = no history change, 'replace' = replace current entry
     window.navigateToFolder = async function(folderId, pushState = true, event = null) {
-        
+
         if (event) {
             event.preventDefault();
             event.stopPropagation();
         }
-        
+
+        // Hide tags view before navigating to a folder.
+        if (typeof window.isTagsViewVisible === 'function' && window.isTagsViewVisible()) {
+            window.hideTagsView();
+        }
+
         const gallery = document.getElementById('gallery');
         if (gallery) {
             gallery.style.opacity = '0.5';
@@ -119,6 +135,10 @@
 
     // Navigate to default folder
     window.navigateToDefaultFolder = async function() {
+        // Hide tags view before navigating (no-op if not visible/absent).
+        if (typeof window.hideTagsView === 'function') {
+            window.hideTagsView();
+        }
         try {
             const resp = await fetch(`${getBaseUrl()}/api/user/default-folder`);
             if (!resp.ok) throw new Error('Failed to get default folder');
@@ -437,14 +457,98 @@
 
     // Handle browser back/forward
     window.addEventListener('popstate', (event) => {
-        if (event.state && event.state.folderId) {
+        if (event.state && event.state.tagsView) {
+            window.showTagsView(false);
+        } else if (event.state && event.state.folderId) {
             navigateToFolder(event.state.folderId, false);
         } else {
+            // No state: default to the initial folder, hiding tags view first.
+            if (typeof window.hideTagsView === 'function') {
+                window.hideTagsView();
+            }
             navigateToDefaultFolder();
         }
     });
 
-    // Resolve thumbnails asynchronously using FileAccessService
+    // SPA click interception: intercept sidebar/details-panel links to the tags view.
+    document.addEventListener('click', (e) => {
+        const a = e.target.closest && e.target.closest('a[href$="view=tags"]');
+        if (a && document.getElementById('tags-view')) {
+            e.preventDefault();
+            window.showTagsView();
+        }
+    });
+
+    // --- Tags view switch helpers ---
+
+    /** Return true when the in-gallery tags view is currently visible. */
+    window.isTagsViewVisible = function isTagsViewVisible() {
+        const tv = document.getElementById('tags-view');
+        return !!(tv && tv.style.display !== 'none' && tv.offsetParent !== null);
+    };
+
+    /**
+     * Show the in-gallery tags view.
+     * @param {boolean|string} [pushState=true] - true=push, 'replace'=replace history, false=no change.
+     * @returns {boolean} false if #tags-view does not exist.
+     */
+    window.showTagsView = function showTagsView(pushState = true) {
+        const tv = document.getElementById('tags-view');
+        if (!tv) return false;
+
+        // Hide gallery sections.
+        const folderHeader = document.querySelector('.folder-header');
+        if (folderHeader) folderHeader.style.display = 'none';
+        const subfoldersSection = document.getElementById('subfolders-section');
+        if (subfoldersSection) {
+            // Remember the folder-driven visibility so hideTagsView restores it exactly.
+            tagsViewSaved.subfolders = subfoldersSection.style.display;
+            subfoldersSection.style.display = 'none';
+        }
+        const gallery = document.getElementById('gallery');
+        if (gallery) gallery.style.display = 'none';
+
+        // Show tags view.
+        tv.style.removeProperty('display');
+
+        // Lazy-init tags-page module if not already done.
+        if (typeof window.initTagsPage === 'function' && !window.__tagsPageInited) {
+            window.initTagsPage();
+        }
+
+        // History management.
+        const baseUrl = typeof getBaseUrl === 'function' ? getBaseUrl() : '';
+        if (pushState === true) {
+            history.pushState({ tagsView: true }, '', buildTagsUrl(baseUrl));
+        } else if (pushState === 'replace') {
+            history.replaceState({ tagsView: true }, '', buildTagsUrl(baseUrl));
+        }
+
+        // Close mobile sidebar.
+        if (typeof closeSidebar === 'function') {
+            closeSidebar();
+        }
+
+        return true;
+    };
+
+    /** Hide the in-gallery tags view and restore the gallery. */
+    window.hideTagsView = function hideTagsView() {
+        const tv = document.getElementById('tags-view');
+        if (tv) tv.style.display = 'none';
+
+        // Restore gallery sections.
+        const folderHeader = document.querySelector('.folder-header');
+        if (folderHeader) folderHeader.style.removeProperty('display');
+        const subfoldersSection = document.getElementById('subfolders-section');
+        if (subfoldersSection) {
+            subfoldersSection.style.display = tagsViewSaved.subfolders;
+        }
+        const gallery = document.getElementById('gallery');
+        if (gallery) gallery.style.removeProperty('display');
+    };
+
+    // --- End tags view switch helpers ---
     // Phase 5: Uses data-item-id for polymorphic items
     async function resolveThumbnails() {
         if (typeof FileAccessService === 'undefined') {
@@ -500,6 +604,7 @@
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = {
             buildFolderUrl,
+            buildTagsUrl,
             getNoteExtension,
             getSortLabel,
         };

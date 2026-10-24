@@ -142,7 +142,6 @@ Synth-Gallery/
 │       ├── gallery.html
 │       ├── settings.html
 │       ├── reset_password.html
-│       ├── tags.html
 │       ├── admin_users.html
 │       ├── admin_backups.html
 │       └── admin_maintenance.html
@@ -468,10 +467,12 @@ the default assistant (no agent = every tool, generic prompt).
   Curator built-in) bulk-rewrites them all-or-nothing via
   `TagService`-style name resolution. Descriptions may cross-reference
   tags with `[[tag_name]]` wiki-links: preprocessing/parse helpers live in
-  `app/static/js/tag-links.js`, `/tags` renders descriptions with marked +
-  DOMPurify (`tags-page.js`), wiki-links navigate in-page via `selectTag`,
-  and `/tags?tag=<name>` is a shareable deep link (the sidebar has a
-  matching Tags link under the AI-chat toggle).
+  `app/static/js/tag-links.js`; tag descriptions are rendered with marked +
+  DOMPurify by `tags-page.js` inside the in-gallery `#tags-view` (the old
+  `/tags` template was deleted — see section 6i). Wiki-links navigate
+  in-page via `selectTag`, and `/tags?tag=<name>` is a shareable deep link
+  (302 redirects to `/?view=tags&tag=<name>`, the sidebar has a matching
+  Tags link under the AI-chat toggle).
 - **Endpoints**: `/api/user/ai/agents` (list + tool catalogue, create),
   `PUT/DELETE /api/user/ai/agents/{id}` (custom only — built-ins answer
   403), `POST /api/user/ai/agents/{id}/duplicate`,
@@ -684,6 +685,19 @@ circular).
   client-side filter `permission === 'owner' && share_status ===
   'private'`; the stored folder stays selectable but the server rejects
   saving it if it became shared).
+
+### 6i. In-gallery Tags view
+
+The standalone `/tags` page no longer exists — tag management is rendered
+inside the gallery main area as an SPA view (like folder navigation):
+
+- **Hidden container**: `app/templates/gallery.html` has a hidden `<div id="tags-view">` with the full tag management UI (toolbar, `#tag-list`, `#pagination-info`, `#detail-panel`, and three admin modals `#categories-modal` / `#remap-tag-modal` / `#new-tag-modal` wrapped in `{% if user and user.is_admin %}`). It also sets `window.__isAdmin` and loads `tag-links.js` + `tags-page.js` at the end of the content block.
+- **SPA switching**: `app/static/js/navigation.js` provides `window.showTagsView(pushState=true|'replace'|false)`, `window.hideTagsView()`, and `window.isTagsViewVisible()`. `navigateToFolder` / `navigateToDefaultFolder` hide the tags view on entry; a delegated `document` click handler intercepts `a[href$="view=tags"]` links (sidebar, details panel) on the gallery page only. The `popstate` handler routes on `{tagsView: true}` vs `{folderId}` / no-state.
+- **URL**: `history.replaceState({tagsView: true}, ...)` writes `?view=tags[&tag=<name>]`. Deep links resolve via `app/routes/admin_tags.py`: `GET /tags` is a 302 redirect to `/?view=tags` (preserves `?tag=<name>`, URL-encoded); old template `app/templates/tags.html` was deleted.
+- **Tag categories**: `app/static/js/tags-page.js` init is now a lazy idempotent `window.initTagsPage()` (guarded by `window.__tagsPageInited`). Categories are fetched from `GET /api/tag-categories` instead of the server-rendered `window.__categories`; they populate `#new-tag-category` / `#edit-category` via `updateCategorySelectOptions`. The legacy auto-init IIFE runs only when `#tags-view` is absent (old page mode, kept for safety).
+- **CSS**: All tags selectors are scoped under `#tags-view` in `app/static/style.css` (section comment "Tags view (in-gallery, #tags-view)"); the old inline `<style>` block was removed.
+- **Scripts loaded in gallery.html**: `tag-links.js` (`[[tag]]` wiki-link helpers) and `tags-page.js` (tag management SPA logic) are appended at the end of the content block in `gallery.html`.
+- **Frontend deep link**: `app/static/js/init.js` handles `/?view=tags[&tag=<name>]` on DOMContentLoaded — calls `showTagsView('replace')`, then `navigateToTagByName`. Sidebar and admin-nav links point to `{{ base_url }}/?view=tags`; on the gallery page the click is intercepted for SPA switching, elsewhere it's a normal navigation.
 
 ## Build and Run Commands
 

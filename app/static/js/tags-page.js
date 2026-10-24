@@ -48,7 +48,35 @@ let tagDescMode = 'preview';
 // Load categories & init
 // =============================================================================
 
+// Idempotent lazy initializer — called on the old standalone page via DOMContentLoaded,
+// or lazily from showTagsView() when the in-gallery view is opened.
+window.initTagsPage = function initTagsPage() {
+    if (window.__tagsPageInited) return;
+    window.__tagsPageInited = true;
+
+    // Fetch categories from API (replaces server-rendered window.__categories).
+    loadCategories().then(() => {
+        runInitCategories();
+    });
+};
+
+// Internal: runs the category/tag initialisation after categories are loaded.
+function runInitCategories() {
+    if (!window.__categories || !window.__categories.length) {
+        const tagList = document.getElementById('tag-list');
+        if (tagList) tagList.innerHTML = '<div class="empty-state">No categories yet. Create one via the Categories button.</div>';
+        const paginationInfo = document.getElementById('pagination-info');
+        if (paginationInfo) paginationInfo.textContent = '';
+        return;
+    }
+    for (const cat of window.__categories || []) {
+        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
+        loadCategoryTags(cat.id);
+    }
+}
+
 function initCategories() {
+    // If categories were already fetched by initTagsPage, skip DOM extraction.
     if (!window.__categories || !window.__categories.length) {
         const opts = document.querySelectorAll('#new-tag-category option');
         window.__categories = Array.from(opts).map(o => ({
@@ -58,10 +86,7 @@ function initCategories() {
         }));
     }
 
-    for (const cat of window.__categories) {
-        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
-        loadCategoryTags(cat.id);
-    }
+    runInitCategories();
 }
 
 async function loadCategoryTags(catId) {
@@ -297,7 +322,14 @@ function renderDetail() {
 function syncTagUrl(tagName) {
     // Keep ?tag=<name> shareable without adding history entries.
     try {
-        history.replaceState(null, '', (BASE_URL || '') + '/tags?tag=' + encodeURIComponent(tagName));
+        const tagsView = document.getElementById('tags-view');
+        if (tagsView) {
+            // In-gallery view: use SPA URL (?view=tags&tag=...)
+            history.replaceState({ tagsView: true }, '', buildTagsUrl(BASE_URL || '', tagName));
+        } else {
+            // Standalone /tags page: keep legacy URL format.
+            history.replaceState(null, '', (BASE_URL || '') + '/tags?tag=' + encodeURIComponent(tagName));
+        }
     } catch (err) { /* ignore */ }
 }
 
@@ -521,6 +553,7 @@ async function navigateToTagByName(name) {
     } catch (err) { /* fall through to the toast */ }
     showStatus(`Tag "${name}" not found`, true);
 }
+window.navigateToTagByName = navigateToTagByName;
 
 function initTagDescriptionEditor(initialValue) {
     const textarea = document.getElementById('tag-description-editor');
@@ -827,6 +860,7 @@ function updateCategorySelectOptions(categories) {
 
 function renderCategoriesList(categories) {
     const container = document.getElementById('categories-list');
+    if (!container) return; // non-admin: the categories modal is not rendered
     if (!categories || !categories.length) {
         container.innerHTML = '<p style="color:var(--text-muted);font-size:0.875rem;">No categories</p>';
         return;
@@ -1036,10 +1070,20 @@ document.getElementById('detail-panel').addEventListener('click', (e) => {
     navigateToTagByName(link.dataset.tagName);
 });
 
-// Deep link: /tags?tag=<name> opens that tag on load.
+// Deep link: /tags?tag=<name> opens that tag on load (standalone page only).
+// On the gallery page the ?view=tags&tag=... deep link is handled by init.js.
 (function openTagFromUrl() {
+    if (document.getElementById('tags-view')) return;
     const name = new URLSearchParams(location.search).get('tag');
     if (name) navigateToTagByName(name);
 })();
 
-initCategories();
+// On the old standalone /tags page (no #tags-view), init on DOMContentLoaded.
+// On the gallery page (with #tags-view), skip auto-init — it's lazy via showTagsView().
+if (!document.getElementById('tags-view')) {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => window.initTagsPage());
+    } else {
+        window.initTagsPage();
+    }
+}

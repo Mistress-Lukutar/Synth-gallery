@@ -1,20 +1,18 @@
 """Tag management page routes - admin-style page for CRUD and implications."""
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request, HTTPException, Query
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from ..config import APP_VERSION, ROOT_PATH, BASE_DIR
+from ..config import ROOT_PATH
 from ..database import create_connection
-from ..dependencies import require_user, require_admin, get_csrf_token
+from ..dependencies import require_user, require_admin
 from ..infrastructure.repositories import TagsRepository, TagImplicationRepository, TagCooccurrenceRepository, TagMutexRepository
 from ..application.services import TagService
 
 router = APIRouter()
-templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
-templates.env.globals["base_url"] = ROOT_PATH
-templates.env.globals["app_version"] = APP_VERSION
 
 
 class TagUpdateInput(BaseModel):
@@ -58,25 +56,13 @@ def _tag_service(db):
 
 @router.get("/tags")
 def tags_page(request: Request):
-    """Tag management page."""
-    user = require_user(request)
-    db = create_connection()
-    try:
-        service = _tag_service(db)
-        categories = service.get_categories()
-    finally:
-        db.close()
-
-    return templates.TemplateResponse(
-        "tags.html",
-        {
-            "request": request,
-            "user": user,
-            "categories": categories,
-            "csrf_token": get_csrf_token(request),
-            "base_url": ROOT_PATH,
-        }
-    )
+    """Legacy standalone /tags page: redirect to the in-gallery tags view."""
+    require_user(request)
+    tag = request.query_params.get("tag")
+    url = f"{ROOT_PATH}/?view=tags"
+    if tag:
+        url += "&tag=" + quote(tag, safe="")
+    return RedirectResponse(url, status_code=302)
 
 
 # =============================================================================
