@@ -12,7 +12,9 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+from ...database import create_connection
 from ...infrastructure.services.encryption import EncryptionError, EncryptionService
+from .ai_memory_service import ensure_index_note
 
 
 class AiProviderService:
@@ -24,17 +26,23 @@ class AiProviderService:
     # (and larger) context windows but rejects obvious typos.
     MAX_MANUAL_TOKEN_LIMIT = 10_000_000
 
-    def __init__(self, provider_repo, model_repo, settings_repo):
+    def __init__(self, provider_repo, model_repo, settings_repo,
+                 folder_repo=None, permission_repo=None):
         """Create the service with its repositories.
 
         Args:
             provider_repo: AiProviderRepository instance.
             model_repo: AiModelRepository instance.
             settings_repo: AiChatSettingsRepository instance.
+            folder_repo: Optional FolderRepository (memory settings).
+            permission_repo: Optional PermissionRepository (memory
+                settings: ownership + share-status validation).
         """
         self.provider_repo = provider_repo
         self.model_repo = model_repo
         self.settings_repo = settings_repo
+        self.folder_repo = folder_repo
+        self.permission_repo = permission_repo
 
     # =====================================================================
     # LLM client access (lazy - the client package is built separately)
@@ -547,6 +555,77 @@ class AiProviderService:
                 ),
             )
         self.settings_repo.update(user_id, {"reasoning_effort": effort})
+        return self.get_settings(user_id)
+
+    async def update_memory_settings(
+        self, user_id: int, enabled: bool,
+        folder_id: Optional[str] = None, dek: Optional[bytes] = None,
+    ) -> dict:
+        """Enable/disable AI memory and pick its private folder.
+
+        Enabling requires a folder the user owns that is not shared
+        (shares are local: only the folder itself must be private). The
+        MEMORY.md index note is created (recreated) on every enable so
+        memory is immediately usable. Disabling keeps the stored folder
+        for a later re-enable; ``folder_id`` is ignored.
+
+        Args:
+            user_id: Owner's user ID.
+            enabled: Whether memory tools are available to the chat.
+            folder_id: Private folder for the memory notes (required to
+                enable, falling back to the previously stored folder).
+            dek: Owner's Data Encryption Key (encrypts the index note).
+
+        Returns:
+            The enriched settings dict (see :meth:`get_settings`).
+
+        Raises:
+            HTTPException: 400 when enabling without a usable private
+                folder or when the folder is shared.
+        """
+        if enabled:
+            resolved = folder_id or self.settings_repo.ensure(user_id).get(
+                "memory_folder_id"
+            )
+            if not resolved:
+                raise HTTPException(
+                    status_code=400,
+                    detail="A private folder is required to enable memory",
+                )
+            if self.folder_repo is None or self.permission_repo is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Memory settings are not available",
+                )
+            if not self.permission_repo.is_owner(resolved, user_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Memory folder not found or not owned by you",
+                )
+            if self.permission_repo.get_share_status(resolved) != "private":
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Memory folder must be private (not shared with "
+                        "other users)"
+                    ),
+                )
+            self.settings_repo.ensure(user_id)
+            self.settings_repo.update(
+                user_id,
+                {"memory_enabled": 1, "memory_folder_id": resolved},
+            )
+            # Self-healing: (re)create MEMORY.md so the next turn has an
+            # index to embed.
+            if dek:
+                db = create_connection()
+                try:
+                    await ensure_index_note(db, user_id, resolved, dek)
+                finally:
+                    db.close()
+        else:
+            self.settings_repo.ensure(user_id)
+            self.settings_repo.update(user_id, {"memory_enabled": 0})
         return self.get_settings(user_id)
 
     def get_active_endpoint(self, user_id: int, dek: bytes) -> Optional[dict]:

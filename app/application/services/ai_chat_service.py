@@ -53,14 +53,22 @@ from ...infrastructure.services.llm.types import (
 )
 from ...infrastructure.storage import get_storage
 from ...logging_config import get_logger
+from ...database import create_connection
 from .ai_agent_service import AgentNotFoundError
+from .ai_memory_service import (
+    ensure_index_note,
+    get_memory_config,
+    read_index_text,
+)
 from .ai_tools import (
+    MEMORY_TOOL_NAMES,
     TOOL_REGISTRY,
     TOOL_SPECS,
     ToolContext,
     ToolError,
     VisionRequestSignal,
 )
+from .ai_tools.registry import short_id
 
 logger = get_logger(__name__)
 
@@ -493,15 +501,86 @@ class AiChatService:
             return list(TOOL_SPECS)
         return [spec for spec in TOOL_SPECS if spec.name in allowed]
 
+    def _effective_tools(
+        self, agent: Optional[dict], user_id: int
+    ) -> Tuple[Optional[Set[str]], Optional[dict]]:
+        """Resolve the turn's effective tool set and memory config.
+
+        Memory tools are global: while the user's memory is enabled they
+        join every allow-list (including restricted agents); while it is
+        disabled they are stripped from the default assistant's "every
+        tool" set. The allow-list is enforced again at execution time,
+        so both sides must use this same resolver.
+
+        Returns:
+            ``(allowed_tools, memory_config)`` — ``allowed_tools`` None
+            means "every tool", ``memory_config`` None means memory off.
+        """
+        allowed = self._agent_tools(agent)
+        db = create_connection()
+        try:
+            memory_config = get_memory_config(db, user_id)
+        finally:
+            db.close()
+        if memory_config is None:
+            if allowed is None:
+                allowed = set(TOOL_REGISTRY) - MEMORY_TOOL_NAMES
+            else:
+                allowed = allowed - MEMORY_TOOL_NAMES
+            return allowed, None
+        if allowed is not None:
+            allowed = allowed | MEMORY_TOOL_NAMES
+        return allowed, memory_config
+
+    async def _memory_prompt_block(
+        self, user_id: int, dek: bytes, memory_config: dict
+    ) -> str:
+        """The memory block appended to the system prompt.
+
+        Reads the index once per turn (recreating MEMORY.md when the
+        user deleted it); the per-iteration prompt rebuild reuses the
+        same text.
+        """
+        db = create_connection()
+        try:
+            item = await ensure_index_note(
+                db, user_id, memory_config["folder_id"], dek
+            )
+            index_text = await read_index_text(item["id"], dek)
+        finally:
+            db.close()
+        return (
+            "Memory is enabled: you have a private memory folder "
+            f"(folder_id {short_id(memory_config['folder_id'])}) holding "
+            "MEMORY.md — the index below — and one section note per "
+            "index entry. Memory tools run without confirmation.\n"
+            "- Persist durable facts about the user (preferences, "
+            "projects, standing decisions) with create_memory_section "
+            "at the end of the turn; honor explicit \"remember this\" "
+            "requests in the same turn.\n"
+            "- Check the index first and extend an existing section "
+            "(write_memory / edit_memory) instead of creating "
+            "near-duplicates.\n"
+            "- Read a section with read_memory whenever its "
+            "description is relevant to the current task.\n"
+            "- Keep the index compact: one line per section; refresh "
+            "the Summary as your picture of the user changes.\n"
+            "The index (MEMORY.md):\n\n" + index_text
+        )
+
     @staticmethod
     def _build_system_prompt(
-        agent: Optional[dict], allowed: Optional[Set[str]]
+        agent: Optional[dict],
+        allowed: Optional[Set[str]],
+        memory_block: Optional[str] = None,
     ) -> str:
         """Assemble the system prompt: agent identity + house rules.
 
         ``allowed`` is the agent's tool allow-list (None = every tool);
         tool-specific guidance lines are included only when the tool is
-        actually advertised.
+        actually advertised. ``memory_block`` (built once per turn by
+        :meth:`_memory_prompt_block`) carries the memory instructions and
+        the MEMORY.md index; None when memory is disabled.
         """
         today = datetime.now().strftime("%Y-%m-%d")
         if agent and (agent.get("system_prompt") or "").strip():
@@ -644,6 +723,8 @@ class AiChatService:
             "- Never invent item ids; obtain them from tools first.",
             "- Reply in the user's language. Be concise.",
         ])
+        if memory_block:
+            lines.append(memory_block)
         return identity + "\n\n" + "\n".join(lines)
 
     # =====================================================================
@@ -827,7 +908,7 @@ class AiChatService:
                 paused = False
                 async for event in self._execute_tool_calls(
                     user_id, conversation_id, batch, dek,
-                    allowed_tools=self._agent_tools(agent),
+                    allowed_tools=self._effective_tools(agent, user_id)[0],
                 ):
                     if event[0] in ("vision_request", "tool_confirm"):
                         paused = True
@@ -879,7 +960,7 @@ class AiChatService:
             agent = self._resolve_agent(
                 user_id, (conversation or {}).get("agent_id")
             )
-            allowed_tools = self._agent_tools(agent)
+            allowed_tools = self._effective_tools(agent, user_id)[0]
 
             if approved and always_allow:
                 _always_allowed.add((conversation_id, confirmation.tool_name))
@@ -1012,12 +1093,19 @@ class AiChatService:
         try:
             # The agent is resolved once per turn: tool filtering, prompt
             # assembly and execution-time enforcement all use the same
-            # allow-list.
+            # allow-list. Memory tools join it while memory is enabled;
+            # the index is read once per turn and reused on every prompt
+            # rebuild inside the iteration loop.
             conversation = self.chat_repo.get_conversation(
                 conversation_id, user_id
             )
             agent = self._resolve_agent(user_id, (conversation or {}).get("agent_id"))
-            allowed_tools = self._agent_tools(agent)
+            allowed_tools, memory_config = self._effective_tools(agent, user_id)
+            memory_block = (
+                await self._memory_prompt_block(user_id, dek, memory_config)
+                if memory_config
+                else None
+            )
 
             for _iteration in range(self.MAX_TOOL_ITERATIONS):
                 endpoint = self.provider_service.get_active_endpoint(user_id, dek)
@@ -1040,7 +1128,9 @@ class AiChatService:
                         model_id=endpoint["model_id"],
                         protocol=protocol,
                     ),
-                    system_prompt=self._build_system_prompt(agent, allowed_tools),
+                    system_prompt=self._build_system_prompt(
+                        agent, allowed_tools, memory_block=memory_block
+                    ),
                     turns=self._build_llm_turns(conversation_id),
                     tools=self._tool_specs(allowed_tools),
                     temperature=(

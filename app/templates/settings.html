@@ -664,6 +664,37 @@
             text-align: center;
         }
 
+        /* AI memory */
+        .ai-memory-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-top: 0.75rem;
+        }
+
+        .ai-memory-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .ai-memory-row select {
+            padding: 0.5rem 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 0.9rem;
+            min-width: 200px;
+        }
+
+        .ai-memory-hint {
+            margin-top: 0.5rem;
+        }
+
         /* AI agents */
         .ai-agents-list {
             display: flex;
@@ -1025,6 +1056,29 @@
                 <span id="ai-active-model" class="ai-active-model">Loading...</span>
                 <button type="button" id="ai-choose-model-btn" class="btn btn-secondary btn-small">Choose model</button>
             </div>
+        </div>
+
+        <!-- AI Memory Section -->
+        <div class="settings-section">
+            <h2>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>
+                </svg>
+                AI Memory
+            </h2>
+            <p>Let the AI assistant remember durable facts about you between chats. Memory lives in one of your folders as regular notes you can view and edit.</p>
+
+            <div class="ai-memory-row">
+                <label class="ai-memory-toggle">
+                    <input type="checkbox" id="ai-memory-enabled">
+                    Enable memory
+                </label>
+                <select id="ai-memory-folder" aria-label="Memory folder"></select>
+                <button type="button" id="ai-memory-save-btn" class="btn btn-small">Save</button>
+            </div>
+            <p class="ai-memory-hint text-muted" style="font-size: 0.85rem; margin-top: 0.5rem;">
+                The folder must be private (not shared with other users); a <code>MEMORY.md</code> index note is created in it automatically.
+            </p>
         </div>
 
         <!-- AI Agents Section -->

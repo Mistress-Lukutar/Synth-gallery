@@ -10,7 +10,7 @@ import json
 from typing import List
 
 from ...logging_config import get_logger
-from .ai_tools import TOOL_REGISTRY
+from .ai_tools import MEMORY_TOOL_NAMES, TOOL_REGISTRY
 
 logger = get_logger(__name__)
 
@@ -369,6 +369,16 @@ class AiAgentService:
             if unknown:
                 raise AgentValidationError(
                     "Unknown tools: " + ", ".join(sorted(unknown))
+                )
+            # Memory tools are global: granted automatically while the
+            # user's memory is enabled, so an allow-list entry would be
+            # misleading (and a disabled memory must stay disabled).
+            memory = [t for t in tools if t in MEMORY_TOOL_NAMES]
+            if memory:
+                raise AgentValidationError(
+                    "Memory tools are global and managed by the AI "
+                    "memory setting, not by agent allow-lists: "
+                    + ", ".join(sorted(memory))
                 )
             # Deduplicate while preserving order.
             validated["tools_json"] = _dump_tools(list(dict.fromkeys(tools)))

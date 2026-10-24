@@ -37,6 +37,18 @@ from ....infrastructure.services.encryption import EncryptionService
 from ....infrastructure.services.metadata import extract_image_exif
 from ....infrastructure.storage import get_storage
 from ..album_service import AlbumService
+from ..ai_memory_service import (
+    MEMORY_INDEX_STEM,
+    add_index_entry,
+    build_frontmatter,
+    ensure_index_note,
+    find_index_notes,
+    find_section,
+    get_memory_config,
+    parse_frontmatter,
+    validate_section_description,
+    validate_section_name,
+)
 from ..folder_service import FolderService
 from ..item_service import ItemService
 from ..item_types import is_known_item_type
@@ -84,6 +96,16 @@ _GREP_DEFAULT_CONTEXT_CHARS = 60
 _GREP_CONTEXT_MAX_CHARS = 200
 _GREP_MAX_NOTES = 300
 _GREP_NOTE_MAX_BYTES = 512 * 1024
+
+# Memory tools are global: they bypass agent allow-lists and are added to
+# every chat's effective tool set while memory is enabled in the user's
+# AI settings (see ai_memory_service / AiChatService._effective_tools).
+MEMORY_TOOL_NAMES = frozenset({
+    "read_memory",
+    "create_memory_section",
+    "write_memory",
+    "edit_memory",
+})
 
 
 # ============================================================================
@@ -2032,6 +2054,315 @@ async def _tool_edit_note(args: dict, ctx: ToolContext) -> str:
     }, ensure_ascii=False)
 
 
+    # Minimal ack: echoing content back would only burn tokens.
+    return json.dumps({
+        "status": "ok",
+        "id": short_id(item_id),
+        "replacements": occurrences if replace_all else 1,
+        "char_count": len(new_content),
+        "line_count": line_count,
+    }, ensure_ascii=False)
+
+
+# ============================================================================
+# Memory tools (global - available in every chat while memory is enabled)
+# ============================================================================
+
+def _memory_folder_id(db, user_id: int) -> str:
+    """The user's memory folder id, or ToolError when memory is off."""
+    config = get_memory_config(db, user_id)
+    if config is None:
+        raise ToolError("memory is not enabled for this user")
+    return config["folder_id"]
+
+
+def _memory_name(name) -> str:
+    try:
+        return validate_section_name(name)
+    except ValueError as exc:
+        raise ToolError(str(exc))
+
+
+def _memory_description(description) -> str:
+    try:
+        return validate_section_description(description)
+    except ValueError as exc:
+        raise ToolError(str(exc))
+
+
+async def _resolve_memory_note(
+    db, user_id: int, name: str, dek: bytes, *, create_index: bool = False,
+) -> dict:
+    """Resolve a memory name to its note item ("MEMORY" = the index).
+
+    ``create_index`` lets writers recreate the index when the user
+    deleted it; readers answer with a hint instead.
+    """
+    folder_id = _memory_folder_id(db, user_id)
+    if name.strip().lower() == MEMORY_INDEX_STEM.lower():
+        if create_index:
+            return await ensure_index_note(db, user_id, folder_id, dek)
+        index = find_index_notes(db, folder_id)
+        if len(index) > 1:
+            raise ToolError(
+                "multiple MEMORY.md notes found in the memory folder; "
+                "keep exactly one"
+            )
+        if not index:
+            raise ToolError(
+                "the memory index MEMORY.md does not exist; it is "
+                "recreated automatically on the next write "
+                "(create_memory_section / write_memory)"
+            )
+        return index[0]
+    section_name = _memory_name(name)
+    matches = await find_section(db, folder_id, section_name, dek)
+    if not matches:
+        raise ToolError(
+            f"memory section not found: {section_name}; read_memory "
+            "name='MEMORY' lists the existing sections"
+        )
+    if len(matches) > 1:
+        listed = ", ".join(short_id(m["id"]) for m in matches[:10])
+        raise ToolError(
+            f"ambiguous memory section '{section_name}': {len(matches)} "
+            f"notes match ({listed}); rename the duplicates in the gallery"
+        )
+    return matches[0]
+
+
+async def _tool_read_memory(args: dict, ctx: ToolContext) -> str:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        raise ToolError("name is required")
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        item = await _resolve_memory_note(db, ctx.user_id, name, dek)
+        is_index = (item.get("title") or "").lower() == "memory.md" or (
+            item.get("original_name") or ""
+        ).lower() == "memory.md"
+    finally:
+        db.close()
+
+    text = await _read_note_text(item["id"], dek)
+    meta, _body = parse_frontmatter(text)
+    offset = _clamp_int(args.get("offset"), 0, 10**9, 0)
+    max_chars = _clamp_int(
+        args.get("max_chars"), 500, _NOTE_READ_MAX_CHARS,
+        _NOTE_READ_DEFAULT_CHARS,
+    )
+    total = len(text)
+    chunk = text[offset:offset + max_chars]
+    next_offset = offset + len(chunk)
+    return json.dumps({
+        "name": (
+            MEMORY_INDEX_STEM
+            if is_index
+            else (meta.get("name") if meta and meta.get("name") else name)
+        ),
+        "description": meta.get("description") if meta else None,
+        "total_chars": total,
+        "offset": offset,
+        "content": chunk,
+        "next_offset": next_offset if next_offset < total else None,
+    }, ensure_ascii=False)
+
+
+async def _tool_create_memory_section(args: dict, ctx: ToolContext) -> str:
+    name = _memory_name(args.get("name"))
+    description = _memory_description(args.get("description"))
+    content = args.get("content")
+    if content is not None and (
+        not isinstance(content, str) or not content.strip()
+    ):
+        raise ToolError("content must be a non-empty string when provided")
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        folder_id = _memory_folder_id(db, ctx.user_id)
+        if await find_section(db, folder_id, name, dek):
+            raise ToolError(
+                f"memory section already exists: {name}; change it with "
+                "write_memory / edit_memory instead"
+            )
+        item_id = str(uuid.uuid4())
+        title = f"{name}.md"
+        text = build_frontmatter(name, description) + (content or "")
+        ItemRepository(db).create(
+            item_type=NOTE_TYPE,
+            folder_id=folder_id,
+            user_id=ctx.user_id,
+            item_id=item_id,
+            title=title,
+        )
+        ItemTextRepository(db).create(
+            item_id=item_id,
+            content_type="text/markdown",
+            original_name=title,
+            char_count=len(text),
+            line_count=_count_lines(text),
+        )
+        # Recreates the index when the user deleted it, then adds the
+        # one-line entry under "## Sections".
+        await add_index_entry(db, ctx.user_id, folder_id, dek, name, description)
+    finally:
+        db.close()
+
+    await _write_note_blob(item_id, text, dek)
+
+    return json.dumps({
+        "id": short_id(item_id),
+        "name": name,
+        "description": description,
+        "char_count": len(text),
+        "line_count": _count_lines(text),
+    }, ensure_ascii=False)
+
+
+async def _tool_write_memory(args: dict, ctx: ToolContext) -> str:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        raise ToolError("name is required")
+    mode = str(args.get("mode") or "replace").strip().lower()
+    if mode not in ("replace", "append"):
+        raise ToolError("mode must be 'replace' or 'append'")
+    content, _ = _validate_note_content(args.get("content"))
+    description = None
+    if args.get("description") is not None:
+        description = _memory_description(args.get("description"))
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        item = await _resolve_memory_note(
+            db, ctx.user_id, name, dek, create_index=True
+        )
+        item_id = item["id"]
+        full = await _read_note_text(item_id, dek)
+        meta, body = parse_frontmatter(full)
+        if mode == "replace":
+            # replace changes the body only: the frontmatter identity is
+            # preserved (an optional description refreshes its line).
+            if meta is not None:
+                section_name = str(meta.get("name") or "").strip()
+                section_desc = description if description is not None \
+                    else str(meta.get("description") or "").strip()
+                new_content = build_frontmatter(section_name, section_desc) \
+                    + content
+            else:
+                new_content = content
+        else:
+            if meta is not None and description is not None:
+                full = build_frontmatter(
+                    str(meta.get("name") or "").strip(), description
+                ) + body
+            new_content = full + content
+        new_content, line_count = _validate_note_content(new_content)
+    finally:
+        db.close()
+
+    await _write_note_blob(item_id, new_content, dek)
+
+    db = create_connection()
+    try:
+        ItemTextRepository(db).update_stats(
+            item_id, len(new_content), line_count
+        )
+        ItemRepository(db).touch_updated_at(item_id)
+    finally:
+        db.close()
+
+    # Minimal ack: echoing the content back would only burn tokens.
+    return json.dumps({
+        "status": "ok",
+        "name": name,
+        "mode": mode,
+        "char_count": len(new_content),
+        "line_count": line_count,
+    }, ensure_ascii=False)
+
+
+async def _tool_edit_memory(args: dict, ctx: ToolContext) -> str:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        raise ToolError("name is required")
+    old_string = args.get("old_string")
+    new_string = args.get("new_string")
+    if not isinstance(old_string, str) or not old_string:
+        raise ToolError("old_string must be a non-empty string")
+    if not isinstance(new_string, str):
+        raise ToolError("new_string must be a string (empty = deletion)")
+    if old_string == new_string:
+        raise ToolError("old_string and new_string are identical; nothing to do")
+    replace_all = args.get("replace_all") is True
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        item = await _resolve_memory_note(db, ctx.user_id, name, dek)
+        item_id = item["id"]
+    finally:
+        db.close()
+
+    # edit_memory patches the FULL text including the frontmatter, so the
+    # model can deliberately fix a description line.
+    content = await _read_note_text(item_id, dek)
+    occurrences = content.count(old_string)
+    if occurrences == 0:
+        raise ToolError(
+            "old_string not found in the memory note; re-read it with "
+            "read_memory and copy a fragment exactly as it appears (paging: "
+            f"the fragment may sit outside the fetched window, the note has "
+            f"{len(content)} chars)"
+        )
+    if occurrences > 1 and not replace_all:
+        raise ToolError(
+            f"old_string matches {occurrences} times; provide a longer, "
+            "unique fragment or pass replace_all=true to replace every "
+            "occurrence"
+        )
+
+    new_content = (
+        content.replace(old_string, new_string)
+        if replace_all
+        else content.replace(old_string, new_string, 1)
+    )
+    meta_old, _ = parse_frontmatter(content)
+    if meta_old is not None:
+        meta_new, _ = parse_frontmatter(new_content)
+        if meta_new is None or str(meta_new.get("name") or "").strip().lower() \
+                != str(meta_old.get("name") or "").strip().lower():
+            raise ToolError(
+                "renaming a memory section by editing its frontmatter is "
+                "not supported; create a new section instead"
+            )
+    # Revalidate the whole result: NUL bytes, size cap, non-empty note.
+    new_content, line_count = _validate_note_content(new_content)
+
+    await _write_note_blob(item_id, new_content, dek)
+
+    db = create_connection()
+    try:
+        ItemTextRepository(db).update_stats(
+            item_id, len(new_content), line_count
+        )
+        ItemRepository(db).touch_updated_at(item_id)
+    finally:
+        db.close()
+
+    # Minimal ack: echoing content back would only burn tokens.
+    return json.dumps({
+        "status": "ok",
+        "name": name,
+        "replacements": occurrences if replace_all else 1,
+        "char_count": len(new_content),
+        "line_count": line_count,
+    }, ensure_ascii=False)
+
+
 def _tool_create_folder(args: dict, ctx: ToolContext) -> str:
     name = str(args.get("name") or "").strip()
     parent_id = args.get("parent_id") or None
@@ -3158,6 +3489,158 @@ def _build_registry() -> dict:
             },
             executor=_tool_view_images,
             category="vision",
+        ),
+        ToolDef(
+            name="read_memory",
+            description=(
+                "Read a memory section by name (paged), or the memory "
+                "index with name='MEMORY'. Memory persists between chats "
+                "and lives in the user's private memory folder as notes."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Section name, or 'MEMORY' for the index."
+                        ),
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "default": 0,
+                        "description": "Character offset to read from.",
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "minimum": 500,
+                        "maximum": _NOTE_READ_MAX_CHARS,
+                        "default": _NOTE_READ_DEFAULT_CHARS,
+                        "description": "Max characters per page.",
+                    },
+                },
+                "required": ["name"],
+            },
+            executor=_tool_read_memory,
+            category="memory",
+        ),
+        ToolDef(
+            name="create_memory_section",
+            description=(
+                "Create a new memory section note: a durable fact about "
+                "the user worth remembering across chats. Writes the "
+                "section file and adds one index line to MEMORY.md. "
+                "Check the index first and extend an existing section "
+                "instead of creating near-duplicates."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Section name: letters/digits/dots/underscores/"
+                            "dashes, max 64 chars."
+                        ),
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "One-line description shown in the index "
+                            "(max 200 chars)."
+                        ),
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": (
+                            "Optional initial Markdown body of the section."
+                        ),
+                    },
+                },
+                "required": ["name", "description"],
+            },
+            executor=_tool_create_memory_section,
+            category="memory",
+        ),
+        ToolDef(
+            name="write_memory",
+            description=(
+                "Rewrite or extend a memory section's body. mode=replace "
+                "changes the body only (the name frontmatter is kept; an "
+                "optional description refreshes its line), mode=append "
+                "adds to the end. name='MEMORY' targets the index itself."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Section name, or 'MEMORY' for the index."
+                        ),
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "New (or appended) Markdown body.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["replace", "append"],
+                        "default": "replace",
+                        "description": "replace or append.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "Optional new one-line index description."
+                        ),
+                    },
+                },
+                "required": ["name", "content"],
+            },
+            executor=_tool_write_memory,
+            category="memory",
+        ),
+        ToolDef(
+            name="edit_memory",
+            description=(
+                "Targeted exact-string patch inside a memory note "
+                "(including its frontmatter, e.g. to fix the "
+                "description line): the first occurrence of old_string "
+                "becomes new_string, every occurrence with "
+                "replace_all=true. Read the note first and copy the "
+                "fragment verbatim."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "Section name, or 'MEMORY' for the index."
+                        ),
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact fragment to replace.",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Replacement (empty = deletion).",
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Replace every occurrence instead of the first."
+                        ),
+                    },
+                },
+                "required": ["name", "old_string", "new_string"],
+            },
+            executor=_tool_edit_memory,
+            category="memory",
         ),
         FETCH_URL_DEF,
         WEB_SEARCH_DEF,

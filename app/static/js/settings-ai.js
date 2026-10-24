@@ -15,6 +15,8 @@
  *   PUT    /api/user/ai/providers/{id}/models/{model_id}/reasoning
  *   GET    /api/user/ai/settings
  *   PUT    /api/user/ai/settings
+ *   PUT    /api/user/ai/settings/memory
+ *   GET    /api/folders (private owned folders -> memory folder picker)
  */
 (function () {
     'use strict';
@@ -154,6 +156,7 @@
             console.error('[settings-ai] Failed to load AI settings:', err);
         }
         renderActiveModel();
+        renderMemoryControls();
     }
 
     function renderActiveModel() {
@@ -671,6 +674,81 @@
     }
 
     // ========================================================================
+    // AI memory
+    // ========================================================================
+
+    var memoryFolders = []; // owned + private folders (GET /api/folders)
+
+    async function loadMemoryFolders() {
+        try {
+            var resp = await fetch(BASE_URL + '/api/folders', { credentials: 'include' });
+            if (resp.ok) {
+                var data = await resp.json();
+                memoryFolders = (Array.isArray(data) ? data : []).filter(function (f) {
+                    return f.permission === 'owner' && f.share_status === 'private';
+                });
+            }
+        } catch (err) {
+            console.error('[settings-ai] Failed to load folders:', err);
+        }
+        renderMemoryControls();
+    }
+
+    function renderMemoryControls() {
+        var select = getEl('ai-memory-folder');
+        var enabled = getEl('ai-memory-enabled');
+        if (!select || !enabled) return;
+        var s = settings || {};
+        var current = s.memory_folder_id || '';
+
+        var options = '';
+        for (var i = 0; i < memoryFolders.length; i++) {
+            var f = memoryFolders[i];
+            options += '<option value="' + esc(f.id) + '">' + esc(f.name || f.id) + '</option>';
+        }
+        // Keep the stored folder selectable even when it no longer
+        // matches the filter (e.g. shared after enabling): saving is
+        // rejected server-side in that case.
+        if (current && !memoryFolders.some(function (f) { return String(f.id) === String(current); })) {
+            options += '<option value="' + esc(current) + '">' + esc(current) + ' (unavailable)</option>';
+        }
+        select.innerHTML = options;
+        select.value = current || (memoryFolders[0] ? memoryFolders[0].id : '');
+        enabled.checked = !!s.memory_enabled;
+    }
+
+    async function saveMemorySettings() {
+        var enabled = getEl('ai-memory-enabled').checked;
+        var folderId = getEl('ai-memory-folder').value || null;
+        if (enabled && !folderId) {
+            toast('Pick a private folder for memory first (create one in the gallery)', true);
+            return;
+        }
+        var payload = { enabled: enabled };
+        if (folderId) payload.folder_id = folderId;
+        try {
+            var resp = await csrfFetch(BASE_URL + '/api/user/ai/settings/memory', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                var detail = await errorDetail(resp, 'Failed to save memory settings');
+                toast(detail, true);
+                warnEncryptionKey(detail);
+                return;
+            }
+            var data = await resp.json();
+            settings = data && data.settings ? data.settings : settings;
+            toast(enabled ? 'Memory enabled' : 'Memory disabled', false);
+            renderMemoryControls();
+        } catch (err) {
+            console.error('[settings-ai] Failed to save memory settings:', err);
+            toast('Failed to save memory settings', true);
+        }
+    }
+
+    // ========================================================================
     // Wiring
     // ========================================================================
 
@@ -747,8 +825,13 @@
             chooseModel(row.dataset.providerId, row.dataset.modelId);
         });
 
+        if (getEl('ai-memory-save-btn')) {
+            getEl('ai-memory-save-btn').addEventListener('click', saveMemorySettings);
+        }
+
         loadProviders();
         loadSettings();
+        loadMemoryFolders();
     }
 
     if (document.readyState === 'loading') {

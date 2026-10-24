@@ -17,7 +17,7 @@ from ..application.services.ai_agent_service import (
     AgentValidationError,
     AiAgentService,
 )
-from ..application.services.ai_tools import TOOL_REGISTRY
+from ..application.services.ai_tools import MEMORY_TOOL_NAMES, TOOL_REGISTRY
 from ..database import create_connection
 from ..dependencies import require_user
 from ..infrastructure.repositories.ai_agent_repository import AiAgentRepository
@@ -65,7 +65,11 @@ class UpdateActiveAgentRequest(BaseModel):
 # ============================================================================
 
 def _tools_catalogue() -> List[dict]:
-    """The tool registry as data for the agent editor UI."""
+    """The tool registry as data for the agent editor UI.
+
+    Memory tools are hidden: they are global and cannot be part of an
+    allow-list (the service validation rejects them).
+    """
     return [
         {
             "name": tool.name,
@@ -74,6 +78,7 @@ def _tools_catalogue() -> List[dict]:
             "confirmation": tool.confirmation,
         }
         for tool in TOOL_REGISTRY.values()
+        if tool.name not in MEMORY_TOOL_NAMES
     ]
 
 

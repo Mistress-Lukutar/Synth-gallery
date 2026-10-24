@@ -18,6 +18,9 @@ from app.infrastructure.storage import get_storage
 from app.infrastructure.repositories import (
     FolderRepository, PermissionRepository, UserRepository
 )
+from app.infrastructure.repositories.ai_chat_settings_repository import (
+    AiChatSettingsRepository,
+)
 from app.application.services import FolderService, PermissionService, UserSettingsService
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
@@ -138,11 +141,18 @@ def move_folder_route(request: Request, folder_id: str, data: FolderMove):
 def delete_folder_route(request: Request, folder_id: str):
     """Delete folder and all its contents."""
     user = require_user(request)
-    
+
     # Using service layer (Issue #16)
     service = get_folder_service()
     filenames = service.delete_folder(folder_id, user["id"])
-    
+
+    # No settings row may keep pointing at the deleted folder.
+    db = create_connection()
+    try:
+        AiChatSettingsRepository(db).clear_memory_folder(folder_id)
+    finally:
+        db.close()
+
     # Delete actual files from storage
     import asyncio
     storage = get_storage()
@@ -192,6 +202,16 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
 
     db = create_connection()
     try:
+        # A folder serving as someone's AI memory must stay private:
+        # memory notes would leak to other users through the share.
+        if AiChatSettingsRepository(db).memory_folder_user_ids(folder_id):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "folder is an AI memory folder and must stay private; "
+                    "disable AI memory for it first"
+                ),
+            )
         # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),

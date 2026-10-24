@@ -18,6 +18,8 @@ class AiChatSettingsRepository(Repository):
         "temperature",
         "active_agent_id",
         "reasoning_effort",
+        "memory_enabled",
+        "memory_folder_id",
     )
 
     def ensure(self, user_id: int) -> dict:
@@ -49,8 +51,9 @@ class AiChatSettingsRepository(Repository):
             user_id: Owner's user ID.
             fields: Dict of fields to set; allowed keys are
                 ``active_provider_id``, ``active_model_id``,
-                ``temperature``, ``active_agent_id`` and
-                ``reasoning_effort``. Unknown keys are ignored; ``None``
+                ``temperature``, ``active_agent_id``,
+                ``reasoning_effort``, ``memory_enabled`` and
+                ``memory_folder_id``. Unknown keys are ignored; ``None``
                 values are written as-is (they clear the selection).
 
         Returns:
@@ -109,3 +112,42 @@ class AiChatSettingsRepository(Repository):
             (user_id, agent_id),
         )
         self._commit()
+
+    def clear_memory_folder(self, folder_id: str) -> None:
+        """Disable memory for every user whose memory folder is the given one.
+
+        Used when a folder is deleted so no settings row keeps pointing at
+        a dangling folder id. Both the folder reference and the enabled
+        flag are reset together — a dangling folder must never be treated
+        as an active memory folder.
+
+        Args:
+            folder_id: Folder ID being removed.
+        """
+        self._execute(
+            "UPDATE ai_chat_settings "
+            "SET memory_folder_id = NULL, memory_enabled = 0, "
+            "    updated_at = CURRENT_TIMESTAMP "
+            "WHERE memory_folder_id = ?",
+            (folder_id,),
+        )
+        self._commit()
+
+    def memory_folder_user_ids(self, folder_id: str) -> list[int]:
+        """Users whose ACTIVE memory folder is the given one.
+
+        Only rows with ``memory_enabled = 1`` count: a stale folder
+        reference on a disabled setting does not block anything.
+
+        Args:
+            folder_id: Folder ID to look up.
+
+        Returns:
+            Owner user IDs (empty when the folder is nobody's memory).
+        """
+        cursor = self._execute(
+            "SELECT user_id FROM ai_chat_settings "
+            "WHERE memory_enabled = 1 AND memory_folder_id = ?",
+            (folder_id,),
+        )
+        return [row["user_id"] for row in cursor.fetchall()]

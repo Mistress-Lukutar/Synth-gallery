@@ -12,7 +12,11 @@ from fastapi.testclient import TestClient
 
 from app.application.services import ai_chat_service as ai_chat_service_module
 from app.application.services.ai_agent_service import BUILTIN_AGENTS
-from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+from app.application.services.ai_tools import (
+    MEMORY_TOOL_NAMES,
+    TOOL_REGISTRY,
+    ToolContext,
+)
 from app.config import CSRF_COOKIE_NAME
 from app.infrastructure.repositories import (
     ItemMediaRepository,
@@ -85,7 +89,8 @@ def test_builtin_agents_seeded_on_list(authenticated_client):
 def test_tools_catalogue_in_list_response(authenticated_client):
     response = authenticated_client.get("/api/user/ai/agents")
     tools = response.json()["tools"]
-    assert {t["name"] for t in tools} == set(TOOL_REGISTRY)
+    # Memory tools are global and hidden from the agent editor catalogue.
+    assert {t["name"] for t in tools} == set(TOOL_REGISTRY) - MEMORY_TOOL_NAMES
     for tool in tools:
         assert tool["category"]
         assert tool["confirmation"] in ("none", "always")
@@ -698,5 +703,9 @@ def test_dangling_agent_id_falls_back_to_default_assistant(
         _post_message(authenticated_client, csrf, conversation["id"], "hi")
     )
     request = fake.requests[0]
-    assert {spec.name for spec in request.tools} == set(TOOL_REGISTRY)
+    # Memory is disabled here: the default assistant sees every tool
+    # except the global memory tools.
+    assert {spec.name for spec in request.tools} == (
+        set(TOOL_REGISTRY) - MEMORY_TOOL_NAMES
+    )
     assert "You are the AI assistant of Synth Gallery" in request.system_prompt

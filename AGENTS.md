@@ -630,6 +630,61 @@ messages append to and that history replay walks.
   never content. Built-in agents carry no note mutations (Librarian is
   read-only: `read_note` only) — custom agents list them explicitly.
 
+### 6h. AI Memory
+
+Per-user opt-in memory (migration `0014`: `ai_chat_settings.memory_enabled`
++ `memory_folder_id`, FK-free). A private folder holds the `MEMORY.md`
+index note (`text/markdown`, always embedded into the system prompt while
+memory is enabled) and section notes `{name}.md` with frontmatter
+`name`/`description`. Everything is regular notes — the user can view and
+edit them like any other note. Shared logic lives in
+`app/application/services/ai_memory_service.py` (imports only
+repositories/encryption/storage — importing `ai_tools` there would be
+circular).
+
+- **Settings**: `PUT /api/user/ai/settings/memory` `{enabled, folder_id?}`
+  (`AiProviderService.update_memory_settings`). Enabling requires a folder
+  the user owns with `get_share_status() == 'private'` (400 otherwise);
+  the folder falls back to the previously stored one on re-enable;
+  disabling keeps the folder. Every enable (re)creates `MEMORY.md` via
+  `ensure_index_note` (self-healing when the user deleted it).
+- **Tools** (`MEMORY_TOOL_NAMES` in `ai_tools/registry.py`, category
+  `memory`, all `confirmation="none"`): `read_memory(name, offset?,
+  max_chars?)` — paged like `read_note`, `name="MEMORY"` reads the full
+  index; `create_memory_section(name, description, content?)` — writes
+  `{name}.md` and upserts the one-line `- **name** — description` entry
+  under `## Sections` of the index; `write_memory(name, content,
+  mode=replace|append, description?)` — replace changes the body only
+  (frontmatter preserved), append adds to the end; `edit_memory(name,
+  old_string, new_string, replace_all?)` — patches the full text
+  including the frontmatter (description fixes allowed, renaming the
+  `name:` line rejected). Names match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`,
+  are unique case-insensitively in the folder; `MEMORY` is reserved.
+  Resolution: `{name}.md` title/original_name first, frontmatter `name:`
+  as fallback; duplicates answer "ambiguous".
+- **Orchestrator** (`AiChatService._effective_tools`): memory tools are
+  global — while memory is enabled they join every allow-list (restricted
+  agents included) and are enforced again at execution time; while
+  disabled they are stripped from the default assistant's "every tool"
+  set. `_memory_prompt_block` reads the index once per turn and injects
+  instructions + the index text + the memory folder's 12-char id into the
+  system prompt (via `_build_system_prompt(..., memory_block=...)`).
+- **Agent editor**: memory tools are hidden from the tools catalogue
+  (`_tools_catalogue` in `app/routes/ai_agents.py`) and rejected in
+  allow-list validation (`ai_agent_service._validate_fields`) — they are
+  managed by the memory setting, not by agents.
+- **Guards**: `POST /api/folders/{folder_id}/permissions` answers 403
+  when the folder is an ACTIVE memory folder of any user
+  (`AiChatSettingsRepository.memory_folder_user_ids`);
+  `DELETE /api/folders/{folder_id}` calls `clear_memory_folder(folder_id)`
+  so no settings row keeps pointing at the deleted folder
+  (`get_memory_config` also revalidates ownership at read time).
+- **Frontend**: Settings → AI Memory card (`settings.html` +
+  `settings-ai.js`): checkbox + folder `<select>` (GET /api/folders,
+  client-side filter `permission === 'owner' && share_status ===
+  'private'`; the stored folder stays selectable but the server rejects
+  saving it if it became shared).
+
 ## Build and Run Commands
 
 ### Local Development

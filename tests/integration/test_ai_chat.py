@@ -1200,6 +1200,8 @@ def test_tool_registry_has_expected_tools():
         "create_album", "add_items_to_album",
         "view_images",
         "fetch_url", "web_search",
+        "read_memory", "create_memory_section", "write_memory",
+        "edit_memory",
     }
     assert set(TOOL_REGISTRY) == expected
 

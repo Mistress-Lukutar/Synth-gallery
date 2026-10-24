@@ -19,6 +19,10 @@ from ..infrastructure.repositories.ai_model_repository import AiModelRepository
 from ..infrastructure.repositories.ai_provider_repository import (
     AiProviderRepository,
 )
+from ..infrastructure.repositories.folder_repository import FolderRepository
+from ..infrastructure.repositories.permission_repository import (
+    PermissionRepository,
+)
 from ..infrastructure.services.encryption import dek_cache
 
 router = APIRouter(prefix="/api/user/ai", tags=["ai-settings"])
@@ -30,6 +34,8 @@ def build_ai_provider_service(db) -> AiProviderService:
         provider_repo=AiProviderRepository(db),
         model_repo=AiModelRepository(db),
         settings_repo=AiChatSettingsRepository(db),
+        folder_repo=FolderRepository(db),
+        permission_repo=PermissionRepository(db),
     )
 
 
@@ -78,6 +84,12 @@ class UpdateSettingsRequest(BaseModel):
 class UpdateReasoningEffortRequest(BaseModel):
     """Reasoning effort chosen in the chat composer; None = provider default."""
     effort: Optional[str] = None
+
+
+class UpdateMemorySettingsRequest(BaseModel):
+    """AI memory toggle; ``folder_id`` is required to enable memory."""
+    enabled: bool
+    folder_id: Optional[str] = None
 
 
 class UpdateModelLimitsRequest(BaseModel):
@@ -277,6 +289,27 @@ def update_reasoning_effort(request: Request, data: UpdateReasoningEffortRequest
     try:
         service = build_ai_provider_service(db)
         settings = service.update_reasoning_effort(user["id"], data.effort)
+        return {"settings": settings}
+    finally:
+        db.close()
+
+
+@router.put("/settings/memory")
+async def update_memory_settings(request: Request, data: UpdateMemorySettingsRequest):
+    """Enable/disable AI memory and pick its private folder.
+
+    Enabling validates the folder (owned + private) and creates the
+    MEMORY.md index note in it; disabling keeps the folder for a later
+    re-enable.
+    """
+    user, dek = _require_dek(request)
+
+    db = create_connection()
+    try:
+        service = build_ai_provider_service(db)
+        settings = await service.update_memory_settings(
+            user["id"], data.enabled, data.folder_id, dek
+        )
         return {"settings": settings}
     finally:
         db.close()

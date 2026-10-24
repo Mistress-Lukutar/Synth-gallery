@@ -6,7 +6,7 @@
 """
 from ....infrastructure.services.llm.types import ToolSpec
 from .base import ToolContext, ToolDef, ToolError, VisionRequestSignal
-from .registry import TOOL_REGISTRY
+from .registry import MEMORY_TOOL_NAMES, TOOL_REGISTRY
 
 # Tool specifications handed to the LLM with every request.
 TOOL_SPECS: list = [
@@ -19,6 +19,7 @@ TOOL_SPECS: list = [
 ]
 
 __all__ = [
+    "MEMORY_TOOL_NAMES",
     "TOOL_REGISTRY",
     "TOOL_SPECS",
     "ToolContext",
