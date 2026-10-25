@@ -1,6 +1,12 @@
 /**
  * Tag Management Page - per-category CRUD + implications
+ *
+ * Classic-script IIFE module. Everything stays private so the top-level
+ * helpers (csrfFetch, getCsrfToken, escapeHtml, ...) cannot shadow the
+ * core.js globals; only the names below are exported on purpose.
  */
+
+(function() {
 
 const BASE_URL = (() => {
     const link = document.querySelector('link[rel="stylesheet"]');
@@ -1087,3 +1093,22 @@ if (!document.getElementById('tags-view')) {
         window.initTagsPage();
     }
 }
+
+// Public surface: initTagsPage / navigateToTagByName are exported at their
+// definitions; the rest back the inline onclick="..." handlers in the
+// generated markup. Keep in sync with any new onclick="fn(...)" above.
+window.selectTag = selectTag;
+window.loadCategoryTags = loadCategoryTags;
+window.cancelEdit = cancelEdit;
+window.saveEdit = saveEdit;
+window.toggleTagDescMode = toggleTagDescMode;
+window.saveTagDescription = saveTagDescription;
+window.addImplication = addImplication;
+window.removeImplication = removeImplication;
+window.pickImplication = pickImplication;
+window.openRemapModal = openRemapModal;
+window.selectRemapTarget = selectRemapTarget;
+window.deleteTag = deleteTag;
+window.deleteCategory = deleteCategory;
+
+})();
