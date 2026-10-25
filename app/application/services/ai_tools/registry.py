@@ -41,13 +41,16 @@ from ..ai_memory_service import (
     MEMORY_INDEX_STEM,
     add_index_entry,
     build_frontmatter,
-    ensure_index_note,
     find_index_notes,
     find_section,
     get_memory_config,
     parse_frontmatter,
+    remove_index_entry_from_note,
     validate_section_description,
     validate_section_name,
+    validate_section_when_to_use,
+    validate_summary,
+    write_index_summary,
 )
 from ..folder_service import FolderService
 from ..item_service import ItemService
@@ -105,6 +108,8 @@ MEMORY_TOOL_NAMES = frozenset({
     "create_memory_section",
     "write_memory",
     "edit_memory",
+    "delete_memory_section",
+    "set_memory_summary",
 })
 
 
@@ -2090,18 +2095,40 @@ def _memory_description(description) -> str:
         raise ToolError(str(exc))
 
 
+def _memory_when_to_use(when_to_use) -> str:
+    try:
+        return validate_section_when_to_use(when_to_use)
+    except ValueError as exc:
+        raise ToolError(str(exc))
+
+
+def _memory_summary(summary) -> str:
+    try:
+        return validate_summary(summary)
+    except ValueError as exc:
+        raise ToolError(str(exc))
+
+
+_INDEX_WRITE_ERROR = (
+    "the memory index MEMORY.md is written by the memory tools only: "
+    "use set_memory_summary for the Summary and create_memory_section / "
+    "write_memory / edit_memory / delete_memory_section on section "
+    "names for the entries; read the index with read_memory name='MEMORY'"
+)
+
+
 async def _resolve_memory_note(
-    db, user_id: int, name: str, dek: bytes, *, create_index: bool = False,
+    db, user_id: int, name: str, dek: bytes, *, allow_index: bool = True,
 ) -> dict:
     """Resolve a memory name to its note item ("MEMORY" = the index).
 
-    ``create_index`` lets writers recreate the index when the user
-    deleted it; readers answer with a hint instead.
+    ``allow_index=False`` guards the writing tools: the index is
+    tool-managed, so they refuse it with guidance instead of resolving.
     """
     folder_id = _memory_folder_id(db, user_id)
     if name.strip().lower() == MEMORY_INDEX_STEM.lower():
-        if create_index:
-            return await ensure_index_note(db, user_id, folder_id, dek)
+        if not allow_index:
+            raise ToolError(_INDEX_WRITE_ERROR)
         index = find_index_notes(db, folder_id)
         if len(index) > 1:
             raise ToolError(
@@ -2112,7 +2139,7 @@ async def _resolve_memory_note(
             raise ToolError(
                 "the memory index MEMORY.md does not exist; it is "
                 "recreated automatically on the next write "
-                "(create_memory_section / write_memory)"
+                "(create_memory_section)"
             )
         return index[0]
     section_name = _memory_name(name)
@@ -2163,6 +2190,7 @@ async def _tool_read_memory(args: dict, ctx: ToolContext) -> str:
             else (meta.get("name") if meta and meta.get("name") else name)
         ),
         "description": meta.get("description") if meta else None,
+        "when_to_use": meta.get("when_to_use") if meta else None,
         "total_chars": total,
         "offset": offset,
         "content": chunk,
@@ -2173,6 +2201,7 @@ async def _tool_read_memory(args: dict, ctx: ToolContext) -> str:
 async def _tool_create_memory_section(args: dict, ctx: ToolContext) -> str:
     name = _memory_name(args.get("name"))
     description = _memory_description(args.get("description"))
+    when_to_use = _memory_when_to_use(args.get("when_to_use"))
     content = args.get("content")
     if content is not None and (
         not isinstance(content, str) or not content.strip()
@@ -2190,7 +2219,8 @@ async def _tool_create_memory_section(args: dict, ctx: ToolContext) -> str:
             )
         item_id = str(uuid.uuid4())
         title = f"{name}.md"
-        text = build_frontmatter(name, description) + (content or "")
+        text = build_frontmatter(name, description, when_to_use) \
+            + (content or "")
         ItemRepository(db).create(
             item_type=NOTE_TYPE,
             folder_id=folder_id,
@@ -2206,8 +2236,11 @@ async def _tool_create_memory_section(args: dict, ctx: ToolContext) -> str:
             line_count=_count_lines(text),
         )
         # Recreates the index when the user deleted it, then adds the
-        # one-line entry under "## Sections".
-        await add_index_entry(db, ctx.user_id, folder_id, dek, name, description)
+        # entry block (bullet + Use-when line) under "## Sections".
+        await add_index_entry(
+            db, ctx.user_id, folder_id, dek,
+            name, description, when_to_use,
+        )
     finally:
         db.close()
 
@@ -2217,6 +2250,7 @@ async def _tool_create_memory_section(args: dict, ctx: ToolContext) -> str:
         "id": short_id(item_id),
         "name": name,
         "description": description,
+        "when_to_use": when_to_use,
         "char_count": len(text),
         "line_count": _count_lines(text),
     }, ensure_ascii=False)
@@ -2233,31 +2267,41 @@ async def _tool_write_memory(args: dict, ctx: ToolContext) -> str:
     description = None
     if args.get("description") is not None:
         description = _memory_description(args.get("description"))
+    when_to_use = None
+    if args.get("when_to_use") is not None:
+        when_to_use = _memory_when_to_use(args.get("when_to_use"))
     dek = _require_dek(ctx)
 
     db = create_connection()
     try:
+        folder_id = _memory_folder_id(db, ctx.user_id)
         item = await _resolve_memory_note(
-            db, ctx.user_id, name, dek, create_index=True
+            db, ctx.user_id, name, dek, allow_index=False
         )
         item_id = item["id"]
         full = await _read_note_text(item_id, dek)
         meta, body = parse_frontmatter(full)
+        if meta is not None:
+            section_name = str(meta.get("name") or "").strip() or name
+            kept_desc = description if description is not None \
+                else str(meta.get("description") or "").strip()
+            kept_usage = when_to_use if when_to_use is not None \
+                else str(meta.get("when_to_use") or "").strip()
         if mode == "replace":
             # replace changes the body only: the frontmatter identity is
-            # preserved (an optional description refreshes its line).
+            # preserved (optional description/when_to_use refresh it).
             if meta is not None:
-                section_name = str(meta.get("name") or "").strip()
-                section_desc = description if description is not None \
-                    else str(meta.get("description") or "").strip()
-                new_content = build_frontmatter(section_name, section_desc) \
-                    + content
+                new_content = build_frontmatter(
+                    section_name, kept_desc, kept_usage or None
+                ) + content
             else:
                 new_content = content
         else:
-            if meta is not None and description is not None:
+            if meta is not None and (
+                description is not None or when_to_use is not None
+            ):
                 full = build_frontmatter(
-                    str(meta.get("name") or "").strip(), description
+                    section_name, kept_desc, kept_usage or None
                 ) + body
             new_content = full + content
         new_content, line_count = _validate_note_content(new_content)
@@ -2265,6 +2309,18 @@ async def _tool_write_memory(args: dict, ctx: ToolContext) -> str:
         db.close()
 
     await _write_note_blob(item_id, new_content, dek)
+
+    # Refresh the index entry when the model changed the entry itself
+    # (create_memory_section owns the initial entry).
+    if meta is not None and (description is not None or when_to_use is not None):
+        db = create_connection()
+        try:
+            await add_index_entry(
+                db, ctx.user_id, folder_id, dek,
+                section_name, kept_desc, kept_usage or None,
+            )
+        finally:
+            db.close()
 
     db = create_connection()
     try:
@@ -2302,7 +2358,9 @@ async def _tool_edit_memory(args: dict, ctx: ToolContext) -> str:
 
     db = create_connection()
     try:
-        item = await _resolve_memory_note(db, ctx.user_id, name, dek)
+        item = await _resolve_memory_note(
+            db, ctx.user_id, name, dek, allow_index=False
+        )
         item_id = item["id"]
     finally:
         db.close()
@@ -2360,6 +2418,57 @@ async def _tool_edit_memory(args: dict, ctx: ToolContext) -> str:
         "replacements": occurrences if replace_all else 1,
         "char_count": len(new_content),
         "line_count": line_count,
+    }, ensure_ascii=False)
+
+
+async def _tool_delete_memory_section(args: dict, ctx: ToolContext) -> str:
+    name = str(args.get("name") or "").strip()
+    if not name:
+        raise ToolError("name is required")
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        folder_id = _memory_folder_id(db, ctx.user_id)
+        item = await _resolve_memory_note(
+            db, ctx.user_id, name, dek, allow_index=False
+        )
+        item_id = item["id"]
+        # A note has no thumbnails/fallbacks; only its body blob and DB
+        # rows exist (item_texts goes with the items row via CASCADE).
+        await get_storage().delete(item_id, folder="uploads")
+        ItemRepository(db).delete(item_id)
+        # Drops the entry block; recreates a deleted index first (the
+        # fresh index then simply has no entry for this name).
+        await remove_index_entry_from_note(
+            db, ctx.user_id, folder_id, dek, name
+        )
+    finally:
+        db.close()
+
+    return json.dumps({
+        "status": "ok",
+        "name": name,
+        "deleted": True,
+    }, ensure_ascii=False)
+
+
+async def _tool_set_memory_summary(args: dict, ctx: ToolContext) -> str:
+    summary = _memory_summary(args.get("summary"))
+    dek = _require_dek(ctx)
+
+    db = create_connection()
+    try:
+        folder_id = _memory_folder_id(db, ctx.user_id)
+        await write_index_summary(
+            db, ctx.user_id, folder_id, dek, summary
+        )
+    finally:
+        db.close()
+
+    return json.dumps({
+        "status": "ok",
+        "char_count": len(summary),
     }, ensure_ascii=False)
 
 
@@ -3530,7 +3639,9 @@ def _build_registry() -> dict:
             description=(
                 "Create a new memory section note: a durable fact about "
                 "the user worth remembering across chats. Writes the "
-                "section file and adds one index line to MEMORY.md. "
+                "section file ({name}.md) and adds its index entry to "
+                "MEMORY.md: the one-line description plus a 'Use when:' "
+                "line naming the situations the section applies to. "
                 "Check the index first and extend an existing section "
                 "instead of creating near-duplicates."
             ),
@@ -3551,6 +3662,14 @@ def _build_registry() -> dict:
                             "(max 200 chars)."
                         ),
                     },
+                    "when_to_use": {
+                        "type": "string",
+                        "description": (
+                            "One-line 'Use when:' scenario shown in the "
+                            "index: when this section is relevant to a "
+                            "task (max 200 chars)."
+                        ),
+                    },
                     "content": {
                         "type": "string",
                         "description": (
@@ -3558,7 +3677,7 @@ def _build_registry() -> dict:
                         ),
                     },
                 },
-                "required": ["name", "description"],
+                "required": ["name", "description", "when_to_use"],
             },
             executor=_tool_create_memory_section,
             category="memory",
@@ -3567,18 +3686,18 @@ def _build_registry() -> dict:
             name="write_memory",
             description=(
                 "Rewrite or extend a memory section's body. mode=replace "
-                "changes the body only (the name frontmatter is kept; an "
-                "optional description refreshes its line), mode=append "
-                "adds to the end. name='MEMORY' targets the index itself."
+                "changes the body only (frontmatter identity is kept), "
+                "mode=append adds to the end. Pass description / "
+                "when_to_use to refresh the index entry when the entry "
+                "itself changed. The index MEMORY.md cannot be written "
+                "with this tool."
             ),
             parameters_json_schema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "Section name, or 'MEMORY' for the index."
-                        ),
+                        "description": "Section name.",
                     },
                     "content": {
                         "type": "string",
@@ -3596,6 +3715,13 @@ def _build_registry() -> dict:
                             "Optional new one-line index description."
                         ),
                     },
+                    "when_to_use": {
+                        "type": "string",
+                        "description": (
+                            "Optional new one-line 'Use when:' scenario "
+                            "for the index entry."
+                        ),
+                    },
                 },
                 "required": ["name", "content"],
             },
@@ -3605,21 +3731,20 @@ def _build_registry() -> dict:
         ToolDef(
             name="edit_memory",
             description=(
-                "Targeted exact-string patch inside a memory note "
+                "Targeted exact-string patch inside a memory section "
                 "(including its frontmatter, e.g. to fix the "
-                "description line): the first occurrence of old_string "
-                "becomes new_string, every occurrence with "
-                "replace_all=true. Read the note first and copy the "
-                "fragment verbatim."
+                "description or when_to_use line): the first occurrence "
+                "of old_string becomes new_string, every occurrence "
+                "with replace_all=true. Read the note first and copy "
+                "the fragment verbatim. Sections only — the index "
+                "MEMORY.md cannot be edited with this tool."
             ),
             parameters_json_schema={
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "description": (
-                            "Section name, or 'MEMORY' for the index."
-                        ),
+                        "description": "Section name.",
                     },
                     "old_string": {
                         "type": "string",
@@ -3640,6 +3765,52 @@ def _build_registry() -> dict:
                 "required": ["name", "old_string", "new_string"],
             },
             executor=_tool_edit_memory,
+            category="memory",
+        ),
+        ToolDef(
+            name="delete_memory_section",
+            description=(
+                "Delete a memory section: removes the section note and "
+                "its entry block from the MEMORY.md index. Use when a "
+                "section is no longer wanted; for renaming, create the "
+                "new section first and delete the old one."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Section name to delete.",
+                    },
+                },
+                "required": ["name"],
+            },
+            executor=_tool_delete_memory_section,
+            category="memory",
+        ),
+        ToolDef(
+            name="set_memory_summary",
+            description=(
+                "Replace the Summary at the top of the MEMORY.md index — "
+                "1-2 sentences describing the user and what is worth "
+                "remembering. This is the only way to change the "
+                "Summary; keep it fresh as your picture of the user "
+                "changes."
+            ),
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": (
+                            "The new Summary text, 1-2 sentences "
+                            "(max 1000 chars)."
+                        ),
+                    },
+                },
+                "required": ["summary"],
+            },
+            executor=_tool_set_memory_summary,
             category="memory",
         ),
         FETCH_URL_DEF,

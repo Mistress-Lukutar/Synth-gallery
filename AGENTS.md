@@ -637,12 +637,23 @@ Per-user opt-in memory (migration `0014`: `ai_chat_settings.memory_enabled`
 + `memory_folder_id`, FK-free). A private folder holds the `MEMORY.md`
 index note (`text/markdown`, always embedded into the system prompt while
 memory is enabled) and section notes `{name}.md` with frontmatter
-`name`/`description`. Everything is regular notes — the user can view and
-edit them like any other note. Shared logic lives in
+`name`/`description`/`when_to_use`. Everything is regular notes — the user
+can view and edit them like any other note. Shared logic lives in
 `app/application/services/ai_memory_service.py` (imports only
 repositories/encryption/storage — importing `ai_tools` there would be
 circular).
 
+- **Index format**: `## Summary` (1-2 sentences about the user, written
+  only by `set_memory_summary`) and `## Sections`, one entry block per
+  section: `- **name** — description` plus an indented
+  `  Use when: {scenario}` continuation line. Legacy single-line entries
+  (pre-when_to_use) are replaced wholesale on the next upsert. The index
+  is tool-managed: writing tools refuse `name="MEMORY"` with guidance
+  (`_INDEX_WRITE_ERROR` in `ai_tools/registry.py`) — only
+  `set_memory_summary` and the section tools touch it. The model is told
+  to read the index as the map: entries are deliberately brief, section
+  notes hold the details, and a section is read when its "Use when:"
+  scenario matches the task.
 - **Settings**: `PUT /api/user/ai/settings/memory` `{enabled, folder_id?}`
   (`AiProviderService.update_memory_settings`). Enabling requires a folder
   the user owns with `get_share_status() == 'private'` (400 otherwise);
@@ -652,14 +663,23 @@ circular).
 - **Tools** (`MEMORY_TOOL_NAMES` in `ai_tools/registry.py`, category
   `memory`, all `confirmation="none"`): `read_memory(name, offset?,
   max_chars?)` — paged like `read_note`, `name="MEMORY"` reads the full
-  index; `create_memory_section(name, description, content?)` — writes
-  `{name}.md` and upserts the one-line `- **name** — description` entry
-  under `## Sections` of the index; `write_memory(name, content,
-  mode=replace|append, description?)` — replace changes the body only
-  (frontmatter preserved), append adds to the end; `edit_memory(name,
-  old_string, new_string, replace_all?)` — patches the full text
-  including the frontmatter (description fixes allowed, renaming the
-  `name:` line rejected). Names match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`,
+  index, result meta carries `when_to_use`;
+  `create_memory_section(name, description, when_to_use, content?)` —
+  writes `{name}.md` (frontmatter includes `when_to_use:`) and upserts
+  the entry block (bullet + Use-when line) under `## Sections` of the
+  index; `when_to_use` is required — the model must name the situations
+  the section applies to; `write_memory(name, content,
+  mode=replace|append, description?, when_to_use?)` — replace changes
+  the body only (frontmatter preserved), append adds to the end; passing
+  `description`/`when_to_use` refreshes the index entry (the index
+  itself cannot be targeted); `edit_memory(name, old_string, new_string,
+  replace_all?)` — patches the full text including the frontmatter
+  (description/when_to_use fixes allowed, renaming the `name:` line
+  rejected); `delete_memory_section(name)` — deletes the section note
+  (blob + rows, `item_texts` cascades) and removes its entry block from
+  the index; `set_memory_summary(summary)` — replaces the `## Summary`
+  block (recreates the heading/title when hand-stripped). Names match
+  `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`,
   are unique case-insensitively in the folder; `MEMORY` is reserved.
   Resolution: `{name}.md` title/original_name first, frontmatter `name:`
   as fallback; duplicates answer "ambiguous".
@@ -698,6 +718,7 @@ inside the gallery main area as an SPA view (like folder navigation):
 - **CSS**: All tags selectors are scoped under `#tags-view` in `app/static/style.css` (section comment "Tags view (in-gallery, #tags-view)"); the old inline `<style>` block was removed.
 - **Scripts loaded in gallery.html**: `tag-links.js` (`[[tag]]` wiki-link helpers) and `tags-page.js` (tag management SPA logic) are appended at the end of the content block in `gallery.html`.
 - **Frontend deep link**: `app/static/js/init.js` handles `/?view=tags[&tag=<name>]` on DOMContentLoaded — calls `showTagsView('replace')`, then `navigateToTagByName`. Sidebar and admin-nav links point to `{{ base_url }}/?view=tags`; on the gallery page the click is intercepted for SPA switching, elsewhere it's a normal navigation.
+- **Sidebar highlight**: the sidebar Tags link (`#tags-view-toggle` in `base.html`, same `.sidebar-ai-btn.active` styling as the AI Chat toggle) lights up in `showTagsView` / goes dark in `hideTagsView` (`navigation.js` `syncTagsSidebarHighlight`); folder items lose their `.active` while the tags view is open. `navigateToFolder` keeps the stale gallery + folder-header hidden (`display: none`) until `renderFolderContent` runs — restoring them eagerly flashed the previous folder's content while the fetch was in flight (Jest regression test `tests/js/tags-view-highlight.test.js`).
 
 ## Build and Run Commands
 

@@ -256,17 +256,45 @@ def test_create_memory_section_writes_index(
     result = _call("create_memory_section", {
         "name": "project-alpha",
         "description": "the alpha rendering project",
+        "when_to_use": "when alpha renders are discussed",
         "content": "Alpha uses ComfyUI workflows.",
     }, test_user["id"])
     assert result["name"] == "project-alpha"
+    assert result["when_to_use"] == "when alpha renders are discussed"
 
     index = _index_text(db_connection, folder_id)
     assert "- **project-alpha** — the alpha rendering project" in index
+    assert "  Use when: when alpha renders are discussed" in index
 
     body = _note_body(db_connection, folder_id, "project-alpha.md")
     assert body.startswith("---\nname: project-alpha\n")
     assert "description: the alpha rendering project" in body
+    assert "when_to_use: when alpha renders are discussed" in body
     assert "Alpha uses ComfyUI workflows." in body
+
+
+def test_create_memory_section_requires_when_to_use(
+    db_connection, test_user
+):
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    with pytest.raises(ToolError, match="when_to_use"):
+        _call("create_memory_section", {
+            "name": "no-usage", "description": "d",
+        }, test_user["id"])
+    # Nothing was created: memory writes lazily create the index, and
+    # the rejected call never got that far.
+    assert _note_count(db_connection, folder_id) == 0
+
+
+def _note_count(db, folder_id: str) -> int:
+    row = db.execute(
+        "SELECT COUNT(*) AS c FROM items WHERE folder_id = ?",
+        (folder_id,),
+    ).fetchone()
+    return row["c"]
 
 
 def test_create_memory_section_recreates_deleted_index(
@@ -278,6 +306,7 @@ def test_create_memory_section_recreates_deleted_index(
 
     _call("create_memory_section", {
         "name": "likes", "description": "user preferences",
+        "when_to_use": "when choosing styles",
     }, test_user["id"])
     # User deletes the index note (rows; a note has no media detail).
     row = find_index_notes(db_connection, folder_id)[0]
@@ -290,6 +319,7 @@ def test_create_memory_section_recreates_deleted_index(
 
     _call("create_memory_section", {
         "name": "dislikes", "description": "user dislikes",
+        "when_to_use": "when filtering content",
     }, test_user["id"])
     # The index is rebuilt from the template: the new entry is there,
     # entries of the deleted index are not restored.
@@ -307,6 +337,7 @@ def test_write_memory_replace_keeps_frontmatter(db_connection, test_user):
     _call("create_memory_section", {
         "name": "style",
         "description": "rendering style prefs",
+        "when_to_use": "when picking render settings",
         "content": "old body",
     }, test_user["id"])
 
@@ -318,17 +349,26 @@ def test_write_memory_replace_keeps_frontmatter(db_connection, test_user):
     body = _note_body(db_connection, folder_id, "style.md")
     assert body.startswith("---\nname: style\n")
     assert "description: rendering style prefs" in body
+    assert "when_to_use: when picking render settings" in body
     assert "new body" in body
     assert "old body" not in body
 
-    # append keeps the frontmatter and adds to the end.
+    # append keeps the frontmatter and adds to the end; passing
+    # description / when_to_use refreshes the index entry too.
     _call("write_memory", {
         "name": "style", "content": "more", "mode": "append",
         "description": "updated description",
+        "when_to_use": "updated scenario",
     }, test_user["id"])
     body = _note_body(db_connection, folder_id, "style.md")
     assert "new body" in body and body.rstrip().endswith("more")
     assert "description: updated description" in body
+    assert "when_to_use: updated scenario" in body
+
+    index = _index_text(db_connection, folder_id)
+    assert "- **style** — updated description" in index
+    assert "  Use when: updated scenario" in index
+    assert "rendering style prefs" not in index
 
 
 def test_edit_memory_patches_full_text(db_connection, test_user):
@@ -339,6 +379,7 @@ def test_edit_memory_patches_full_text(db_connection, test_user):
     _call("create_memory_section", {
         "name": "tools",
         "description": "tools the user likes",
+        "when_to_use": "when recommending tooling",
         "content": "Uses Zed.",
     }, test_user["id"])
 
@@ -369,17 +410,22 @@ def test_memory_name_resolution_and_reserved_index(db_connection, test_user):
     db_connection.commit()
 
     _call("create_memory_section", {
-        "name": "alpha", "description": "alpha section", "content": "A",
+        "name": "alpha", "description": "alpha section",
+        "when_to_use": "when alpha matters", "content": "A",
     }, test_user["id"])
 
     # The reserved index name reads MEMORY.md.
     index = _call("read_memory", {"name": "MEMORY"}, test_user["id"])
     assert index["name"] == "MEMORY"
+    assert index["when_to_use"] is None
     assert "- **alpha** — alpha section" in index["content"]
+    assert "  Use when: when alpha matters" in index["content"]
 
-    # Case-insensitive section lookup.
+    # Case-insensitive section lookup; the section meta carries the
+    # when_to_use scenario.
     section = _call("read_memory", {"name": "ALPHA"}, test_user["id"])
     assert section["name"] == "alpha"
+    assert section["when_to_use"] == "when alpha matters"
     assert "A" in section["content"]
 
     # Unknown section.
@@ -389,19 +435,19 @@ def test_memory_name_resolution_and_reserved_index(db_connection, test_user):
     # Reserved name cannot become a section.
     with pytest.raises(ToolError, match="reserved"):
         _call("create_memory_section", {
-            "name": "MEMORY", "description": "x",
+            "name": "MEMORY", "description": "x", "when_to_use": "y",
         }, test_user["id"])
 
     # Invalid names are rejected.
     with pytest.raises(ToolError, match="name must"):
         _call("create_memory_section", {
-            "name": "has space", "description": "x",
+            "name": "has space", "description": "x", "when_to_use": "y",
         }, test_user["id"])
 
     # Duplicates are rejected.
     with pytest.raises(ToolError, match="already exists"):
         _call("create_memory_section", {
-            "name": "alpha", "description": "again",
+            "name": "alpha", "description": "again", "when_to_use": "y",
         }, test_user["id"])
 
     # A second note matching the same name makes reads ambiguous.
@@ -416,6 +462,97 @@ def test_memory_name_resolution_and_reserved_index(db_connection, test_user):
     db_connection.commit()
     with pytest.raises(ToolError, match="ambiguous"):
         _call("read_memory", {"name": "alpha"}, test_user["id"])
+
+
+# ============================================================================
+# Index is tool-managed (no direct writes)
+# ============================================================================
+
+def test_index_rejects_direct_writes(db_connection, test_user):
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    # A section first, so the index note exists.
+    _call("create_memory_section", {
+        "name": "alpha", "description": "alpha section",
+        "when_to_use": "when alpha matters",
+    }, test_user["id"])
+
+    with pytest.raises(ToolError, match="written by the memory tools"):
+        _call("write_memory", {
+            "name": "MEMORY", "content": "hacked",
+        }, test_user["id"])
+    with pytest.raises(ToolError, match="written by the memory tools"):
+        _call("edit_memory", {
+            "name": "MEMORY", "old_string": "Old.", "new_string": "New.",
+        }, test_user["id"])
+    with pytest.raises(ToolError, match="written by the memory tools"):
+        _call("delete_memory_section", {"name": "MEMORY"}, test_user["id"])
+
+    # The index text is untouched.
+    index = _index_text(db_connection, folder_id)
+    assert "hacked" not in index
+    assert "New." not in index
+
+
+def test_delete_memory_section_removes_note_and_entry(
+    db_connection, test_user
+):
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    _call("create_memory_section", {
+        "name": "temp", "description": "temporary",
+        "when_to_use": "never for long",
+    }, test_user["id"])
+    _call("create_memory_section", {
+        "name": "keep", "description": "keeper",
+        "when_to_use": "always",
+    }, test_user["id"])
+
+    result = _call("delete_memory_section", {"name": "temp"}, test_user["id"])
+    assert result == {"status": "ok", "name": "temp", "deleted": True}
+
+    # The note (rows and blob) is gone; the other entry survives.
+    assert _note_count(db_connection, folder_id) == 2  # index + keep
+    row = db_connection.execute(
+        "SELECT i.id FROM items i WHERE i.folder_id = ? AND i.title = ?",
+        (folder_id, "temp.md"),
+    ).fetchone()
+    assert row is None
+
+    index = _index_text(db_connection, folder_id)
+    assert "- **temp**" not in index
+    assert "Use when: never for long" not in index
+    assert "- **keep** — keeper" in index
+
+    # Deleting a missing section fails.
+    with pytest.raises(ToolError, match="not found"):
+        _call("delete_memory_section", {"name": "temp"}, test_user["id"])
+
+
+def test_set_memory_summary_updates_index(db_connection, test_user):
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    result = _call("set_memory_summary", {
+        "summary": "Lukutar renders stylized art with ComfyUI.",
+    }, test_user["id"])
+    assert result["status"] == "ok"
+
+    index = _index_text(db_connection, folder_id)
+    assert "## Summary\n\nLukutar renders stylized art with ComfyUI.\n" \
+        in index
+    # The placeholder and the Sections heading survive.
+    assert "(Brief summary" not in index
+    assert "## Sections" in index
+
+    # Validation: empty is rejected.
+    with pytest.raises(ToolError, match="summary is required"):
+        _call("set_memory_summary", {"summary": "  "}, test_user["id"])
 
 
 # ============================================================================

@@ -40,6 +40,12 @@ MEMORY_INDEX_LIMIT = 8000
 # Section names become file names; keep them filename-safe and short.
 MEMORY_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MEMORY_DESCRIPTION_MAX_CHARS = 200
+MEMORY_WHEN_TO_USE_MAX_CHARS = 200
+MEMORY_SUMMARY_MAX_CHARS = 1000
+
+# The index entry carries the "Use when:" scenario on an indented line
+# right below the bullet; both lines belong to the entry block.
+_WHEN_TO_USE_LABEL = "Use when:"
 
 # Frontmatter fallback resolution decrypts note bodies; the scan is
 # capped so a huge folder cannot turn one tool call into a full sweep.
@@ -90,9 +96,14 @@ def get_memory_config(db, user_id: int) -> Optional[dict]:
 # Frontmatter helpers
 # ============================================================================
 
-def build_frontmatter(name: str, description: str) -> str:
+def build_frontmatter(
+    name: str, description: str, when_to_use: Optional[str] = None
+) -> str:
     """The frontmatter block a section note starts with (body follows)."""
-    return f"---\nname: {name}\ndescription: {description}\n---\n\n"
+    block = f"---\nname: {name}\ndescription: {description}"
+    if when_to_use:
+        block += f"\nwhen_to_use: {when_to_use}"
+    return block + "\n---\n\n"
 
 
 def parse_frontmatter(text: str) -> tuple[Optional[dict], str]:
@@ -155,6 +166,35 @@ def validate_section_description(description) -> str:
         raise MemoryValidationError(
             "memory section description must be at most "
             f"{MEMORY_DESCRIPTION_MAX_CHARS} characters"
+        )
+    return value
+
+
+def validate_section_when_to_use(when_to_use) -> str:
+    """Validate the one-line "Use when:" scenario (newlines stripped)."""
+    value = re.sub(r"\s*\r?\n\s*", " ", str(when_to_use or "").strip())
+    if not value:
+        raise MemoryValidationError(
+            "memory section when_to_use is required: name the situations "
+            "the section applies to"
+        )
+    if len(value) > MEMORY_WHEN_TO_USE_MAX_CHARS:
+        raise MemoryValidationError(
+            "memory section when_to_use must be at most "
+            f"{MEMORY_WHEN_TO_USE_MAX_CHARS} characters"
+        )
+    return value
+
+
+def validate_summary(summary) -> str:
+    """Validate the index Summary (one line, newlines stripped)."""
+    value = re.sub(r"\s*\r?\n\s*", " ", str(summary or "").strip())
+    if not value:
+        raise MemoryValidationError("memory summary is required")
+    if len(value) > MEMORY_SUMMARY_MAX_CHARS:
+        raise MemoryValidationError(
+            "memory summary must be at most "
+            f"{MEMORY_SUMMARY_MAX_CHARS} characters"
         )
     return value
 
@@ -250,17 +290,44 @@ async def ensure_index_note(
     return ItemRepository(db).get_by_id(item_id)
 
 
-def _upsert_index_entry(text: str, name: str, line: str) -> str:
-    """Insert or refresh the section's one-line entry in the index text."""
-    lines = text.splitlines()
+def _index_entry_block(
+    name: str, description: str, when_to_use: Optional[str] = None
+) -> list[str]:
+    """The index lines one section occupies (bullet + Use-when line)."""
+    lines = [f"- **{name}** — {description}"]
+    if when_to_use:
+        lines.append(f"  {_WHEN_TO_USE_LABEL} {when_to_use}")
+    return lines
+
+
+def _entry_block_end(lines: list[str], bullet_index: int) -> int:
+    """One past the last line of the entry block starting at bullet_index.
+
+    The block is the bullet plus the indented continuation lines that
+    directly follow it (the "Use when:" line and legacy hand-wrapped
+    continuations).
+    """
+    end = bullet_index + 1
+    while (
+        end < len(lines)
+        and lines[end].startswith("  ")
+        and lines[end].strip()
+    ):
+        end += 1
+    return end
+
+
+def _upsert_index_entry(text: str, name: str, lines: list[str]) -> str:
+    """Insert or refresh the section's entry block in the index text."""
+    all_lines = text.splitlines()
     prefix = f"- **{name}**"
-    for i, existing in enumerate(lines):
+    for i, existing in enumerate(all_lines):
         if existing == prefix or existing.startswith(prefix + " "):
-            lines[i] = line
-            return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
-    insert_at = len(lines)
+            all_lines[i:_entry_block_end(all_lines, i)] = lines
+            return "\n".join(all_lines) + ("\n" if text.endswith("\n") else "")
+    insert_at = len(all_lines)
     in_sections = False
-    for i, existing in enumerate(lines):
+    for i, existing in enumerate(all_lines):
         heading = existing.strip()
         if heading == "## Sections":
             in_sections = True
@@ -270,16 +337,73 @@ def _upsert_index_entry(text: str, name: str, line: str) -> str:
             break
     if not in_sections:
         sep = "" if text.endswith("\n") else "\n"
-        return f"{text}{sep}\n## Sections\n\n{line}\n"
-    lines.insert(insert_at, line)
-    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+        return f"{text}{sep}\n## Sections\n\n" + "\n".join(lines) + "\n"
+    all_lines[insert_at:insert_at] = lines
+    return "\n".join(all_lines) + ("\n" if text.endswith("\n") else "")
+
+
+def remove_index_entry(text: str, name: str) -> str:
+    """Drop the section's whole entry block from the index text.
+
+    A name that has no entry leaves the text unchanged (the index is
+    self-healing and may not know about a hand-created note).
+    """
+    all_lines = text.splitlines()
+    prefix = f"- **{name}**"
+    for i, existing in enumerate(all_lines):
+        if existing == prefix or existing.startswith(prefix + " "):
+            del all_lines[i:_entry_block_end(all_lines, i)]
+            break
+    return "\n".join(all_lines) + ("\n" if text.endswith("\n") else "")
+
+
+def set_index_summary(text: str, summary: str) -> str:
+    """Replace the text under the ``## Summary`` heading of the index.
+
+    The heading (and a ``# Memory Index`` title) are recreated when the
+    user hand-stripped them, so the tool always produces a parseable
+    index.
+    """
+    all_lines = text.splitlines()
+    for i, line in enumerate(all_lines):
+        if line.strip() == "## Summary":
+            end = len(all_lines)
+            for j in range(i + 1, len(all_lines)):
+                if all_lines[j].strip().startswith("## "):
+                    end = j
+                    break
+            tail = all_lines[end:]
+            # The trailing blank line only makes sense when a heading
+            # follows; at the very end of the note it would pile up.
+            block = ["", summary] + ([""] if tail else [])
+            all_lines = all_lines[:i + 1] + block + tail
+            return "\n".join(all_lines) + ("\n" if text.endswith("\n") else "")
+    # No "## Summary" heading: recreate it right after the title (or at
+    # the top when even that is gone), skipping any blank lines that
+    # directly follow the title.
+    title_at = None
+    for i, line in enumerate(all_lines):
+        if line.strip() == "# Memory Index":
+            title_at = i
+            break
+    if title_at is None:
+        head = ["# Memory Index", ""]
+        insert_at = 0
+    else:
+        head = []
+        insert_at = title_at + 1
+        while insert_at < len(all_lines) and not all_lines[insert_at].strip():
+            insert_at += 1
+    block = ["## Summary", "", summary, ""]
+    all_lines = head + all_lines[:insert_at] + block + all_lines[insert_at:]
+    return "\n".join(all_lines) + ("\n" if text.endswith("\n") else "")
 
 
 async def add_index_entry(
     db, user_id: int, folder_id: str, dek: bytes,
-    name: str, description: str,
+    name: str, description: str, when_to_use: Optional[str] = None,
 ) -> dict:
-    """Add (or refresh) one ``- **name** — description`` line in the index.
+    """Add (or refresh) the section's entry block in the index.
 
     The index is recreated when the user deleted it. The updated note is
     persisted (blob + stats + updated_at) and returned.
@@ -287,8 +411,39 @@ async def add_index_entry(
     item = await ensure_index_note(db, user_id, folder_id, dek)
     text = await read_note_text(item["id"], dek)
     new_text = _upsert_index_entry(
-        text, name, f"- **{name}** — {description}"
+        text, name, _index_entry_block(name, description, when_to_use)
     )
+    await _write_note_bytes(item["id"], new_text, dek)
+    ItemTextRepository(db).update_stats(
+        item["id"], len(new_text), _count_lines(new_text)
+    )
+    ItemRepository(db).touch_updated_at(item["id"])
+    return ItemRepository(db).get_by_id(item["id"])
+
+
+async def remove_index_entry_from_note(
+    db, user_id: int, folder_id: str, dek: bytes, name: str,
+) -> dict:
+    """Drop the section's entry block from the stored index note."""
+    item = await ensure_index_note(db, user_id, folder_id, dek)
+    text = await read_note_text(item["id"], dek)
+    new_text = remove_index_entry(text, name)
+    if new_text != text:
+        await _write_note_bytes(item["id"], new_text, dek)
+        ItemTextRepository(db).update_stats(
+            item["id"], len(new_text), _count_lines(new_text)
+        )
+        ItemRepository(db).touch_updated_at(item["id"])
+    return ItemRepository(db).get_by_id(item["id"])
+
+
+async def write_index_summary(
+    db, user_id: int, folder_id: str, dek: bytes, summary: str,
+) -> dict:
+    """Replace the Summary block of the stored index note."""
+    item = await ensure_index_note(db, user_id, folder_id, dek)
+    text = await read_note_text(item["id"], dek)
+    new_text = set_index_summary(text, summary)
     await _write_note_bytes(item["id"], new_text, dek)
     ItemTextRepository(db).update_stats(
         item["id"], len(new_text), _count_lines(new_text)

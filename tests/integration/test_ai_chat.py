@@ -1201,7 +1201,7 @@ def test_tool_registry_has_expected_tools():
         "view_images",
         "fetch_url", "web_search",
         "read_memory", "create_memory_section", "write_memory",
-        "edit_memory",
+        "edit_memory", "delete_memory_section", "set_memory_summary",
     }
     assert set(TOOL_REGISTRY) == expected
 
