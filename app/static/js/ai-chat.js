@@ -1048,10 +1048,21 @@
         loadConversations();
     }
 
-    function hideList() {
+    function hideList(instant) {
+        var list = els.list;
+        if (instant && list) {
+            // Frozen transition while the open class is dropped: the
+            // drawer is a <body> child, so when the whole chat closes it
+            // must not keep animating across the already-empty page.
+            list.style.transition = 'none';
+        }
         listVisible = false;
         panel.classList.remove('with-list');
         syncBodyClasses();
+        if (instant && list) {
+            void list.offsetWidth; // apply the closed state first
+            list.style.transition = '';
+        }
     }
 
     function toggleList() {
@@ -2491,6 +2502,9 @@
         // Only the Stop button (and switching chats) aborts the stream.
         panel.classList.add('hidden');
         closeAgentMenu();
+        // The open list must go together with the panel, without its own
+        // slide — the panel is already display:none at this point.
+        if (listVisible) hideList(true);
         syncSidebarButton();
         syncBodyClasses();
         if (typeof window !== 'undefined' && window.BackButtonManager) {
