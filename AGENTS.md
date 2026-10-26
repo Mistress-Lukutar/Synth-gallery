@@ -148,7 +148,7 @@ Synth-Gallery/
 ├── migrations/                   # Alembic migration environment
 │   ├── env.py                    # Online migrations via app.database.get_engine()
 │   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
-│   └── versions/                 # Revisions 0001-0013
+│   └── versions/                 # Revisions 0001-0014
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
@@ -404,6 +404,7 @@ Notable historical revisions:
 - **0011**: albums become media-only (notes removed; notes as effective covers caused "Access denied" thumbnails)
 - **0012**: reasoning control: `ai_models.reasoning_support` (manual capability override, validated app-side) + `ai_chat_settings.reasoning_effort`; `recreate_table_without_column` now preserves composite PRIMARY KEYs (table-level constraint)
 - **0013**: chat message tree: `ai_messages.parent_id` (previous message in the branch) + `ai_conversations.active_leaf_id` (leaf of the branch history replay walks); enables edit/retry branching (see 6d)
+- **0014**: AI memory: `ai_chat_settings.memory_enabled` (default off) + `memory_folder_id` (FK-free, cleared app-side on folder delete); see 6h
 
 ### 6d. AI Agents
 
