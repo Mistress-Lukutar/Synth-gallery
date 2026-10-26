@@ -698,7 +698,7 @@
         '    <footer class="ai-chat-composer">',
         '      <button type="button" class="ai-chat-reasoning-btn hidden" id="ai-chat-reasoning-btn" title="Reasoning effort" aria-label="Reasoning effort"></button>',
         '      <div class="ai-agent-menu ai-chat-reasoning-menu hidden" id="ai-chat-reasoning-menu"></div>',
-        '      <button type="button" class="ai-chat-attach-chip hidden" id="ai-chat-attach-chip" title="Attach the current gallery selection to the next message"></button>',
+        '      <button type="button" class="ai-chat-attach-chip" id="ai-chat-attach-chip" title="Attach the current gallery selection to the next message"></button>',
         '      <div class="ai-chat-attachments hidden" id="ai-chat-attachments"></div>',
         '      <div class="ai-chat-input-row">',
         '        <textarea id="ai-chat-input" class="ai-chat-input" rows="1" placeholder="Ask about your library..."></textarea>',
