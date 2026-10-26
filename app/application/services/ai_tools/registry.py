@@ -46,6 +46,7 @@ from ..ai_memory_service import (
     get_memory_config,
     parse_frontmatter,
     remove_index_entry_from_note,
+    strip_leading_frontmatter,
     validate_section_description,
     validate_section_name,
     validate_section_when_to_use,
@@ -2272,6 +2273,12 @@ async def _tool_write_memory(args: dict, ctx: ToolContext) -> str:
     if mode not in ("replace", "append"):
         raise ToolError("mode must be 'replace' or 'append'")
     content, _ = _validate_note_content(args.get("content"))
+    # Strip a leading frontmatter block the LLM may have echoed back so the
+    # stored blob never gets duplicated ``---`` fences.
+    content = strip_leading_frontmatter(content)
+    if not content.strip():
+        # Content was frontmatter-only: the body must stay non-empty.
+        raise ToolError("content must be a non-empty string")
     description = None
     if args.get("description") is not None:
         description = _memory_description(args.get("description"))
@@ -3695,10 +3702,12 @@ def _build_registry() -> dict:
             description=(
                 "Rewrite or extend a memory section's body. mode=replace "
                 "changes the body only (frontmatter identity is kept), "
-                "mode=append adds to the end. Pass description / "
-                "when_to_use to refresh the index entry when the entry "
-                "itself changed. The index MEMORY.md cannot be written "
-                "with this tool."
+                "mode=append adds to the end. Content is the Markdown body "
+                "only — never include the ``---`` frontmatter block; a "
+                "leading frontmatter block is stripped automatically. Pass "
+                "description / when_to_use to refresh the index entry when "
+                "the entry itself changed. The index MEMORY.md cannot be "
+                "written with this tool."
             ),
             parameters_json_schema={
                 "type": "object",

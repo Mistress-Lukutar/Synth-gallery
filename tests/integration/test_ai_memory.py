@@ -371,6 +371,118 @@ def test_write_memory_replace_keeps_frontmatter(db_connection, test_user):
     assert "rendering style prefs" not in index
 
 
+def test_write_memory_replace_strips_model_frontmatter(
+    db_connection, test_user
+):
+    """write_memory with mode=replace strips a leading frontmatter block
+    from the LLM-supplied content so the stored note has exactly one."""
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    _call("create_memory_section", {
+        "name": "style",
+        "description": "rendering style prefs",
+        "when_to_use": "when picking render settings",
+        "content": "old body",
+    }, test_user["id"])
+
+    # LLM echoes back a full frontmatter block + body.
+    model_content = (
+        "---\n"
+        "name: style\n"
+        "description: rendering style prefs\n"
+        "when_to_use: when picking render settings\n"
+        "---\n"
+        "new body text"
+    )
+    result = _call("write_memory", {
+        "name": "style", "content": model_content, "mode": "replace",
+    }, test_user["id"])
+    assert result["status"] == "ok"
+
+    body = _note_body(db_connection, folder_id, "style.md")
+    # Exactly one frontmatter block (two --- fences).
+    assert body.count("---") == 2
+    assert body.startswith("---\nname: style\n")
+    assert "description: rendering style prefs" in body
+    assert "new body text" in body
+    # The index note is unchanged.
+    index = _index_text(db_connection, folder_id)
+    assert "- **style** — rendering style prefs" in index
+
+
+def test_write_memory_append_strips_model_frontmatter(
+    db_connection, test_user
+):
+    """write_memory with mode=append strips a leading frontmatter block
+    from the LLM-supplied content so no new --- fence is injected."""
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    _call("create_memory_section", {
+        "name": "style",
+        "description": "rendering style prefs",
+        "when_to_use": "when picking render settings",
+        "content": "first paragraph",
+    }, test_user["id"])
+
+    model_content = (
+        "---\n"
+        "name: style\n"
+        "description: rendering style prefs\n"
+        "when_to_use: when picking render settings\n"
+        "---\n"
+        "second paragraph"
+    )
+    result = _call("write_memory", {
+        "name": "style", "content": model_content, "mode": "append",
+    }, test_user["id"])
+    assert result["status"] == "ok"
+
+    body = _note_body(db_connection, folder_id, "style.md")
+    # Exactly one frontmatter block (two --- fences).
+    assert body.count("---") == 2
+    assert body.startswith("---\nname: style\n")
+    assert "first paragraph" in body
+    assert "second paragraph" in body
+    # The appended content is the stripped remainder, concatenated to old body.
+    assert body.rstrip().endswith("second paragraph")
+
+
+def test_write_memory_rejects_frontmatter_only_content(
+    db_connection, test_user
+):
+    """Content that is nothing but a frontmatter block is an empty body
+    and is rejected instead of wiping the section's body."""
+    folder_id = _make_folder(db_connection, test_user["id"])
+    _enable_memory(db_connection, test_user["id"], folder_id)
+    db_connection.commit()
+
+    _call("create_memory_section", {
+        "name": "style",
+        "description": "rendering style prefs",
+        "when_to_use": "when picking render settings",
+        "content": "old body",
+    }, test_user["id"])
+
+    frontmatter_only = (
+        "---\n"
+        "name: style\n"
+        "description: rendering style prefs\n"
+        "when_to_use: when picking render settings\n"
+        "---\n"
+    )
+    with pytest.raises(ToolError, match="non-empty"):
+        _call("write_memory", {
+            "name": "style", "content": frontmatter_only, "mode": "replace",
+        }, test_user["id"])
+
+    body = _note_body(db_connection, folder_id, "style.md")
+    assert "old body" in body
+
+
 def test_edit_memory_patches_full_text(db_connection, test_user):
     folder_id = _make_folder(db_connection, test_user["id"])
     _enable_memory(db_connection, test_user["id"], folder_id)

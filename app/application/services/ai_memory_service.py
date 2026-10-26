@@ -135,6 +135,17 @@ def parse_frontmatter(text: str) -> tuple[Optional[dict], str]:
     return None, text
 
 
+def strip_leading_frontmatter(text: str) -> str:
+    """Return *text* without its leading frontmatter block, if any.
+
+    If *text* starts with a well-formed ``---`` fence pair the metadata
+    is dropped and only the body is returned.  A malformed opening fence
+    (no closing ``---``) passes through untouched.
+    """
+    meta, body = parse_frontmatter(text)
+    return body if meta is not None else text
+
+
 def validate_section_name(name) -> str:
     """Validate a section name; MEMORY is reserved for the index.
 
