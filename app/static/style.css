@@ -6771,14 +6771,86 @@ a.sidebar-ai-btn:hover {
     transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-.ai-chat-attach-chip:hover {
+.ai-chat-attach-chip:hover:not(:disabled) {
     color: var(--text);
     border-color: var(--accent);
 }
 
-.ai-chat-attach-chip.ai-chat-attach-on {
+.ai-chat-attach-chip:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+/* Attachment list (below the composer chip) */
+.ai-chat-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 6px;
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.ai-chat-attachment {
+    position: relative;
+    width: 44px;
+    height: 44px;
+    flex: none;
+}
+
+.ai-chat-attachment img {
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.ai-chat-attachment-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+}
+
+.ai-chat-attachment-remove:hover {
+    color: var(--text);
     border-color: var(--accent);
-    color: var(--accent);
+}
+
+.ai-chat-attachment-album {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+
+.ai-chat-attachment-album-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.05em;
+}
+
+.ai-chat-attachment-broken {
+    border: 2px dashed var(--border);
+    background: var(--bg-tertiary);
+    border-radius: 8px;
 }
 
 .ai-chat-input-row {

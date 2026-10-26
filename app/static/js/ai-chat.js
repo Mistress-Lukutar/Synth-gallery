@@ -628,7 +628,7 @@
     var conversations = [];
     var chatSettings = null;
     var abortController = null;
-    var attachedSelection = false;
+    var attachedItems = [];
     var stickToBottom = true;
     var listVisible = false;
     var renderScheduled = false;
@@ -696,6 +696,7 @@
         '      <button type="button" class="ai-chat-reasoning-btn hidden" id="ai-chat-reasoning-btn" title="Reasoning effort" aria-label="Reasoning effort"></button>',
         '      <div class="ai-agent-menu ai-chat-reasoning-menu hidden" id="ai-chat-reasoning-menu"></div>',
         '      <button type="button" class="ai-chat-attach-chip hidden" id="ai-chat-attach-chip" title="Attach the current gallery selection to the next message"></button>',
+        '      <div class="ai-chat-attachments hidden" id="ai-chat-attachments"></div>',
         '      <div class="ai-chat-input-row">',
         '        <textarea id="ai-chat-input" class="ai-chat-input" rows="1" placeholder="Ask about your library..."></textarea>',
         '        <button type="button" id="ai-chat-send-btn" class="btn btn-small ai-chat-send-btn">Send</button>',
@@ -727,6 +728,7 @@
         els.reasoningBtn = document.getElementById('ai-chat-reasoning-btn');
         els.reasoningMenu = document.getElementById('ai-chat-reasoning-menu');
         els.attachChip = document.getElementById('ai-chat-attach-chip');
+        els.attachments = document.getElementById('ai-chat-attachments');
         els.input = document.getElementById('ai-chat-input');
         els.sendBtn = document.getElementById('ai-chat-send-btn');
 
@@ -748,9 +750,30 @@
         });
         els.reasoningMenu.addEventListener('click', onReasoningMenuClick);
         els.attachChip.addEventListener('click', function () {
-            setAttached(!attachedSelection);
+            attachSelection();
             renderComposer();
         });
+        // Delegated remove-attachment clicks.
+        if (els.attachments) {
+            els.attachments.addEventListener('click', function (e) {
+                var btn = e.target.closest('.ai-chat-attachment-remove');
+                if (!btn) return;
+                var key = btn.getAttribute('data-remove-key');
+                if (!key) return;
+                attachedItems = attachedItems.filter(function (a) {
+                    return attachmentKey(a) !== key;
+                });
+                renderComposer();
+            });
+            // Capture-phase error handler for unloadable thumbnails.
+            els.attachments.addEventListener('error', function (e) {
+                var img = e.target;
+                if (!img || img.tagName !== 'IMG') return;
+                img.remove();
+                var tile = img.closest ? img.closest('.ai-chat-attachment') : null;
+                if (tile) tile.classList.add('ai-chat-attachment-broken');
+            }, true);
+        }
         els.input.addEventListener('input', function () {
             autoResizeInput();
             renderComposer();
@@ -997,8 +1020,65 @@
         return Array.from(window.selectedAlbums || []);
     }
 
-    function setAttached(value) {
-        attachedSelection = !!value && (selectionIds().length + albumSelectionIds().length) > 0;
+    /**
+     * Stable key for an attachment entry, used for dedup and removal.
+     */
+    function attachmentKey(entry) {
+        return entry.kind + ':' + entry.id;
+    }
+
+    /**
+     * Merge current selection into the existing attachment list.
+     * Returns a NEW array — never mutates `existing`.
+     * Tolerates null / non-array arguments.
+     */
+    function mergeAttachments(existing, itemIds, albumIds) {
+        var result = Array.isArray(existing) ? existing.slice() : [];
+        var keys = {};
+        for (var i = 0; i < result.length; i++) {
+            keys[attachmentKey(result[i])] = true;
+        }
+        var ids = Array.isArray(itemIds) ? itemIds : [];
+        for (var j = 0; j < ids.length; j++) {
+            var k = 'item:' + ids[j];
+            if (!keys[k]) { keys[k] = true; result.push({ kind: 'item', id: ids[j] }); }
+        }
+        var albums = Array.isArray(albumIds) ? albumIds : [];
+        for (var m = 0; m < albums.length; m++) {
+            var ak = 'album:' + albums[m];
+            if (!keys[ak]) { keys[ak] = true; result.push({ kind: 'album', id: albums[m] }); }
+        }
+        return result;
+    }
+
+    /**
+     * Split attachment entries back into itemIds / albumIds arrays.
+     */
+    function attachmentRequestIds(attachments) {
+        var ids = { itemIds: [], albumIds: [] };
+        if (!Array.isArray(attachments)) return ids;
+        for (var i = 0; i < attachments.length; i++) {
+            var a = attachments[i];
+            if (!a || !a.id) continue;
+            if (a.kind === 'item') ids.itemIds.push(a.id);
+            else if (a.kind === 'album') ids.albumIds.push(a.id);
+        }
+        return ids;
+    }
+
+    /**
+     * Consume the current gallery selection into the persistent attachment
+     * list, clearing the selection UI so the user can select items in
+     * another folder and attach again.
+     */
+    function attachSelection() {
+        var itemIds = selectionIds();
+        var albumIds = albumSelectionIds();
+        if (itemIds.length === 0 && albumIds.length === 0) return;
+        attachedItems = mergeAttachments(attachedItems, itemIds, albumIds);
+        if (typeof window.clearSelection === 'function') {
+            window.clearSelection();
+        }
     }
 
     function selectionIds() {
@@ -1460,6 +1540,7 @@
     }
 
     function attachChipLabel(photoCount, albumCount) {
+        if (photoCount === 0 && albumCount === 0) return 'Attach';
         var parts = [];
         if (photoCount > 0) parts.push(photoCount + (photoCount === 1 ? ' item' : ' items'));
         if (albumCount > 0) parts.push(albumCount + (albumCount === 1 ? ' album' : ' albums'));
@@ -1491,16 +1572,39 @@
 
         var photoCount = selectionIds().length;
         var albumCount = albumSelectionIds().length;
-        if (photoCount + albumCount > 0) {
-            els.attachChip.classList.remove('hidden');
-            els.attachChip.innerHTML = CONTEXT_SVG + ' ' + attachChipLabel(photoCount, albumCount) + (attachedSelection ? ' \u2713' : '');
-            els.attachChip.classList.toggle('ai-chat-attach-on', attachedSelection);
-        } else {
-            attachedSelection = false;
-            els.attachChip.classList.add('hidden');
-        }
+        els.attachChip.disabled = (photoCount + albumCount === 0);
+        els.attachChip.innerHTML = CONTEXT_SVG + ' ' + attachChipLabel(photoCount, albumCount);
 
         renderReasoningControl();
+        renderAttachments();
+    }
+
+    function renderAttachments() {
+        if (!els.attachments) return;
+        if (attachedItems.length === 0) {
+            els.attachments.classList.add('hidden');
+            els.attachments.innerHTML = '';
+            return;
+        }
+        els.attachments.classList.remove('hidden');
+        var html = '';
+        for (var i = 0; i < attachedItems.length; i++) {
+            var entry = attachedItems[i];
+            if (!entry || !entry.id) continue;
+            var key = attachmentKey(entry);
+            if (entry.kind === 'item') {
+                html += '<span class="ai-chat-attachment" data-key="' + esc(key) + '">' +
+                    '<img src="' + esc(baseUrl()) + '/files/' + esc(entry.id) + '/thumbnail" loading="lazy" alt="" title="' + esc(entry.id) + '">' +
+                    '<button type="button" class="ai-chat-attachment-remove" data-remove-key="' + esc(key) + '" title="Remove attachment" aria-label="Remove attachment">&times;</button>' +
+                    '</span>';
+            } else if (entry.kind === 'album') {
+                html += '<span class="ai-chat-attachment ai-chat-attachment-album" data-key="' + esc(key) + '">' +
+                    '<span class="ai-chat-attachment-album-label">Album</span>' +
+                    '<button type="button" class="ai-chat-attachment-remove" data-remove-key="' + esc(key) + '" title="Remove attachment" aria-label="Remove attachment">&times;</button>' +
+                    '</span>';
+            }
+        }
+        els.attachments.innerHTML = html;
     }
 
     // ========================================================================
@@ -1980,9 +2084,10 @@
                 return;
             }
 
-            var itemIds = attachedSelection ? selectionIds() : [];
+            var ids = attachmentRequestIds(attachedItems);
+            var itemIds = ids.itemIds;
             // Album ids are expanded server-side; optimistic echo stays photo-only.
-            var albumIds = attachedSelection ? albumSelectionIds() : [];
+            var albumIds = ids.albumIds;
             var body = { text: text };
             if (itemIds.length > 0) body.item_ids = itemIds;
             if (albumIds.length > 0) body.album_ids = albumIds;
@@ -1990,7 +2095,7 @@
             state = appendUserMessage(state, text, itemIds);
             els.input.value = '';
             autoResizeInput();
-            setAttached(false);
+            attachedItems = [];
             stickToBottom = true;
             render();
 
@@ -2249,7 +2354,7 @@
     }
 
     function openWithSelection() {
-        setAttached(true);
+        attachSelection();
         open();
         renderComposer();
     }
@@ -2333,6 +2438,8 @@
             messageText: messageText,
             contextThumbIds: contextThumbIds,
             attachChipLabel: attachChipLabel,
+            mergeAttachments: mergeAttachments,
+            attachmentRequestIds: attachmentRequestIds,
         };
     }
 })();
