@@ -181,11 +181,17 @@ def _build_headers(
     plaintext_size: int,
     accept_ranges: bool = True,
     content_range: tuple[int, int, int] | None = None,
+    cacheable: bool = True,
 ) -> dict[str, str]:
-    '''Build response headers for a streaming file response.'''
+    '''Build response headers for a streaming file response.
+
+    Notes are rewritten in place under the same item id (manual editor and
+    the write_note tool), so their responses are served with ``no-store`` —
+    a cacheable note lets browsers show the pre-edit body for max-age.
+    '''
     headers: dict[str, str] = {
         'Content-Type': content_type,
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, max-age=3600' if cacheable else 'no-store',
     }
     if accept_ranges:
         headers['Accept-Ranges'] = 'bytes'
@@ -250,7 +256,9 @@ async def file_head(item_id: str, request: Request):
         except EncryptionError:
             plaintext_size = enc_size
 
-        headers = _build_headers(content_type, plaintext_size)
+        headers = _build_headers(
+            content_type, plaintext_size, cacheable=record.get('type') != 'note'
+        )
         return Response(content=b'', headers=headers)
     finally:
         db.close()
@@ -266,6 +274,9 @@ async def get_file(item_id: str, request: Request):
     '''
     user = require_user(request)
 
+    # Phase 1: DB lookups only. The pooled connection is released before
+    # the slow storage/decryption phase below so long-running streams
+    # (large video ranges) do not park pool slots.
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
@@ -280,129 +291,133 @@ async def get_file(item_id: str, request: Request):
         if folder_id and not perm_service.can_access(folder_id, user['id']):
             raise HTTPException(status_code=403, detail='Access denied')
 
-        filename = file_record.get('filename', item_id)
-        content_type = file_record.get('content_type') or 'application/octet-stream'
-
         owner_id = file_record.get('user_id')
         dek = dek_cache.get(owner_id) if owner_id else None
         if not dek:
             raise HTTPException(
                 status_code=403, detail='Encryption key not available'
             )
+        cacheable = file_record.get('type') != 'note'
+    finally:
+        db.close()
 
-        enc_size = await _encrypted_size(filename, 'uploads')
+    filename = file_record.get('filename', item_id)
+    content_type = file_record.get('content_type') or 'application/octet-stream'
+
+    # Phase 2: storage and decryption with no DB connection held.
+    enc_size = await _encrypted_size(filename, 'uploads')
+    try:
+        plaintext_size = EncryptionService.get_plaintext_size(enc_size)
+    except EncryptionError as exc:
+        raise HTTPException(
+            status_code=500, detail=f'Decryption failed: {exc}'
+        )
+
+    # JXL path stays whole-file (small images; needs Accept negotiation).
+    if content_type == 'image/jxl':
         try:
-            plaintext_size = EncryptionService.get_plaintext_size(enc_size)
+            reader = await _open_encrypted_reader(filename, 'uploads')
+        except NotImplementedError:
+            # Backend without random access: whole-file stream.
+            stream = await storage.get_stream(filename, 'uploads')
+            head = stream.read(ENVELOPE_HEADER_SIZE)
+            EncryptionService.parse_envelope_header(head)
+            buf = io.BytesIO()
+            EncryptionService.decrypt_to_stream(
+                _PrefixedReader(head, stream), buf, dek
+            )
+            return await _serve_jxl_or_fallback(
+                request, item_id, buf.getvalue(), dek
+            )
+        try:
+            buf = io.BytesIO()
+            EncryptionService.decrypt_to_stream(reader, buf, dek)
+            return await _serve_jxl_or_fallback(
+                request, item_id, buf.getvalue(), dek
+            )
         except EncryptionError as exc:
             raise HTTPException(
                 status_code=500, detail=f'Decryption failed: {exc}'
             )
+        finally:
+            reader.close()
 
-        # JXL path stays whole-file (small images; needs Accept negotiation).
-        if content_type == 'image/jxl':
-            try:
-                reader = await _open_encrypted_reader(filename, 'uploads')
-            except NotImplementedError:
-                # Backend without random access: whole-file stream.
-                stream = await storage.get_stream(filename, 'uploads')
-                head = stream.read(ENVELOPE_HEADER_SIZE)
-                EncryptionService.parse_envelope_header(head)
-                buf = io.BytesIO()
-                EncryptionService.decrypt_to_stream(
-                    _PrefixedReader(head, stream), buf, dek
-                )
-                return await _serve_jxl_or_fallback(
-                    request, item_id, buf.getvalue(), dek
-                )
-            try:
-                buf = io.BytesIO()
-                EncryptionService.decrypt_to_stream(reader, buf, dek)
-                return await _serve_jxl_or_fallback(
-                    request, item_id, buf.getvalue(), dek
-                )
-            except EncryptionError as exc:
-                raise HTTPException(
-                    status_code=500, detail=f'Decryption failed: {exc}'
-                )
-            finally:
-                reader.close()
+    range_header = request.headers.get('range')
+    parsed = _parse_range(range_header, plaintext_size) if range_header else None
 
-        range_header = request.headers.get('range')
-        parsed = _parse_range(range_header, plaintext_size) if range_header else None
-
-        random_reader = None
-        if parsed is not None:
-            start, end = parsed
-            try:
-                # Range serving needs a seekable reader so decrypt_range can
-                # skip to the chunks overlapping [start, end].
-                random_reader = await _open_encrypted_reader(
-                    filename, 'uploads'
-                )
-            except NotImplementedError:
-                # Backend without random access: fall through to the
-                # whole-file stream below (no Accept-Ranges advertised).
-                pass
-
-            if random_reader is not None:
-                reader = random_reader
-
-                def _gen():
-                    try:
-                        yield from EncryptionService.decrypt_range(
-                            reader, dek, start, end
-                        )
-                    finally:
-                        reader.close()
-
-                headers = _build_headers(
-                    content_type,
-                    plaintext_size,
-                    content_range=(start, end, plaintext_size),
-                )
-                return StreamingResponse(
-                    _gen(), status_code=206, headers=headers,
-                    media_type=content_type,
-                )
-
-        # Full-file streaming response. iter_decrypt is sequential (no seek),
-        # so a plain storage stream works for any backend including S3.
-        stream = await storage.get_stream(filename, 'uploads')
-
-        # Pre-flight the envelope header so corrupt or non-envelope files
-        # fail with an explicit 500 instead of a silently empty 200 body.
+    random_reader = None
+    if parsed is not None:
+        start, end = parsed
         try:
-            head = stream.read(ENVELOPE_HEADER_SIZE)
-            EncryptionService.parse_envelope_header(head)
+            # Range serving needs a seekable reader so decrypt_range can
+            # skip to the chunks overlapping [start, end].
+            random_reader = await _open_encrypted_reader(
+                filename, 'uploads'
+            )
+        except NotImplementedError:
+            # Backend without random access: fall through to the
+            # whole-file stream below (no Accept-Ranges advertised).
+            pass
+
+        if random_reader is not None:
+            reader = random_reader
+
+            def _gen():
+                try:
+                    yield from EncryptionService.decrypt_range(
+                        reader, dek, start, end
+                    )
+                finally:
+                    reader.close()
+
+            headers = _build_headers(
+                content_type,
+                plaintext_size,
+                content_range=(start, end, plaintext_size),
+                cacheable=cacheable,
+            )
+            return StreamingResponse(
+                _gen(), status_code=206, headers=headers,
+                media_type=content_type,
+            )
+
+    # Full-file streaming response. iter_decrypt is sequential (no seek),
+    # so a plain storage stream works for any backend including S3.
+    stream = await storage.get_stream(filename, 'uploads')
+
+    # Pre-flight the envelope header so corrupt or non-envelope files
+    # fail with an explicit 500 instead of a silently empty 200 body.
+    try:
+        head = stream.read(ENVELOPE_HEADER_SIZE)
+        EncryptionService.parse_envelope_header(head)
+    except EncryptionError as exc:
+        stream.close()
+        raise HTTPException(status_code=500, detail=f'Decryption failed: {exc}')
+
+    reader = _PrefixedReader(head, stream)
+
+    def _gen_full():
+        try:
+            # Errors raised here abort the transfer mid-stream; header
+            # problems were already rejected by the pre-flight above.
+            yield from EncryptionService.iter_decrypt(reader, dek)
         except EncryptionError as exc:
-            stream.close()
-            raise HTTPException(status_code=500, detail=f'Decryption failed: {exc}')
+            logger.error('Stream decrypt failed for %s: %s', filename, exc)
+            raise
+        finally:
+            reader.close()
 
-        reader = _PrefixedReader(head, stream)
-
-        def _gen_full():
-            try:
-                # Errors raised here abort the transfer mid-stream; header
-                # problems were already rejected by the pre-flight above.
-                yield from EncryptionService.iter_decrypt(reader, dek)
-            except EncryptionError as exc:
-                logger.error('Stream decrypt failed for %s: %s', filename, exc)
-                raise
-            finally:
-                reader.close()
-
-        # When a Range was requested but the backend cannot seek, the whole
-        # file is served with 200 and no Accept-Ranges advertisement.
-        headers = _build_headers(
-            content_type,
-            plaintext_size,
-            accept_ranges=random_reader is not None or parsed is None,
-        )
-        return StreamingResponse(
-            _gen_full(), headers=headers, media_type=content_type
-        )
-    finally:
-        db.close()
+    # When a Range was requested but the backend cannot seek, the whole
+    # file is served with 200 and no Accept-Ranges advertisement.
+    headers = _build_headers(
+        content_type,
+        plaintext_size,
+        accept_ranges=random_reader is not None or parsed is None,
+        cacheable=cacheable,
+    )
+    return StreamingResponse(
+        _gen_full(), headers=headers, media_type=content_type
+    )
 
 
 @router.get('/files/{item_id}/thumbnail')
@@ -410,6 +425,9 @@ async def get_file_thumbnail(item_id: str, request: Request):
     '''Thumbnail access endpoint. Thumbnails are small JPEGs.'''
     user = require_user(request)
 
+    # Phase 1: DB lookups only. Mass uploads trigger parallel thumbnail
+    # storms, so the pooled connection is released before any slow
+    # storage/decryption work below.
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
@@ -420,47 +438,69 @@ async def get_file_thumbnail(item_id: str, request: Request):
         if not file_record:
             raise HTTPException(status_code=404, detail='Item not found')
 
-        # Notes have no generated thumbnail.
+        # The storage key of the thumbnail file to serve. Notes have no
+        # generated thumbnail of their own; when a cover image is set, its
+        # thumbnail is served instead. Access is checked against the note
+        # itself — the cover is decoration, not protected content.
+        thumb_item_id = item_id
+        cover = None
         if file_record.get('type') == 'note':
-            raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+            from app.infrastructure.repositories import ItemTextRepository
+
+            text = ItemTextRepository(db).get_by_item_id(item_id)
+            cover_item_id = text.get('cover_item_id') if text else None
+            if not cover_item_id:
+                raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+
+            cover = item_repo.get_by_id(cover_item_id)
+            if not cover or cover.get('type') != 'media':
+                raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+            thumb_item_id = cover_item_id
 
         folder_id = file_record.get('folder_id')
         if folder_id and not perm_service.can_access(folder_id, user['id']):
             raise HTTPException(status_code=403, detail='Access denied')
 
-        # Auto-regenerate missing thumbnails.
-        if not storage.exists(item_id, 'thumbnails'):
-            from app.infrastructure.services.thumbnail import regenerate_thumbnail
-
-            if not await regenerate_thumbnail(item_id, user['id']):
-                raise HTTPException(status_code=404, detail='Thumbnail unavailable')
-
-        # Thumbnails are always generated as JPEG, regardless of the original
-        # content type (e.g. image/jxl).
-        thumbnail_content_type = 'image/jpeg'
-
-        owner_id = file_record.get('user_id')
+        # The thumbnail envelope is encrypted with the thumbnail owner's
+        # DEK — for note covers that is the cover item's owner.
+        owner_id = (
+            cover.get('user_id') if cover else file_record.get('user_id')
+        )
         dek = dek_cache.get(owner_id) if owner_id else None
         if not dek:
             raise HTTPException(
                 status_code=403, detail='Encryption key not available'
             )
-
-        data = await storage.download(item_id, 'thumbnails')
-        try:
-            decrypted_data = EncryptionService.decrypt_bytes(data, dek)
-        except EncryptionError as exc:
-            raise HTTPException(
-                status_code=500, detail=f'Thumbnail decryption failed: {exc}'
-            )
-
-        headers = {
-            'Content-Type': thumbnail_content_type,
-            'Cache-Control': 'private, max-age=3600',
-            'Content-Length': str(len(decrypted_data)),
-        }
-        return Response(
-            content=decrypted_data, media_type=thumbnail_content_type, headers=headers
-        )
     finally:
         db.close()
+
+    # Phase 2: storage and decryption with no DB connection held.
+    # Auto-regenerate missing thumbnails.
+    if not storage.exists(thumb_item_id, 'thumbnails'):
+        from app.infrastructure.services.thumbnail import regenerate_thumbnail
+
+        if not await regenerate_thumbnail(thumb_item_id, user['id']):
+            raise HTTPException(status_code=404, detail='Thumbnail unavailable')
+
+    # Thumbnails are always generated as JPEG, regardless of the original
+    # content type (e.g. image/jxl).
+    thumbnail_content_type = 'image/jpeg'
+
+    data = await storage.download(thumb_item_id, 'thumbnails')
+    try:
+        decrypted_data = EncryptionService.decrypt_bytes(data, dek)
+    except EncryptionError as exc:
+        raise HTTPException(
+            status_code=500, detail=f'Thumbnail decryption failed: {exc}'
+        )
+
+    headers = {
+        'Content-Type': thumbnail_content_type,
+        'Cache-Control': 'private, max-age=3600',
+        'Content-Length': str(len(decrypted_data)),
+    }
+    return Response(
+        content=decrypted_data, media_type=thumbnail_content_type, headers=headers
+    )
+
+

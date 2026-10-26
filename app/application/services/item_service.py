@@ -28,7 +28,7 @@ from app.infrastructure.repositories import (
     ItemRepository,
     ItemTextRepository,
 )
-from app.infrastructure.services.encryption import EncryptionService
+from app.infrastructure.services.encryption import EncryptionService, dek_cache
 from app.infrastructure.services.ffmpeg import (
     extract_video_thumbnail_bytes,
     probe_media,
@@ -726,7 +726,15 @@ class ItemService:
                     'encoding': text.get('encoding'),
                     'char_count': text.get('char_count'),
                     'line_count': text.get('line_count'),
+                    'cover_item_id': text.get('cover_item_id'),
                 })
+                if text.get('cover_item_id'):
+                    cover_media = self.media_repo.get_by_item_id(
+                        text['cover_item_id']
+                    )
+                    if cover_media:
+                        base['thumb_width'] = cover_media.get('thumb_width')
+                        base['thumb_height'] = cover_media.get('thumb_height')
 
         return base
 
@@ -736,6 +744,7 @@ class ItemService:
         item_type: Optional[str] = None,
         sort_by: str = 'uploaded',
         standalone_only: bool = False,
+        include_covers: bool = False,
     ) -> List[Dict]:
         '''Get items in folder with full data.
 
@@ -744,13 +753,18 @@ class ItemService:
             item_type: Filter by type ('media', 'note') or None for all
             sort_by: 'uploaded', 'taken', or 'title'
             standalone_only: If True, exclude items that are in albums
+            include_covers: If True, keep items used as note covers
+                (hidden from listings by default; the cover picker opts in)
         '''
+        exclude_covers = not include_covers
         if item_type == ItemType.MEDIA.value and not standalone_only:
             return self.item_repo.get_media_with_details(
-                folder_id, sort_by=sort_by
+                folder_id, sort_by=sort_by, exclude_covers=exclude_covers
             )
 
-        items = self.item_repo.get_by_folder(folder_id, item_type, sort_by)
+        items = self.item_repo.get_by_folder(
+            folder_id, item_type, sort_by, exclude_covers=exclude_covers
+        )
 
         if standalone_only:
             album_item_ids = self._get_album_item_ids(folder_id)
@@ -776,7 +790,17 @@ class ItemService:
                         'encoding': text.get('encoding'),
                         'char_count': text.get('char_count'),
                         'line_count': text.get('line_count'),
+                        'cover_item_id': text.get('cover_item_id'),
                     })
+                    # The thumbnail endpoint serves the cover's JPEG, so the
+                    # grid card needs the cover's thumbnail dimensions
+                    if text.get('cover_item_id'):
+                        cover_media = self.media_repo.get_by_item_id(
+                            text['cover_item_id']
+                        )
+                        if cover_media:
+                            item['thumb_width'] = cover_media.get('thumb_width')
+                            item['thumb_height'] = cover_media.get('thumb_height')
 
         return items
 
@@ -798,13 +822,37 @@ class ItemService:
         return self.item_repo.move_to_folder(item_id, folder_id)
 
     async def delete_item(self, item_id: str, user_id: int) -> bool:
-        '''Delete item and all its data including files.'''
+        '''Delete item and all its data including files.
+
+        If the item is a note with a cover image that no other note
+        references, the cover item is also deleted (files + row).
+        '''
         item = self.item_repo.get_by_id(item_id)
         if not item:
             return False
 
         if item['user_id'] != user_id:
             raise HTTPException(403, 'Not owner')
+
+        # --- Delete orphaned cover if this is a note with one ---
+        if item['type'] == 'note':
+            cover_item_id = None
+            text_row = self.text_repo.get_by_item_id(item_id)
+            if text_row:
+                cover_item_id = text_row.get('cover_item_id')
+
+            if cover_item_id:
+                cover = self.item_repo.get_by_id(cover_item_id)
+                if (
+                    cover
+                    and cover['user_id'] == user_id
+                    and self.text_repo.get_cover_reference_count(
+                        cover_item_id, exclude_item_id=item_id
+                    )
+                    == 0
+                ):
+                    await self._delete_item_files(cover_item_id)
+                    self.item_repo.delete(cover_item_id)
 
         await self._delete_item_files(item_id)
 
@@ -980,9 +1028,11 @@ class ItemService:
         renderer = self.get_renderer(item['type'])
         return renderer.render_lightbox(item)
 
-    def count_items_by_folder(self, folder_id: str) -> int:
-        '''Count items in folder.'''
-        return self.item_repo.count_by_folder(folder_id)
+    def count_items_by_folder(self, folder_id: str, include_covers: bool = False) -> int:
+        '''Count items in folder (note covers excluded by default).'''
+        return self.item_repo.count_by_folder(
+            folder_id, exclude_covers=not include_covers
+        )
 
     # ========================================================================
     # Metadata Operations
@@ -1092,3 +1142,128 @@ class ItemService:
                 updated = True
 
         return {'status': 'ok' if updated else 'no_changes', 'updated': updated}
+
+    def _require_edit_access(self, item: Dict, user_id: int) -> None:
+        '''Raise 403 unless the user owns the item or can edit its folder.
+
+        Args:
+            item: Item dict (needs user_id and folder_id)
+            user_id: User performing the action
+        '''
+        from app.infrastructure.repositories import PermissionRepository
+        perm_repo = PermissionRepository(self.item_repo._conn)
+
+        is_owner = item.get('user_id') == user_id
+        can_edit = perm_repo.can_edit(item.get('folder_id'), user_id)
+
+        if not is_owner and not can_edit:
+            raise HTTPException(403, 'Not owner or editor')
+
+    async def update_note_content(
+        self, item_id: str, user_id: int, content: str
+    ) -> Dict:
+        '''Replace the stored content of a text note.
+
+        The new text is validated with the same rules as an upload
+        (non-empty, no NUL bytes, size limit), re-encoded as UTF-8 and
+        written as a fresh SGE1 envelope encrypted with the note owner's
+        DEK — so the stored file stays owned by the original author even
+        when a folder editor performs the edit.
+
+        Args:
+            item_id: Note item ID
+            user_id: User performing the edit (for permission check)
+            content: New full text content
+
+        Returns:
+            Dict with status and updated counters
+        '''
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
+            raise HTTPException(404, 'Item not found')
+        if item.get('type') != ItemType.NOTE.value:
+            raise HTTPException(400, 'Not a text note')
+
+        self._require_edit_access(item, user_id)
+
+        if not content:
+            raise HTTPException(400, 'Empty content')
+        if '\x00' in content:
+            raise HTTPException(400, 'File is not a text file')
+
+        encoded = content.encode('utf-8')
+        if len(encoded) > TEXT_MAX_SIZE:
+            raise HTTPException(
+                413,
+                f'Text file exceeds the {TEXT_MAX_SIZE // (1024 * 1024)} MB limit',
+            )
+
+        # The stored envelope belongs to the note owner, not the editor.
+        owner_dek = dek_cache.get(item.get('user_id'))
+        if owner_dek is None:
+            raise HTTPException(403, 'Encryption key not available')
+
+        import io as _io
+
+        with _io.BytesIO(encoded) as plaintext_reader:
+            await self._encrypt_and_upload(item_id, plaintext_reader, owner_dek)
+
+        line_count = content.count('\n') + (
+            0 if content.endswith('\n') or not content else 1
+        )
+        self.text_repo.update_stats(item_id, len(content), line_count)
+        self.item_repo.touch_updated_at(item_id)
+
+        return {
+            'status': 'ok',
+            'char_count': len(content),
+            'line_count': line_count,
+        }
+
+    def set_note_cover(
+        self, item_id: str, user_id: int, cover_item_id: Optional[str]
+    ) -> Dict:
+        '''Set or clear the cover image of a text note.
+
+        The cover is a reference to a media item (image) whose thumbnail
+        represents the note in the gallery grid, mirroring album covers.
+
+        Args:
+            item_id: Note item ID
+            user_id: User performing the change (for permission check)
+            cover_item_id: Media item to use as cover, or None to clear
+
+        Returns:
+            Dict with status
+        '''
+        item = self.item_repo.get_by_id(item_id)
+        if not item:
+            raise HTTPException(404, 'Item not found')
+        if item.get('type') != ItemType.NOTE.value:
+            raise HTTPException(400, 'Not a text note')
+
+        self._require_edit_access(item, user_id)
+
+        if cover_item_id is not None:
+            cover = self.item_repo.get_by_id(cover_item_id)
+            if not cover:
+                raise HTTPException(400, 'Cover item not found')
+            if cover.get('type') != ItemType.MEDIA.value:
+                raise HTTPException(400, 'Cover must be an image')
+
+            cover_media = self.media_repo.get_by_item_id(cover_item_id)
+            if not cover_media or cover_media.get('media_type') != 'image':
+                raise HTTPException(400, 'Cover must be an image')
+
+            from app.infrastructure.repositories import PermissionRepository
+            perm_repo = PermissionRepository(self.item_repo._conn)
+            has_access = (
+                cover.get('user_id') == user_id
+                or perm_repo.can_access(cover.get('folder_id'), user_id)
+            )
+            if not has_access:
+                raise HTTPException(403, 'No access to cover item')
+
+        self.text_repo.set_cover(item_id, cover_item_id)
+        self.item_repo.touch_updated_at(item_id)
+        return {'status': 'ok'}

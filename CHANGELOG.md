@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-26
+
+### Added
+
+- **Per-user AI Chat with tool-call agent loop** — In-site sidebar panel for live chat against the user's own LLM provider. Every turn runs an orchestrator loop: the model proposes tool calls, the server executes them and feeds results back until done or a confirmation is needed. Provider keys are stored per user and encrypted with the user's DEK. Vision requests pause the turn for user approval; every mutating tool call pauses for a mutation-approval card (optional per-chat "always allow").
+  - **AI Agents / Personas** — Per-user chat personas (system prompt, avatar icon/color preset, explicit tool allow-list). Three built-ins (`tagger`, `librarian`, `curator`) are seeded idempotently; built-ins are read-only and can be duplicated to customize. The allow-list is enforced again at execution time — off-list calls return an error instead of running.
+  - **Reasoning-effort control** — Per-model reasoning capability (`ai_models.reasoning_support`) with conservative auto-detection and a manual override in Settings → AI; per-user effort choice in the chat composer ("Thinking · Medium"). Wire formats per protocol: OpenAI/OpenRouter `reasoning_effort`, Anthropic thinking budget (clamped under `max_tokens`, `temperature=1`), Gemini `thinkingLevel`, Qwen3 `enable_thinking`, GLM `thinking.type`. Unknown model ids send nothing.
+  - **Per-model context/output limits** — Manual context-window and max-output-token overrides per model, respected by the orchestrator; tool-call iterations capped per turn.
+  - **Chat message tree (edit / retry / versions)** — Messages form a branchable tree (`ai_messages.parent_id`). Editing or retrying an earlier user message creates a new sibling version (the old branch is kept); the frontend renders ‹k/n› version chips from metadata delivered with the history. Pending vision requests and tool confirmations are dropped when the branch changes.
+  - **Chat UI** — Composer attach chips for gallery items and albums (accumulating list, expand into up to 8 message thumbnails with a "+N" tile). Chat list drawer slides out from under the panel on desktop, overlays with swipe gestures on mobile; conversations grouped by agent with collapsible, persisted headers. Typing indicator while the model prepares its first token.
+- **AI Chat Tools** — Library-wide tool set advertised per agent allow-list. Tool outputs emit 12-char id prefixes (resolvable back to full ids or unique prefixes); one tool result is capped at `SYNTH_TOOL_RESULT_LIMIT` (default 16000 chars) before persisting.
+  - `audit_library` — folder subtree audit with type counts and tag summary (`include_subfolders` opt-out).
+  - `list_folder` / `list_album_items` — paged listings; album visibility follows the album's folder permissions.
+  - `grep_library` — regex/substring search across item titles, descriptions, note bodies (decrypted), tag names/descriptions, PNG text chunks and original filenames, with context snippets and per-source paging; oversized note scans are capped and reported in warnings.
+  - **Note tools** — `read_note` (paged), `create_note`, `write_note` (replace/append) and `edit_note` (targeted exact-string replacement, uniqueness-checked). All mutations are confirmation-`always` and ack with counters only, never content.
+  - `get_item_metadata` / `set_item_metadata` — read capture/file metadata with a live EXIF probe (camera, GPS, user comment); write PNG text chunks (base64 decoding supported).
+  - `set_tag_descriptions` — bulk, all-or-nothing rewrite of Markdown tag descriptions; descriptions may cross-reference tags with `[[tag_name]]` wiki-links.
+  - `record_tag_feedback` — batch accept/reject verdicts on tag suggestions; rejections are permanent per-item blocklists.
+  - **Web tools** — `fetch_url` (one public URL → readable text, long pages paged) and `web_search` (keyless DuckDuckGo HTML scrape). Both are confirmation-`always` and share an SSRF guard: http(s) only, public address resolution, every redirect hop re-validated, 2 MB / 15 s caps.
+- **Per-user AI Memory** — Opt-in private memory folder holding a `MEMORY.md` index note and section notes. While enabled, memory tools join every agent allow-list; the index is embedded into the system prompt each turn. Tools: `read_memory` (paged), `create_memory_section` (required `when_to_use` scenario), `write_memory` (replace/append), `edit_memory`, `delete_memory_section`, `set_memory_summary`. Everything is regular gallery notes the user can view and edit; Settings → AI Memory card manages the folder (owner-only, private).
+- **In-gallery Tags view** — Tag management moved from the standalone `/tags` page into the gallery as an SPA view (`?view=tags`, shareable deep links `?view=tags&tag=<name>`, sidebar toggle). `GET /tags` 302-redirects to the new URL; the old template was deleted. Tag categories are fetched dynamically; tag descriptions render Markdown with clickable `[[tag]]` wiki-links.
+- **Text Notes overhaul** — Reader/editor rework: widened reader (1200 px), fixed code-block styling matching Markdown and plain-text views, filename display on note cards without covers, real thumbnail aspect-ratio covers, deep links to note sections with anchors.
+- **Tag token input** — Item details and bulk-tag editors take tags as tokens (comma or whitespace separated) with autocomplete and unresolved-tag indication; tag `display_name` was dropped from the schema — tags are displayed by their stored name everywhere.
+- **Tag suggestion rejections** — A rejected suggestion is hidden for that item permanently; the list refills with the next-best candidates instead of shrinking.
+- **Batch download workers** (`SYNTH_DOWNLOAD_WORKERS`, default 4) — Download preparation runs in a bounded worker pool off the event loop, keeping the server responsive during large batch downloads.
+
+### Changed
+
+- **Albums are media-only** — Notes no longer participate in albums (covers made from notes previously showed "Access denied"); migration cleans up existing note memberships.
+- **DB connections released before slow work** — Connections are closed before large uploads, file serving and streamed job events, preventing pool exhaustion; SQLAlchemy busy timeout and pool sizing tuned.
+
+### Fixed
+
+- Lightbox metadata save wrote the previous item's title/description to the next item when navigating without closing the editor.
+- Pending tool confirmations and vision requests now surface again after a page reload mid-approval.
+- Chat: retry echo duplicated the prompt; scroll containment leaked wheel events between chat and gallery; the open chat list kept sliding after the panel closed.
+- Bulk album uploads created an unwanted extra subfolder inside the target folder.
+- Bulk-tag modal's AI button never queued jobs (legacy queue regression).
+- `write_memory` could duplicate echoed frontmatter when re-upserting a section.
+
+### Removed
+
+- Legacy AI tagging queue (`ai_tagging_jobs`, `ai_api_keys`) — tables dropped in migration 0009, superseded by the in-chat agent loop.
+- Standalone `/tags` template — replaced by the in-gallery Tags view.
+
+### Migrations
+
+- **0007** — Note cover images (`item_texts.cover_item_id`).
+- **0008** — Drop `tags.display_name`.
+- **0009** — AI chat: per-user provider/model/settings/conversation tables; legacy AI tagging queue dropped.
+- **0010** — AI agents (`ai_agents`) + active agent per user/chat.
+- **0011** — Albums become media-only.
+- **0012** — Reasoning control: `ai_models.reasoning_support` + `ai_chat_settings.reasoning_effort`.
+- **0013** — Chat message tree: `ai_messages.parent_id` + `ai_conversations.active_leaf_id`.
+- **0014** — AI memory: `ai_chat_settings.memory_enabled` + `memory_folder_id`.
+
 ## [2.0.0] - 2026-08-22
 
 ### Added

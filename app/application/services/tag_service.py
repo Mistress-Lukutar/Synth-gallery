@@ -4,12 +4,31 @@ from typing import Optional, List, Dict, Tuple
 
 from fastapi import HTTPException
 
+from ...config import TAG_DESCRIPTION_MAX_CHARS
 from ...infrastructure.repositories import (
     TagsRepository,
     TagImplicationRepository,
     TagCooccurrenceRepository,
     TagMutexRepository,
 )
+
+# Single source of truth for tag-name validation (duplicated historically
+# in create_tag/update_tag; new code must use this constant).
+TAG_NAME_PATTERN = r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+'
+TAG_NAME_RE = re.compile(TAG_NAME_PATTERN)
+
+
+def _validate_description(description: str) -> str:
+    """Reject NUL bytes and oversized tag descriptions."""
+    if "\x00" in description:
+        raise HTTPException(400, "Description must not contain NUL bytes")
+    if len(description) > TAG_DESCRIPTION_MAX_CHARS:
+        raise HTTPException(
+            400,
+            f"Description is too long ({len(description)} chars; "
+            f"max {TAG_DESCRIPTION_MAX_CHARS})",
+        )
+    return description
 
 
 class TagService:
@@ -88,12 +107,11 @@ class TagService:
         """Get tag by ID."""
         return self.tags.get_by_id(tag_id)
 
-    def create_tag(self, name: str, display_name: str, category_id: int, description: str = '') -> Dict:
+    def create_tag(self, name: str, category_id: int, description: str = '') -> Dict:
         """Create a new flat tag.
 
         Args:
             name: Tag name (lowercase, underscore)
-            display_name: Display name
             category_id: Category ID
             description: Markdown description
 
@@ -101,16 +119,77 @@ class TagService:
             Created tag dict
         """
         name = name.lower().strip().replace(' ', '_')
-        if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
+        if not name or not TAG_NAME_RE.fullmatch(name):
             raise HTTPException(400, "Invalid tag name. Use letters, numbers, underscores, hyphens, dots, brackets, etc.")
+        _validate_description(description or '')
 
         # Check if tag already exists
         existing = self.tags.get_by_name(name)
         if existing:
             raise HTTPException(400, "Tag already exists")
 
-        tag_id = self.tags.create(name, display_name or name.replace('_', ' ').title(), category_id, description)
+        tag_id = self.tags.create(name, category_id, description)
         return self.tags.get_by_id(tag_id)
+
+    def resolve_tags(self, names: List[str], create_missing: bool = False) -> List[Dict]:
+        """Resolve tag names to tag records (with usage counts).
+
+        Each name is normalized exactly like create_tag(). Invalid names come
+        back with valid=False and are never created. When create_missing is
+        True, unknown valid names are created in the "general" category
+        (permission check is the caller's responsibility).
+
+        Args:
+            names: Raw tag names as typed by the user
+            create_missing: Create unknown valid names in category "general"
+
+        Returns:
+            List aligned with the input order:
+            {input, name, valid, exists, created, tag}
+            where tag is the highest-usage tag dict for that name or None.
+        """
+        entries = []
+        for raw in names:
+            name = (raw or '').lower().strip().replace(' ', '_')
+            valid = bool(name) and TAG_NAME_RE.fullmatch(name) is not None
+            entries.append({
+                'input': raw,
+                'name': name,
+                'valid': valid,
+                'exists': False,
+                'created': False,
+                'tag': None,
+            })
+
+        valid_names = list({e['name'] for e in entries if e['valid']})
+        found = self.tags.get_by_names(valid_names) if valid_names else {}
+
+        missing = [n for n in valid_names if n not in found]
+        created_tags: Dict[str, Dict] = {}
+        if missing and create_missing:
+            general = self.tags.get_category_by_slug('general')
+            if not general:
+                raise HTTPException(400, "General tag category not found; create it before adding new tags")
+            for name in missing:
+                # Re-check: concurrent requests may have created it already
+                existing = self.tags.get_by_name(name)
+                if existing:
+                    found[name] = existing
+                    continue
+                tag_id = self.tags.create(name, general['id'], '')
+                created_tags[name] = self.tags.get_by_id(tag_id)
+
+        for entry in entries:
+            if not entry['valid']:
+                continue
+            matches = found.get(entry['name']) or []
+            if not matches and entry['name'] in created_tags:
+                matches = [created_tags[entry['name']]]
+                entry['created'] = True
+            if matches:
+                entry['exists'] = True
+                entry['tag'] = max(matches, key=lambda t: t.get('usage_count') or 0)
+        return entries
 
     # ========================================================================
     # Item Tagging
@@ -342,7 +421,6 @@ class TagService:
         return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     def update_tag(self, tag_id: int, name: Optional[str] = None,
-                   display_name: Optional[str] = None,
                    category_id: Optional[int] = None,
                    description: Optional[str] = None) -> Dict:
         """Update tag fields."""
@@ -353,14 +431,13 @@ class TagService:
         updates = {}
         if name is not None:
             name = name.lower().strip().replace(' ', '_')
-            if not name or not re.fullmatch(r'[a-z0-9_\-\.\(\)\[\]\{\}\+\!\~\&\%\=\$\#\@\^\,]+', name):
+            if not name or not TAG_NAME_RE.fullmatch(name):
                 raise HTTPException(400, "Invalid tag name")
             updates["name"] = name
-        if display_name is not None:
-            updates["display_name"] = display_name
         if category_id is not None:
             updates["category_id"] = category_id
         if description is not None:
+            _validate_description(description)
             updates["description"] = description
 
         self.tags.update_tag(tag_id, **updates)

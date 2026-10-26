@@ -1,6 +1,12 @@
 /**
  * Tag Management Page - per-category CRUD + implications
+ *
+ * Classic-script IIFE module. Everything stays private so the top-level
+ * helpers (csrfFetch, getCsrfToken, escapeHtml, ...) cannot shadow the
+ * core.js globals; only the names below are exported on purpose.
  */
+
+(function() {
 
 const BASE_URL = (() => {
     const link = document.querySelector('link[rel="stylesheet"]');
@@ -48,7 +54,35 @@ let tagDescMode = 'preview';
 // Load categories & init
 // =============================================================================
 
+// Idempotent lazy initializer — called on the old standalone page via DOMContentLoaded,
+// or lazily from showTagsView() when the in-gallery view is opened.
+window.initTagsPage = function initTagsPage() {
+    if (window.__tagsPageInited) return;
+    window.__tagsPageInited = true;
+
+    // Fetch categories from API (replaces server-rendered window.__categories).
+    loadCategories().then(() => {
+        runInitCategories();
+    });
+};
+
+// Internal: runs the category/tag initialisation after categories are loaded.
+function runInitCategories() {
+    if (!window.__categories || !window.__categories.length) {
+        const tagList = document.getElementById('tag-list');
+        if (tagList) tagList.innerHTML = '<div class="empty-state">No categories yet. Create one via the Categories button.</div>';
+        const paginationInfo = document.getElementById('pagination-info');
+        if (paginationInfo) paginationInfo.textContent = '';
+        return;
+    }
+    for (const cat of window.__categories || []) {
+        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
+        loadCategoryTags(cat.id);
+    }
+}
+
 function initCategories() {
+    // If categories were already fetched by initTagsPage, skip DOM extraction.
     if (!window.__categories || !window.__categories.length) {
         const opts = document.querySelectorAll('#new-tag-category option');
         window.__categories = Array.from(opts).map(o => ({
@@ -58,10 +92,7 @@ function initCategories() {
         }));
     }
 
-    for (const cat of window.__categories) {
-        catState[cat.id] = { tags: [], offset: 0, hasMore: true, isLoading: false };
-        loadCategoryTags(cat.id);
-    }
+    runInitCategories();
 }
 
 async function loadCategoryTags(catId) {
@@ -112,7 +143,7 @@ function renderTagList() {
             const activeClass = tag.id === selectedTagId ? 'active' : '';
             return `
             <div class="tag-list-item ${activeClass}" data-id="${tag.id}" onclick="selectTag(${tag.id})" style="--tag-color:${cat.color||'#888'}">
-                <span class="tag-name">${escapeHtml(tag.display_name || tag.name)}</span>
+                <span class="tag-name">${escapeHtml(tag.name)}</span>
                 <span class="tag-meta">${tag.usage_count || 0}</span>
             </div>`;
         }).join('');
@@ -153,6 +184,7 @@ async function selectTag(tagId) {
         ]);
         if (!tagResp.ok) throw new Error('Failed to load tag details');
         const tag = await tagResp.json();
+        syncTagUrl(tag.name);
         const implications = implResp.ok ? await implResp.json() : {implies: [], implied_by: []};
         const related = relatedResp.ok ? await relatedResp.json() : {tags: []};
         tagDetail = {
@@ -182,7 +214,6 @@ function renderDetail() {
             <h3>Properties</h3>
             <div class="inline-form">
                 <input type="text" id="edit-name" value="${escapeHtml(tag.name)}" placeholder="Name">
-                <input type="text" id="edit-display" value="${escapeHtml(tag.display_name || '')}" placeholder="Display name">
                 <select id="edit-category">
                     ${window.__categories?.map(c => `<option value="${c.id}" ${c.id === tag.category_id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('') || ''}
                 </select>
@@ -215,7 +246,7 @@ function renderDetail() {
 
     const impliesItems = implies.map(t => `
         <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
-            <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
+            <span class="tag-name">${escapeHtml(t.name)}</span>
             ${isAdmin ? `<span class="tag-actions" onclick="event.stopPropagation()">
                 <button title="Remove implication" onclick="removeImplication(${tag.id}, ${t.id})">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -240,7 +271,7 @@ function renderDetail() {
 
     panel.innerHTML = `
         <div class="detail-header">
-            <h2>${escapeHtml(tag.display_name || tag.name)}</h2>
+            <h2>${escapeHtml(tag.name)}</h2>
             <span class="tag-chip" style="--tag-color:${color}">${escapeHtml(tag.category_name || 'General')}</span>
         </div>
 
@@ -260,7 +291,7 @@ function renderDetail() {
             <div class="impl-list">
                 ${impliedBy.map(t => `
                     <div class="tag-list-item" style="--tag-color:${t.category_color||'#888'}" onclick="selectTag(${t.id})">
-                        <span class="tag-name">${escapeHtml(t.display_name || t.name)}</span>
+                        <span class="tag-name">${escapeHtml(t.name)}</span>
                     </div>
                 `).join('') || '<p style="font-size:0.8125rem;color:var(--text-muted);margin:0;">No incoming implications</p>'}
             </div>
@@ -270,7 +301,7 @@ function renderDetail() {
             <h3>Related Tags</h3>
             <div class="related-list">
                 ${related.map(t => `
-                    <span class="related-chip" style="cursor:pointer;" onclick="selectTag(${t.id})">${escapeHtml(t.display_name || t.name)}</span>
+                    <span class="related-chip" style="cursor:pointer;" onclick="selectTag(${t.id})">${escapeHtml(t.name)}</span>
                 `).join('') || '<span style="font-size:0.8125rem;color:var(--text-muted);">No data yet</span>'}
             </div>
         </div>
@@ -278,6 +309,7 @@ function renderDetail() {
         ${deleteSection}
     `;
     addCopyButtonsToCodeBlocks(panel);
+    markTagLinks(panel);
 
     if (isAdmin) {
         initTagDescriptionEditor(descValue);
@@ -293,19 +325,32 @@ function renderDetail() {
     }
 }
 
+function syncTagUrl(tagName) {
+    // Keep ?tag=<name> shareable without adding history entries.
+    try {
+        const tagsView = document.getElementById('tags-view');
+        if (tagsView) {
+            // In-gallery view: use SPA URL (?view=tags&tag=...)
+            history.replaceState({ tagsView: true }, '', buildTagsUrl(BASE_URL || '', tagName));
+        } else {
+            // Standalone /tags page: keep legacy URL format.
+            history.replaceState(null, '', (BASE_URL || '') + '/tags?tag=' + encodeURIComponent(tagName));
+        }
+    } catch (err) { /* ignore */ }
+}
+
 function cancelEdit() {
     if (tagDetail) renderDetail();
 }
 
 async function saveEdit(tagId) {
     const name = document.getElementById('edit-name').value.trim();
-    const displayName = document.getElementById('edit-display').value.trim();
     const categoryId = parseInt(document.getElementById('edit-category').value, 10);
 
     try {
         const resp = await csrfFetch(`/api/tags/${tagId}`, {
             method: 'PUT',
-            body: JSON.stringify({ name, display_name: displayName || null, category_id: categoryId })
+            body: JSON.stringify({ name, category_id: categoryId })
         });
         if (!resp.ok) {
             const err = await resp.json();
@@ -334,7 +379,7 @@ async function deleteTag(tagId) {
         }
         return null;
     })();
-    const name = tag ? (tag.display_name || tag.name) : 'this tag';
+    const name = tag ? tag.name : 'this tag';
     if (!confirm(`Delete "${name}"?\n\nThis will remove the tag from all items.`)) return;
 
     try {
@@ -412,9 +457,9 @@ async function searchRemapTarget(query) {
         }
         container.innerHTML = data.map(t => `
             <button class="btn btn-small btn-secondary" style="margin:0.125rem;"
-                onclick="selectRemapTarget(${t.id}, '${escapeHtml(t.display_name || t.name)}')">
+                onclick="selectRemapTarget(${t.id}, '${escapeHtml(t.name)}')">
                 <span style="color:${t.category_color || '#888'}">●</span>
-                ${escapeHtml(t.display_name || t.name)}
+                ${escapeHtml(t.name)}
             </button>
         `).join('');
     } catch {
@@ -425,7 +470,7 @@ async function searchRemapTarget(query) {
 async function confirmRemap() {
     if (!remapTagId || !remapTargetId) return;
     const tag = tagDetail?.tag;
-    const name = tag ? (tag.display_name || tag.name) : 'this tag';
+    const name = tag ? tag.name : 'this tag';
     const targetName = document.getElementById('remap-tag-selected-name').textContent;
     const isReplace = remapMode === 'replace';
     const confirmMsg = isReplace
@@ -458,22 +503,63 @@ async function confirmRemap() {
 
 function renderMarkdown(text) {
     if (!text) return '';
-    if (window.marked && window.marked.parse) {
-        return window.marked.parse(text);
+    return renderMarkdownHtml(preprocessTagLinks(text));
+}
+
+// Sanitized Markdown → HTML (same pipeline as gallery notes: marked + DOMPurify).
+function renderMarkdownHtml(text) {
+    let html;
+    try {
+        html = window.marked.parse(normalizeMarkdownLists(text));
+    } catch (err) {
+        console.warn('[tags] marked failed, falling back to escaped text:', err);
+        return '<p>' + escapeHtml(text) + '</p>';
     }
-    // Fallback to simple renderer
-    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
-    html = html.replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>');
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-    html = html.replace(/\n/g, '<br>');
+    if (window.DOMPurify) {
+        html = DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+    }
     return html;
 }
+
+// Classify links produced from [[tag]] wiki-links (and ?tag= Markdown links).
+function markTagLinks(container) {
+    container.querySelectorAll('a[href]').forEach((a) => {
+        const href = a.getAttribute('href') || '';
+        let name = parseTagLinkHref(href);
+        if (!name && !/^https?:\/\//i.test(href)) {
+            name = parseTagPageHref(href);
+        }
+        if (name) {
+            a.classList.add('tag-link');
+            a.dataset.tagName = name;
+        }
+    });
+}
+
+async function navigateToTagByName(name) {
+    // Instant path: the already-loaded category lists.
+    for (const cat of Object.values(catState)) {
+        const hit = (cat.tags || []).find(t => t.name === name);
+        if (hit) {
+            selectTag(hit.id);
+            return;
+        }
+    }
+    // Fallback: exact match through the search API (covers unloaded pages).
+    try {
+        const resp = await csrfFetch(`/api/tags/search?q=${encodeURIComponent(name)}&limit=50`);
+        if (resp.ok) {
+            const payload = await resp.json();
+            const match = (payload.tags || []).find(t => t.name === name);
+            if (match) {
+                selectTag(match.id);
+                return;
+            }
+        }
+    } catch (err) { /* fall through to the toast */ }
+    showStatus(`Tag "${name}" not found`, true);
+}
+window.navigateToTagByName = navigateToTagByName;
 
 function initTagDescriptionEditor(initialValue) {
     const textarea = document.getElementById('tag-description-editor');
@@ -526,6 +612,7 @@ function updateTagDescriptionPreview() {
     }
     previewEl.innerHTML = renderMarkdown(markdown);
     addCopyButtonsToCodeBlocks(previewEl);
+    markTagLinks(previewEl);
 }
 
 // Add copy buttons to code blocks in preview
@@ -640,7 +727,7 @@ async function searchForImplication(query) {
             <button class="btn btn-small btn-secondary" style="margin:0.125rem;"
                 onclick="pickImplication(${t.id})">
                 <span style="color:${t.category_color||'#888'}">●</span>
-                ${escapeHtml(t.display_name || t.name)}
+                ${escapeHtml(t.name)}
             </button>
         `).join('');
     } catch {
@@ -662,8 +749,7 @@ async function addImplication(tagId, impliesTagId) {
         const name = input?.value.trim();
         if (!name) return;
         const match = implicationSearchResults.find(t =>
-            t.name.toLowerCase() === name.toLowerCase() ||
-            (t.display_name && t.display_name.toLowerCase() === name.toLowerCase())
+            t.name.toLowerCase() === name.toLowerCase()
         );
         if (match) {
             impliesTagId = match.id;
@@ -714,12 +800,10 @@ function openModal() {
 function closeModal() {
     document.getElementById('new-tag-modal').classList.remove('open');
     document.getElementById('new-tag-name').value = '';
-    document.getElementById('new-tag-display').value = '';
 }
 
 async function createTag() {
     const name = document.getElementById('new-tag-name').value.trim();
-    const displayName = document.getElementById('new-tag-display').value.trim();
     const categoryId = parseInt(document.getElementById('new-tag-category').value, 10);
 
     if (!name) {
@@ -730,7 +814,7 @@ async function createTag() {
     try {
         const resp = await csrfFetch('/api/tags', {
             method: 'POST',
-            body: JSON.stringify({ name, display_name: displayName || null, category_id: categoryId })
+            body: JSON.stringify({ name, category_id: categoryId })
         });
         if (!resp.ok) {
             const err = await resp.json();
@@ -782,6 +866,7 @@ function updateCategorySelectOptions(categories) {
 
 function renderCategoriesList(categories) {
     const container = document.getElementById('categories-list');
+    if (!container) return; // non-admin: the categories modal is not rendered
     if (!categories || !categories.length) {
         container.innerHTML = '<p style="color:var(--text-muted);font-size:0.875rem;">No categories</p>';
         return;
@@ -983,4 +1068,47 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-initCategories();
+// Tag links inside rendered descriptions navigate in-page.
+document.getElementById('detail-panel').addEventListener('click', (e) => {
+    const link = e.target.closest('a.tag-link');
+    if (!link) return;
+    e.preventDefault();
+    navigateToTagByName(link.dataset.tagName);
+});
+
+// Deep link: /tags?tag=<name> opens that tag on load (standalone page only).
+// On the gallery page the ?view=tags&tag=... deep link is handled by init.js.
+(function openTagFromUrl() {
+    if (document.getElementById('tags-view')) return;
+    const name = new URLSearchParams(location.search).get('tag');
+    if (name) navigateToTagByName(name);
+})();
+
+// On the old standalone /tags page (no #tags-view), init on DOMContentLoaded.
+// On the gallery page (with #tags-view), skip auto-init — it's lazy via showTagsView().
+if (!document.getElementById('tags-view')) {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => window.initTagsPage());
+    } else {
+        window.initTagsPage();
+    }
+}
+
+// Public surface: initTagsPage / navigateToTagByName are exported at their
+// definitions; the rest back the inline onclick="..." handlers in the
+// generated markup. Keep in sync with any new onclick="fn(...)" above.
+window.selectTag = selectTag;
+window.loadCategoryTags = loadCategoryTags;
+window.cancelEdit = cancelEdit;
+window.saveEdit = saveEdit;
+window.toggleTagDescMode = toggleTagDescMode;
+window.saveTagDescription = saveTagDescription;
+window.addImplication = addImplication;
+window.removeImplication = removeImplication;
+window.pickImplication = pickImplication;
+window.openRemapModal = openRemapModal;
+window.selectRemapTarget = selectRemapTarget;
+window.deleteTag = deleteTag;
+window.deleteCategory = deleteCategory;
+
+})();

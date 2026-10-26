@@ -1,0 +1,62 @@
+"""AI tool foundation - context, errors and tool definitions.
+
+Every tool executor receives a :class:`ToolContext` (the requesting user
+plus the session DEK) and the parsed arguments dict, and returns a
+plain-text result for the model. Executors may be plain functions or
+coroutine functions; the orchestrator awaits coroutine results. They raise
+:class:`ToolError` when the model should see an error result, and
+:class:`VisionRequestSignal` when the user must approve image viewing
+first.
+"""
+from dataclasses import dataclass, field
+from typing import Awaitable, Callable, List, Optional, Union
+
+
+@dataclass
+class ToolContext:
+    """Context handed to every tool executor.
+
+    ``dek`` carries the caller's session data-encryption key so tools
+    that read or write stored media bytes (note content, image metadata
+    probes) can decrypt and re-encrypt them.
+    """
+
+    user_id: int
+    dek: Optional[bytes] = None
+
+
+class ToolError(Exception):
+    """Tool failure surfaced to the model as an error result."""
+
+
+class VisionRequestSignal(Exception):
+    """Raised by ``view_images`` to pause for user approval.
+
+    Attributes:
+        item_ids: Validated media item IDs the model wants to see.
+    """
+
+    def __init__(self, item_ids: List[str]):
+        self.item_ids = list(item_ids)
+        super().__init__(f"vision approval requested for items {self.item_ids}")
+
+
+@dataclass
+class ToolDef:
+    """One tool exposed to the model.
+
+    ``category`` groups tools in the agent editor UI. ``confirmation``
+    controls the mutation-approval flow: ``'none'`` runs silently (read
+    tools), ``'always'`` pauses the turn until the user approves the call
+    in the chat (every mutating tool).
+    """
+
+    name: str
+    description: str
+    parameters_json_schema: dict
+    executor: Callable[[dict, ToolContext], Union[str, Awaitable[str]]]
+    category: str = "library"
+    confirmation: str = "none"
+    # Tools listed here are executed but never advertised to models whose
+    # provider reports no tool support; reserved for future use.
+    metadata: dict = field(default_factory=dict)

@@ -81,16 +81,9 @@
             currentFullImageLoader.onerror = null;
             currentFullImageLoader = null;
         }
-        // Note: window.stop() is NOT used here as it cancels ALL network requests including gallery thumbnails
-    }
-    
-    // Cancel all page loads - used only when closing lightbox
-    function cancelAllLoading() {
-        cancelImageLoading();
-        // Stop browser from continuing to download images when closing lightbox
-        if (window.stop) {
-            window.stop();
-        }
+        // Note: window.stop() must NEVER be used here (or on close): it
+        // cancels ALL page requests, including the AI chat SSE stream and
+        // gallery thumbnails the user is about to see again.
     }
 
     // Show an overlay explaining the video cannot be played inline, with a
@@ -198,7 +191,10 @@
         // Keyboard navigation (Escape is handled by BackButtonManager)
         document.addEventListener('keydown', (e) => {
             if (lightbox.classList.contains('hidden')) return;
-            
+
+            // Notes are documents, not slides: no arrow navigation in reader mode
+            if (lightbox.classList.contains('note-mode')) return;
+
             // Don't navigate if user is typing
             if (isEditingText()) return;
             
@@ -450,6 +446,11 @@
     
     function handleTouchStart(e) {
         if (lightbox.classList.contains('hidden')) return;
+        // Notes use native touch scrolling in the reader - no swipe gestures
+        if (lightbox.classList.contains('note-mode')) {
+            isSwiping = false;
+            return;
+        }
         // Ignore multi-touch gestures (pinch-to-zoom)
         if (e.touches.length > 1) {
             isSwiping = false;
@@ -710,6 +711,10 @@
                 }
             } else if (itemType === 'item' || itemType === 'photo') {
                 // Standalone item (Phase 5: type 'item', legacy: 'photo')
+                // Notes are excluded: they open in reader mode which has no
+                // arrow/swipe navigation, so media navigation skips them.
+                if (item.dataset.mediaType === 'note') continue;
+
                 const itemId = item.dataset.itemId || item.dataset.photoId;
                 flatOrder.push({
                     type: 'item',  // Phase 5: polymorphic item
@@ -839,8 +844,12 @@
             window.BackButtonManager.unregister('lightbox', true); // skipHistoryBack since we handle it below
         }
         
-        // Cancel any pending image loads (including all network requests)
-        cancelAllLoading();
+        // Cancel any pending image loads (lightbox-scoped only; never
+        // window.stop() — see cancelImageLoading)
+        cancelImageLoading();
+
+        // Leaving the note editor saves pending changes (fire-and-forget)
+        window.NoteViewer?.saveIfEditing?.();
         
         // Reset zoom so the next opened photo starts unzoomed
         resetZoom(false);
@@ -1052,35 +1061,6 @@
         window.history.pushState({ photoId: newPhotoId }, '', url.toString());
     };
 
-    // Render a text note in the lightbox with syntax highlighting.
-    // highlight.js is vendored and included globally by gallery.html.
-    function renderLightboxText(mediaContainer, text, photo) {
-        const langMap = {
-            md: 'markdown', markdown: 'markdown',
-            json: 'json',
-            csv: 'csv',
-            yaml: 'yaml', yml: 'yaml',
-            txt: 'plaintext',
-        };
-        const name = photo.original_name || photo.title || '';
-        const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : 'txt';
-        const lang = langMap[ext] || 'plaintext';
-
-        mediaContainer.innerHTML = `
-            <div class="lightbox-text">
-                <pre><code class="language-${lang}">${escapeHtml(text)}</code></pre>
-            </div>
-        `;
-        const codeEl = mediaContainer.querySelector('code');
-        if (codeEl && window.hljs) {
-            try {
-                window.hljs.highlightElement(codeEl);
-            } catch (e) {
-                // Unknown language in this highlight.js build - keep plain text.
-            }
-        }
-    }
-
     // Render a single lightbox image. For JXL, use <picture> so capable browsers
     // load the JXL original while others fall back to the server-rendered JPEG.
     function renderLightboxImage(mediaContainer, src, isJxl, photoName, quality = 'fit') {
@@ -1122,28 +1102,37 @@
             if (!resp.ok) throw new Error('Failed to load photo');
             
             const photo = await resp.json();
-            
+
             // Check if cancelled
             if (signal.aborted) {
                 return;
             }
-            
+
             // Update current photo ID
             currentPhotoId = photoId;
             window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
-            
+
+            // Reader mode for notes: centered document column with its own
+            // toolbar (close/edit), no arrow/swipe navigation.
+            lightbox.classList.toggle('note-mode', photo.type === 'note');
+
             // Render media using FileAccessService (handles server-side encrypted files)
             const mimeType = photo.content_type || (photo.media_type === 'video' ? 'video/mp4' : 'image/jpeg');
 
             if (photo.type === 'note') {
-                // Text notes: fetch decrypted content and render with
-                // syntax highlighting (highlight.js is vendored globally).
+                // Text notes: fetch decrypted content and hand it to the
+                // NoteViewer reader (markdown rendering or syntax highlighting).
                 try {
                     const textUrl = await FileAccessService.getFileUrl(photoId, { photo });
-                    const textResp = await fetch(textUrl);
+                    // cache:'reload' bypasses a stale browser-cached body:
+                    // notes are rewritten under the same /files/{id} URL.
+                    const textResp = await fetch(textUrl, { cache: 'reload' });
                     if (!textResp.ok) throw new Error(`HTTP ${textResp.status}`);
                     const text = await textResp.text();
-                    renderLightboxText(mediaContainer, text, photo);
+                    if (currentPhotoId !== photoId) return;  // Navigated away meanwhile
+                    window.NoteViewer.renderReader(
+                        mediaContainer, text, photo, photo.can_edit !== false
+                    );
                 } catch (err) {
                     console.error('[lightbox] Failed to load note:', err);
                     mediaContainer.innerHTML = `<p>Error: Failed to load text</p>`;

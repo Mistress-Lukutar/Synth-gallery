@@ -20,6 +20,8 @@
     <!-- Core utilities -->
     <script src="{{ base_url }}/static/js/core.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/toast.js?v={{ app_version }}"></script>
+    <!-- Markdown preprocessing (booru-style "**" lists → standard Markdown) -->
+    <script src="{{ base_url }}/static/js/markdown-normalize.js?v={{ app_version }}"></script>
     <!-- Back Button Manager (must be loaded before modals) -->
     <script src="{{ base_url }}/static/js/back-button.js?v={{ app_version }}"></script>
     <!-- Folder Actions -->
@@ -36,9 +38,11 @@
     <script src="{{ base_url }}/static/js/gallery-masonry.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-selection.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-download.js?v={{ app_version }}"></script>
-    <script src="{{ base_url }}/static/js/gallery-ai-tag.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-lightbox.js?v={{ app_version }}"></script>
+    <!-- Note reader/editor (used by the lightbox for text notes) -->
+    <script src="{{ base_url }}/static/js/gallery-notes.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/tag-editor-core.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/tag-token-input.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-tags.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-bulk-tags.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-search.js?v={{ app_version }}"></script>
@@ -46,6 +50,9 @@
     <script src="{{ base_url }}/static/js/gallery-albums.js?v={{ app_version }}"></script>
     <!-- File Access Service (direct file access) -->
     <script src="{{ base_url }}/static/js/file-access-service.js?v={{ app_version }}"></script>
+    <!-- AI chat panel -->
+    <script src="{{ base_url }}/static/js/ai-agents-icons.js?v={{ app_version }}"></script>
+    <script src="{{ base_url }}/static/js/ai-chat.js?v={{ app_version }}"></script>
     <!-- Initialization (last) -->
     <script src="{{ base_url }}/static/js/init.js?v={{ app_version }}"></script>
     
@@ -58,6 +65,21 @@
             <div class="sidebar-logo">
                 <a href="{{ base_url }}/" class="logo" onclick="event.preventDefault(); navigateToDefaultFolder();"><img src="{{ base_url }}/static/favicon.svg?v={{ app_version }}" alt="" class="logo-icon">Synth</a>
             </div>
+            <button id="ai-chat-toggle" class="sidebar-ai-btn" type="button" title="AI Chat">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                    <path d="M12 3l1.9 5.7a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-2a2 2 0 0 0 1.3-1.3z"/>
+                    <path d="M19 3v4"/>
+                    <path d="M17 5h4"/>
+                </svg>
+                <span>AI Chat</span>
+            </button>
+            <a class="sidebar-ai-btn" id="tags-view-toggle" href="{{ base_url }}/?view=tags" title="Tags">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/>
+                    <line x1="7" y1="7" x2="7.01" y2="7"/>
+                </svg>
+                <span>Tags</span>
+            </a>
             <div class="folder-tree" id="folder-tree">
                 <!-- Folder tree rendered by JS -->
             </div>
@@ -84,6 +106,9 @@
 
     <!-- Sidebar overlay for mobile -->
     <div id="sidebar-overlay" class="sidebar-overlay hidden"></div>
+
+    <!-- AI chat panel (inner DOM rendered by ai-chat.js) -->
+    <div id="ai-chat-panel" class="ai-chat-panel hidden"></div>
 
     <!-- Upload modal -->
     <div id="upload-modal" class="modal hidden">

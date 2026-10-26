@@ -11,7 +11,9 @@ Synth Gallery is a **personal media vault** with server-side encryption, hardwar
 - **Hardware Key Login**: WebAuthn/FIDO2 support (YubiKey, etc.) for passwordless authentication
 - **Folder Hierarchy**: Nested folders with sharing support (Viewer/Editor permissions)
 - **Albums**: Group related media with drag-and-drop reordering
-- **Tags & Search**: Categorize and find content quickly
+- **Tags & Search**: Categorize and find content quickly; tags carry Markdown descriptions (AI-editable via `set_tag_descriptions`, `[[tag]]` wiki-links); PMI-based tag suggestions learn from accept/reject feedback — a rejected tag is hidden from that item's suggestions for good
+- **AI Chat**: In-site assistant sidebar with server-side tool-call agent loop; per-user LLM provider keys encrypted with the user's DEK; vision via user-approved `view_images`
+- **AI Agents**: per-user chat personas (system prompt + explicit tool allow-list) with three seeded built-ins; every mutating tool call pauses the turn for an approval card in the chat (optional per-chat "always allow")
 - **Backup & Recovery**: Full backups with integrity verification and recovery keys
 
 ## Technology Stack
@@ -55,7 +57,10 @@ Synth-Gallery/
 │   │       ├── tag_service.py        # Tag CRUD and bulk operations
 │   │       ├── tag_implication_service.py # Tag implication inheritance
 │   │       ├── tag_suggestion_service.py  # PMI-based tag suggestions
-│   │       ├── ai_tagging_service.py # AI tagging job queue orchestration
+│   │       ├── ai_chat_service.py    # Chat orchestrator: agent loop, SSE, vision pause, tool confirmations
+│   │       ├── ai_agent_service.py   # AI agents: CRUD, validation, built-in seeding
+│   │       ├── ai_provider_service.py # Per-user LLM providers/models/settings
+│   │       ├── ai_tools/             # Tool registry the chat model may call
 │   │       └── user_settings_service.py # User preferences
 │   ├── infrastructure/           # Infrastructure layer
 │   │   ├── repositories/         # Repository pattern (DB operations)
@@ -73,8 +78,11 @@ Synth-Gallery/
 │   │   │   ├── tag_cooccurrence_repository.py
 │   │   │   ├── tag_feedback_repository.py
 │   │   │   ├── tag_mutex_repository.py
-│   │   │   ├── ai_job_repository.py      # AI tagging job queue
-│   │   │   ├── ai_api_key_repository.py  # Per-user AI API keys
+│   │   │   ├── ai_chat_repository.py      # Conversations + messages
+│   │   │   ├── ai_agent_repository.py     # Agent definitions (prompt + tool allow-list)
+│   │   │   ├── ai_chat_settings_repository.py # Active provider/model per user
+│   │   │   ├── ai_model_repository.py     # Models of a provider
+│   │   │   ├── ai_provider_repository.py  # Per-user LLM provider configs
 │   │   │   └── webauthn_repository.py
 │   │   ├── services/             # Infrastructure services
 │   │   │   ├── encryption.py         # Chunked AES-256-GCM streaming envelope, DEK cache
@@ -91,6 +99,7 @@ Synth-Gallery/
 │   │   │   ├── audit_log.py          # Security event audit log
 │   │   │   ├── rate_limiter.py       # Request rate limiting
 │   │   │   ├── tag_stats_scheduler.py # Tag co-occurrence stats scheduler
+│   │   │   ├── llm/                  # LLM clients (OpenAI-compatible, Anthropic, Gemini) + SSE
 │   │   │   └── webauthn.py           # Hardware key support
 │   │   └── storage/              # Storage abstraction layer
 │   │       ├── base.py               # StorageInterface
@@ -99,9 +108,11 @@ Synth-Gallery/
 │   │       └── factory.py            # get_storage() factory
 │   ├── routes/                   # API routes
 │   │   ├── auth.py                   # Login/logout
-│   │   ├── admin.py                  # Admin panel (users, backups, API keys)
+│   │   ├── admin.py                  # Admin panel (users, backups, maintenance)
 │   │   ├── admin_tags.py             # Admin tag operations (delete/remap/sanitize)
-│   │   ├── api.py                    # AI service endpoints (job queue)
+│   │   ├── ai_chat.py                # AI chat conversations, streamed turns, vision + tool decisions
+│   │   ├── ai_agents.py              # AI agent CRUD + tools catalogue
+│   │   ├── ai_provider_settings.py   # Per-user AI provider/model/settings endpoints
 │   │   ├── folders.py                # Folder management
 │   │   ├── tags.py                   # Tag management
 │   │   ├── webauthn.py               # Hardware key registration/auth
@@ -119,6 +130,11 @@ Synth-Gallery/
 │   │       ├── init.js               # Initialization
 │   │       ├── navigation.js         # Navigation
 │   │       ├── upload.js             # Upload handling
+│   │       ├── ai-agents-icons.js    # Agent avatar icon/color presets
+│   │       ├── ai-chat.js            # AI chat panel (SSE streaming, tool cards, agent picker)
+│   │       ├── settings-ai-agents.js # AI agent CRUD (settings tab)
+│   │       ├── settings-ai.js        # AI provider settings tab logic
+│   │       ├── tag-links.js          # [[tag]] wiki-link helpers for tag descriptions (Jest-tested)
 │   │       └── gallery-*.js          # Gallery features
 │   └── templates/                # Jinja2 templates
 │       ├── base.html
@@ -126,15 +142,13 @@ Synth-Gallery/
 │       ├── gallery.html
 │       ├── settings.html
 │       ├── reset_password.html
-│       ├── tags.html
 │       ├── admin_users.html
-│       ├── admin_api_keys.html
 │       ├── admin_backups.html
 │       └── admin_maintenance.html
 ├── migrations/                   # Alembic migration environment
 │   ├── env.py                    # Online migrations via app.database.get_engine()
 │   ├── migration_utils.py        # rebuild_table / backup helpers (SQLite specifics)
-│   └── versions/                 # Revisions 0001-0006
+│   └── versions/                 # Revisions 0001-0014
 ├── tests/                        # Test suite
 │   ├── conftest.py               # pytest fixtures
 │   ├── integration/              # Integration tests
@@ -268,6 +282,7 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 **File Serving:**
 - `GET /files/{item_id}` streams the plaintext on the fly via `iter_decrypt` (full file) or `decrypt_range` (HTTP Range, returns 206 Partial Content with `Content-Range` / `Accept-Ranges`)
 - `HEAD /files/{item_id}` returns `Content-Length` and `Accept-Ranges` so browsers can probe before requesting byte ranges
+- Cache policy: media answers carry `Cache-Control: private, max-age=3600` (blobs are immutable per item id); **notes are served with `no-store`** because they are rewritten in place under the same id (manual editor and the `write_note` tool) — a cached note would show the pre-edit body after reload
 - The old plaintext-fallback branch was removed; all files are expected to be in SGE1 format
 
 ### 5b. MKV / Large File Support
@@ -291,10 +306,12 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 - **ffmpeg is intentionally NOT used for JXL**: its libjxl wrapper cannot do `--lossless_jpeg` reversible transcodes, EXIF containers or progressive flags (verified against gyan.dev full builds with `--enable-libjxl`); ffmpeg stays video-only
 
 **Batch Download & Download Conversion:**
-- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `jxl` (default = as stored), `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_lossless_jxl(effort=...)`)
-- A selection resolving to a single file is served directly with `Content-Disposition: attachment` (no ZIP); two or more files produce a spooled streaming ZIP
+- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `original` (default = as stored, no re-encode), `jxl`, `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_lossless_jxl(effort=...)`)
+- A selection resolving to a single file is served directly with `Content-Disposition: attachment` (no ZIP); two or more files produce a **streaming ZIP** (`zipstream-ng`): the archive is generated while it is sent to the client, with no server-side spool file
+- The ZIP uses `ZIP_STORED` (media payloads are already compressed; DEFLATE would only burn CPU)
+- Items are prepared (download → decrypt → convert) in parallel by a worker pool (`SYNTH_DOWNLOAD_WORKERS`, default 4) with a bounded look-ahead window, while the build thread writes the archive; the whole pipeline runs off the event loop (`iterate_in_threadpool`), so the server stays responsive during downloads
 - Album items land in an `{AlbumName}/` subfolder (single-album downloads name the ZIP after the album); entry names are sanitized and deduplicated (`name (2).ext`)
-- Conversion lives in `app/infrastructure/services/image_conversion.py` (JXL sources decoded via djxl, targets encoded via Pillow/cjxl); **videos always pass through unchanged**; failed conversions fall back to the original bytes with a warning
+- Conversion lives in `app/infrastructure/services/image_conversion.py`; stored JXL is decoded via djxl stdin/stdout (raw PNM pixels, alpha/16-bit fall back to PNG) and jxl→jpeg downloads use bit-exact `djxl -J` JPEG reconstruction when the container carries the original JPEG; targets are encoded via Pillow/cjxl; **videos always pass through unchanged** (streamed straight into the archive); failed conversions fall back to the original bytes with a warning
 - The gallery frontend opens `#download-modal` (`gallery-download.js`) for format/quality selection; `gallery-selection.js` only triggers the modal
 - Existing files and videos are not affected
 
@@ -353,7 +370,7 @@ items (base)                          item_media (detail: type='media')
                                       ├── item_id (PK/FK → items.id)
                                       ├── content_type (text/plain, text/markdown, ...)
                                       ├── original_name, encoding
-                                      └── char_count, line_count, file_size
+                                      └── char_count, line_count
 ```
 
 - **`items.type`** → coarse polymorphic kind (`media`, `note`; future `audio`/`model`)
@@ -370,7 +387,7 @@ items (base)                          item_media (detail: type='media')
 
 ### 6c. Schema Migrations (Alembic)
 
-All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0006 `item_texts`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
+All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0012 `ai_reasoning`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.
 
 - Migrations run **without an enclosing transaction** — SQLite's implicit DDL commits and `PRAGMA foreign_keys` no-ops inside transactions are what the rebuild helpers rely on
 - `migrations/migration_utils.py` provides `rebuild_table()` (SQLite cannot alter CHECK constraints or drop FK-referenced columns in place) and `backup_database()` (pre-migration safety copy). `rebuild_table` commits before toggling `PRAGMA foreign_keys`, otherwise `DROP TABLE` cascades into child rows (`album_items`, `item_media`)
@@ -382,6 +399,343 @@ Notable historical revisions:
 - **0003**: enforced `albums.name NOT NULL` (NULLs backfilled with `Untitled (id8)`); the album API validates names (`min_length=1`)
 - **0004**: dropped the relic `users.password_salt` column
 - **0005/0006**: added the `note` item type and its `item_texts` detail table
+- **0009**: AI chat: per-user provider/model/settings/chat tables; dropped the legacy AI tagging queue (`ai_tagging_jobs`, `ai_api_keys`)
+- **0010**: AI agents: `ai_agents` table (system prompt, icon, `tools_json` allow-list, built-ins) plus `ai_conversations.agent_id` and `ai_chat_settings.active_agent_id` (both FK-free, cleared app-side)
+- **0011**: albums become media-only (notes removed; notes as effective covers caused "Access denied" thumbnails)
+- **0012**: reasoning control: `ai_models.reasoning_support` (manual capability override, validated app-side) + `ai_chat_settings.reasoning_effort`; `recreate_table_without_column` now preserves composite PRIMARY KEYs (table-level constraint)
+- **0013**: chat message tree: `ai_messages.parent_id` (previous message in the branch) + `ai_conversations.active_leaf_id` (leaf of the branch history replay walks); enables edit/retry branching (see 6d)
+- **0014**: AI memory: `ai_chat_settings.memory_enabled` (default off) + `memory_folder_id` (FK-free, cleared app-side on folder delete); see 6h
+
+### 6d. AI Agents
+
+Conversations can run with an **agent** — a per-user persona stored in
+`ai_agents` (migration 0010): a system prompt, an avatar (preset icon +
+color index) and an explicit tool allow-list (`tools_json`; empty = no
+tools). `ai_conversations.agent_id` binds a conversation to an agent at
+creation time and never changes afterwards; a dangling id falls back to
+the default assistant (no agent = every tool, generic prompt).
+
+- **Built-ins**: `tagger`, `librarian`, `curator` are seeded idempotently
+  per user from `BUILTIN_AGENTS` (`app/application/services/ai_agent_service.py`)
+  on every `GET /api/user/ai/agents` — prompt improvements roll out while
+  row ids stay stable. Built-ins are read-only in the UI (duplicate to
+  customize).
+- **Tool filtering**: `_run_llm_loop` resolves the agent once per turn and
+  advertises only `TOOL_SPECS` entries in the allow-list
+  (`AiChatService._tool_specs`); the allow-list is enforced again at
+  execution time (`_execute_tool_calls` answers off-list calls with an
+  error result instead of executing).
+- **System prompt**: `AiChatService._build_system_prompt(agent, allowed)`
+  = agent prompt (or the generic gallery identity) + house rules, with
+  tool-conditional hints (vision batches, audit, notes, metadata) included
+  only when the corresponding tool is allowed.
+- **Mutation approval**: every `ToolDef` carries a `category` (editor UI
+  grouping) and a `confirmation` level (`none` / `always`). `always`
+  tools (all mutations) pause the turn: the orchestrator stores a
+  `ToolConfirmation` (plus the remaining batch calls), emits SSE
+  `tool_confirm`, and the frontend shows an approval card. The decision
+  endpoint (`POST /api/ai/chat/conversations/{id}/tools/{request_id}/decision`,
+  body `{approved, always_allow}`) executes or denies the call and
+  resumes the turn; `always_allow` remembers `(conversation_id, tool_name)`
+  in-process for the session. Pending confirmations use the same TTL and
+  replay-dropping pattern as vision requests.
+- **Message attachments**: `SendMessageRequest` accepts `item_ids` and
+  `album_ids`; the route expands each album to its member item ids via
+  `AlbumService.list_album_item_ids` (visibility-checked — unknown or
+  invisible albums answer 404 before streaming starts) and merges both
+  lists deduped into the user message's `context` part. The composer
+  chip attaches the gallery selection (`selectedPhotos` +
+  `selectedAlbums`); messages render attachments as a count chip plus up
+  to 8 square thumbnails (`/files/{id}/thumbnail`, cap + "+N" tile,
+  unloadable thumbnails collapse into a placeholder tile).
+- **Web access**: `fetch_url` (one public URL → readable text; HTML is
+  reduced to text, JSON/XML passes through; long pages paged via
+  `next_offset`) and `web_search` (keyless DuckDuckGo HTML scrape) live
+  in `app/application/services/ai_tools/web.py` under category `web`.
+  Both are `confirmation="always"` (data can leave via the URL/query)
+  and push the blocking HTTP into a worker thread via
+  `asyncio.to_thread` — network I/O must never touch the event loop.
+  SSRF guard: http(s) only, the host must resolve to a public address,
+  every redirect hop is re-validated, responses capped at 2 MB / 15 s.
+  Tag research targets keyless booru APIs (danbooru `tags.json` /
+  `wiki_pages/<tag>.json`, e621 `tags.json`) — hinted in the
+  tool-conditional system-prompt block and the built-in prompts. Unit
+  tests stub the HTTP seam (`web._http_request`) — tests never touch
+  the network.
+- **Tag descriptions**: tags carry Markdown descriptions
+  (`tags.description`, cap `TAG_DESCRIPTION_MAX_CHARS`). The mutating
+  `set_tag_descriptions` tool (category `tags`, confirmation `always`,
+  Curator built-in) bulk-rewrites them all-or-nothing via
+  `TagService`-style name resolution. Descriptions may cross-reference
+  tags with `[[tag_name]]` wiki-links: preprocessing/parse helpers live in
+  `app/static/js/tag-links.js`; tag descriptions are rendered with marked +
+  DOMPurify by `tags-page.js` inside the in-gallery `#tags-view` (the old
+  `/tags` template was deleted — see section 6i). Wiki-links navigate
+  in-page via `selectTag`, and `/tags?tag=<name>` is a shareable deep link
+  (302 redirects to `/?view=tags&tag=<name>`, the sidebar has a matching
+  Tags link under the AI-chat toggle).
+- **Endpoints**: `/api/user/ai/agents` (list + tool catalogue, create),
+  `PUT/DELETE /api/user/ai/agents/{id}` (custom only — built-ins answer
+  403), `POST /api/user/ai/agents/{id}/duplicate`,
+  `PUT /api/user/ai/agents/active` (agent preselected for new chats,
+  stored in `ai_chat_settings.active_agent_id`).
+- **Frontend**: the chat header shows an agent chip whose dropdown starts
+  a new draft with the chosen persona (switching never rewrites an open
+  conversation, mirroring the Synth-music app); agent CRUD lives in
+  Settings → AI Agents (`settings-ai-agents.js`); icon/color presets are
+  shared between server (`AGENT_ICONS` / `AGENT_COLOR_COUNT`) and client
+  (`app/static/js/ai-agents-icons.js`) and must stay in sync. A restored
+  agent (from `active_agent_id` or the conversation) updates the welcome
+  placeholder too, not just the header chip.
+- **Desktop (≥901px)**: the chat list is a fixed 260px drawer flush with
+  the panel's left edge, sliding out leftward **from under the panel**
+  (`translateX(100%)` closed) and covering the sidebar exactly. The
+  drawer is detached to `document.body` in `buildPanel` — the panel is
+  a stacking context (fixed + z-index) and a descendant can never paint
+  below it, so inside the panel the slide-in would draw above the chat.
+  Root-level z-order: sidebar 150 < drawer 155 < panel 160 (mobile:
+  drawer 165 above the panel); the open/closed state is mirrored onto
+  `body.ai-chat-open.ai-chat-list-open` by `syncBodyClasses`.
+  Conversations
+  render grouped by agent (`groupConversationsByAgent` in `ai-chat.js`):
+  one collapsible block per agent (default assistant first, agents in
+  catalogue order, empty groups omitted, dangling `agent_id` → default),
+  each header carries a per-agent "new chat" button (`selectAgent`);
+  collapsed state persists in localStorage (`ai-chat-collapsed-groups`).
+  Jest: `tests/js/ai-chat-grouping.test.js`.
+- **Mobile (<901px)**: the chat-list column overlays the panel and hides
+  the header toggle, so the list header carries its own close button
+  (`.ai-chat-list-close`, shown on every viewport) plus swipe gestures — swipe
+  left on the list closes it, swipe right from the left edge of the chat
+  area opens it (same pattern as the gallery sidebar); picking a chat or
+  "New chat" closes the overlay. The vision slot is shared by the vision
+  and approval cards: after a decision `renderToolConfirm` clears it
+  itself — `renderVision`'s key-based early return skips the clear when
+  it was already idle.
+
+### 6e. Reasoning-effort control
+
+Models differ wildly in how (and whether) their reasoning can be steered,
+so the capability is a **per-model** property and the effort a **per-user**
+preference:
+
+- **Capability** (`ai_models.reasoning_support`, migration 0012; NULL =
+  auto): `levels` (`reasoning_effort` — OpenAI/OpenRouter-style), `toggle`
+  (`thinking: {type}` — Z.ai/GLM), `enable_toggle` (`enable_thinking` —
+  Qwen3), `none` (explicitly no control). For the dedicated
+  anthropic / google_gemini protocols the wire format is fixed by the
+  protocol (thinking budget / `thinkingConfig`), so any non-`none` value
+  resolves to `budget`. All heuristics and per-protocol payload mapping
+  live in a single module: `app/infrastructure/services/llm/reasoning.py`
+  (conservative by design — unknown model ids send nothing; strict servers
+  that 400 on unknown fields stay safe; the Settings → AI model editor
+  overrides the auto-detection per model and `fetch-models` merges keep
+  the override).
+- **Choice** (`ai_chat_settings.reasoning_effort`, NULL = provider
+  default): set from the chat composer chip ("Thinking · Medium", styled
+  like the attach chip; menu opens upward from the footer) via
+  `PUT /api/user/ai/settings/reasoning` `{effort}`, validated against the
+  active model's effective style. A stored choice that does not fit the
+  active model degrades to the provider default at use time
+  (`normalize_effort`) but is kept in the DB, so switching models back and
+  forth restores it. `get_active_endpoint()` resolves
+  `reasoning_style` + `reasoning` into the endpoint dict;
+  `ChatRequest.reasoning_style` / `.reasoning` carry them to the clients,
+  each of which maps to its wire format (Anthropic clamps the budget under
+  an explicit `max_tokens` and pins `temperature=1` while thinking; Gemini
+  3 uses `thinkingLevel` instead of a budget, and Pro cannot disable).
+
+### 6f. Chat message tree (edit / retry / versions)
+
+Messages form a tree (migration 0013): `ai_messages.parent_id` chains a
+message to its predecessor inside one branch and
+`ai_conversations.active_leaf_id` names the leaf of the branch that new
+messages append to and that history replay walks.
+
+- **Appending**: `AiChatRepository.add_message(..., parent_id=...)` uses a
+  sentinel (`_AUTO_PARENT`) — omitting the argument chains onto the active
+  leaf (legacy conversations: `MAX(id)`), passing `None` explicitly anchors
+  a new branch root. The inserted row becomes the active leaf.
+- **Reading**: `get_messages` walks parent links from the active leaf to
+  the root (legacy `active_leaf_id` NULL = old "newest N by id" behavior);
+  LLM replay and the GET history endpoint share it.
+- **Edit/retry**: `POST .../messages` with `edit_of_message_id` replaces an
+  earlier user message as a NEW sibling version (branching off the
+  original's parent — the old branch is kept, never deleted).
+  `check_edit_target` prevalidates in the route (404 before the stream);
+  paused vision/confirmation requests of the conversation are dropped
+  (`_drop_pending_for_conversation`) — resolving them later would append to
+  the abandoned branch.
+- **Version switch**: `POST .../branch` body `{message_id}` activates the
+  branch through a user message (`deepest_leaf` follows the newest-child
+  chain down); 409 while a turn is running. Pending decisions are dropped
+  the same way.
+- **Version metadata**: `GET .../messages` enriches every user message with
+  `parent_id`, `sibling_ids` (the whole version group), and
+  `version`/`version_count` so the frontend renders the ‹k/n› chips without
+  extra round-trips.
+- **Frontend** (`ai-chat.js`): stored user messages get hover Edit/Retry
+  actions (hidden while streaming; always visible on touch) and an inline
+  edit box (Enter = save, Escape = cancel). Edit/retry POST
+  `edit_of_message_id` and optimistic-echo the new message; every finished
+  stream (or branch switch) triggers a history refetch that binds server
+  message ids and shows the active branch. Message signatures include the
+  editing/version state so the incremental renderer swaps the action bar.
+
+### 6g. Chat tool ids and result limits
+
+- **Short ids**: tool outputs emit 12-char id prefixes (`short_id()`,
+  `ID_SHORT_LEN`) instead of full 36-char UUIDs to save context. Every
+  id-accepting tool resolves a full id or a unique prefix via
+  `_resolve_item_id` / `_resolve_folder_id` / `_resolve_album_id`
+  (`registry.py`): exact match first, then `LIKE 'prefix%'` scoped to the
+  visible set (owner or viewer/editor folder permission); an ambiguous
+  prefix raises `ToolError` with a candidate list. `_get_owned_item(db, ...)`
+  resolves and callers re-read the full id from the returned row — never
+  keep using the raw short argument downstream. Tag ids are small integers
+  and are never shortened. The system prompt tells the model to pass the
+  prefixes back as-is.
+- **Album contents**: `list_album_items` (category `library`, Librarian)
+  pages one album's items (`album_id` + `offset`/`limit`, `total` +
+  `next_offset`); visibility = the album's folder owner or viewer/editor.
+- **Audit scope**: `audit_library` takes `include_subfolders` (default
+  true = the folder's whole subtree; false = the folder itself only).
+  Album items always appear in audits (`album_items` is a junction table;
+  `items.folder_id` never changes) — regression-tested.
+- **Result size**: `_truncate` caps one tool result at
+  `config.TOOL_RESULT_LIMIT` (env `SYNTH_TOOL_RESULT_LIMIT`, default
+  16000) BEFORE persisting, so truncation is visible in the stored
+  history. `list_folder` pages its items with `offset` (max limit 1000,
+  compact entries without the constant `type` field).
+- **Suggestion feedback**: `record_tag_feedback` (category `tags`,
+  confirmation `always`, Tagger + Curator) batch-records
+  accepted/rejected verdicts on `get_tag_suggestions` output (accepting
+  does NOT add the tag — that is `add_item_tags`). A rejection is a
+  per-item blocklist: `TagSuggestionService.get_suggestions_for_item`
+  excludes tags rejected for that item forever, and the gallery panel
+  (`gallery-tags.js` `rejectSuggestion`) refetches right after a reject
+  so the list refills with the next-best candidates instead of
+  shrinking.
+- **grep_library**: grep-like full-text search over the library's text data.
+  Sources (multi-select, default all six): item `titles`, item `descriptions`,
+  `notes` bodies (decrypted with the session DEK), `tags` (names + descriptions,
+  global dictionary — never folder-scoped), media `metadata` (PNG text chunk
+  keys and values from `item_media.png_text_chunks`), original `filenames`
+  (`item_media.original_name`). Matching is uniform Python `re` over fetched
+  rows (substring escaped by default, case-insensitive; `regex=true` for Python
+  regex syntax; `case_sensitive=true` opt-in). Results carry short context
+  snippets (`context_chars`, max `_GREP_CONTEXT_MAX_CHARS` / 200) and per-source
+  paging (`limit`/`offset` + `next_offset`); item/folder ids are 12-char prefixes
+  like everywhere else. `folder_id` scopes item sources to a folder subtree
+  (owner-only resolve, like `audit_library`); `include_subfolders=false` restricts
+  to the folder itself. Notes scanning is capped: the `_GREP_MAX_NOTES` / 300 most
+  recent eligible notes, size estimated as `char_count * 4` bytes against a
+  `_GREP_NOTE_MAX_BYTES` / 512 KiB cap (oversized/capped/decrypt-failed counts
+  reported in a `notes` warnings list); without a DEK the notes source answers
+  empty with a warning. Registered in the `librarian` and `curator` built-in agent
+  allow-lists.
+- **Note tools**: `read_note` reads a note paged (decrypt + offset/max_chars),
+  `create_note` creates one. Existing notes change through `write_note`
+  (`replace` = full rewrite, `append` = add to the end) or `edit_note`
+  (targeted exact-string swap: first occurrence of `old_string` becomes
+  `new_string`, every occurrence with `replace_all=true`; fails when the
+  fragment is not found or matches more than once without `replace_all`,
+  so the model must copy the fragment verbatim from `read_note` output).
+  `edit_note` revalidates the patched result against the same
+  NUL/size/non-empty rules as uploads before re-encrypting it. All three
+  mutation tools are category `notes`, confirmation `always`, and their
+  acks carry only counters (`replacements`/`char_count`/`line_count`),
+  never content. Built-in agents carry no note mutations (Librarian is
+  read-only: `read_note` only) — custom agents list them explicitly.
+
+### 6h. AI Memory
+
+Per-user opt-in memory (migration `0014`: `ai_chat_settings.memory_enabled`
++ `memory_folder_id`, FK-free). A private folder holds the `MEMORY.md`
+index note (`text/markdown`, always embedded into the system prompt while
+memory is enabled) and section notes `{name}.md` with frontmatter
+`name`/`description`/`when_to_use`. Everything is regular notes — the user
+can view and edit them like any other note. Shared logic lives in
+`app/application/services/ai_memory_service.py` (imports only
+repositories/encryption/storage — importing `ai_tools` there would be
+circular).
+
+- **Index format**: `## Summary` (1-2 sentences about the user, written
+  only by `set_memory_summary`) and `## Sections`, one entry block per
+  section: `- **name** — description` plus an indented
+  `  Use when: {scenario}` continuation line. Legacy single-line entries
+  (pre-when_to_use) are replaced wholesale on the next upsert. The index
+  is tool-managed: writing tools refuse `name="MEMORY"` with guidance
+  (`_INDEX_WRITE_ERROR` in `ai_tools/registry.py`) — only
+  `set_memory_summary` and the section tools touch it. The model is told
+  to read the index as the map: entries are deliberately brief, section
+  notes hold the details, and a section is read when its "Use when:"
+  scenario matches the task.
+- **Settings**: `PUT /api/user/ai/settings/memory` `{enabled, folder_id?}`
+  (`AiProviderService.update_memory_settings`). Enabling requires a folder
+  the user owns with `get_share_status() == 'private'` (400 otherwise);
+  the folder falls back to the previously stored one on re-enable;
+  disabling keeps the folder. Every enable (re)creates `MEMORY.md` via
+  `ensure_index_note` (self-healing when the user deleted it).
+- **Tools** (`MEMORY_TOOL_NAMES` in `ai_tools/registry.py`, category
+  `memory`, all `confirmation="none"`): `read_memory(name, offset?,
+  max_chars?)` — paged like `read_note`, `name="MEMORY"` reads the full
+  index, result meta carries `when_to_use`;
+  `create_memory_section(name, description, when_to_use, content?)` —
+  writes `{name}.md` (frontmatter includes `when_to_use:`) and upserts
+  the entry block (bullet + Use-when line) under `## Sections` of the
+  index; `when_to_use` is required — the model must name the situations
+  the section applies to; `write_memory(name, content,
+  mode=replace|append, description?, when_to_use?)` — replace changes
+  the body only (frontmatter preserved), append adds to the end; passing
+  `description`/`when_to_use` refreshes the index entry (the index
+  itself cannot be targeted); `edit_memory(name, old_string, new_string,
+  replace_all?)` — patches the full text including the frontmatter
+  (description/when_to_use fixes allowed, renaming the `name:` line
+  rejected); `delete_memory_section(name)` — deletes the section note
+  (blob + rows, `item_texts` cascades) and removes its entry block from
+  the index; `set_memory_summary(summary)` — replaces the `## Summary`
+  block (recreates the heading/title when hand-stripped). Names match
+  `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`,
+  are unique case-insensitively in the folder; `MEMORY` is reserved.
+  Resolution: `{name}.md` title/original_name first, frontmatter `name:`
+  as fallback; duplicates answer "ambiguous".
+- **Orchestrator** (`AiChatService._effective_tools`): memory tools are
+  global — while memory is enabled they join every allow-list (restricted
+  agents included) and are enforced again at execution time; while
+  disabled they are stripped from the default assistant's "every tool"
+  set. `_memory_prompt_block` reads the index once per turn and injects
+  instructions + the index text + the memory folder's 12-char id into the
+  system prompt (via `_build_system_prompt(..., memory_block=...)`).
+- **Agent editor**: memory tools are hidden from the tools catalogue
+  (`_tools_catalogue` in `app/routes/ai_agents.py`) and rejected in
+  allow-list validation (`ai_agent_service._validate_fields`) — they are
+  managed by the memory setting, not by agents.
+- **Guards**: `POST /api/folders/{folder_id}/permissions` answers 403
+  when the folder is an ACTIVE memory folder of any user
+  (`AiChatSettingsRepository.memory_folder_user_ids`);
+  `DELETE /api/folders/{folder_id}` calls `clear_memory_folder(folder_id)`
+  so no settings row keeps pointing at the deleted folder
+  (`get_memory_config` also revalidates ownership at read time).
+- **Frontend**: Settings → AI Memory card (`settings.html` +
+  `settings-ai.js`): checkbox + folder `<select>` (GET /api/folders,
+  client-side filter `permission === 'owner' && share_status ===
+  'private'`; the stored folder stays selectable but the server rejects
+  saving it if it became shared).
+
+### 6i. In-gallery Tags view
+
+The standalone `/tags` page no longer exists — tag management is rendered
+inside the gallery main area as an SPA view (like folder navigation):
+
+- **Hidden container**: `app/templates/gallery.html` has a hidden `<div id="tags-view">` with the full tag management UI (toolbar, `#tag-list`, `#pagination-info`, `#detail-panel`, and three admin modals `#categories-modal` / `#remap-tag-modal` / `#new-tag-modal` wrapped in `{% if user and user.is_admin %}`). It also sets `window.__isAdmin` and loads `tag-links.js` + `tags-page.js` at the end of the content block.
+- **SPA switching**: `app/static/js/navigation.js` provides `window.showTagsView(pushState=true|'replace'|false)`, `window.hideTagsView()`, and `window.isTagsViewVisible()`. `navigateToFolder` / `navigateToDefaultFolder` hide the tags view on entry; a delegated `document` click handler intercepts `a[href$="view=tags"]` links (sidebar, details panel) on the gallery page only. The `popstate` handler routes on `{tagsView: true}` vs `{folderId}` / no-state.
+- **URL**: `history.replaceState({tagsView: true}, ...)` writes `?view=tags[&tag=<name>]`. Deep links resolve via `app/routes/admin_tags.py`: `GET /tags` is a 302 redirect to `/?view=tags` (preserves `?tag=<name>`, URL-encoded); old template `app/templates/tags.html` was deleted.
+- **Tag categories**: `app/static/js/tags-page.js` init is now a lazy idempotent `window.initTagsPage()` (guarded by `window.__tagsPageInited`). Categories are fetched from `GET /api/tag-categories` instead of the server-rendered `window.__categories`; they populate `#new-tag-category` / `#edit-category` via `updateCategorySelectOptions`. The legacy auto-init IIFE runs only when `#tags-view` is absent (old page mode, kept for safety). The whole file is a classic-script IIFE: only `initTagsPage`, `navigateToTagByName` and the functions used by generated inline `onclick` handlers are exported on `window` — its internal `csrfFetch`/`getCsrfToken` must never shadow the `core.js` globals (they prefix `BASE_URL`, so shadowing made every gallery delete/move/copy hit `/synth/synth/api/...` and 404; regression test `tests/js/tags-page-isolation.test.js`).
+- **CSS**: All tags selectors are scoped under `#tags-view` in `app/static/style.css` (section comment "Tags view (in-gallery, #tags-view)"); the old inline `<style>` block was removed.
+- **Scripts loaded in gallery.html**: `tag-links.js` (`[[tag]]` wiki-link helpers) and `tags-page.js` (tag management SPA logic) are appended at the end of the content block in `gallery.html`.
+- **Frontend deep link**: `app/static/js/init.js` handles `/?view=tags[&tag=<name>]` on DOMContentLoaded — calls `showTagsView('replace')`, then `navigateToTagByName`. Sidebar and admin-nav links point to `{{ base_url }}/?view=tags`; on the gallery page the click is intercepted for SPA switching, elsewhere it's a normal navigation.
+- **Sidebar highlight**: the sidebar Tags link (`#tags-view-toggle` in `base.html`, same `.sidebar-ai-btn.active` styling as the AI Chat toggle) lights up in `showTagsView` / goes dark in `hideTagsView` (`navigation.js` `syncTagsSidebarHighlight`); folder items lose their `.active` while the tags view is open. `navigateToFolder` keeps the stale gallery + folder-header hidden (`display: none`) until `renderFolderContent` runs — restoring them eagerly flashed the previous folder's content while the fetch was in flight (Jest regression test `tests/js/tags-view-highlight.test.js`).
 
 ## Build and Run Commands
 
@@ -526,12 +880,12 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `JXL_QPROGRESSIVE_AC` | Enable `--qprogressive_ac` for perceived loading speed | `true` |
 | `JXL_PROGRESSIVE_DC` | Extra low-resolution pass (`--progressive_dc`), `0` disables | `1` |
 | `SYNTH_ENCRYPTION_CHUNK_SIZE` | Plaintext chunk size for the chunked AEAD envelope (bytes) | `1048576` (1 MiB) |
+| `SYNTH_DOWNLOAD_WORKERS` | Worker threads preparing batch-download items in parallel | `4` |
 | `SYNTH_TEXT_MAX_SIZE` | Max text-note upload size (bytes) | `10485760` (10 MiB) |
+| `SYNTH_TOOL_RESULT_LIMIT` | Max chars of one AI chat tool result (stored/replayed truncated) | `16000` |
 | `FFMPEG_TOOL_DIR` | Directory containing `ffmpeg`/`ffprobe` binaries; overrides PATH lookup | - |
 | `TAG_STATS_SCHEDULE` | Tag co-occurrence stats: `daily`, `weekly`, or `disabled` | `weekly` |
 | `TAG_STATS_HOUR` | Hour (0-23) when tag stats run | `3` |
-
-Note: `SYNTH_AI_API_KEY` is **not** read by the code — AI agent access uses per-user API keys managed at `/admin/api-keys`.
 
 ## Git Commits
 

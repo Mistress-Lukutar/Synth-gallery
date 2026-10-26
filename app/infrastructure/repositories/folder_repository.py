@@ -96,7 +96,7 @@ class FolderRepository(Repository):
         Returns:
             List of item IDs (used as filenames) that should be deleted from storage
         '''
-        folder_ids = self._get_subtree_ids(folder_id)
+        folder_ids = self.get_subtree_ids(folder_id)
 
         if not folder_ids:
             return []
@@ -247,7 +247,7 @@ class FolderRepository(Repository):
         )
         return cursor.fetchone() is not None
 
-    def _get_subtree_ids(self, folder_id: str) -> list[str]:
+    def get_subtree_ids(self, folder_id: str) -> list[str]:
         '''Get all folder IDs in subtree using recursive CTE.'''
         cursor = self._execute(
             '''WITH RECURSIVE folder_tree AS (
@@ -387,6 +387,10 @@ class FolderRepository(Repository):
                            )
                            SELECT id FROM subfolder_tree
                        )
+                       AND i.id NOT IN (
+                           SELECT cover_item_id FROM item_texts
+                           WHERE cover_item_id IS NOT NULL
+                       )
                    ) as item_count
             FROM folders f
             WHERE f.parent_id = ? AND (
@@ -450,6 +454,10 @@ class FolderRepository(Repository):
                       SELECT id FROM albums WHERE folder_id = ?
                   )
               )
+              AND i.id NOT IN (
+                  SELECT cover_item_id FROM item_texts
+                  WHERE cover_item_id IS NOT NULL
+              )
             ORDER BY i.uploaded_at DESC
         ''', (folder_id, folder_id))
         return [dict(row) for row in cursor.fetchall()]
@@ -491,6 +499,10 @@ class FolderRepository(Repository):
                                JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
                            )
                            SELECT id FROM subfolder_tree
+                       )
+                       AND i.id NOT IN (
+                           SELECT cover_item_id FROM item_texts
+                           WHERE cover_item_id IS NOT NULL
                        )
                    ) as item_count,
                    CASE

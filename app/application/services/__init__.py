@@ -19,7 +19,18 @@ from .album_service import AlbumService
 from .tag_service import TagService
 from .tag_implication_service import TagImplicationService
 from .tag_suggestion_service import TagSuggestionService
-from .ai_tagging_service import AITaggingService
+from .ai_provider_service import AiProviderService
+from .ai_agent_service import AiAgentService
+from .ai_chat_service import (
+    AiChatService,
+    BusyError,
+    ConversationNotFoundError,
+    ToolContext,
+    ToolError,
+    VisionRequestNotFoundError,
+    VisionRequestExpiredError,
+    VisionRequestSignal,
+)
 
 __all__ = [
     "FolderService",
@@ -40,5 +51,14 @@ __all__ = [
     "TagService",
     "TagImplicationService",
     "TagSuggestionService",
-    "AITaggingService",
+    "AiProviderService",
+    "AiAgentService",
+    "AiChatService",
+    "BusyError",
+    "ConversationNotFoundError",
+    "ToolContext",
+    "ToolError",
+    "VisionRequestNotFoundError",
+    "VisionRequestExpiredError",
+    "VisionRequestSignal",
 ]

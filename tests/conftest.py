@@ -68,10 +68,23 @@ from app.database import init_db
 
 
 @pytest.fixture(scope="function", autouse=True)
-def reset_rate_limiter():
-    """Reset rate limiter state before each test."""
+def reset_global_state():
+    """Reset process-wide in-memory state before each test.
+
+    The DEK cache and the AI chat orchestrator slots survive across tests
+    (module-level objects), while every test gets a fresh database with
+    re-issued small user ids — stale entries would leak between tests.
+    """
     from app.middleware import RateLimitMiddleware
+    from app.infrastructure.services.encryption import dek_cache
+    from app.application.services import ai_chat_service
+
     RateLimitMiddleware.reset()
+    dek_cache.clear()
+    with ai_chat_service._active_users_lock:
+        ai_chat_service._active_users.clear()
+    ai_chat_service._pending_vision.clear()
+    ai_chat_service._turn_images.clear()
 
 
 @pytest.fixture(scope="session")

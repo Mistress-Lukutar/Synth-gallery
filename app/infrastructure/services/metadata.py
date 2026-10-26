@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, Any
 
 from PIL import Image
-from PIL.ExifTags import TAGS
+from PIL.ExifTags import GPSTAGS, TAGS
 
 from .jxl import decode_jxl
 
@@ -380,3 +380,215 @@ def _parse_itext_chunk(chunk_data: bytes, chunks: dict[str, str]) -> None:
             chunks[keyword] = text
     except Exception:
         pass
+
+
+# ---------------------------------------------------------------------------
+# Live EXIF probe (AI chat tool support)
+# ---------------------------------------------------------------------------
+
+_GPS_TAG_IDS = {name: idx for idx, name in GPSTAGS.items()}
+
+
+def _ifd_value(ifd: dict, tag_id: int):
+    """Read an IFD value by tag id, tolerating name-keyed dicts.
+
+    Pillow's ``get_ifd()`` returns int-keyed dicts for some IFDs and
+    name-keyed dicts for others (GPS IFD uses GPSTAGS names), and old
+    Pillow versions differ; accept both key styles.
+    """
+    if tag_id in ifd:
+        return ifd[tag_id]
+    name = TAGS.get(tag_id)
+    if name is not None and name in ifd:
+        return ifd[name]
+    gps_name = GPSTAGS.get(tag_id)
+    if gps_name is not None and gps_name in ifd:
+        return ifd[gps_name]
+    return None
+
+
+def gps_to_decimal(gps: dict) -> Optional[dict[str, float]]:
+    """Convert an EXIF GPSInfo IFD into decimal degrees.
+
+    Accepts dicts keyed either by GPSTAGS names or their numeric ids.
+
+    Returns:
+        ``{'latitude': float, 'longitude': float, 'altitude_m': float|None}``
+        or None when latitude/longitude are absent or unparsable.
+    """
+    def _degrees(value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            parts = list(value)
+        except TypeError:
+            return None
+        if len(parts) != 3:
+            return None
+        try:
+            deg, minutes, seconds = (float(p) for p in parts)
+        except (TypeError, ValueError):
+            return None
+        return deg + minutes / 60.0 + seconds / 3600.0
+
+    latitude = _degrees(_ifd_value(gps, 2))  # GPSLatitude
+    longitude = _degrees(_ifd_value(gps, 4))  # GPSLongitude
+    if latitude is None or longitude is None:
+        return None
+
+    lat_ref = str(_ifd_value(gps, 1) or 'N').strip().upper()  # GPSLatitudeRef
+    lon_ref = str(_ifd_value(gps, 3) or 'E').strip().upper()  # GPSLongitudeRef
+    if lat_ref == 'S':
+        latitude = -latitude
+    if lon_ref == 'W':
+        longitude = -longitude
+
+    altitude = None
+    raw_alt = _ifd_value(gps, 6)  # GPSAltitude
+    if raw_alt is not None:
+        try:
+            if isinstance(raw_alt, tuple) and len(raw_alt) == 2:
+                altitude = float(raw_alt[0]) / float(raw_alt[1])
+            else:
+                altitude = float(raw_alt)
+            alt_ref = _ifd_value(gps, 5)  # GPSAltitudeRef
+            if isinstance(alt_ref, (bytes, bytearray)):
+                alt_ref = ord(alt_ref[:1]) if alt_ref else 0
+            if int(alt_ref or 0) == 1:  # 1 = below sea level
+                altitude = -altitude
+        except (TypeError, ValueError, ZeroDivisionError):
+            altitude = None
+
+    return {
+        'latitude': round(latitude, 6),
+        'longitude': round(longitude, 6),
+        'altitude_m': None if altitude is None else round(altitude, 2),
+    }
+
+
+def _decode_user_comment(raw) -> Optional[str]:
+    """Decode an EXIF UserComment value (8-byte charset prefix + text).
+
+    Generation tools (e.g. A1111) store the prompt in this field, so it
+    must survive the UNICODE / JIS / ASCII charset prefixes.
+    """
+    if isinstance(raw, str):
+        return raw or None
+    if not isinstance(raw, (bytes, bytearray)):
+        return None
+    raw = bytes(raw)
+    prefix, text = raw[:8], raw[8:]
+    if prefix.startswith(b'UNICODE'):
+        # A BOM picks the byte order itself; BOM-less data is UTF-16-BE
+        # per the EXIF convention (what A1111 and friends emit).
+        if text[:2] in (b'\xff\xfe', b'\xfe\xff'):
+            try:
+                return text.decode('utf-16').strip('\x00') or None
+            except UnicodeDecodeError:
+                return None
+        for encoding in ('utf-16-be', 'utf-16-le'):
+            try:
+                decoded = text.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+            stripped = decoded.strip('\x00')
+            if stripped:
+                return stripped
+        return None
+    if prefix.startswith(b'JIS'):
+        try:
+            decoded = text.decode('shift_jis', errors='ignore')
+        except LookupError:
+            return None
+        return decoded.strip('\x00') or None
+    decoded = text.decode('utf-8', errors='ignore')
+    return decoded.strip('\x00') or None
+
+
+def extract_image_exif(data: bytes) -> dict[str, Any]:
+    """Extract a compact EXIF summary (camera, exposure, GPS, comments).
+
+    Works on raw image bytes (JPEG, TIFF, WebP, PNG with an eXIf chunk).
+    JPEG XL cannot be probed this way (djxl returns bare pixels); callers
+    should rely on stored metadata for those files.
+
+    Returns:
+        Dict with plain JSON-typed fields: camera, lens, iso,
+        exposure_time, f_number, focal_length_mm, gps (see
+        :func:`gps_to_decimal`), user_comment, image_description and the
+        raw ``xmp`` document when present.
+    """
+    result: dict[str, Any] = {
+        'camera': None,
+        'lens': None,
+        'iso': None,
+        'exposure_time': None,
+        'f_number': None,
+        'focal_length_mm': None,
+        'gps': None,
+        'user_comment': None,
+        'image_description': None,
+        'xmp': None,
+    }
+    try:
+        img = Image.open(BytesIO(data))
+    except Exception:
+        return result
+
+    with img:
+        try:
+            exif = img.getexif()
+        except Exception:
+            return result
+
+        make = exif.get(271)  # Make
+        model = exif.get(272)  # Model
+        camera = ' '.join(
+            str(value).strip() for value in (make, model) if value
+        )
+        result['camera'] = camera or None
+        lens = exif.get(42036)  # LensModel
+        result['lens'] = str(lens) if lens else None
+
+        sub_ifd = exif.get_ifd(0x8769)  # EXIF sub-IFD
+
+        def _rational(tag_id: int) -> Optional[float]:
+            value = _ifd_value(sub_ifd, tag_id)
+            if value is None:
+                return None
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+
+        result['exposure_time'] = _rational(33434)  # ExposureTime
+        result['f_number'] = _rational(33437)  # FNumber
+        result['focal_length_mm'] = _rational(37386)  # FocalLength
+
+        iso = _ifd_value(sub_ifd, 34855) or exif.get(34855)
+        try:
+            result['iso'] = int(iso) if iso is not None else None
+        except (TypeError, ValueError):
+            result['iso'] = None
+
+        result['user_comment'] = _decode_user_comment(
+            _ifd_value(sub_ifd, 37510)
+        )
+
+        description = exif.get(270)  # ImageDescription
+        if isinstance(description, bytes):
+            description = description.decode('utf-8', errors='ignore')
+        if isinstance(description, str) and description.strip():
+            result['image_description'] = description.strip()
+
+        gps_ifd = exif.get_ifd(0x8825)  # GPSInfo
+        if gps_ifd:
+            result['gps'] = gps_to_decimal(dict(gps_ifd))
+
+        xmp = img.info.get('XML:com.adobe.xmp') or img.info.get('xmp')
+        if isinstance(xmp, bytes):
+            xmp = xmp.decode('utf-8', errors='ignore')
+        if isinstance(xmp, str) and xmp.strip():
+            result['xmp'] = xmp
+
+    return result

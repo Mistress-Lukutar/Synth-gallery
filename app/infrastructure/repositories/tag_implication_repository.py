@@ -74,6 +74,20 @@ class TagImplicationRepository(Repository):
         )
         return [row["tag_id"] for row in cursor.fetchall()]
 
+    def get_implied_by_many(self, tag_ids: List[int]) -> Dict[int, List[int]]:
+        """Map tag_id -> list of tag_ids that directly imply it."""
+        if not tag_ids:
+            return {}
+        placeholders = ','.join('?' * len(tag_ids))
+        cursor = self._execute(
+            f"SELECT tag_id, implies_tag_id FROM tag_implications WHERE implies_tag_id IN ({placeholders})",
+            tuple(tag_ids)
+        )
+        result = defaultdict(list)
+        for row in cursor.fetchall():
+            result[row["implies_tag_id"]].append(row["tag_id"])
+        return dict(result)
+
     def get_implications_count(self, tag_id: int) -> int:
         """Count how many tags this tag directly implies."""
         cursor = self._execute(

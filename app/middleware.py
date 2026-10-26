@@ -150,19 +150,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if check_path in PUBLIC_PATHS or check_path.startswith("/static/"):
             return await call_next(request)
 
-        # Allow API paths with API key (for AI service)
-        if check_path.startswith("/api/ai/"):
-            # AI endpoints: allow if API key is present (validated in endpoint)
-            # Otherwise fall through to normal session auth for user-facing endpoints
-            if request.headers.get("X-API-Key"):
-                return await call_next(request)
-
         # Allow WebAuthn authentication paths (for passwordless login)
         if check_path.startswith("/api/webauthn/authenticate/") or check_path.startswith("/api/webauthn/check/"):
             return await call_next(request)
 
         # Check session cookie - use separate connection to avoid conflicts
         session_id = request.cookies.get(SESSION_COOKIE)
+        authenticated = False
         if session_id:
             conn = create_connection()
             try:
@@ -170,11 +164,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 session = session_repo.get_valid(session_id)
                 if session:
                     user_id = session["user_id"]
-                    
+
                     # Check fingerprint to prevent session hijacking
                     current_fingerprint = _generate_fingerprint(request)
                     stored_fingerprint = session.get("fingerprint")
-                    
+
                     if stored_fingerprint and stored_fingerprint != current_fingerprint:
                         # Fingerprint mismatch - possible session hijacking
                         # Invalidate DEK cache first, then delete session, and require re-authentication
@@ -197,7 +191,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                             except Exception:
                                 # Failed to restore DEK - user may need to re-login
                                 pass
-                        
+
                         # Valid session - attach user info to request state
                         user_row = conn.execute("SELECT is_admin FROM users WHERE id = ?", (user_id,)).fetchone()
                         request.state.user = {
@@ -206,9 +200,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
                             "display_name": session["display_name"],
                             "is_admin": bool(user_row["is_admin"]) if user_row else False
                         }
-                        return await call_next(request)
+                        authenticated = True
             finally:
+                # Release the pooled connection BEFORE dispatching downstream:
+                # call_next can stream for a long time (uploads, video ranges,
+                # thumbnail regeneration) and must not park a pool slot for
+                # the whole request - mass uploads exhausted QueuePool.
                 conn.close()
+
+        if authenticated:
+            return await call_next(request)
 
         # No valid session - redirect to login with next parameter
         if request.method == "GET":
@@ -234,7 +235,6 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
     # Paths exempt from CSRF (e.g., API endpoints with their own auth)
     EXEMPT_PATHS = {
-        "/api/ai/",
         "/api/webauthn/",
         "/api/auth/recover",
     }

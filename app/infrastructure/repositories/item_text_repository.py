@@ -55,3 +55,58 @@ class ItemTextRepository(Repository):
             (item_id,),
         )
         return self._row_to_dict(cursor.fetchone())
+
+    def update_stats(self, item_id: str, char_count: int, line_count: int) -> None:
+        """Update content counters after a note content edit.
+
+        Args:
+            item_id: Item UUID
+            char_count: New decoded character count
+            line_count: New line count
+        """
+        self._execute(
+            'UPDATE item_texts SET char_count = ?, line_count = ? '
+            'WHERE item_id = ?',
+            (char_count, line_count, item_id),
+        )
+        self._commit()
+
+    def set_cover(self, item_id: str, cover_item_id: Optional[str]) -> None:
+        """Set or clear the cover image reference for a note.
+
+        Args:
+            item_id: Note item UUID
+            cover_item_id: Media item UUID to use as cover, or None to clear
+        """
+        self._execute(
+            'UPDATE item_texts SET cover_item_id = ? WHERE item_id = ?',
+            (cover_item_id, item_id),
+        )
+        self._commit()
+
+    def get_cover_reference_count(self, cover_item_id: str, exclude_item_id: Optional[str] = None) -> int:
+        """Count how many notes reference ``cover_item_id`` as their cover.
+
+        Args:
+            cover_item_id: Media item UUID to check.
+            exclude_item_id: Note item UUID to exclude from the count
+                (e.g. the note being deleted).
+
+        Returns:
+            Number of item_texts rows where cover_item_id matches,
+            excluding the optional row.
+        """
+        if exclude_item_id is not None:
+            cursor = self._execute(
+                'SELECT COUNT(*) AS cnt FROM item_texts '
+                'WHERE cover_item_id = ? AND item_id != ?',
+                (cover_item_id, exclude_item_id),
+            )
+        else:
+            cursor = self._execute(
+                'SELECT COUNT(*) AS cnt FROM item_texts '
+                'WHERE cover_item_id = ?',
+                (cover_item_id,),
+            )
+        row = cursor.fetchone()
+        return row['cnt'] if row else 0

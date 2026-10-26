@@ -1,9 +1,9 @@
 '''
 File:   image_conversion.py
-Brief:  On-demand image conversion for downloads (JXL / JPEG / PNG / WebP).
-        Decoding of stored JXL goes through djxl (decode_jxl) and encoding
-        of JXL targets goes through cjxl (encode_to_lossless_jxl); all other
-        targets are produced with Pillow.
+Brief:  On-demand image conversion for downloads (original / JXL / JPEG /
+        PNG / WebP). Stored JXL is decoded through djxl (raw pixels or
+        bit-exact JPEG reconstruction); encoding of JXL targets goes through
+        cjxl; all other targets are produced with Pillow.
 Author: Mistress-Lukutar
 Date:   2026-08-19
 '''
@@ -15,13 +15,17 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageOps
 
-from .jxl import decode_jxl
+from .jxl import decode_jxl_to_pixels, extract_jxl_exif, reconstruct_jpeg
 from .jxl_encoder import encode_to_lossless_jxl
 
 logger = logging.getLogger(__name__)
 
-#: Target formats offered by the download modal.
-SUPPORTED_DOWNLOAD_FORMATS = ('jxl', 'jpeg', 'png', 'webp')
+#: Target formats offered by the download modal. ``original`` serves the
+#: stored bytes as-is (no re-encode).
+SUPPORTED_DOWNLOAD_FORMATS = ('original', 'jxl', 'jpeg', 'png', 'webp')
+
+#: Format that always passes stored bytes through untouched.
+ORIGINAL_FORMAT = 'original'
 
 #: (content_type, file extension) per target format.
 _FORMAT_INFO = {
@@ -49,7 +53,7 @@ class ConversionSettings:
         png_optimize: Ask Pillow to optimize the PNG payload.
     '''
 
-    format: str = 'jxl'
+    format: str = ORIGINAL_FORMAT
     jpeg_quality: int = 90
     webp_quality: int = 90
     webp_lossless: bool = False
@@ -78,9 +82,10 @@ def format_extension(fmt: str) -> str | None:
 def needs_conversion(content_type: str, settings: ConversionSettings) -> bool:
     '''Decide whether stored bytes must be re-encoded for these settings.
 
-    Lossless targets are passed through when the source is already stored
-    in the same format (jxl -> jxl, png -> png). Lossy targets (jpeg, webp)
-    always re-encode so the chosen quality is actually applied.
+    ``original`` never converts. Lossless targets are passed through when
+    the source is already stored in the same format (jxl -> jxl, png -> png).
+    Lossy targets (jpeg, webp) always re-encode so the chosen quality is
+    actually applied.
 
     Args:
         content_type: Stored MIME type of the item.
@@ -89,7 +94,7 @@ def needs_conversion(content_type: str, settings: ConversionSettings) -> bool:
     Returns:
         True when the item should go through convert_image().
     '''
-    if not is_convertible(content_type):
+    if settings.format == ORIGINAL_FORMAT or not is_convertible(content_type):
         return False
     target = settings.format
     if target == 'jxl':
@@ -106,9 +111,13 @@ def convert_image(
 ) -> tuple[bytes, str, str]:
     '''Convert raw image bytes to the requested target format.
 
-    JXL sources are decoded via djxl first (Pillow cannot read JXL); JXL
-    targets are encoded via cjxl so JPEG sources keep the reversible
-    lossless transcode. Every other conversion goes through Pillow.
+    JXL sources are decoded via djxl (see :func:`decode_jxl_to_pixels`);
+    JXL targets are encoded via cjxl so JPEG sources keep the reversible
+    lossless transcode. When both source and target are JPEG-related the
+    stored JXL is first offered to djxl for bit-exact JPEG reconstruction;
+    if the JXL carries no reconstruction data the normal decode + re-encode
+    path applies the requested quality. Every other conversion goes through
+    Pillow.
 
     Args:
         data: Decrypted plaintext image bytes.
@@ -131,6 +140,14 @@ def convert_image(
             converted = encode_to_lossless_jxl(
                 data, effort=settings.jxl_effort
             )
+        elif settings.format == 'jpeg' and source_content_type == 'image/jxl':
+            # cjxl --lossless_jpeg transcodes keep the original JPEG inside
+            # the container; reconstructing it is both faster than a pixel
+            # round-trip and bit-exact (quality setting does not apply).
+            reconstructed = reconstruct_jpeg(data)
+            if reconstructed is not None:
+                return reconstructed, 'image/jpeg', '.jpg'
+            converted = _convert_with_pillow(data, source_content_type, settings)
         else:
             converted = _convert_with_pillow(data, source_content_type, settings)
     except ImageConversionError:
@@ -165,12 +182,25 @@ def _convert_with_pillow(
 
 
 def _open_image(data: bytes, source_content_type: str) -> Image.Image:
-    '''Open image bytes with Pillow, decoding JXL via djxl when needed.'''
+    '''Open image bytes with Pillow, decoding JXL via djxl when needed.
+
+    JXL sources are decoded to raw pixels (no PNG round-trip) and their
+    embedded EXIF blob is re-attached to the image so downstream saves can
+    pass it through. djxl already applies orientation to the decoded
+    pixels, mirroring the previous PNG-based decode.
+    '''
+    exif_blob: bytes | None = None
     if source_content_type == 'image/jxl':
-        data = decode_jxl(data)
+        try:
+            exif_blob = extract_jxl_exif(data)
+        except RuntimeError:
+            exif_blob = None  # metadata is best-effort
+        data = decode_jxl_to_pixels(data)
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
+        if exif_blob:
+            img.info['exif'] = exif_blob
         return img
     except Exception as exc:  # noqa: BLE001 - corrupt/unsupported input
         raise ImageConversionError(

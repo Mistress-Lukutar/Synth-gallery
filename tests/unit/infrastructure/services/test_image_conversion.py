@@ -147,16 +147,45 @@ class TestConvertImageJxl:
     def test_jxl_source_decoded_via_djxl(self) -> None:
         decoded = _png_bytes()
         with patch(
-            'app.infrastructure.services.image_conversion.decode_jxl',
+            'app.infrastructure.services.image_conversion.decode_jxl_to_pixels',
             return_value=decoded,
         ):
-            data, ct, ext = convert_image(
-                b'\x00\x00\x00\x0cJXL fake',
-                'image/jxl',
-                ConversionSettings(format='jpeg'),
-            )
+            with patch(
+                'app.infrastructure.services.image_conversion.extract_jxl_exif',
+                return_value=None,
+            ):
+                with patch(
+                    'app.infrastructure.services.image_conversion.reconstruct_jpeg',
+                    return_value=None,
+                ):
+                    data, ct, ext = convert_image(
+                        b'\x00\x00\x00\x0cJXL fake',
+                        'image/jxl',
+                        ConversionSettings(format='jpeg'),
+                    )
         assert ct == 'image/jpeg'
         assert data.startswith(b'\xff\xd8')
+
+    def test_jxl_to_jpeg_reconstruction_short_circuits_pixel_path(self) -> None:
+        '''Reconstructable JXLs return the original JPEG without decoding.'''
+        original = _jpeg_bytes()
+        with patch(
+            'app.infrastructure.services.image_conversion.reconstruct_jpeg',
+            return_value=original,
+        ) as mock_reconstruct:
+            with patch(
+                'app.infrastructure.services.image_conversion.decode_jxl_to_pixels',
+            ) as mock_decode:
+                data, ct, ext = convert_image(
+                    b'\x00\x00\x00\x0cJXL fake',
+                    'image/jxl',
+                    ConversionSettings(format='jpeg'),
+                )
+        mock_reconstruct.assert_called_once()
+        mock_decode.assert_not_called()
+        assert ct == 'image/jpeg'
+        assert ext == '.jpg'
+        assert data == original
 
     def test_jxl_target_uses_cjxl_with_effort(self) -> None:
         fake_jxl = b'\x00\x00\x00\x0cJXL encoded'

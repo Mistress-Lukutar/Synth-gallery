@@ -4,21 +4,24 @@ Brief:  Item routes - unified API for all content types.
 Author: Mistress-Lukutar
 Date:   2026-07-24
 '''
-import tempfile
+import asyncio
 import urllib.parse
 import uuid
-import zipfile
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional, List
 
 from datetime import datetime
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
+from starlette.concurrency import iterate_in_threadpool
+from zipstream import ZipStream
 
 from app.routes.gallery.deps import get_permission_service, get_album_service
 from app.application.services import ItemService, AlbumService
+from app.config import DOWNLOAD_WORKERS
 from app.database import create_connection
 from app.dependencies import require_user
 from app.infrastructure.repositories import (
@@ -58,29 +61,32 @@ def list_items(
     request: Request,
     folder_id: str,
     type: Optional[str] = None,
-    sort: str = "created"
+    sort: str = "created",
+    include_covers: bool = False,
 ):
     """List items in folder.
-    
+
     Args:
         folder_id: Folder to list
         type: Filter by type ('media', 'note') or omit for all
         sort: 'created' or 'title'
+        include_covers: Keep items used as note covers (hidden by default)
     """
     user = require_user(request)
-    
+
     db = create_connection()
     try:
         perm_service = get_permission_service(db)
-        
+
         if not perm_service.can_access(folder_id, user["id"]):
             raise HTTPException(403, "Access denied")
-        
+
         item_service = get_item_service(db)
         items = item_service.get_items_by_folder(
             folder_id=folder_id,
             item_type=type,
-            sort_by=sort
+            sort_by=sort,
+            include_covers=include_covers,
         )
         
         # Render for response
@@ -117,7 +123,13 @@ def get_item(item_id: str, request: Request):
         perm_service = get_permission_service(db)
         if not perm_service.can_access(item["folder_id"], user["id"]):
             raise HTTPException(403, "Access denied")
-        
+
+        # Edit permission for the note reader UI: item owner or folder editor
+        item["can_edit"] = (
+            item.get("user_id") == user["id"]
+            or perm_service.can_edit(item.get("folder_id"), user["id"])
+        )
+
         return item
     finally:
         db.close()
@@ -245,6 +257,58 @@ def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Reque
         db.close()
 
 
+class NoteContentUpdateInput(BaseModel):
+    """Input for note content update."""
+    content: str
+
+
+@router.put("/api/items/{item_id}/content")
+async def update_note_content(item_id: str, data: NoteContentUpdateInput, request: Request):
+    """Replace the stored content of a text note.
+
+    The note is re-encrypted with the owner's DEK; the user must own the
+    item or have editor rights on its folder.
+    """
+    user = require_user(request)
+
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        return await item_service.update_note_content(
+            item_id=item_id,
+            user_id=user["id"],
+            content=data.content,
+        )
+    finally:
+        db.close()
+
+
+class NoteCoverInput(BaseModel):
+    """Input for note cover update."""
+    cover_item_id: Optional[str] = None
+
+
+@router.put("/api/items/{item_id}/cover")
+def update_note_cover(item_id: str, data: NoteCoverInput, request: Request):
+    """Set or clear the cover image of a text note.
+
+    The cover references an image media item whose thumbnail represents
+    the note in the gallery grid. Passing ``null`` clears the cover.
+    """
+    user = require_user(request)
+
+    db = create_connection()
+    try:
+        item_service = get_item_service(db)
+        return item_service.set_note_cover(
+            item_id=item_id,
+            user_id=user["id"],
+            cover_item_id=data.cover_item_id,
+        )
+    finally:
+        db.close()
+
+
 class ItemMoveInput(BaseModel):
     folder_id: str
 
@@ -365,7 +429,7 @@ async def copy_item(item_id: str, data: ItemCopyInput, request: Request):
 class BatchDownloadOptions(BaseModel):
     """Image conversion options from the download modal."""
 
-    format: str = "jxl"
+    format: str = "original"
     jpeg_quality: int = Field(default=90, ge=1, le=100)
     webp_quality: int = Field(default=90, ge=1, le=100)
     webp_lossless: bool = False
@@ -453,11 +517,15 @@ def _passthrough_filename(
     """Align the extension of a passthrough download with the stored bytes.
 
     Items transcoded to JXL at upload time keep their original title
-    (e.g. ``photo.jpg``), so a JXL download would otherwise carry a
-    misleading extension.
+    (e.g. ``photo.jpg``), so a download without conversion would otherwise
+    carry a misleading extension.
     """
     jxl_ext = format_extension("jxl")
-    if content_type == "image/jxl" and conversion.format == "jxl" and jxl_ext:
+    if (
+        content_type == "image/jxl"
+        and conversion.format in ("jxl", "original")
+        and jxl_ext
+    ):
         return _with_extension(title, jxl_ext)
     return title
 
@@ -486,33 +554,67 @@ def _entry_from_row(row, dir_name: str = "") -> _DownloadEntry:
     )
 
 
-async def _load_converted_bytes(
+@dataclass
+class _PreparedDownload:
+    """In-memory result of a worker-prepared download item.
+
+    ``extension`` is None when the original bytes are served (failed
+    conversion), so the caller keeps the passthrough filename.
+    """
+
+    data: bytes
+    content_type: str
+    extension: str | None
+
+
+def _prepare_download_item(
     entry: _DownloadEntry,
     dek: bytes,
     storage,
     conversion: ConversionSettings,
-) -> tuple[bytes, str, str] | None:
-    """Decrypt an entry's bytes and convert them when conversion applies.
+) -> _PreparedDownload | None:
+    """Download, decrypt and (when applicable) convert one item.
+
+    Runs in a worker thread; storage coroutines are driven through a
+    dedicated event loop via :func:`asyncio.run`.
 
     Returns:
-        (converted_bytes, content_type, extension), or None when the entry
-        must be served as-is (video, no-op conversion, or a failed
-        conversion which falls back to the original bytes).
+        :class:`_PreparedDownload` holding the bytes to archive, or None
+        when the item must be streamed as-is (videos, notes, no-op
+        conversions).
+
+    Raises:
+        Exception: download/decrypt failures propagate to the caller.
     """
     if entry.media_type == "video" or not needs_conversion(
         entry.content_type, conversion
     ):
         return None
-    encrypted = await storage.download(entry.item_id, "uploads")
+    encrypted = asyncio.run(storage.download(entry.item_id, "uploads"))
     plaintext = EncryptionService.decrypt_bytes(encrypted, dek)
     try:
-        return convert_image(plaintext, entry.content_type, conversion)
+        data, content_type, extension = convert_image(
+            plaintext, entry.content_type, conversion
+        )
+        return _PreparedDownload(data, content_type, extension)
     except ImageConversionError as exc:
         logger.warning(
             "batch-download: conversion of %s to %s failed (%s); using original",
             entry.item_id, conversion.format, exc,
         )
-        return None
+        return _PreparedDownload(plaintext, entry.content_type, None)
+
+
+def _download_filename(
+    safe_title: str,
+    entry: _DownloadEntry,
+    conversion: ConversionSettings,
+    extension: str | None,
+) -> str:
+    """Pick the archive/response filename for a prepared item."""
+    if extension:
+        return _with_extension(safe_title, extension)
+    return _passthrough_filename(safe_title, entry.content_type, conversion)
 
 
 async def _single_file_response(
@@ -530,16 +632,21 @@ async def _single_file_response(
         raise HTTPException(status_code=403, detail="Encryption key not available")
 
     filename = _sanitize_name(entry.title, "file")
-    converted = await _load_converted_bytes(entry, dek, storage, conversion)
-    if converted is not None:
-        data, content_type, extension = converted
-        filename = _with_extension(filename, extension)
+    # Decrypt + convert off the event loop: image conversion and AES-GCM
+    # chunk loops are CPU-bound.
+    prepared = await asyncio.to_thread(
+        _prepare_download_item, entry, dek, storage, conversion
+    )
+    if prepared is not None:
+        filename = _download_filename(
+            filename, entry, conversion, prepared.extension
+        )
         return Response(
-            content=data,
-            media_type=content_type,
+            content=prepared.data,
+            media_type=prepared.content_type,
             headers={
                 "Content-Disposition": _attachment_header(filename),
-                "Content-Length": str(len(data)),
+                "Content-Length": str(len(prepared.data)),
             },
         )
 
@@ -572,17 +679,120 @@ async def _single_file_response(
     )
 
 
+def _build_zip_stream(
+    entries: list[_DownloadEntry],
+    user,
+    user_dek: bytes | None,
+    storage,
+    conversion: ConversionSettings,
+):
+    """Generate a ZIP archive of the selected items as a byte stream.
+
+    Runs synchronously inside a worker thread (bridged to the event loop
+    via :func:`iterate_in_threadpool`). A bounded pool of
+    :data:`DOWNLOAD_WORKERS` threads decrypts and converts upcoming items
+    in parallel while already prepared items are written into the archive,
+    so conversion work overlaps both the writer and the network transfer.
+    In-flight results are capped by the worker count, keeping memory
+    bounded regardless of batch size.
+
+    The archive uses ZIP_STORED: media payloads are already compressed, so
+    DEFLATE would burn CPU for no meaningful size win. Videos and other
+    passthrough items are decrypted straight into the ZIP stream without
+    intermediate buffering.
+    """
+    workers = max(1, DOWNLOAD_WORKERS)
+    zip_stream = ZipStream()
+    pool = ThreadPoolExecutor(
+        max_workers=workers, thread_name_prefix="batch-download"
+    )
+    window: deque = deque()  # (entry, dek, future), in archive order
+    next_index = 0
+    used_paths: set = set()
+
+    def _fill_window() -> None:
+        nonlocal next_index
+        while len(window) < workers and next_index < len(entries):
+            entry = entries[next_index]
+            next_index += 1
+            dek = (
+                user_dek
+                if entry.owner_id == user["id"]
+                else dek_cache.get(entry.owner_id)
+            )
+            if not dek:
+                logger.warning(
+                    "batch-download: skip %s (owner encryption key "
+                    "not available)",
+                    entry.item_id,
+                )
+                continue
+            future = pool.submit(
+                _prepare_download_item, entry, dek, storage, conversion
+            )
+            window.append((entry, dek, future))
+
+    try:
+        while True:
+            _fill_window()
+            if not window:
+                break
+            entry, dek, future = window.popleft()
+            try:
+                prepared = future.result()
+            except Exception as exc:  # noqa: BLE001 - skip broken items
+                logger.warning(
+                    "batch-download: skip %s (%s)", entry.item_id, exc
+                )
+                continue
+
+            safe_title = _sanitize_name(entry.title, "file")
+            if prepared is not None:
+                filename = _download_filename(
+                    safe_title, entry, conversion, prepared.extension
+                )
+                path = _unique_archive_path(
+                    used_paths, _archive_path(entry.dir_name, filename)
+                )
+                zip_stream.add(prepared.data, path)
+                yield from zip_stream.all_files()
+                continue
+
+            # Stream the decrypted original straight into the archive.
+            filename = _passthrough_filename(
+                safe_title, entry.content_type, conversion
+            )
+            path = _unique_archive_path(
+                used_paths, _archive_path(entry.dir_name, filename)
+            )
+            enc_reader = asyncio.run(storage.get_stream(entry.item_id, "uploads"))
+            try:
+                zip_stream.add(
+                    EncryptionService.iter_decrypt(enc_reader, dek), path
+                )
+                yield from zip_stream.all_files()
+            finally:
+                try:
+                    enc_reader.close()
+                except Exception:
+                    pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    yield from zip_stream.finalize()
+
+
 @router.post("/api/items/batch-download")
 async def batch_download(data: BatchDownloadInput, request: Request):
     """Download selected items and albums, optionally converting images.
 
-    A single-file selection is served directly (no ZIP). Larger selections
-    are written into a spooled ZIP one file at a time via
-    :meth:`zipfile.ZipFile.open`, so memory use stays bounded regardless of
-    total batch size: standalone items land at the archive root and each
-    album in a subfolder named after the album. Images are converted to the
-    requested format (default ``jxl`` = as stored); videos always pass
-    through unchanged.
+    The archive is generated while it streams to the client (no
+    server-side spool file): first bytes are sent as soon as the first
+    item is ready, and items are prepared in parallel by a small worker
+    pool. Standalone items land at the archive root and each album in a
+    subfolder named after the album. Images are converted to the requested
+    format (default ``original`` = as stored); videos always pass through
+    unchanged.
     """
     user = require_user(request)
     user_dek = dek_cache.get(user["id"])
@@ -664,100 +874,15 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             date_folder = datetime.now().strftime("%Y-%m-%d")
             zip_name = f"synth-download-{date_folder}.zip"
 
-        # Spooled temp file: rolls to disk if it exceeds 64 MiB.
-        spool = tempfile.SpooledTemporaryFile(
-            max_size=64 * 1024 * 1024, suffix=".zip"
+        return StreamingResponse(
+            iterate_in_threadpool(
+                _build_zip_stream(entries, user, user_dek, storage, conversion)
+            ),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": _attachment_header(zip_name)
+            },
         )
-        try:
-            used_paths: set = set()
-            with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED) as zf:
-                for entry in entries:
-                    dek = (
-                        user_dek
-                        if entry.owner_id == user["id"]
-                        else dek_cache.get(entry.owner_id)
-                    )
-                    if not dek:
-                        logger.warning(
-                            "batch-download: skip %s (owner encryption key "
-                            "not available)",
-                            entry.item_id,
-                        )
-                        continue
-                    safe_title = _sanitize_name(entry.title, "file")
-                    try:
-                        converted = await _load_converted_bytes(
-                            entry, dek, storage, conversion
-                        )
-                        if converted is not None:
-                            converted_bytes, _ct, extension = converted
-                            path = _unique_archive_path(
-                                used_paths,
-                                _archive_path(
-                                    entry.dir_name,
-                                    _with_extension(safe_title, extension),
-                                ),
-                            )
-                            zf.writestr(path, converted_bytes)
-                            continue
-
-                        path = _unique_archive_path(
-                            used_paths,
-                            _archive_path(
-                                entry.dir_name,
-                                _passthrough_filename(
-                                    safe_title, entry.content_type, conversion
-                                ),
-                            ),
-                        )
-                        enc_reader = await storage.get_stream(
-                            entry.item_id, "uploads"
-                        )
-                        try:
-                            with zf.open(path, "w") as zip_writer:
-                                EncryptionService.decrypt_to_stream(
-                                    enc_reader, zip_writer, dek
-                                )
-                        finally:
-                            try:
-                                enc_reader.close()
-                            except Exception:
-                                pass
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning(
-                            "batch-download: skip %s (%s)",
-                            entry.item_id, exc,
-                        )
-                        continue
-
-            spool.seek(0)
-
-            def _stream():
-                try:
-                    while True:
-                        buf = spool.read(1 << 20)
-                        if not buf:
-                            break
-                        yield buf
-                finally:
-                    try:
-                        spool.close()
-                    except Exception:
-                        pass
-
-            return StreamingResponse(
-                _stream(),
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": _attachment_header(zip_name)
-                },
-            )
-        except Exception:
-            try:
-                spool.close()
-            except Exception:
-                pass
-            raise
     finally:
         db.close()
 

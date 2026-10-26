@@ -248,6 +248,16 @@
                 'txt', 'md', 'json', 'csv', 'yaml', 'yml'].includes(ext);
     }
 
+    // Check for a text-note file (mirrors the server's note classification)
+    function isTextFile(file) {
+        if (file.type) {
+            if (['text/plain', 'text/markdown', 'text/csv', 'text/yaml', 'text/x-yaml'].includes(file.type)) return true;
+            return ['application/json', 'application/yaml', 'application/x-yaml'].includes(file.type);
+        }
+        const ext = file.name.split('.').pop().toLowerCase();
+        return ['txt', 'md', 'json', 'csv', 'yaml', 'yml'].includes(ext);
+    }
+
     // Add files to selection (accumulates)
     function addFilesToSelection(files) {
         const mediaFiles = Array.from(files).filter(isValidMedia);
@@ -287,11 +297,27 @@
                 thumb.src = URL.createObjectURL(file);
                 thumb.muted = true;
                 thumb.preload = 'metadata';
+            } else if (isTextFile(file)) {
+                // Text notes: file-icon tile with extension badge
+                // (a blob <img> would render as a broken image).
+                thumb = document.createElement('div');
+                const ext = file.name.includes('.')
+                    ? file.name.split('.').pop().toLowerCase().slice(0, 8)
+                    : 'txt';
+                thumb.innerHTML = `
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                    </svg>
+                    <span class="note-ext">${ext}</span>
+                `;
             } else {
                 thumb = document.createElement('img');
                 thumb.src = URL.createObjectURL(file);
             }
-            thumb.className = 'preview-thumb';
+            thumb.className = 'preview-thumb' + (isTextFile(file) ? ' note-preview-tile' : '');
             thumb.title = file.name;
             thumb.style.cssText = 'display:block;pointer-events:none;';
 

@@ -10,6 +10,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.currentFolderId = urlParams.get('folder_id');
     const photoId = urlParams.get('photo_id');
 
+    // Deep link with an anchor (?photo_id=...#heading): navigateToFolder
+    // rewrites the URL without the hash, so hand it to the note viewer now.
+    if (photoId && window.location.hash && window.NoteViewer) {
+        try {
+            window.NoteViewer.setPendingFragment(decodeURIComponent(window.location.hash.slice(1)));
+        } catch (e) {
+            window.NoteViewer.setPendingFragment(window.location.hash.slice(1));
+        }
+    }
+
     // Load initial folder if provided by server
     // Wait for gallery element to be present (from gallery.html)
     // Use 'replace' to update URL without adding history entry
@@ -42,6 +52,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             }, 100);
+        }
+    }
+
+    // Deep link to the in-gallery tags view: /?view=tags[&tag=<name>]
+    if (urlParams.get('view') === 'tags' && document.getElementById('tags-view') && typeof window.showTagsView === 'function') {
+        const tagName = urlParams.get('tag');
+        window.showTagsView('replace');
+        if (tagName && typeof window.navigateToTagByName === 'function') {
+            window.navigateToTagByName(decodeURIComponent(tagName));
         }
     }
 

@@ -61,6 +61,13 @@
 
             albumItem.classList.remove('drag-over');
 
+            // Album cards render a thumbnail of their first item; a note
+            // without a cover has none and would paint "Access denied"
+            if (draggedItem.dataset.mediaType === 'note') {
+                window.showToast?.('Notes cannot be added to albums', true);
+                return;
+            }
+
             const photoId = draggedItem.dataset.itemId;
             const albumId = albumItem.dataset.albumId;
 

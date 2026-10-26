@@ -8,10 +8,48 @@ Date:   2026-07-24
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
 from app.infrastructure.repositories.base import Repository
+
+
+@dataclass(frozen=True)
+class AuditCheck:
+    '''One library-audit problem type.
+
+    ``sql`` is a predicate over ``items i LEFT JOIN item_media im``. The
+    same predicate filters the audit query and is selected as a 0/1 flag
+    column, so the WHERE clause and the per-row problem flags cannot
+    diverge.
+    '''
+
+    sql: str
+    description: str
+
+
+# Problem types for ItemRepository.get_audit_problems / the AI audit tool.
+AUDIT_CHECKS: dict[str, AuditCheck] = {
+    'no_tags': AuditCheck(
+        sql='''NOT EXISTS (
+                   SELECT 1 FROM item_tags t
+                   WHERE t.item_id = i.id AND t.is_explicit = 1)''',
+        description='item has no explicit tags',
+    ),
+    'untitled': AuditCheck(
+        sql="(i.title IS NULL OR TRIM(i.title) = '')",
+        description='item has no title',
+    ),
+    'no_thumbnail': AuditCheck(
+        sql="(i.type = 'media' AND im.thumb_width IS NULL)",
+        description='media item has no thumbnail',
+    ),
+    'no_dimensions': AuditCheck(
+        sql="(i.type = 'media' AND (im.width IS NULL OR im.width = 0))",
+        description='media item has no width/height (metadata probe failed)',
+    ),
+}
 
 
 class ItemRepository(Repository):
@@ -79,12 +117,20 @@ class ItemRepository(Repository):
             return dict(row)
         return None
 
+    # Items referenced as note covers are hidden from listings; they are
+    # reachable directly and via the note's cover picker.
+    _COVER_EXCLUSION_SQL = (
+        'AND {col} NOT IN '
+        '(SELECT cover_item_id FROM item_texts WHERE cover_item_id IS NOT NULL)'
+    )
+
     def get_by_folder(
         self,
         folder_id: str,
         item_type: Optional[str] = None,
         sort_by: str = 'created',
         include_subfolders: bool = False,
+        exclude_covers: bool = False,
     ) -> list[dict]:
         '''Get items in folder.
 
@@ -93,6 +139,7 @@ class ItemRepository(Repository):
             item_type: Filter by type ('media', 'note', etc.) or None for all
             sort_by: 'created' or 'title'
             include_subfolders: Include items from subfolders
+            exclude_covers: Exclude items used as note covers
         '''
         if include_subfolders:
             folder_filter = '''folder_id IN (
@@ -115,6 +162,10 @@ class ItemRepository(Repository):
         else:
             type_filter = ''
 
+        cover_filter = (
+            self._COVER_EXCLUSION_SQL.format(col='id') if exclude_covers else ''
+        )
+
         if sort_by == 'title':
             order_by = 'COALESCE(title, id) ASC'
         elif sort_by == 'taken':
@@ -124,7 +175,7 @@ class ItemRepository(Repository):
 
         cursor = self._execute(
             f'''SELECT * FROM items
-                WHERE {folder_filter} {type_filter}
+                WHERE {folder_filter} {type_filter} {cover_filter}
                 ORDER BY {order_by}''',
             tuple(params),
         )
@@ -171,16 +222,26 @@ class ItemRepository(Repository):
         self._commit()
         return cursor.rowcount > 0
 
-    def count_by_folder(self, folder_id: str, item_type: Optional[str] = None) -> int:
+    def count_by_folder(
+        self,
+        folder_id: str,
+        item_type: Optional[str] = None,
+        exclude_covers: bool = False,
+    ) -> int:
         '''Count items in folder.'''
+        cover_filter = (
+            self._COVER_EXCLUSION_SQL.format(col='id') if exclude_covers else ''
+        )
         if item_type:
             cursor = self._execute(
-                'SELECT COUNT(*) as count FROM items WHERE folder_id = ? AND type = ?',
+                f'''SELECT COUNT(*) as count FROM items
+                    WHERE folder_id = ? AND type = ? {cover_filter}''',
                 (folder_id, item_type),
             )
         else:
             cursor = self._execute(
-                'SELECT COUNT(*) as count FROM items WHERE folder_id = ?',
+                f'''SELECT COUNT(*) as count FROM items
+                    WHERE folder_id = ? {cover_filter}''',
                 (folder_id,),
             )
         row = cursor.fetchone()
@@ -191,6 +252,7 @@ class ItemRepository(Repository):
         folder_id: str,
         media_type: Optional[str] = None,
         sort_by: str = 'uploaded',
+        exclude_covers: bool = False,
     ) -> list[dict]:
         '''Get media items in folder with their ``item_media`` details.
 
@@ -202,6 +264,7 @@ class ItemRepository(Repository):
             folder_id: Folder ID
             media_type: 'image', 'video', or None for all media
             sort_by: 'uploaded', 'taken', or 'title'
+            exclude_covers: Exclude items used as note covers
 
         Returns:
             List of dicts with base item + media detail fields.
@@ -218,6 +281,10 @@ class ItemRepository(Repository):
         if media_type:
             params.append(media_type)
 
+        cover_filter = (
+            self._COVER_EXCLUSION_SQL.format(col='i.id') if exclude_covers else ''
+        )
+
         cursor = self._execute(
             f'''SELECT
                 i.*,
@@ -226,10 +293,55 @@ class ItemRepository(Repository):
                 im.thumb_width, im.thumb_height, im.taken_at
                FROM items i
                JOIN item_media im ON i.id = im.item_id
-               WHERE i.folder_id = ? AND i.type = 'media' {media_filter}
+               WHERE i.folder_id = ? AND i.type = 'media' {media_filter} {cover_filter}
                ORDER BY {order_by}''',
             tuple(params),
         )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_audit_problems(
+        self,
+        user_id: int,
+        checks: list[str],
+        folder_ids: Optional[list[str]] = None,
+    ) -> list[dict]:
+        '''Return the user's items matching any audit check.
+
+        Each row carries base item fields plus one 0/1 flag column per
+        requested check id (the same predicates as the filter), so callers
+        can derive the exact problem list per item without re-querying.
+
+        Args:
+            user_id: Owner ID
+            checks: Audit check ids (keys of AUDIT_CHECKS)
+            folder_ids: Optional folder scope (e.g. a subtree)
+
+        Returns:
+            List of dicts ordered by uploaded_at DESC (id DESC tiebreaker)
+        '''
+        flag_cols = ', '.join(
+            f'CASE WHEN {AUDIT_CHECKS[c].sql} THEN 1 ELSE 0 END AS {c}'
+            for c in checks
+        )
+        where_checks = ' OR '.join(
+            f'({AUDIT_CHECKS[c].sql})' for c in checks
+        )
+        sql = f'''SELECT
+                i.id, i.title, i.type, i.folder_id, i.uploaded_at,
+                im.media_type, {flag_cols}
+               FROM items i
+               LEFT JOIN item_media im ON i.id = im.item_id
+               WHERE i.user_id = ? AND ({where_checks})
+               AND i.id NOT IN (
+                   SELECT cover_item_id FROM item_texts
+                   WHERE cover_item_id IS NOT NULL)'''
+        params: list = [user_id]
+        if folder_ids is not None:
+            placeholders = ', '.join('?' * len(folder_ids))
+            sql += f' AND i.folder_id IN ({placeholders})'
+            params.extend(folder_ids)
+        sql += ' ORDER BY i.uploaded_at DESC, i.id DESC'
+        cursor = self._execute(sql, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
     def update_metadata(
@@ -271,3 +383,15 @@ class ItemRepository(Repository):
         )
         self._commit()
         return cursor.rowcount > 0
+
+    def touch_updated_at(self, item_id: str) -> None:
+        """Bump the updated_at timestamp without changing any field.
+
+        Args:
+            item_id: Item ID
+        """
+        self._execute(
+            'UPDATE items SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (item_id,),
+        )
+        self._commit()

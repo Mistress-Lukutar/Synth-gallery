@@ -69,20 +69,17 @@ def _decrypt_backup_data(encrypted_data: bytes, key: bytes) -> bytes:
 def _prepare_db_copy(src_path: Path, dest_path: Path) -> None:
     """Create a copy of the database with sensitive tables cleared.
 
-    Removes sessions and ai_api_keys to avoid leaking session tokens
-    and API key hashes in backups.
+    Removes sessions to avoid leaking session tokens in backups.
     """
     shutil.copy2(src_path, dest_path)
     conn = sqlite3.connect(str(dest_path))
     try:
         cursor = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('sessions', 'ai_api_keys')"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = 'sessions'"
         )
         existing_tables = {row[0] for row in cursor.fetchall()}
         if "sessions" in existing_tables:
             conn.execute("DELETE FROM sessions")
-        if "ai_api_keys" in existing_tables:
-            conn.execute("DELETE FROM ai_api_keys")
         conn.commit()
         conn.execute("VACUUM")
     finally:

@@ -464,6 +464,11 @@ class DEKCache:
         with self._lock:
             self._cache.pop(user_id, None)
 
+    def clear(self) -> None:
+        '''Remove every cached DEK (server shutdown, test resets).'''
+        with self._lock:
+            self._cache.clear()
+
     def clear_expired(self) -> None:
         '''Drop all expired entries.'''
         now = time.time()

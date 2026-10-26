@@ -21,6 +21,23 @@ class TagFeedbackRepository(Repository):
         )
         self._commit()
 
+    def get_rejected_tag_ids_for_item(self, item_id: str) -> List[int]:
+        """Return tag ids the user rejected in suggestions for this item.
+
+        Rejections are treated as a per-item blocklist: the tag never
+        reappears in suggestions for this item (adding it manually still
+        works).
+        """
+        cursor = self._execute(
+            """
+            SELECT DISTINCT suggested_tag_id
+            FROM tag_suggestion_feedback
+            WHERE item_id = ? AND outcome = 'rejected'
+            """,
+            (item_id,)
+        )
+        return [row["suggested_tag_id"] for row in cursor.fetchall()]
+
     def get_stats(self, suggested_tag_id: int,
                   context_tag_ids: Optional[List[int]] = None) -> Tuple[int, int]:
         """Return (accepts, rejects) for a suggested tag.

@@ -30,7 +30,8 @@ class AlbumService:
     - Manage album cover
     - Move albums between folders
 
-    Albums are content-agnostic - they can contain any item types.
+    Albums hold media only - notes are skipped at the service layer so an
+    album cover can never point at an item without a thumbnail.
     '''
 
     def __init__(
@@ -76,13 +77,17 @@ class AlbumService:
         if folder['user_id'] != user_id:
             raise HTTPException(403, 'Cannot create album here')
 
+        kept_item_ids: List[str] = []
         if item_ids:
             for item_id in item_ids:
                 item = self.item_repo.get_by_id(item_id)
                 if not item:
                     raise HTTPException(400, f'Item not found: {item_id}')
+                if item['type'] == 'note':
+                    continue
                 if item['folder_id'] != folder_id:
                     raise HTTPException(400, f'Item not in folder: {item_id}')
+                kept_item_ids.append(item_id)
 
         album_id = self.album_repo.create(
             folder_id=folder_id,
@@ -90,15 +95,14 @@ class AlbumService:
             name=name,
         )
 
-        if item_ids:
-            for position, item_id in enumerate(item_ids):
-                self.album_repo.add_item(album_id, item_id, position)
+        for position, item_id in enumerate(kept_item_ids):
+            self.album_repo.add_item(album_id, item_id, position)
 
         return {
             'id': album_id,
             'name': name,
             'folder_id': folder_id,
-            'item_count': len(item_ids) if item_ids else 0,
+            'item_count': len(kept_item_ids),
         }
 
     def get_album(self, album_id: str, user_id: int) -> Optional[Dict]:
@@ -133,6 +137,18 @@ class AlbumService:
             'items': items,
             'can_edit': self._can_edit(album_id, user_id),
         }
+
+    def list_album_item_ids(self, album_id: str, user_id: int) -> Optional[List[str]]:
+        '''Ordered item ids of an album, or None if it does not exist or the
+        user cannot view it (owner or viewer/editor of the album's folder).'''
+        album = self.album_repo.get_by_id(album_id)
+        if not album:
+            return None
+
+        if not self._can_view(album_id, user_id):
+            return None
+
+        return [item['id'] for item in self.album_repo.get_items(album_id)]
 
     def delete_album(self, album_id: str, user_id: int) -> bool:
         '''Delete album and all its items including files.'''
@@ -251,6 +267,8 @@ class AlbumService:
     def add_items(self, album_id: str, item_ids: List[str], user_id: int) -> int:
         '''Add items to album.
 
+        Notes are silently skipped - albums hold media only.
+
         Args:
             album_id: Album ID
             item_ids: Item IDs to add
@@ -268,6 +286,9 @@ class AlbumService:
         for item_id in item_ids:
             item = self.item_repo.get_by_id(item_id)
             if not item:
+                continue
+
+            if item['type'] == 'note':
                 continue
 
             if item['folder_id'] != album['folder_id']:
@@ -390,3 +411,7 @@ class AlbumService:
             album['effective_cover_item_id'] = self.album_repo.get_effective_cover(album['id'])
 
         return albums
+
+    def get_albums_for_user(self, user_id: int) -> List[Dict]:
+        '''Get all albums in folders the user owns or can access.'''
+        return self.album_repo.get_for_user(user_id)

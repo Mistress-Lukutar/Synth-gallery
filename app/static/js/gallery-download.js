@@ -3,8 +3,9 @@
  *
  * Replaces the direct fetch previously done by gallery-selection.js:
  * the download button now opens this modal, the user picks a target
- * format (JXL default, JPEG/PNG/WebP) with per-format settings, and the
- * confirm button performs the POST /api/items/batch-download request.
+ * format (Original/as-stored default, JXL/JPEG/PNG/WebP) with per-format
+ * settings, and the confirm button performs the
+ * POST /api/items/batch-download request.
  */
 
 (function() {
@@ -64,7 +65,7 @@
 
     function currentFormat() {
         const checked = document.querySelector('input[name="download-format"]:checked');
-        return checked ? checked.value : 'jxl';
+        return checked ? checked.value : 'original';
     }
 
     function updateFormatBlocks() {

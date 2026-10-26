@@ -38,3 +38,31 @@ describe('getSortLabel', () => {
         expect(getSortLabel('uploaded')).toBe('Sort: Date Uploaded');
     });
 });
+
+describe('buildTagsUrl', () => {
+    test('builds a tags URL with a tag name and empty base', () => {
+        expect(buildTagsUrl('', 'silver_fox')).toBe('/?view=tags&tag=silver_fox');
+    });
+
+    test('builds a tags URL with null tag name', () => {
+        expect(buildTagsUrl('', null)).toBe('/?view=tags');
+    });
+
+    test('builds a tags URL with undefined tag name', () => {
+        expect(buildTagsUrl('', undefined)).toBe('/?view=tags');
+    });
+
+    test('builds a tags URL with empty string tag name', () => {
+        expect(buildTagsUrl('', '')).toBe('/?view=tags');
+    });
+
+    test('encodes spaces in tag name under a subpath', () => {
+        expect(buildTagsUrl('/synth', 'two words'))
+            .toBe('/synth/?view=tags&tag=two%20words');
+    });
+
+    test('encodes special characters (ampersand) in tag name', () => {
+        expect(buildTagsUrl('/synth', 'a&b'))
+            .toBe('/synth/?view=tags&tag=a%26b');
+    });
+});

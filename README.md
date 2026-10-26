@@ -13,8 +13,16 @@ Personal media vault with server-side encryption, hardware key authentication, a
 - **Folder Hierarchy** — Organize content in nested folders
 - **Albums** — Group related media with drag-and-drop reordering
 - **Sharing** — Share folders with other users (Viewer/Editor permissions)
-- **Tags & Search** — Categorize and find content quickly
-- **Text Notes** — Store txt/md/json/csv/yaml alongside media
+- **Tags & Search** — Categorize and find content quickly; tags carry Markdown descriptions with `[[tag]]` wiki-links, managed in an in-gallery Tags view
+- **Text Notes** — Store txt/md/json/csv/yaml alongside media, with a Markdown/plain-text reader, covers and section deep links
+- **Batch Download** — Streaming ZIP with on-the-fly image format conversion (JXL/JPEG/PNG/WebP)
+
+### AI Assistant
+- **AI Chat** — In-site sidebar assistant with a server-side tool-call agent loop over your library; per-user LLM provider keys encrypted with the user's DEK
+- **AI Agents** — Chat personas (system prompt + tool allow-list) with seeded built-ins: Tagger, Librarian, Curator; mutating tool calls require explicit approval cards
+- **Library Tools** — Audit, grep-like full-text search, note reading/editing, tag description management, metadata editing, and optional web fetch/search
+- **AI Memory** — Opt-in per-user memory folder of editable notes embedded into the assistant's context
+- **Reasoning Control** — Per-model reasoning capability with a per-chat effort selector
 
 ### Backup & Recovery
 - **Full Backups** — ZIP archives with database + encrypted files

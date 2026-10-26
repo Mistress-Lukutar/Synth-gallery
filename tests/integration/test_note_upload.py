@@ -195,6 +195,7 @@ class TestNoteIntegration:
         self, authenticated_client, test_folder, test_image_bytes,
         csrf_token
     ):
+        """Albums hold media only: notes are skipped on create and add."""
         note = self._upload_note(authenticated_client, test_folder, csrf_token)
         photo = authenticated_client.post(
             "/api/uploads",
@@ -213,11 +214,53 @@ class TestNoteIntegration:
             headers={"X-CSRF-Token": csrf_token},
         )
         assert create.status_code == 200
+        assert create.json()["item_count"] == 1
         album_id = create.json()["album_id"]
 
         items = authenticated_client.get(f"/api/albums/{album_id}").json()
-        ids = [item["id"] for item in items["items"]]
-        assert note["id"] in ids and photo["id"] in ids
+        assert [item["id"] for item in items["items"]] == [photo["id"]]
+
+        add = authenticated_client.post(
+            f"/api/albums/{album_id}/items",
+            json={"item_ids": [note["id"]]},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert add.status_code == 200
+        assert add.json()["added"] == 0
+
+        items = authenticated_client.get(f"/api/albums/{album_id}").json()
+        assert [item["id"] for item in items["items"]] == [photo["id"]]
+
+    def test_notes_only_album_card_has_no_note_cover(
+        self, authenticated_client, test_folder, csrf_token
+    ):
+        """Album card cover must never point at a note (404 thumbnail)."""
+        note = self._upload_note(authenticated_client, test_folder, csrf_token)
+        create = authenticated_client.post(
+            "/api/albums",
+            json={
+                "name": "Notes Album",
+                "folder_id": test_folder,
+                "item_ids": [note["id"]],
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert create.status_code == 200
+
+        content = authenticated_client.get(
+            f"/api/folders/{test_folder}/content"
+        ).json()
+        albums = [i for i in content["items"] if i.get("type") == "album"]
+        assert len(albums) == 1
+        assert albums[0]["item_count"] == 0
+        assert albums[0]["cover_item_id"] != note["id"]
+
+        # The note was skipped, so it stays visible in the folder grid
+        notes = [
+            i for i in content["items"]
+            if i.get("type") == "item" and i.get("item_type") == "note"
+        ]
+        assert [n["id"] for n in notes] == [note["id"]]
 
     def test_note_batch_download_zip(
         self, authenticated_client, test_folder, test_image_bytes, csrf_token

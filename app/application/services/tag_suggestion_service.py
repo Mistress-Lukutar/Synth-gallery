@@ -142,13 +142,20 @@ class TagSuggestionService:
         return scored[:limit]
 
     def get_suggestions_for_item(self, item_id: str, limit: int = 8) -> List[Dict]:
-        """Get related suggestions for an item based on its current explicit tags."""
+        """Get related suggestions for an item based on its current explicit tags.
+
+        Tags the user previously rejected for this item are excluded for good,
+        so the list always shows the next-best candidates instead.
+        """
         explicit = self.tags.get_item_tags_explicit(item_id)
         explicit_ids = [t["id"] for t in explicit]
         if not explicit_ids:
             return []
         all_current = self.tags.get_item_tags_all(item_id)
         exclude_ids = [t["id"] for t in all_current]
+        if self.feedback is not None:
+            rejected = self.feedback.get_rejected_tag_ids_for_item(item_id)
+            exclude_ids.extend(tid for tid in rejected if tid not in exclude_ids)
         return self.get_contextual_suggestions(explicit_ids, limit, exclude_ids)
 
     def record_feedback(self, item_id: str, context_tag_ids: List[int],

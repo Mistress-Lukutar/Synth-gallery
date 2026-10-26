@@ -17,7 +17,7 @@ from .folder_repository import FolderRepository
 from .permission_repository import PermissionRepository
 
 from .webauthn_repository import WebAuthnRepository
-from .item_repository import ItemRepository
+from .item_repository import AUDIT_CHECKS, ItemRepository
 from .item_media_repository import ItemMediaRepository
 from .item_text_repository import ItemTextRepository
 from .album_repository import AlbumRepository
@@ -26,8 +26,11 @@ from .tag_implication_repository import TagImplicationRepository
 from .tag_cooccurrence_repository import TagCooccurrenceRepository
 from .tag_mutex_repository import TagMutexRepository
 from .tag_feedback_repository import TagFeedbackRepository
-from .ai_job_repository import AIJobRepository
-from .ai_api_key_repository import AiApiKeyRepository
+from .ai_provider_repository import AiProviderRepository
+from .ai_model_repository import AiModelRepository
+from .ai_chat_settings_repository import AiChatSettingsRepository
+from .ai_chat_repository import AiChatRepository
+from .ai_agent_repository import AiAgentRepository
 
 __all__ = [
     "Repository",
@@ -37,6 +40,7 @@ __all__ = [
     "PermissionRepository",
     "WebAuthnRepository",
     "ItemRepository",
+    "AUDIT_CHECKS",
     "ItemMediaRepository",
     "ItemTextRepository",
     "AlbumRepository",
@@ -45,6 +49,9 @@ __all__ = [
     "TagCooccurrenceRepository",
     "TagMutexRepository",
     "TagFeedbackRepository",
-    "AIJobRepository",
-    "AiApiKeyRepository",
+    "AiProviderRepository",
+    "AiModelRepository",
+    "AiChatSettingsRepository",
+    "AiChatRepository",
+    "AiAgentRepository",
 ]

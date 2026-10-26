@@ -46,7 +46,7 @@
 
     // DOM Elements
     let itemDetailsPanel = null;
-    let tagSearch = null;
+    let tagInput = null;
     let tagResultsContainer = null;
     let currentTagsContainer = null;
     let lightbox = null;
@@ -54,8 +54,6 @@
     // State
     let editingItemId = null;
     let currentTags = [];
-    let searchResults = [];
-    let selectedSearchIndex = -1;
     let recentTags = [];
     let relatedSuggestions = [];
 
@@ -73,68 +71,24 @@
         if (!itemDetailsPanel) return;
 
         lightbox = document.getElementById('lightbox');
-        tagSearch = document.getElementById('tag-search');
         tagResultsContainer = document.getElementById('tag-tree-container');
         currentTagsContainer = document.getElementById('current-tags-container');
+
+        const tagInputEl = document.getElementById('tag-input');
+        if (tagInputEl && window.createTagTokenInput) {
+            tagInput = window.createTagTokenInput(tagInputEl, {
+                fetchSuggestions: fetchTagSuggestions,
+                renderSuggestions: renderSuggestionsList,
+                resolveNames: resolveTagNames,
+                onConfirm: confirmTagInput,
+            });
+        }
 
         setupEventListeners();
         loadRecentTags();
     }
 
     function setupEventListeners() {
-        // Search with debounce
-        let searchTimeout;
-        if (tagSearch) {
-            tagSearch.addEventListener('input', (e) => {
-                clearTimeout(searchTimeout);
-                const query = e.target.value.trim();
-
-                if (query.length === 0) {
-                    renderSearchResults();
-                    return;
-                }
-
-                searchTimeout = setTimeout(() => searchTags(query), 200);
-            });
-
-            tagSearch.addEventListener('keydown', (e) => {
-                if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (searchResults.length > 0) {
-                        selectedSearchIndex = Math.min(selectedSearchIndex + 1, searchResults.length - 1);
-                        renderSearchResults();
-                    }
-                    return;
-                }
-                if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (searchResults.length > 0) {
-                        selectedSearchIndex = Math.max(selectedSearchIndex - 1, 0);
-                        renderSearchResults();
-                    }
-                    return;
-                }
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    if (searchResults.length > 0) {
-                        const idx = selectedSearchIndex >= 0 ? selectedSearchIndex : 0;
-                        addTag(searchResults[idx].id);
-                        tagSearch.value = '';
-                        searchResults = [];
-                        selectedSearchIndex = -1;
-                        renderSearchResults();
-                    }
-                    return;
-                }
-                if (e.key === 'Escape') {
-                    tagSearch.value = '';
-                    searchResults = [];
-                    selectedSearchIndex = -1;
-                    renderSearchResults();
-                }
-            });
-        }
-
         // Close on backdrop click
         itemDetailsPanel?.addEventListener('click', (e) => {
             if (e.target === itemDetailsPanel) {
@@ -545,7 +499,7 @@
     function renderMarkdown(text) {
         if (!text) return '';
         if (window.marked && window.marked.parse) {
-            return window.marked.parse(text);
+            return window.marked.parse(normalizeMarkdownLists(text));
         }
         // Fallback to simple renderer
         let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -610,22 +564,116 @@
     // Tag API Functions
     // ========================================================================
 
-    async function searchTags(query) {
-        if (!query || query.length < 1) return;
-
+    async function fetchTagSuggestions(query) {
+        if (!query) return [];
         try {
             const resp = await fetch(
                 `${getBaseUrl()}/api/tags/search?q=${encodeURIComponent(query)}&limit=50`
             );
+            if (!resp.ok) return [];
+            const data = await resp.json();
+            return data.tags || [];
+        } catch (e) {
+            console.error('Tag search failed:', e);
+            return [];
+        }
+    }
+
+    async function resolveTagNames(names, createMissing = false) {
+        const resp = await csrfFetch(`${getBaseUrl()}/api/tags/resolve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ names, create_missing: createMissing }),
+        });
+        if (!resp.ok) throw new Error(`Resolve failed: HTTP ${resp.status}`);
+        const data = await resp.json();
+        return data.results || [];
+    }
+
+    // Enter on an empty field: apply the staged chips to the current item.
+    // Unknown chips are created in the "general" category first (admin only).
+    async function confirmTagInput() {
+        if (!editingItemId || !tagInput) return;
+        let chips = tagInput.getChips();
+        if (chips.length === 0) return;
+
+        const invalid = chips.find(c => c.state === 'invalid');
+        if (invalid) {
+            window.showToast(`Invalid tag name: "${invalid.name}"`, true);
+            return;
+        }
+
+        // Create unknown tags (admins); on 403 keep them staged in the field
+        const tagById = new Map();
+        const unknown = chips.filter(c => c.state === 'unknown');
+        if (unknown.length > 0) {
+            try {
+                const results = await resolveTagNames(unknown.map(c => c.name), true);
+                tagInput.applyResolveResults(results);
+                results.forEach(r => { if (r.tag) tagById.set(r.tag.id, r.tag); });
+            } catch (e) {
+                const denied = e.message && e.message.includes('403');
+                window.showToast(denied
+                    ? 'Only admins can create new tags'
+                    : 'Failed to create tags', true);
+            }
+        }
+
+        chips = tagInput.getChips();
+        const currentIds = new Set(currentTags.map(t => t.id));
+        const toAdd = [];
+        for (const chip of chips) {
+            if (chip.state === 'known' && chip.id != null
+                    && !currentIds.has(chip.id) && !toAdd.includes(chip.id)) {
+                toAdd.push(chip.id);
+            }
+        }
+
+        if (toAdd.length === 0) {
+            // Nothing new to apply: drop known chips, keep unknown ones staged
+            tagInput.removeChipsWhere(c => c.state === 'known');
+            return;
+        }
+
+        try {
+            const resp = await csrfFetch(`${getBaseUrl()}/api/items/tags/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    item_ids: [editingItemId],
+                    add_tag_ids: toAdd,
+                    remove_tag_ids: [],
+                }),
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        } catch (e) {
+            console.error('Failed to apply tags:', e);
+            window.showToast('Failed to apply tags', true);
+            return;
+        }
+        tagInput.removeChipsWhere(c => c.state === 'known');
+
+        // Reload the item's tags and refresh related suggestions
+        try {
+            const resp = await fetch(`${getBaseUrl()}/api/items/${editingItemId}/tags`);
             if (resp.ok) {
                 const data = await resp.json();
-                searchResults = data.tags || [];
-                selectedSearchIndex = -1;
-                renderSearchResults();
+                currentTags = data.all_tags || [];
+                renderCurrentTags();
+                await loadRelatedSuggestions();
             }
         } catch (e) {
-            console.error('Search failed:', e);
+            console.error('Failed to reload tags:', e);
         }
+
+        // Parity with the single-tag addTag flow
+        for (const id of toAdd) {
+            const contextIds = currentTags.map(t => t.id).filter(tid => tid !== id);
+            recordFeedback(id, 'accepted', contextIds);
+            addToRecent(tagById.get(id) || { id, name: '' });
+        }
+
+        tagInput.focus();
     }
 
     async function addTag(tagId) {
@@ -652,16 +700,8 @@
                 recordFeedback(tagId, 'accepted', contextIds);
 
                 // Add to recent
-                const tag = searchResults.find(t => t.id === tagId);
+                const tag = relatedSuggestions.find(t => t.id === tagId);
                 if (tag) addToRecent(tag);
-
-                // Clear search
-                if (tagSearch) {
-                    tagSearch.value = '';
-                    tagSearch.focus();
-                    searchResults = [];
-                    renderSearchResults();
-                }
             }
         } catch (e) {
             console.error('Failed to add tag:', e);
@@ -689,9 +729,11 @@
     async function rejectSuggestion(tagId) {
         const contextIds = currentTags.map(t => t.id);
         await recordFeedback(tagId, 'rejected', contextIds);
-        // Remove from UI immediately
+        // Remove from UI immediately, then let the server refill the list
+        // with the next-best candidates (rejected tags are excluded per item)
         relatedSuggestions = relatedSuggestions.filter(t => t.id !== tagId);
         renderRelatedSuggestions();
+        await loadRelatedSuggestions();
     }
 
     async function removeTag(tagId) {
@@ -746,22 +788,23 @@
     // Rendering
     // ========================================================================
 
-    function renderSearchResults() {
+    // Suggestion list for the token input (rendered into #tag-tree-container).
+    function renderSuggestionsList(results, selectedIndex, onPick) {
         if (!tagResultsContainer) return;
 
-        if (searchResults.length === 0) {
+        if (!results || results.length === 0) {
             tagResultsContainer.innerHTML = '';
             return;
         }
 
-        const html = searchResults.map((tag, idx) => {
-            const selectedClass = idx === selectedSearchIndex ? 'selected' : '';
+        const html = results.map((tag, idx) => {
+            const selectedClass = idx === selectedIndex ? 'selected' : '';
             return `
-                <div class="search-result ${selectedClass}" data-id="${tag.id}" data-index="${idx}" onclick="window.addTag(${tag.id})">
+                <div class="search-result ${selectedClass}" data-id="${tag.id}" data-index="${idx}">
                     <div class="search-result-main">
                         <span class="search-result-name"
                               style="--tag-color: ${tag.category_color || '#6b7280'}">
-                            ${escapeHtml(tag.display_name || tag.name)}
+                            ${escapeHtml(tag.name)}
                         </span>
                         <span class="search-result-count">${tag.count || 0}</span>
                     </div>
@@ -771,10 +814,14 @@
 
         tagResultsContainer.innerHTML = `
             <div class="search-results-header">
-                ${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}
+                ${results.length} result${results.length !== 1 ? 's' : ''}
             </div>
             ${html}
         `;
+
+        tagResultsContainer.querySelectorAll('.search-result').forEach(el => {
+            el.addEventListener('click', () => onPick(Number(el.dataset.index)));
+        });
     }
 
     function renderRelatedSuggestions() {
@@ -789,10 +836,10 @@
         const html = relatedSuggestions.map(tag => `
             <button class="related-tag-btn"
                     style="--tag-color: ${tag.category_color || '#6b7280'}"
-                    title="Add ${escapeHtml(tag.display_name || tag.name)}">
+                    title="Add ${escapeHtml(tag.name)}">
                 <span class="related-tag-add"
                       onclick="window.addTag(${tag.id})">
-                    + ${escapeHtml(tag.display_name || tag.name)}
+                    + ${escapeHtml(tag.name)}
                 </span>
                 <span class="related-tag-reject"
                       onclick="window.rejectSuggestion(${tag.id}); event.stopPropagation();"
@@ -843,7 +890,7 @@
                         ${explicit.map(tag => `
                             <span class="tag-chip tag-chip-editable"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}">
-                                ${escapeHtml(tag.display_name || tag.name)}
+                                ${escapeHtml(tag.name)}
                                 ${isEditMode ? `<button class="tag-remove"
                                         onclick="window.removeTag(${tag.id})"
                                         title="Remove">×</button>` : ''}
@@ -853,7 +900,7 @@
                             <span class="tag-chip tag-chip-implied"
                                   style="--tag-color: ${tag.category_color || '#6b7280'}"
                                   title="Automatically added via implication">
-                                ${escapeHtml(tag.display_name || tag.name)}
+                                ${escapeHtml(tag.name)}
                             </span>
                         `).join('')}
                     </div>
@@ -908,13 +955,20 @@
     // Load and display item details (used when panel is already open)
     window.loadItemDetails = async function(itemId) {
         if (!itemId) return;
+        const previousItemId = editingItemId;
+
+        // Save any pending changes for the previous item; the target id must
+        // be captured before editingItemId moves to the new item, otherwise
+        // the old item's edits are written to the new one
+        clearTimeout(saveTimeout);
+        if (previousItemId && hasChanges()) {
+            await autoSave(previousItemId);
+        }
+
         editingItemId = itemId;
 
-        // Save any pending changes for previous item
-        clearTimeout(saveTimeout);
-        if (hasChanges()) {
-            await autoSave();
-        }
+        // Staged chips belong to the previous item
+        if (tagInput) tagInput.clear();
 
         // Load new metadata
         try {
@@ -944,10 +998,20 @@
     };
 
     window.openItemDetails = async function(itemId) {
+        const previousItemId = editingItemId;
         editingItemId = itemId || window.currentLightboxPhotoId;
         if (!editingItemId) {
             console.error('[gallery-tags] No item ID');
             return;
+        }
+
+        // Panel was open on another item (toolbar button): flush its pending
+        // edits before the fields are reloaded for the new one
+        if (previousItemId && previousItemId !== editingItemId) {
+            clearTimeout(saveTimeout);
+            if (hasChanges()) {
+                await autoSave(previousItemId);
+            }
         }
 
         // Close album editor if open
@@ -986,10 +1050,8 @@
         itemDetailsPanel?.classList.add('open');
         lightbox?.classList.add('panel-open');
 
-        // Reset search
-        if (tagSearch) tagSearch.value = '';
-        searchResults = [];
-        renderSearchResults();
+        // Reset staged chips
+        if (tagInput) tagInput.clear();
 
         // Setup auto-save listeners
         setupAutoSaveListeners();
@@ -1024,14 +1086,18 @@
         if (!editingItemId) return;
         if (!hasChanges()) return; // Don't save if nothing changed
 
+        const itemId = editingItemId;
         clearTimeout(saveTimeout);
         saveTimeout = setTimeout(() => {
-            autoSave();
+            autoSave(itemId);
         }, SAVE_DELAY);
     }
 
-    async function autoSave() {
-        if (!editingItemId) return;
+    async function autoSave(targetId = null) {
+        // Resolve the target synchronously: an explicit id pins the save to
+        // the item that was edited even if editingItemId changes in-flight
+        const itemId = targetId ?? editingItemId;
+        if (!itemId) return;
         if (!hasChanges()) return; // Skip if nothing changed
 
         // Get values
@@ -1045,7 +1111,7 @@
         };
 
         try {
-            const resp = await saveMetadata(editingItemId, metadata);
+            const resp = await saveMetadata(itemId, metadata);
             if (resp.ok) {
                 // Update cached metadata
                 const data = await resp.json();
@@ -1079,24 +1145,32 @@
     }
 
     window.closeItemDetails = async function() {
+        const closingItemId = editingItemId;
+
         // Save any pending changes before closing (only if changed)
         clearTimeout(saveTimeout);
-        if (hasChanges()) {
-            await autoSave();
+        const hadChanges = Boolean(closingItemId) && hasChanges();
+
+        // Detach the panel before awaiting the save: a navigation landing
+        // mid-save must not reroute through loadItemDetails and reopen it
+        itemDetailsPanel?.classList.remove('open');
+        lightbox?.classList.remove('panel-open');
+
+        if (hadChanges) {
+            await autoSave(closingItemId);
         }
 
         if (window.BackButtonManager) {
             window.BackButtonManager.unregister('item-details', true);
         }
 
-        itemDetailsPanel?.classList.remove('open');
-        lightbox?.classList.remove('panel-open');
         editingItemId = null;
         currentTags = [];
         currentItemMetadata = null;
-        searchResults = [];
         relatedSuggestions = [];
         originalValues = {}; // Reset dirty check
+
+        if (tagInput) tagInput.clear();
 
         const pngGrid = document.getElementById('png-text-grid');
         if (pngGrid) {

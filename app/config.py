@@ -73,6 +73,12 @@ ALLOWED_NOTE_TYPES = {
 NOTE_EXTENSIONS = {".txt", ".md", ".json", ".csv", ".yaml", ".yml"}
 # Upper bound for text uploads (issue #23 proposes 5-10 MB).
 TEXT_MAX_SIZE = int(os.environ.get("SYNTH_TEXT_MAX_SIZE", str(10 * 1024 * 1024)))
+# Upper bound for one tag description (Markdown source, AI- or admin-written).
+TAG_DESCRIPTION_MAX_CHARS = 20_000
+# Upper bound for one chat tool result before it is stored/replayed;
+# larger values let list-style tools return more per call at the cost of
+# conversation context.
+TOOL_RESULT_LIMIT = max(1000, int(os.environ.get("SYNTH_TOOL_RESULT_LIMIT", "16000")))
 
 # Encryption (chunked AES-256-GCM streaming format).
 # Each chunk carries its own 12-byte nonce and 16-byte GCM tag, enabling
@@ -80,6 +86,10 @@ TEXT_MAX_SIZE = int(os.environ.get("SYNTH_TEXT_MAX_SIZE", str(10 * 1024 * 1024))
 ENCRYPTION_CHUNK_SIZE = int(
     os.environ.get("SYNTH_ENCRYPTION_CHUNK_SIZE", str(1 << 20))
 )  # 1 MiB default
+
+# Batch download: number of worker threads preparing items (decrypt + image
+# conversion) in parallel while the ZIP archive is streamed to the client.
+DOWNLOAD_WORKERS = max(1, int(os.environ.get("SYNTH_DOWNLOAD_WORKERS", "4")))
 
 # Session configuration
 # __Host- prefix enforces Secure, Path=/ and no Domain attribute at browser level

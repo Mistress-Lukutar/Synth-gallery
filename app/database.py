@@ -5,7 +5,6 @@ Brief:  SQLAlchemy engine, sqlite3-compatible connection adapter and
 Author: Mistress-Lukutar
 Date:   2026-08-21
 '''
-import logging
 import os
 import sqlite3
 import threading
@@ -94,7 +93,17 @@ def get_engine() -> Engine:
                     # thread-local get_db(); the engine pool serialises actual
                     # use, so relax sqlite3's same-thread guard.
                     "check_same_thread": False,
+                    # Wait on SQLite write locks instead of raising
+                    # "database is locked" when several pooled connections
+                    # write concurrently under bursty load.
+                    "timeout": 30,
                 },
+                # Bursty traffic (mass uploads firing parallel thumbnail and
+                # file requests) checks out many connections at once; keep
+                # headroom so QueuePool (default 5+10) does not become the
+                # bottleneck. Idle SQLite connections are just file handles.
+                pool_size=15,
+                max_overflow=10,
             )
             event.listen(_engine, "connect", _apply_connection_pragmas)
             _engine_key = key
@@ -294,43 +303,16 @@ def create_connection() -> DbConnection:
 def cleanup_expired_sessions():
     """Remove expired sessions from database."""
     from .infrastructure.repositories import SessionRepository
-    SessionRepository(create_connection()).cleanup_expired()
+    db = create_connection()
+    try:
+        SessionRepository(db).cleanup_expired()
+    finally:
+        db.close()
 
 
 # =============================================================================
 # Schema migrations (Alembic)
 # =============================================================================
-def _deactivate_legacy_api_keys(db: DbConnection) -> None:
-    """Deactivate API keys whose hash predates the bcrypt switch.
-
-    Legacy keys were stored as plain SHA-256 hex digests; verification only
-    supports bcrypt, so such keys can never authenticate again. They are
-    deactivated (not deleted) to keep the audit trail visible in the admin
-    UI. Idempotent: inactive keys are left alone.
-    """
-    cursor = db.execute(
-        "SELECT id, name FROM ai_api_keys "
-        "WHERE is_active = 1 "
-        "AND key_hash NOT LIKE '$2b$%' AND key_hash NOT LIKE '$2a$%'"
-    )
-    legacy = cursor.fetchall()
-    if not legacy:
-        return
-    db.execute(
-        "UPDATE ai_api_keys SET is_active = 0 "
-        "WHERE is_active = 1 "
-        "AND key_hash NOT LIKE '$2b$%' AND key_hash NOT LIKE '$2a$%'"
-    )
-    logger = logging.getLogger(__name__)
-    for row in legacy:
-        logger.warning(
-            "Deactivated legacy SHA-256 API key '%s' (id=%s); "
-            "bcrypt is required - create a new key in the admin UI",
-            row["name"],
-            row["id"],
-        )
-
-
 def run_db_migrations() -> None:
     """Apply all pending Alembic revisions up to head."""
     from alembic import command
@@ -375,5 +357,4 @@ def init_db():
 
     db = get_db()
     _seed_default_admin(db)
-    _deactivate_legacy_api_keys(db)
     db.commit()
