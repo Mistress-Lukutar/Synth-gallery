@@ -1211,7 +1211,13 @@
     }
 
     function messageClassName(message) {
-        if (message.role === 'user') return 'ai-msg-user';
+        if (message.role === 'user') {
+            var cls = 'ai-msg-user';
+            if (message.id != null && message.id === editingMessageId) {
+                cls += ' editing';
+            }
+            return cls;
+        }
         if (message.role === 'assistant') return 'ai-msg-assistant';
         return 'ai-msg-tool';
     }

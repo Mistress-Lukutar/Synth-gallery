@@ -6268,6 +6268,10 @@ a.sidebar-ai-btn:hover {
     padding: 0.55rem 0.8rem;
 }
 
+.ai-msg-user.editing {
+    width: 85%;
+}
+
 .ai-msg-text {
     white-space: pre-wrap;
     word-break: break-word;
