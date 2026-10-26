@@ -21,7 +21,6 @@
     --danger: #ef4444;
     /* AI chat panel widths (shared by the panel and the content push rules) */
     --ai-chat-w: min(480px, calc(100vw - 260px));
-    --ai-chat-w-list: min(700px, calc(100vw - 260px));
 }
 
 body {
@@ -5860,10 +5859,6 @@ a.sidebar-ai-btn:hover {
     overflow: hidden;
 }
 
-.ai-chat-panel.with-list {
-    width: var(--ai-chat-w-list);
-}
-
 /* Desktop: the open panel pushes the page content aside instead of
    overlaying it (below 901px the panel covers the viewport instead). */
 @media (min-width: 901px) {
@@ -5872,9 +5867,26 @@ a.sidebar-ai-btn:hover {
         margin-left: calc(260px + var(--ai-chat-w));
     }
 
-    body.ai-chat-open.ai-chat-list-open .main-content {
-        width: calc(100% - 260px - var(--ai-chat-w-list));
-        margin-left: calc(260px + var(--ai-chat-w-list));
+    /* Desktop: the list is a fixed drawer at the viewport's left edge,
+       sliding in over the sidebar (z 150) instead of widening the panel. */
+    .ai-chat-list {
+        display: flex;
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 300px;
+        flex: none;
+        z-index: 170;
+        box-shadow: 6px 0 24px rgba(0, 0, 0, 0.45);
+        transform: translateX(-100%);
+        visibility: hidden;
+        transition: transform 0.3s ease, visibility 0.3s ease;
+    }
+
+    .ai-chat-panel.with-list .ai-chat-list {
+        transform: translateX(0);
+        visibility: visible;
     }
 }
 
@@ -5911,11 +5923,10 @@ a.sidebar-ai-btn:hover {
     flex-shrink: 0;
 }
 
-/* Desktop: the list is a static column next to the chat — no close
-   button (the header toggle covers it). Mobile shows it via media query.
-   Extra specificity: .ai-chat-icon-btn's display:flex comes later. */
+/* The fixed drawer covers the panel's header toggle while open, so
+   the list always needs its own close button. */
 .ai-chat-list-header .ai-chat-list-close {
-    display: none;
+    display: flex;
 }
 
 .ai-chat-list-title {
@@ -6912,10 +6923,6 @@ a.sidebar-ai-btn:hover {
         width: 100%;
     }
 
-    .ai-chat-panel.with-list {
-        width: 100%;
-    }
-
     .ai-chat-list {
         position: absolute;
         top: 0;
@@ -6923,12 +6930,6 @@ a.sidebar-ai-btn:hover {
         left: 0;
         z-index: 2;
         box-shadow: 6px 0 24px rgba(0, 0, 0, 0.45);
-    }
-
-    /* The overlaying list hides the header toggle — give it its own
-       close button (plus the swipe-left gesture). */
-    .ai-chat-list-header .ai-chat-list-close {
-        display: flex;
     }
 
     /* Keep the agent chip from squeezing out the chat title and badge. */
