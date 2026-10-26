@@ -5867,19 +5867,21 @@ a.sidebar-ai-btn:hover {
         margin-left: calc(260px + var(--ai-chat-w));
     }
 
-    /* Desktop: the list is a fixed drawer at the viewport's left edge,
-       sliding in over the sidebar (z 150) instead of widening the panel. */
-    .ai-chat-list {
+    /* Desktop: the list is a fixed 260px drawer flush with the panel's
+       left edge; it slides out leftward from under the panel (z 155 < 160)
+       and covers the 260px sidebar exactly. The scoped selector must
+       outrank the base .ai-chat-list rule further down the file. */
+    .ai-chat-panel .ai-chat-list {
         display: flex;
         position: fixed;
         top: 0;
         bottom: 0;
         left: 0;
-        width: 300px;
+        width: 260px;
         flex: none;
-        z-index: 170;
+        z-index: 155;
         box-shadow: 6px 0 24px rgba(0, 0, 0, 0.45);
-        transform: translateX(-100%);
+        transform: translateX(100%);
         visibility: hidden;
         transition: transform 0.3s ease, visibility 0.3s ease;
     }
@@ -5923,8 +5925,8 @@ a.sidebar-ai-btn:hover {
     flex-shrink: 0;
 }
 
-/* The fixed drawer covers the panel's header toggle while open, so
-   the list always needs its own close button. */
+/* The drawer sits beside the panel header, but keep a close button
+   on the list itself. */
 .ai-chat-list-header .ai-chat-list-close {
     display: flex;
 }
