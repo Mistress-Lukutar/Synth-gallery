@@ -634,6 +634,9 @@
     var renderScheduled = false;
     var initialized = false;
     var sending = false;
+    // turnActive: set while a turn is in flight (user message echoed → SSE stream ends).
+    // Bridges the gap before the first token so the typing indicator and Stop button are visible.
+    var turnActive = false;
     // Agents (GET /api/user/ai/agents) + the active one: the agent of the
     // open conversation, or the draft selection for new chats.
     var agents = [];
@@ -1347,7 +1350,7 @@
             editInput.focus();
         }
 
-        if (state.streaming) {
+        if (state.streaming || turnActive) {
             if (!els.typing) {
                 els.typing = document.createElement('div');
                 els.typing.className = 'ai-chat-typing';
@@ -1549,7 +1552,7 @@
 
     function renderComposer() {
         var pending = !!state.pendingVision || !!state.pendingToolConfirm;
-        var streaming = !!state.streaming;
+        var streaming = !!state.streaming || turnActive;
 
         els.input.disabled = pending;
         els.input.placeholder = pending
@@ -1976,6 +1979,9 @@
     async function streamChat(path, body) {
         var controller = new AbortController();
         abortController = controller;
+        // Every stream start is a turn in flight (send, vision/tool decision,
+        // retry): show pending state until the stream fully ends.
+        turnActive = true;
         renderComposer();
         try {
             var resp = await csrfFetch(baseUrl() + path, {
@@ -2012,6 +2018,7 @@
                 toast('Chat request failed', true);
             }
         } finally {
+            turnActive = false;
             abortController = null;
             if (state.streaming) {
                 state = applyChatEvent(state, { type: 'turn_done', stop_reason: 'stopped' });
@@ -2035,7 +2042,7 @@
     // ========================================================================
 
     function onSendButton() {
-        if (state.streaming && abortController) {
+        if ((state.streaming || turnActive) && abortController) {
             abortController.abort();
             return;
         }
@@ -2093,6 +2100,7 @@
             if (albumIds.length > 0) body.album_ids = albumIds;
 
             state = appendUserMessage(state, text, itemIds);
+            turnActive = true;
             els.input.value = '';
             autoResizeInput();
             attachedItems = [];
@@ -2102,6 +2110,7 @@
             await streamChat('/api/ai/chat/conversations/' + encodeURIComponent(convId) + '/messages', body);
         } finally {
             sending = false;
+            turnActive = false;
         }
     }
 
