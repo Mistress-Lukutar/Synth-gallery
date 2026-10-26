@@ -50,8 +50,14 @@
         }
 
         // Hide tags view before navigating to a folder.
+        // The stale folder content stays hidden until the new folder renders —
+        // restoring it here flashes the previous folder for the duration of the fetch.
         if (typeof window.isTagsViewVisible === 'function' && window.isTagsViewVisible()) {
             window.hideTagsView();
+            const staleGallery = document.getElementById('gallery');
+            if (staleGallery) staleGallery.style.display = 'none';
+            const staleHeader = document.querySelector('.folder-header');
+            if (staleHeader) staleHeader.style.display = 'none';
         }
 
         const gallery = document.getElementById('gallery');
@@ -168,9 +174,13 @@
             console.error('[renderFolderContent] Gallery element not found!');
             return;
         }
-        
+
+        // Undo the stale-content hiding from navigateToFolder (tags-view exit).
+        gallery.style.display = '';
+
         // Update folder header
         const folderHeader = document.querySelector('.folder-header');
+        if (folderHeader) folderHeader.style.removeProperty('display');
         if (folderHeader && data.folder) {
             const folderNameEl = folderHeader.querySelector('h2');
             if (folderNameEl) {
@@ -481,6 +491,18 @@
 
     // --- Tags view switch helpers ---
 
+    // Sidebar highlight: tags link lit while the tags view is open,
+    // folder items unlit (same pattern as the AI Chat toggle).
+    function syncTagsSidebarHighlight() {
+        const tagsLink = document.getElementById('tags-view-toggle');
+        if (tagsLink) tagsLink.classList.toggle('active', window.isTagsViewVisible());
+        if (window.isTagsViewVisible()) {
+            document.querySelectorAll('.folder-item.active').forEach(item => {
+                item.classList.remove('active');
+            });
+        }
+    }
+
     /** Return true when the in-gallery tags view is currently visible. */
     window.isTagsViewVisible = function isTagsViewVisible() {
         const tv = document.getElementById('tags-view');
@@ -529,6 +551,8 @@
             closeSidebar();
         }
 
+        syncTagsSidebarHighlight();
+
         return true;
     };
 
@@ -546,6 +570,8 @@
         }
         const gallery = document.getElementById('gallery');
         if (gallery) gallery.style.removeProperty('display');
+
+        syncTagsSidebarHighlight();
     };
 
     // --- End tags view switch helpers ---
