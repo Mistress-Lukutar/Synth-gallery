@@ -100,6 +100,72 @@
         return { event: event, data: data };
     }
 
+    /**
+     * Group conversations by agent for the chat list.
+     *
+     * Returns an ordered array of { key, agent, items }: the default-assistant
+     * group (agent = null, key = 'default') first, then one group per agent in
+     * `agents` order that has at least one conversation. Conversations whose
+     * agent_id is falsy or unknown (deleted agent; the server falls back to
+     * the default assistant) land in the default group. Input order is
+     * preserved within each group; inputs are never mutated.
+     */
+    function groupConversationsByAgent(conversations, agents) {
+        var result = [];
+        // Default-assistant group always comes first.
+        var defaultGroup = { key: 'default', agent: null, items: [] };
+        for (var i = 0; i < conversations.length; i++) {
+            var c = conversations[i];
+            // Known agent_ids are picked up by the per-agent loop below;
+            // only the default assistant owns everything else.
+            var known = false;
+            if (c.agent_id) {
+                for (var j = 0; j < agents.length; j++) {
+                    if (agents[j].id === c.agent_id) {
+                        known = true;
+                        break;
+                    }
+                }
+            }
+            if (!known) {
+                defaultGroup.items.push(c);
+            }
+        }
+        if (defaultGroup.items.length > 0) {
+            result.push(defaultGroup);
+        }
+
+        // One group per agent in `agents` order.
+        for (var a = 0; a < agents.length; a++) {
+            var ag = agents[a];
+            var items = [];
+            for (var k = 0; k < conversations.length; k++) {
+                if (conversations[k].agent_id === ag.id) {
+                    items.push(conversations[k]);
+                }
+            }
+            if (items.length > 0) {
+                result.push({ key: 'agent-' + ag.id, agent: ag, items: items });
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Parse the persisted collapsed-group map from JSON. Anything that is not
+     * a plain object (null, arrays, broken JSON) becomes {}.
+     */
+    function parseCollapsedGroups(raw) {
+        if (typeof raw !== 'string' || !raw) return {};
+        try {
+            var parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+            return {};
+        } catch (e) {
+            return {};
+        }
+    }
+
     // ========================================================================
     // Chat state (pure transitions)
     // ========================================================================
@@ -659,6 +725,26 @@
     // Server id of the user message currently being edited inline
     // (null = no edit box open).
     var editingMessageId = null;
+    // Collapsible group state: maps group key → truthy when collapsed.
+    var collapsedGroups = null;
+
+    var COLLAPSED_GROUPS_KEY = 'ai-chat-collapsed-groups';
+
+    function getCollapsedGroups() {
+        if (collapsedGroups) return collapsedGroups;
+        try {
+            collapsedGroups = parseCollapsedGroups(localStorage.getItem(COLLAPSED_GROUPS_KEY));
+        } catch (err) {
+            collapsedGroups = Object.create(null);
+        }
+        return collapsedGroups;
+    }
+
+    function persistCollapsedGroups() {
+        try {
+            localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups || {}));
+        } catch (err) { /* best effort */ }
+    }
 
     // ========================================================================
     // Panel shell (rendered once from a template string)
@@ -715,6 +801,11 @@
         panel.dataset.built = 'true';
 
         els.list = document.getElementById('ai-chat-list');
+        // Detach the list from the panel: the panel is a stacking context
+        // (position: fixed + z-index), and a descendant can never paint
+        // below its own ancestor — inside the panel the drawer would slide
+        // ABOVE the chat instead of out from under its left edge.
+        document.body.appendChild(els.list);
         els.listToggle = document.getElementById('ai-chat-list-toggle');
         els.listClose = document.getElementById('ai-chat-list-close');
         els.newBtn = document.getElementById('ai-chat-new-btn');
@@ -1727,7 +1818,9 @@
             if (s && s.active_agent_id) currentAgentId = s.active_agent_id;
         }
         // Full render: the restored agent must also update the welcome
-        // placeholder, not just the header chip.
+        // placeholder, not just the header chip. Agent names/icons may have
+        // arrived after the list was rendered; re-group conversations now.
+        renderConversations();
         render();
         renderAgentMenu();
     }
@@ -1828,16 +1921,42 @@
             els.conversations.innerHTML = '<p class="ai-chat-list-empty">No chats yet</p>';
             return;
         }
+        var iconFn = typeof window !== 'undefined' ? window.agentIconSvg : null;
+        var colorFn = typeof window !== 'undefined' ? window.agentColor : null;
+        var groups = groupConversationsByAgent(conversations, agents);
         var html = '';
-        for (var i = 0; i < conversations.length; i++) {
-            var c = conversations[i];
-            var active = c.id === conversationId;
-            html += '<div class="ai-chat-conversation-item' + (active ? ' active' : '') + '" data-conversation-id="' + esc(c.id) + '">' +
-                '<span class="ai-chat-conversation-title" title="' + esc(c.title || 'Untitled chat') + '">' + esc(c.title || 'Untitled chat') + '</span>' +
-                '<button type="button" class="ai-chat-conversation-delete" data-delete-id="' + esc(c.id) + '" title="Delete chat" aria-label="Delete chat">' +
-                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
-                '</button>' +
-                '</div>';
+        for (var g = 0; g < groups.length; g++) {
+            var group = groups[g];
+            var collapsed = getCollapsedGroups()[group.key];
+            // --- group header ---
+            var styleAttr = '';
+            if (group.agent && colorFn) {
+                styleAttr = ' style="color:' + esc(colorFn(group.agent.color_index)) + '"';
+            }
+            var iconMarkup = '';
+            if (iconFn) {
+                iconMarkup = iconFn(group.agent ? group.agent.icon : 'sparkles', 13);
+            }
+            var agentName = group.agent ? group.agent.name : 'Assistant';
+            html += '<div class="ai-chat-group-header' + (collapsed ? ' collapsed' : '') + '" data-group-key="' + esc(group.key) + '">' +
+                '<svg class="ai-chat-group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="6 9 12 15 18 9"/></svg>' +
+                '<span class="ai-chat-group-icon"' + styleAttr + '>' + iconMarkup + '</span>' +
+                '<span class="ai-chat-group-name">' + esc(agentName) + '</span>' +
+                '<button type="button" class="ai-chat-group-new" data-group-agent="' + esc(group.agent ? String(group.agent.id) : '') + '" title="New chat with ' + esc(agentName) + '" aria-label="New chat with ' + esc(agentName) + '">' +
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+                '</button></div>';
+            // --- conversation items (only when not collapsed) ---
+            if (!collapsed) {
+                for (var ci = 0; ci < group.items.length; ci++) {
+                    var c = group.items[ci];
+                    var active = c.id === conversationId;
+                    html += '<div class="ai-chat-conversation-item' + (active ? ' active' : '') + '" data-conversation-id="' + esc(c.id) + '">' +
+                        '<span class="ai-chat-conversation-title" title="' + esc(c.title || 'Untitled chat') + '">' + esc(c.title || 'Untitled chat') + '</span>' +
+                        '<button type="button" class="ai-chat-conversation-delete" data-delete-id="' + esc(c.id) + '" title="Delete chat" aria-label="Delete chat">' +
+                        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+                        '</button></div>';
+                }
+            }
         }
         els.conversations.innerHTML = html;
     }
@@ -1846,6 +1965,24 @@
         var del = e.target.closest('.ai-chat-conversation-delete');
         if (del) {
             deleteConversation(del.dataset.deleteId);
+            return;
+        }
+        // Group "new chat" button.
+        var newBtn = e.target.closest('.ai-chat-group-new');
+        if (newBtn) {
+            e.stopPropagation();
+            var raw = newBtn.dataset.groupAgent;
+            selectAgent(raw ? parseInt(raw, 10) : null);
+            return;
+        }
+        // Group header toggle.
+        var header = e.target.closest('.ai-chat-group-header');
+        if (header) {
+            var key = header.dataset.groupKey;
+            var groups = getCollapsedGroups();
+            groups[key] = !groups[key];
+            persistCollapsedGroups();
+            renderConversations();
             return;
         }
         var item = e.target.closest('.ai-chat-conversation-item');
@@ -2455,6 +2592,8 @@
             attachChipLabel: attachChipLabel,
             mergeAttachments: mergeAttachments,
             attachmentRequestIds: attachmentRequestIds,
+            groupConversationsByAgent: groupConversationsByAgent,
+            parseCollapsedGroups: parseCollapsedGroups,
         };
     }
 })();

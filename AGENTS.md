@@ -486,9 +486,25 @@ the default assistant (no agent = every tool, generic prompt).
   (`app/static/js/ai-agents-icons.js`) and must stay in sync. A restored
   agent (from `active_agent_id` or the conversation) updates the welcome
   placeholder too, not just the header chip.
+- **Desktop (≥901px)**: the chat list is a fixed 260px drawer flush with
+  the panel's left edge, sliding out leftward **from under the panel**
+  (`translateX(100%)` closed) and covering the sidebar exactly. The
+  drawer is detached to `document.body` in `buildPanel` — the panel is
+  a stacking context (fixed + z-index) and a descendant can never paint
+  below it, so inside the panel the slide-in would draw above the chat.
+  Root-level z-order: sidebar 150 < drawer 155 < panel 160 (mobile:
+  drawer 165 above the panel); the open/closed state is mirrored onto
+  `body.ai-chat-open.ai-chat-list-open` by `syncBodyClasses`.
+  Conversations
+  render grouped by agent (`groupConversationsByAgent` in `ai-chat.js`):
+  one collapsible block per agent (default assistant first, agents in
+  catalogue order, empty groups omitted, dangling `agent_id` → default),
+  each header carries a per-agent "new chat" button (`selectAgent`);
+  collapsed state persists in localStorage (`ai-chat-collapsed-groups`).
+  Jest: `tests/js/ai-chat-grouping.test.js`.
 - **Mobile (<901px)**: the chat-list column overlays the panel and hides
   the header toggle, so the list header carries its own close button
-  (`.ai-chat-list-close`, hidden on desktop) plus swipe gestures — swipe
+  (`.ai-chat-list-close`, shown on every viewport) plus swipe gestures — swipe
   left on the list closes it, swipe right from the left edge of the chat
   area opens it (same pattern as the gallery sidebar); picking a chat or
   "New chat" closes the overlay. The vision slot is shared by the vision
