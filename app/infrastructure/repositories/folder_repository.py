@@ -387,6 +387,10 @@ class FolderRepository(Repository):
                            )
                            SELECT id FROM subfolder_tree
                        )
+                       AND i.id NOT IN (
+                           SELECT cover_item_id FROM item_texts
+                           WHERE cover_item_id IS NOT NULL
+                       )
                    ) as item_count
             FROM folders f
             WHERE f.parent_id = ? AND (
@@ -450,6 +454,10 @@ class FolderRepository(Repository):
                       SELECT id FROM albums WHERE folder_id = ?
                   )
               )
+              AND i.id NOT IN (
+                  SELECT cover_item_id FROM item_texts
+                  WHERE cover_item_id IS NOT NULL
+              )
             ORDER BY i.uploaded_at DESC
         ''', (folder_id, folder_id))
         return [dict(row) for row in cursor.fetchall()]
@@ -491,6 +499,10 @@ class FolderRepository(Repository):
                                JOIN subfolder_tree ON child.parent_id = subfolder_tree.id
                            )
                            SELECT id FROM subfolder_tree
+                       )
+                       AND i.id NOT IN (
+                           SELECT cover_item_id FROM item_texts
+                           WHERE cover_item_id IS NOT NULL
                        )
                    ) as item_count,
                    CASE

@@ -331,7 +331,10 @@ class ItemRepository(Repository):
                 im.media_type, {flag_cols}
                FROM items i
                LEFT JOIN item_media im ON i.id = im.item_id
-               WHERE i.user_id = ? AND ({where_checks})'''
+               WHERE i.user_id = ? AND ({where_checks})
+               AND i.id NOT IN (
+                   SELECT cover_item_id FROM item_texts
+                   WHERE cover_item_id IS NOT NULL)'''
         params: list = [user_id]
         if folder_ids is not None:
             placeholders = ', '.join('?' * len(folder_ids))

@@ -83,3 +83,30 @@ class ItemTextRepository(Repository):
             (cover_item_id, item_id),
         )
         self._commit()
+
+    def get_cover_reference_count(self, cover_item_id: str, exclude_item_id: Optional[str] = None) -> int:
+        """Count how many notes reference ``cover_item_id`` as their cover.
+
+        Args:
+            cover_item_id: Media item UUID to check.
+            exclude_item_id: Note item UUID to exclude from the count
+                (e.g. the note being deleted).
+
+        Returns:
+            Number of item_texts rows where cover_item_id matches,
+            excluding the optional row.
+        """
+        if exclude_item_id is not None:
+            cursor = self._execute(
+                'SELECT COUNT(*) AS cnt FROM item_texts '
+                'WHERE cover_item_id = ? AND item_id != ?',
+                (cover_item_id, exclude_item_id),
+            )
+        else:
+            cursor = self._execute(
+                'SELECT COUNT(*) AS cnt FROM item_texts '
+                'WHERE cover_item_id = ?',
+                (cover_item_id,),
+            )
+        row = cursor.fetchone()
+        return row['cnt'] if row else 0

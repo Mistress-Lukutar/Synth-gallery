@@ -822,13 +822,37 @@ class ItemService:
         return self.item_repo.move_to_folder(item_id, folder_id)
 
     async def delete_item(self, item_id: str, user_id: int) -> bool:
-        '''Delete item and all its data including files.'''
+        '''Delete item and all its data including files.
+
+        If the item is a note with a cover image that no other note
+        references, the cover item is also deleted (files + row).
+        '''
         item = self.item_repo.get_by_id(item_id)
         if not item:
             return False
 
         if item['user_id'] != user_id:
             raise HTTPException(403, 'Not owner')
+
+        # --- Delete orphaned cover if this is a note with one ---
+        if item['type'] == 'note':
+            cover_item_id = None
+            text_row = self.text_repo.get_by_item_id(item_id)
+            if text_row:
+                cover_item_id = text_row.get('cover_item_id')
+
+            if cover_item_id:
+                cover = self.item_repo.get_by_id(cover_item_id)
+                if (
+                    cover
+                    and cover['user_id'] == user_id
+                    and self.text_repo.get_cover_reference_count(
+                        cover_item_id, exclude_item_id=item_id
+                    )
+                    == 0
+                ):
+                    await self._delete_item_files(cover_item_id)
+                    self.item_repo.delete(cover_item_id)
 
         await self._delete_item_files(item_id)
 

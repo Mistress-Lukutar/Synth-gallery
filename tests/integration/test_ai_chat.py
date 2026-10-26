@@ -30,6 +30,7 @@ from app.infrastructure.repositories import (
     FolderRepository,
     ItemMediaRepository,
     ItemRepository,
+    ItemTextRepository,
     UserRepository,
 )
 from app.infrastructure.services.encryption import (
@@ -1915,6 +1916,107 @@ def test_switch_branch_drops_pending_decisions(
     finally:
         ai_chat_service_module._pending_vision.pop("req-v", None)
         ai_chat_service_module._pending_confirmations.pop("req-c", None)
+
+
+# ============================================================================
+# Cover exclusion: list_folder, audit_library tools
+# ============================================================================
+
+def _seed_note_with_cover(db, folder_id, user_id, note_title="note.txt"):
+    """Create a note and a cover media item, link them; return (note_id, cover_id)."""
+    from app.infrastructure.services.encryption import EncryptionService
+    from app.infrastructure.storage import get_storage
+    import asyncio as _asyncio
+    import io
+
+    cover_id = ItemRepository(db).create(
+        item_type="media",
+        folder_id=folder_id,
+        user_id=user_id,
+        title="cover.jpg",
+    )
+    ItemMediaRepository(db).create(
+        cover_id,
+        media_type="image",
+        original_name="cover.jpg",
+        content_type="image/jpeg",
+        width=100,
+        height=100,
+        thumb_width=280,
+        thumb_height=100,
+    )
+    note_id = ItemRepository(db).create(
+        item_type="note",
+        folder_id=folder_id,
+        user_id=user_id,
+        title=note_title,
+    )
+    ItemTextRepository(db).create(
+        note_id,
+        content_type="text/plain",
+        original_name=note_title,
+        char_count=4,
+        line_count=1,
+    )
+    envelope = EncryptionService.encrypt_bytes(b"test", bytes(range(32)))
+    _asyncio.run(get_storage().upload(note_id, io.BytesIO(envelope), folder="uploads"))
+
+    db.execute(
+        "UPDATE item_texts SET cover_item_id = ? WHERE item_id = ?",
+        (cover_id, note_id),
+    )
+    db.commit()
+    return note_id, cover_id
+
+
+def test_list_folder_tool_excludes_cover(
+    db_connection, test_user, test_folder
+):
+    """A folder containing a note + its cover: list_folder returns the
+    cover's media entry with no other references but NOT the cover itself
+    (covers are excluded from standalone items)."""
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    note_id, cover_id = _seed_note_with_cover(
+        db_connection, test_folder, user_id, "cover-note.txt"
+    )
+
+    result = json.loads(TOOL_REGISTRY["list_folder"].executor(
+        {"folder_id": test_folder}, ToolContext(user_id=user_id)
+    ))
+
+    item_ids = [i["id"] for i in result["items"]]
+    # get_standalone_items is media-only, so the note won't appear.
+    # The cover (a media item) must NOT appear either.
+    assert cover_id[:12] not in item_ids, "cover must NOT appear in list_folder"
+
+
+def test_audit_library_tool_excludes_cover(
+    db_connection, test_user, test_folder, general_category
+):
+    """With checks that would flag the cover (e.g. no_tags), the cover must
+    not appear in audit results for the folder."""
+    from app.application.services.ai_tools import TOOL_REGISTRY, ToolContext
+
+    user_id = test_user["id"]
+    note_id, cover_id = _seed_note_with_cover(
+        db_connection, test_folder, user_id, "audit-note.txt"
+    )
+    # Give the note a tag so it's clean; cover has none → would be flagged.
+    ctx = ToolContext(user_id=user_id)
+    TOOL_REGISTRY["create_tags"].executor({"tag_names": ["sunset"]}, ctx)
+    TOOL_REGISTRY["add_item_tags"].executor(
+        {"item_id": note_id, "tag_names": ["sunset"]}, ctx
+    )
+
+    result = json.loads(TOOL_REGISTRY["audit_library"].executor(
+        {"checks": ["no_tags", "untitled"]}, ToolContext(user_id=user_id)
+    ))
+
+    by_id = {item["id"]: item for item in result["items"]}
+    assert cover_id[:12] not in by_id, "cover must NOT appear in audit results"
+    assert note_id[:12] not in by_id, "tagged note must NOT appear either"
 
 
 def test_tool_turns_chain_onto_the_branch(

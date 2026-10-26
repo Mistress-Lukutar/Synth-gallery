@@ -628,7 +628,9 @@ async def _tool_grep_library(args: dict, ctx: ToolContext) -> str:
                     for r in db.execute(
                         f"SELECT id, title, folder_id FROM items "
                         f"WHERE user_id = ? AND title IS NOT NULL AND title != ''"
-                        f"{folder_filter_sql}",
+                        f"{folder_filter_sql}"
+                        f" AND id NOT IN (SELECT cover_item_id "
+                        f"FROM item_texts WHERE cover_item_id IS NOT NULL)",
                         [ctx.user_id, *folder_filter_params],
                     ).fetchall()
                 ]
@@ -648,7 +650,9 @@ async def _tool_grep_library(args: dict, ctx: ToolContext) -> str:
                     for r in db.execute(
                         f"SELECT id, title, description, folder_id FROM items "
                         f"WHERE user_id = ? AND description IS NOT NULL "
-                        f"AND description != ''{folder_filter_sql}",
+                        f"AND description != ''{folder_filter_sql}"
+                        f" AND id NOT IN (SELECT cover_item_id "
+                        f"FROM item_texts WHERE cover_item_id IS NOT NULL)",
                         [ctx.user_id, *folder_filter_params],
                     ).fetchall()
                 ]
@@ -669,7 +673,9 @@ async def _tool_grep_library(args: dict, ctx: ToolContext) -> str:
                         f"SELECT i.id, i.title, i.folder_id, m.original_name "
                         f"FROM items i JOIN item_media m ON m.item_id = i.id "
                         f"WHERE i.user_id = ? AND m.original_name IS NOT NULL "
-                        f"AND m.original_name != ''{folder_filter_sql}",
+                        f"AND m.original_name != ''{folder_filter_sql}"
+                        f" AND i.id NOT IN (SELECT cover_item_id "
+                        f"FROM item_texts WHERE cover_item_id IS NOT NULL)",
                         [ctx.user_id, *folder_filter_params],
                     ).fetchall()
                 ]
@@ -714,7 +720,9 @@ async def _tool_grep_library(args: dict, ctx: ToolContext) -> str:
                         f"FROM items i JOIN item_media m ON m.item_id = i.id "
                         f"WHERE i.user_id = ? AND m.png_text_chunks IS NOT NULL "
                         f"AND m.png_text_chunks NOT IN ('', '{{}}')"
-                        f"{folder_filter_sql}",
+                        f"{folder_filter_sql}"
+                        f" AND i.id NOT IN (SELECT cover_item_id "
+                        f"FROM item_texts WHERE cover_item_id IS NOT NULL)",
                         [ctx.user_id, *folder_filter_params],
                     ).fetchall()
                 ]

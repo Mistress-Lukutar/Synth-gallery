@@ -455,6 +455,68 @@ class TestCoverHiddenFromListings:
         assert photo["id"] not in result_ids
         assert search["total"] == 0
 
+    def test_folder_tree_count_excludes_cover(
+            self, authenticated_client, db_connection, csrf_token,
+            test_image_bytes):
+        """GET /api/folders (list_with_metadata) must show item_count for
+        each folder without counting its note covers."""
+        from app.infrastructure.repositories import FolderRepository
+
+        parent = authenticated_client.post(
+            "/api/folders", json={"name": "parent"},
+            headers={"X-CSRF-Token": csrf_token},
+        ).json()["folder"]["id"]
+        sub = authenticated_client.post(
+            "/api/folders", json={"name": "subtree", "parent_id": parent},
+            headers={"X-CSRF-Token": csrf_token},
+        ).json()["folder"]["id"]
+
+        self._note_with_cover(
+            authenticated_client, sub, csrf_token, test_image_bytes
+        )
+
+        # Direct repo call: list_with_metadata must exclude cover.
+        tree = FolderRepository(db_connection).list_with_metadata(
+            db_connection.execute(
+                "SELECT id FROM users WHERE username = ?", ("testuser",)
+            ).fetchone()["id"]
+        )
+        sub_node = next((f for f in tree if f["id"] == sub), None)
+        assert sub_node is not None, "sub folder must appear in tree"
+        assert sub_node["item_count"] == 1  # only the note
+
+    def test_repo_get_subfolders_excludes_cover(
+            self, authenticated_client, db_connection, csrf_token,
+            test_image_bytes):
+        """FolderRepository.get_subfolders COUNT subquery excludes cover items.
+        Verified at repository level (the /content route overwrites with
+        count_items_by_folder, so the repo-level check is the regression guard)."""
+        from app.infrastructure.repositories import FolderRepository
+
+        parent = authenticated_client.post(
+            "/api/folders", json={"name": "parent"},
+            headers={"X-CSRF-Token": csrf_token},
+        ).json()["folder"]["id"]
+        sub = authenticated_client.post(
+            "/api/folders", json={"name": "subtree2", "parent_id": parent},
+            headers={"X-CSRF-Token": csrf_token},
+        ).json()["folder"]["id"]
+
+        self._note_with_cover(
+            authenticated_client, sub, csrf_token, test_image_bytes
+        )
+
+        user_id = db_connection.execute(
+            "SELECT id FROM users WHERE username = ?", ("testuser",)
+        ).fetchone()["id"]
+
+        subfolders = FolderRepository(db_connection).get_subfolders(
+            parent, user_id
+        )
+        sub_folder = next((f for f in subfolders if f["id"] == sub), None)
+        assert sub_folder is not None
+        assert sub_folder["item_count"] == 1  # note only, cover excluded
+
 
 class TestNoteMigration:
     """Revision 0007 adds and removes item_texts.cover_item_id."""
@@ -493,6 +555,89 @@ class TestNoteMigration:
         conn.close()
 
         db_module.get_engine().dispose()
+
+
+class TestCoverDeletion:
+    """Deleting a note with an orphaned cover also removes the cover."""
+
+    def test_delete_note_removes_unshared_cover(
+            self, authenticated_client, test_folder, csrf_token,
+            test_image_bytes):
+        """When a note's cover is referenced by no other note, deleting the
+        note cascades: storage files + items row for the cover disappear."""
+        note = _upload_note(authenticated_client, test_folder, csrf_token)
+        photo = _upload_photo(
+            authenticated_client, test_folder, csrf_token, test_image_bytes
+        )
+        resp = _put_json(
+            authenticated_client,
+            f"/api/items/{note['id']}/cover",
+            csrf_token, {"cover_item_id": photo["id"]},
+        )
+        assert resp.status_code == 200, resp.text
+
+        # Delete the note.
+        del_resp = authenticated_client.delete(
+            f"/api/items/{note['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert del_resp.status_code == 200
+
+        # Cover item row is gone.
+        cover_get = authenticated_client.get(f"/api/items/{photo['id']}")
+        assert cover_get.status_code == 404
+
+        # Cover absent from folder content.
+        content = authenticated_client.get(
+            f"/api/folders/{test_folder}/content"
+        ).json()
+        item_ids = [i["id"] for i in content["items"]]
+        assert photo["id"] not in item_ids
+
+        # Cover file serves 404.
+        file_resp = authenticated_client.get(f"/files/{photo['id']}")
+        assert file_resp.status_code == 404
+
+    def test_delete_note_preserves_shared_cover(
+            self, authenticated_client, test_folder, csrf_token,
+            test_image_bytes):
+        """Two notes sharing one cover: deleting the first note leaves the
+        cover alive; deleting the second note then removes it."""
+        photo = _upload_photo(
+            authenticated_client, test_folder, csrf_token, test_image_bytes
+        )
+        note1 = _upload_note(authenticated_client, test_folder, csrf_token)
+        note2 = _upload_note(
+            authenticated_client, test_folder, csrf_token, name="note2.md",
+            text="# second\n"
+        )
+
+        # Both notes share the same cover.
+        for nid in (note1["id"], note2["id"]):
+            resp = _put_json(
+                authenticated_client,
+                f"/api/items/{nid}/cover",
+                csrf_token, {"cover_item_id": photo["id"]},
+            )
+            assert resp.status_code == 200, resp.text
+
+        # Delete note1: cover survives.
+        del1 = authenticated_client.delete(
+            f"/api/items/{note1['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert del1.status_code == 200
+        cover_get = authenticated_client.get(f"/api/items/{photo['id']}")
+        assert cover_get.status_code == 200
+
+        # Delete note2: cover is now orphaned and gets removed.
+        del2 = authenticated_client.delete(
+            f"/api/items/{note2['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        assert del2.status_code == 200
+        cover_get2 = authenticated_client.get(f"/api/items/{photo['id']}")
+        assert cover_get2.status_code == 404
 
 
 class TestOrphanCleanupKeepsNotes:

@@ -648,3 +648,56 @@ def test_grep_context_chars_boundary(
     # The match 'fox' should be present; with context_chars=0 the surrounding
     # text is empty, but _grep_snippet adds '...' when the string is cut.
     assert "fox" in snippet
+
+
+# ============================================================================
+# Cover exclusion regression tests (grep_library)
+# ============================================================================
+
+def test_grep_titles_excludes_cover(
+    db_connection, test_user, test_folder
+):
+    """A media item used as a note cover must NOT appear in grep_library
+    titles source, even if its title matches the pattern.
+
+    Uses a unique UUID-derived title to avoid collisions with other tests
+    sharing the same session-scoped database.
+    """
+    import uuid
+    uid = uuid.uuid4().hex[:8]
+    cover_title = f"CoverGrepExclude{uid}"
+
+    ItemRepository(db_connection).create(
+        item_type="media", folder_id=test_folder, user_id=test_user["id"],
+        title=cover_title,
+    )
+    note_id = ItemRepository(db_connection).create(
+        item_type="note", folder_id=test_folder, user_id=test_user["id"],
+        title="a note",
+    )
+    # Create the item_texts row for the note (ItemRepository.create only
+    # inserts into items; item_texts is a separate detail table).
+    ItemTextRepository(db_connection).create(
+        note_id, content_type="text/plain", original_name="note.txt",
+        char_count=4, line_count=1,
+    )
+    cover_id = db_connection.execute(
+        "SELECT id FROM items WHERE title = ?", (cover_title,)
+    ).fetchone()["id"]
+
+    # Link the cover to the note.
+    db_connection.execute(
+        "UPDATE item_texts SET cover_item_id = ? WHERE item_id = ?",
+        (cover_id, note_id),
+    )
+    _commit(db_connection)
+
+    result = _call(
+        "grep_library",
+        {"pattern": f"CoverGrepExclude{uid}", "sources": ["titles"]},
+        test_user["id"],
+    )
+    titles_result = result["results"]["titles"]
+    assert titles_result["total"] == 0, (
+        f"cover '{cover_title}' should be excluded from grep results"
+    )
