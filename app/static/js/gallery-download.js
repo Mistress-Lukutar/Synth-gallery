@@ -23,6 +23,7 @@
     };
 
     let isDownloading = false;
+    let overrideItems = null; // Array<{id, mediaType}> set by openDownloadModal({items}); null = use gallery selection
 
     function init() {
         modal = document.getElementById('download-modal');
@@ -75,26 +76,38 @@
         });
     }
 
-    // Count selected standalone items by media type using the DOM dataset
+    // Count selected standalone items by media type using the DOM dataset.
+    // When overrideItems is set, use that array directly instead of DOM lookups.
     function buildSummary() {
         const photos = window.selectedPhotos || new Set();
         const albums = window.selectedAlbums || new Set();
 
         let images = 0;
         let videos = 0;
-        photos.forEach((id) => {
-            const el = document.querySelector(`.gallery-item[data-item-id="${id}"]`);
-            if (el && el.dataset.mediaType === 'video') {
-                videos++;
-            } else {
-                images++;
-            }
-        });
+
+        if (overrideItems !== null) {
+            overrideItems.forEach((it) => {
+                if (it.mediaType === 'video') {
+                    videos++;
+                } else {
+                    images++;
+                }
+            });
+        } else {
+            photos.forEach((id) => {
+                const el = document.querySelector(`.gallery-item[data-item-id="${id}"]`);
+                if (el && el.dataset.mediaType === 'video') {
+                    videos++;
+                } else {
+                    images++;
+                }
+            });
+        }
 
         const parts = [];
         if (images > 0) parts.push(`${images} image${images > 1 ? 's' : ''}`);
         if (videos > 0) parts.push(`${videos} video${videos > 1 ? 's' : ''}`);
-        if (albums.size > 0) parts.push(`${albums.size} album${albums.size > 1 ? 's' : ''}`);
+        if (!overrideItems && albums.size > 0) parts.push(`${albums.size} album${albums.size > 1 ? 's' : ''}`);
 
         summaryEl.textContent = `Selected: ${parts.join(', ')}`;
     }
@@ -153,8 +166,8 @@
     async function startDownload() {
         if (isDownloading) return;
 
-        const itemIds = Array.from(window.selectedPhotos || []);
-        const albumIds = Array.from(window.selectedAlbums || []);
+        const itemIds = overrideItems ? overrideItems.map((it) => it.id) : Array.from(window.selectedPhotos || []);
+        const albumIds = overrideItems ? [] : Array.from(window.selectedAlbums || []);
         if (itemIds.length === 0 && albumIds.length === 0) return;
 
         isDownloading = true;
@@ -195,11 +208,24 @@
         }
     }
 
-    window.openDownloadModal = function() {
+    /**
+     * Open the download format/quality modal.
+     * @param {Object} [opts] - optional options
+     * @param {Array<{id: string, mediaType?: 'image'|'video'}>} [opts.items] - explicit item list;
+     *   when given, the modal downloads exactly these items instead of the gallery selection.
+     */
+    window.openDownloadModal = function(opts) {
+        opts = opts || {};
+        const items = Array.isArray(opts.items) ? opts.items.filter((it) => it && typeof it.id === 'string') : null;
+        overrideItems = items;
+        if (overrideItems !== null && overrideItems.length === 0) return;
+
         if (!modal) return;
-        const photos = window.selectedPhotos || new Set();
-        const albums = window.selectedAlbums || new Set();
-        if (photos.size === 0 && albums.size === 0) return;
+        if (!overrideItems) {
+            const photos = window.selectedPhotos || new Set();
+            const albums = window.selectedAlbums || new Set();
+            if (photos.size === 0 && albums.size === 0) return;
+        }
 
         buildSummary();
         updateFormatBlocks();
@@ -212,6 +238,7 @@
 
     window.closeDownloadModal = function() {
         if (!modal) return;
+        overrideItems = null;
         modal.classList.add('hidden');
 
         if (window.BackButtonManager) {

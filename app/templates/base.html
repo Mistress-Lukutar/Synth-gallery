@@ -34,6 +34,8 @@
     <script src="{{ base_url }}/static/js/sidebar.js?v={{ app_version }}"></script>
     <!-- Upload -->
     <script src="{{ base_url }}/static/js/upload.js?v={{ app_version }}"></script>
+    <!-- Global hotkey registry (must load before modules that register shortcuts) -->
+    <script src="{{ base_url }}/static/js/hotkeys.js?v={{ app_version }}"></script>
     <!-- Gallery modules (load after DOM) -->
     <script src="{{ base_url }}/static/js/gallery-masonry.js?v={{ app_version }}"></script>
     <script src="{{ base_url }}/static/js/gallery-selection.js?v={{ app_version }}"></script>

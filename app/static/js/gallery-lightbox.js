@@ -41,6 +41,7 @@
 
     let lightbox = null;
     let currentPhotoId = null;
+    let currentMediaType = null; // 'image' | 'video' | null (notes) — used by hotkeys
     let currentPhotos = [];
     let currentIndex = 0;
     
@@ -204,6 +205,21 @@
                 window.navigateLightbox(1);
             }
         });
+
+        // Shift+D: download dialog for the item on screen (hotkey registry in hotkeys.js)
+        if (window.Hotkeys) {
+            window.Hotkeys.register('Shift+D', () => {
+                if (!currentPhotoId) return;
+                if (typeof window.openDownloadModal !== 'function') return;
+                const downloadModal = document.getElementById('download-modal');
+                if (downloadModal && !downloadModal.classList.contains('hidden')) return; // already open
+                window.openDownloadModal({ items: [{ id: currentPhotoId, mediaType: currentMediaType }] });
+            }, {
+                when: () => !lightbox.classList.contains('hidden')
+                    && !lightbox.classList.contains('note-mode')
+                    && !isEditingText()
+            });
+        }
 
         // Close on overlay click
         const overlay = lightbox.querySelector('.lightbox-overlay');
@@ -871,6 +887,7 @@
         window.clearAlbumContext();
         // Clear current photo ID
         window.currentLightboxPhotoId = null;
+        currentMediaType = null;
         
         // Remove photo_id from URL
         const url = new URL(window.location.href);
@@ -1111,6 +1128,8 @@
             // Update current photo ID
             currentPhotoId = photoId;
             window.currentLightboxPhotoId = photoId;  // For tag editor compatibility
+
+            currentMediaType = photo.media_type || null;
 
             // Reader mode for notes: centered document column with its own
             // toolbar (close/edit), no arrow/swipe navigation.
