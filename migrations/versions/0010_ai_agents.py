@@ -1,4 +1,11 @@
-"""AI agents: per-user assistants with system prompts and tool allow-lists.
+'''
+File:   0010_ai_agents.py
+Brief:  Alembic revision 0010 - ai agents.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+AI agents: per-user assistants with system prompts and tool allow-lists.
 
 Revision ID: 0010
 Revises: 0009
@@ -16,7 +23,7 @@ Introduces:
 Both new columns deliberately carry no FOREIGN KEY, mirroring
 ``ai_chat_settings.active_provider_id``: agents can be deleted freely and
 the application layer clears dangling references.
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import column_exists, recreate_table_without_column

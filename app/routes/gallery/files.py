@@ -2,7 +2,8 @@
 File:   files.py
 Brief:  File serving routes for gallery media (streaming + HTTP Range).
 Author: Mistress-Lukutar
-Date:   2026-07-23
+Date:   2026-10-27
+Version: v2.1.0
 '''
 import io
 from pathlib import Path
@@ -27,7 +28,6 @@ from app.routes.gallery.deps import get_permission_service
 router = APIRouter()
 logger = get_logger(__name__)
 
-# Storage backend used by all routes in this module.
 storage = get_storage()
 
 

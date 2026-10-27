@@ -1,4 +1,10 @@
-"""
+'''
+File:   test_tag_search.py
+Brief:  Tag search endpoint regression tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Tag search endpoint regression tests.
 
 These endpoints power the search-box suggestions and the tag-input
@@ -7,8 +13,7 @@ broke all of them at once (500 on every keystroke), so each WHERE variant
 is covered here:
 - GET /api/tags/search  (repository search(): WHERE + relevance CASE)
 - GET /api/tags?q=      (repository list_tags(): LIKE condition + LIMIT/OFFSET)
-- GET /api/tags         (unpaginated use by /api/ai/tags, limit=None)
-"""
+- GET /api/tags         (unpaginated use by /api/ai/tags, limit=None)'''
 import pytest
 from fastapi.testclient import TestClient
 

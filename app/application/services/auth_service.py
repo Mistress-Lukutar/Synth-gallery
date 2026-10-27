@@ -1,4 +1,10 @@
-"""Authentication service - handles login/logout and session management."""
+'''
+File:   auth_service.py
+Brief:  Authentication service - handles login/logout and session management.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from typing import Optional, Tuple
 
 import secrets

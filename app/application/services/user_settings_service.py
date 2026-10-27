@@ -1,11 +1,16 @@
-"""User settings service - handles user preferences and settings.
+'''
+File:   user_settings_service.py
+Brief:  User settings service - handles user preferences and settings.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This service encapsulates business logic for:
 - Default folder management
 - Collapsed folders state
 - Sort preferences
 - User encryption keys
-"""
+'''
 from typing import Optional, List
 
 from fastapi import HTTPException

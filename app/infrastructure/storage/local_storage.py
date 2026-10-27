@@ -1,4 +1,10 @@
-"""Local filesystem storage implementation."""
+'''
+File:   local_storage.py
+Brief:  Local filesystem storage implementation.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import shutil
 from pathlib import Path
 from typing import BinaryIO, Optional, Union, Iterator
@@ -95,7 +101,6 @@ class LocalStorage(StorageInterface):
         """Upload file to local filesystem."""
         file_path = self._get_path(file_id, folder)
         
-        # Create parent directory if needed
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
         try:
@@ -103,7 +108,6 @@ class LocalStorage(StorageInterface):
                 async with aiofiles.open(file_path, 'wb') as f:
                     await f.write(content)
             else:
-                # Copy from file-like object
                 async with aiofiles.open(file_path, 'wb') as f:
                     while True:
                         chunk = content.read(8192)  # 8KB chunks

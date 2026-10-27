@@ -1,26 +1,29 @@
-"""
-Minimal working example - показывает как тестировать с CSRF.
-Запуск: pytest tests/test_minimal_example.py -v
-"""
+'''
+File:   test_minimal_example.py
+Brief:  Minimal working example showing how to test with CSRF.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Minimal working example - shows how to test with CSRF.
+Run: pytest tests/test_minimal_example.py -v
+'''
 import pytest
 from fastapi.testclient import TestClient
 from app.config import CSRF_COOKIE_NAME
 
 
 def test_upload_with_csrf(authenticated_client: TestClient, test_folder: str):
-    """Пример: загрузка файла с CSRF токеном."""
+    """Example: uploading a file with a CSRF token."""
     from PIL import Image
     import io
     
-    # Создаём тестовое изображение
     img = Image.new('RGB', (100, 100), color='red')
     buf = io.BytesIO()
     img.save(buf, format='JPEG')
     
-    # Получаем CSRF токен
     csrf_token = authenticated_client.cookies.get(CSRF_COOKIE_NAME, "")
     
-    # Загружаем с заголовком CSRF
     response = authenticated_client.post(
         "/api/uploads",
         data={"folder_id": test_folder},
@@ -28,7 +31,6 @@ def test_upload_with_csrf(authenticated_client: TestClient, test_folder: str):
         headers={"X-CSRF-Token": csrf_token}
     )
     
-    # Проверяем успех
     assert response.status_code == 200
     data = response.json()
     assert "id" in data
@@ -37,11 +39,10 @@ def test_upload_with_csrf(authenticated_client: TestClient, test_folder: str):
 
 
 def test_folder_tree_api(authenticated_client: TestClient):
-    """Пример: получение дерева папок."""
+    """Example: getting the folder tree."""
     response = authenticated_client.get("/api/folders/tree")
     
-    # API может вернуть 405 если endpoint не существует
-    # или 200 если всё ок
+    # The API may answer 405 when the endpoint does not exist, or 200 when it does.
     if response.status_code == 200:
         folders = response.json()
         print(f"✅ Found {len(folders)} folders")

@@ -1,4 +1,10 @@
-"""Tag suggestion service - related tags and contextual recommendations."""
+'''
+File:   tag_suggestion_service.py
+Brief:  Tag suggestion service - related tags and contextual recommendations.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import math
 from typing import List, Dict, Optional
 

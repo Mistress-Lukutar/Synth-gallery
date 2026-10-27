@@ -1,4 +1,10 @@
-"""User settings routes - profile, password, recovery key."""
+'''
+File:   user_settings.py
+Brief:  User settings routes - profile, password, recovery key.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel
 

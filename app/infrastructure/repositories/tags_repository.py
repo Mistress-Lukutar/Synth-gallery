@@ -1,4 +1,10 @@
-"""Tags repository - flat tag management with implication support."""
+'''
+File:   tags_repository.py
+Brief:  Tags repository - flat tag management with implication support.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from typing import Optional, List, Dict
 
 from .base import Repository
@@ -226,7 +232,7 @@ class TagsRepository(Repository):
         """
         self._replace_tag_on_items(tag_id, target_tag_id)
 
-        # Recalculate source tag usage count (should be zero after move)
+        # Old tag should end up with zero usage after the move.
         self._execute(
             """
             UPDATE tags SET usage_count = (

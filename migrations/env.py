@@ -1,4 +1,9 @@
-"""Alembic migration environment for Synth Gallery.
+'''
+File:   env.py
+Brief:  Alembic migration environment for Synth Gallery.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 The engine is obtained from app.database.get_engine(), which honours the
 SYNTH_DB_PATH environment variable (and the test suite's per-test path
@@ -7,7 +12,7 @@ patching), so no URL is configured in alembic.ini.
 Migrations intentionally run WITHOUT an enclosing transaction: the SQLite
 driver's transaction semantics (implicit commit around DDL, PRAGMA
 no-ops inside transactions) are what the table-rebuild helpers rely on.
-"""
+'''
 from alembic import context
 
 from app.database import get_engine

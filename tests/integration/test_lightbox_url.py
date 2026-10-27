@@ -1,12 +1,17 @@
-"""
+'''
+File:   test_lightbox_url.py
+Brief:  Lightbox URL with photo_id tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Lightbox URL with photo_id tests.
 
 Verifies:
 - URL includes photo_id when lightbox is open
 - URL removes photo_id when lightbox is closed
 - Direct URL with photo_id opens lightbox
-- Navigation updates photo_id in URL
-"""
+- Navigation updates photo_id in URL'''
 from fastapi.testclient import TestClient
 from app.config import CSRF_COOKIE_NAME
 

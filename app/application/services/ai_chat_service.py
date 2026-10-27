@@ -1,4 +1,9 @@
-"""AI chat orchestrator - turns the stored chat into LLM calls and back.
+'''
+File:   ai_chat_service.py
+Brief:  AI chat orchestrator - turns stored chat into LLM calls and back.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 The service owns the tool-execution loop: it replays stored messages as
 provider-agnostic LLM turns, streams the model's answer to the route as
@@ -15,7 +20,7 @@ enforced again at execution time.
 
 LLM access goes through the module-level :func:`_get_llm_client` and
 nowhere else, so tests can substitute a fake client at a single point.
-"""
+'''
 from __future__ import annotations
 
 import asyncio
@@ -809,9 +814,6 @@ class AiChatService:
                 async for event in inner:
                     yield event
             finally:
-                # Deterministically close the inner generator so its
-                # finally-block (partial-text persistence) runs while the
-                # caller's connection is still open.
                 await inner.aclose()
         finally:
             self._release_slot(user_id)
@@ -1101,11 +1103,6 @@ class AiChatService:
         usage_reported = False
         interrupted = False
         try:
-            # The agent is resolved once per turn: tool filtering, prompt
-            # assembly and execution-time enforcement all use the same
-            # allow-list. Memory tools join it while memory is enabled;
-            # the index is read once per turn and reused on every prompt
-            # rebuild inside the iteration loop.
             conversation = self.chat_repo.get_conversation(
                 conversation_id, user_id
             )
@@ -1267,7 +1264,6 @@ class AiChatService:
             raise
         finally:
             if interrupted and not text_persisted and accumulated:
-                # Persist the partial answer before releasing the user slot.
                 try:
                     self.chat_repo.add_message(
                         conversation_id,

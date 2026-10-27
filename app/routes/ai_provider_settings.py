@@ -1,9 +1,14 @@
-"""Per-user AI provider settings routes - providers, models, chat settings.
+'''
+File:   ai_provider_settings.py
+Brief:  Per-user AI provider settings routes - providers, models, chat settings.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 API keys are stored encrypted with the user's DEK, so every endpoint
 requires both an authenticated user and a DEK available in the session
 cache (403 otherwise).
-"""
+'''
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request

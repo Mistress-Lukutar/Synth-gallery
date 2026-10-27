@@ -1,11 +1,17 @@
-"""
+'''
+File:   test_sort_preference.py
+Brief:  Sort preference persistence tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Sort preference persistence tests.
 
 Verifies:
 - Sort preference saved per folder
 - Sort preference retrieved correctly
-- Sort preference defaults to 'uploaded'
-"""
+- Sort preference defaults to ``'uploaded'``'''
+
 from fastapi.testclient import TestClient
 from app.config import CSRF_COOKIE_NAME
 

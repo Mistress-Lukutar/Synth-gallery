@@ -1,7 +1,12 @@
-"""User repository - handles all user-related database operations.
+'''
+File:   user_repository.py
+Brief:  User repository - handles all user-related database operations.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This is the NEW implementation. Old functions in database.py now delegate here.
-"""
+'''
 import bcrypt
 
 from .base import Repository
@@ -116,7 +121,6 @@ class UserRepository(Repository):
         # Delete sessions first (foreign key constraint)
         self._execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         
-        # Delete user
         cursor = self._execute("DELETE FROM users WHERE id = ?", (user_id,))
         self._commit()
         return cursor.rowcount > 0

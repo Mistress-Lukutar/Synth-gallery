@@ -1,11 +1,16 @@
-"""AI agent service - CRUD, validation and built-in seeding.
+'''
+File:   ai_agent_service.py
+Brief:  AI agent service - CRUD, validation and built-in seeding.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Agents are per-user rows in ``ai_agents``: a system prompt plus an
 explicit tool allow-list. Three built-in agents (Tagger, Librarian,
 Curator) are seeded idempotently per user from :data:`BUILTIN_AGENTS`;
 re-seeding on every list call rolls prompt improvements out to existing
 installations while keeping row ids stable.
-"""
+'''
 import json
 from typing import List
 
@@ -254,8 +259,6 @@ class AiAgentService:
     def create_agent(self, user_id: int, fields: dict) -> dict:
         """Create a custom agent from validated request fields."""
         validated = dict(self._validate_fields(fields, partial=False))
-        # create() takes the allow-list as a plain list; update() writes
-        # the serialized column value.
         validated["tools"] = json.loads(validated.pop("tools_json", "[]"))
         agent_id = self.agent_repo.create(user_id=user_id, **validated)
         return self.agent_repo.get_by_id(agent_id, user_id)

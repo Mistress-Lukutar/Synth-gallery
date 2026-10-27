@@ -2,7 +2,8 @@
 File:   deps.py
 Brief:  Shared dependencies for gallery routes.
 Author: Mistress-Lukutar
-Date:   2026-07-13
+Date:   2026-10-27
+Version: v2.1.0
 '''
 from app.application.services import FolderService, PermissionService, AlbumService
 from app.infrastructure.repositories import (

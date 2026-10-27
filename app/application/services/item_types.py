@@ -2,7 +2,8 @@
 File:   item_types.py
 Brief:  Typed item-type registry - single source of truth for polymorphic items.
 Author: Mistress-Lukutar
-Date:   2026-07-23
+Date:   2026-10-27
+Version: v2.1.0
 
 Each polymorphic ``items.type`` (``media`` today; ``note`` / ``audio`` /
 ``model`` in the future) is described by an :class:`ItemTypeSpec` that

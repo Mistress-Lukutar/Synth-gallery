@@ -1,4 +1,10 @@
-"""Tag management page routes - admin-style page for CRUD and implications."""
+'''
+File:   admin_tags.py
+Brief:  Tag management page routes - admin CRUD and implications.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from typing import Optional
 from urllib.parse import quote
 

@@ -1,4 +1,11 @@
-"""v2 polymorphic item schema: drop dead item_media columns, add CHECKs.
+'''
+File:   0002_v2_polymorphic_schema.py
+Brief:  Alembic revision 0002 - v2 polymorphic schema.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+v2 polymorphic item schema: drop dead item_media columns, add CHECKs.
 
 Revision ID: 0002
 Revises: 0001
@@ -14,7 +21,7 @@ Create Date: 2026-08-21
 Applied idempotently: freshly created (post-0001) databases already have
 the new shape and this revision only takes a backup when there is
 something to rebuild.
-"""
+'''
 from alembic import op
 
 from app.database import DATABASE_PATH

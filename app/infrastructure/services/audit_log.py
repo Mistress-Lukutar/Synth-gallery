@@ -1,8 +1,13 @@
-"""Audit logging for security events.
+'''
+File:   audit_log.py
+Brief:  Audit logging for security events.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
-Logs to a dedicated file (logs/security.log) using Python's logging module.
-All events are written as JSON lines for easy parsing.
-"""
+Logs to a dedicated file (logs/security.log) using Python's logging
+module. All events are written as JSON lines for easy parsing.
+'''
 import json
 import logging
 import os

@@ -1,4 +1,11 @@
-"""AI chat: per-user provider tables; drop the legacy AI tagging queue.
+'''
+File:   0009_ai_chat.py
+Brief:  Alembic revision 0009 - ai chat.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+AI chat: per-user provider tables; drop the legacy AI tagging queue.
 
 Revision ID: 0009
 Revises: 0008
@@ -17,7 +24,7 @@ The legacy AI tagging queue tables (``ai_tagging_jobs``, ``ai_api_keys``)
 are dropped; the application code referencing them was removed in the same
 release. The downgrade recreates both with their original schema (the
 columns that used to be ALTER-backfilled are folded into the CREATE).
-"""
+'''
 from alembic import op
 
 # revision identifiers, used by Alembic.

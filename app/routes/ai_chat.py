@@ -1,4 +1,9 @@
-"""Built-in AI chat routes - conversations, streamed turns, vision decisions.
+'''
+File:   ai_chat.py
+Brief:  Built-in AI chat routes - conversations, streamed turns, vision decisions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Turn events are delivered as Server-Sent Events. Event names/payloads:
 
@@ -13,7 +18,7 @@ Turn events are delivered as Server-Sent Events. Event names/payloads:
 - ``turn_done``      {"stop_reason": str, "usage": {"input_tokens": int,
                       "output_tokens": int}|null}
 - ``error``          {"message": str}
-"""
+'''
 import json
 from typing import List, Optional
 

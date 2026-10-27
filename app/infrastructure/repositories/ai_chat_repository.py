@@ -1,4 +1,9 @@
-"""AI chat repository - conversations and messages.
+'''
+File:   ai_chat_repository.py
+Brief:  AI chat repository - conversations and messages.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Conversations are per-user chat threads; messages are stored with a JSON
 ``parts`` column so a single row can carry text, tool calls and tool
@@ -7,7 +12,7 @@ the storage layer.
 
 SQLite foreign-key cascades are not relied upon: deleting a conversation
 removes its messages explicitly first.
-"""
+'''
 import json
 import uuid
 from typing import Optional, List
@@ -106,7 +111,6 @@ class AiChatRepository(Repository):
         """
         if self.get_conversation(conversation_id, user_id) is None:
             return False
-        # Children first, then the conversation itself.
         self._execute(
             "DELETE FROM ai_messages WHERE conversation_id = ?",
             (conversation_id,),

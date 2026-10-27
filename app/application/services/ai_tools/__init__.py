@@ -1,9 +1,14 @@
-"""AI tools package - tools the built-in chat model may call.
+'''
+File:   __init__.py
+Brief:  AI tools package - tools the built-in chat model may call.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 ``TOOL_REGISTRY`` maps tool names to :class:`ToolDef` entries;
 ``TOOL_SPECS`` is the provider-agnostic list advertised with every
 ``ChatRequest``.
-"""
+'''
 from ....infrastructure.services.llm.types import ToolSpec
 from .base import ToolContext, ToolDef, ToolError, VisionRequestSignal
 from .registry import MEMORY_TOOL_NAMES, TOOL_REGISTRY

@@ -1,4 +1,9 @@
-"""Integration tests for per-user AI provider settings (migration 0009).
+'''
+File:   test_ai_providers.py
+Brief:  Integration tests for per-user AI provider settings (migration 0009).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers the 0009 migration (new AI chat tables, legacy queue dropped),
 the provider/model/settings repositories, the AiProviderService and the
@@ -6,7 +11,7 @@ the provider/model/settings repositories, the AiProviderService and the
 
 The global app fixture does not include this router, so each test builds
 its own FastAPI app with a fake-auth middleware.
-"""
+'''
 import sqlite3
 
 import pytest

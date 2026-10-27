@@ -4221,7 +4221,6 @@ main {
     background: var(--bg-secondary);
 }
 
-/* ============ Folder Picker Modal ============ */
 .folder-picker-content {
     max-width: 400px;
     max-height: 80vh;

@@ -1,10 +1,15 @@
-"""AI chat settings repository - per-user active provider/model selection.
+'''
+File:   ai_chat_settings_repository.py
+Brief:  AI chat settings repository - per-user active provider/model selection.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 One row per user (``user_id`` is the primary key). ``active_provider_id``
 deliberately has no foreign key: providers can be deleted freely and the
 service layer clears the dangling reference application-side via
 :meth:`clear_active_provider`.
-"""
+'''
 from .base import Repository
 
 

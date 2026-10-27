@@ -1,10 +1,15 @@
-"""Integration tests for the built-in AI chat orchestrator.
+'''
+File:   test_ai_chat.py
+Brief:  Integration tests for the built-in AI chat orchestrator.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers the chat repository, the streamed turn pipeline (plain answers,
 tool flows, vision approval/denial, iteration cap) and the /api/ai/chat
 routes, using a scripted fake LLM client patched in at the service's
 single ``_get_llm_client`` access point.
-"""
+'''
 import asyncio
 import base64
 import json

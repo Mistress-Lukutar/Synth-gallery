@@ -1,10 +1,15 @@
-"""AI tool registry - the tools the chat model may call.
+'''
+File:   registry.py
+Brief:  AI tool registry - the tools the chat model may call.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Every executor opens its own database connection (closed in ``finally``),
 scopes every query by the requesting user and returns a plain-text JSON
 result for the model. Long results are truncated by the chat orchestrator,
 not here.
-"""
+'''
 from __future__ import annotations
 
 import base64

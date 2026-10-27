@@ -1,4 +1,11 @@
-"""AI memory: per-user toggle + private memory folder.
+'''
+File:   0014_ai_memory.py
+Brief:  Alembic revision 0014 - ai memory.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+AI memory: per-user toggle + private memory folder.
 
 Revision ID: 0014
 Revises: 0013
@@ -14,7 +21,7 @@ Introduces:
                                          deleting the folder clears the
                                          reference application-side via
                                          :meth:`clear_memory_folder`.
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import column_exists, recreate_table_without_column

@@ -1,4 +1,9 @@
-"""Integration tests for the albums.name NOT NULL migration and validation.
+'''
+File:   test_album_name_not_null.py
+Brief:  Integration tests for the albums.name NOT NULL migration and validation.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers:
 - Fresh databases create albums.name as NOT NULL and reject NULL inserts
@@ -6,7 +11,7 @@ Covers:
   a deterministic 'Untitled (id8)' name, rebuilds the table with the
   constraint and preserves album_items + indexes
 - The album API rejects empty names on create and rename
-"""
+'''
 import sqlite3
 
 import pytest

@@ -1,10 +1,15 @@
-"""Integration tests for the AI chat tag tools.
+'''
+File:   test_ai_tools_tags.py
+Brief:  Integration tests for the AI chat tag tools.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Tool-level tests (no LLM involved): executors are called directly with a
 ``ToolContext``, mirroring test_ai_tools_files.py. Covers the batch
 get_tag_info (bulk resolve + implications) and the list_tags browse tool
 with its category filter.
-"""
+'''
 import json
 
 import pytest

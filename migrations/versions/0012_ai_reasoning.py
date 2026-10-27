@@ -1,4 +1,11 @@
-"""AI reasoning control: per-model capability + per-user effort choice.
+'''
+File:   0012_ai_reasoning.py
+Brief:  Alembic revision 0012 - ai reasoning.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+AI reasoning control: per-model capability + per-user effort choice.
 
 Revision ID: 0012
 Revises: 0011
@@ -15,7 +22,7 @@ Introduces:
                                       in the chat composer (NULL = provider
                                       default; semantics depend on the
                                       active model's effective style).
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import column_exists, recreate_table_without_column

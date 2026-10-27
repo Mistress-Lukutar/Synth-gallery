@@ -1,10 +1,16 @@
-"""Integration tests for AI agents: CRUD, chat integration, confirmations.
+'''
+File:   test_ai_agents.py
+Brief:  Integration tests for AI agents.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Integration tests for AI agents: CRUD, chat integration, confirmations.
 
 Covers built-in seeding, agent CRUD (built-ins immutable), conversations
 bound to an agent (tool filtering + prompt), and the mutation-approval
 flow: mutating tools pause the turn for the user's decision, with an
-optional "always allow in this chat" memory.
-"""
+optional "always allow in this chat" memory.'''
 import json
 
 import pytest

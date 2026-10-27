@@ -1,4 +1,9 @@
-"""AI memory service - per-user persistent memory stored in the gallery.
+'''
+File:   ai_memory_service.py
+Brief:  AI memory service - per-user persistent memory stored in the gallery.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Memory is a per-user opt-in: one private folder holds a ``MEMORY.md``
 index note (always embedded into the chat system prompt while memory is
@@ -12,7 +17,7 @@ deliberately imports only repositories/encryption/storage - importing
 the ``ai_tools`` package here would be circular (the registry imports
 application services). Failures are raised as :class:`ValueError` and
 translated into ``ToolError`` by the tools.
-"""
+'''
 from __future__ import annotations
 
 import io

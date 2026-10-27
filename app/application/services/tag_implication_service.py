@@ -1,4 +1,10 @@
-"""Tag implication service - resolves semantic inheritance graph."""
+'''
+File:   tag_implication_service.py
+Brief:  Tag implication service - resolves semantic inheritance graph.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from typing import Set, List, Dict
 
 from ...infrastructure.repositories import TagImplicationRepository

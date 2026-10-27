@@ -1,4 +1,10 @@
-"""Unit tests for SessionDEKService."""
+'''
+File:   test_session_dek_service.py
+Brief:  Unit tests for SessionDEKService.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import pytest
 
 from app.infrastructure.services.session_dek import SessionDEKService

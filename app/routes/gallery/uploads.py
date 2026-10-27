@@ -2,7 +2,8 @@
 File:   uploads.py
 Brief:  Upload routes - unified upload handling for all media types.
 Author: Mistress-Lukutar
-Date:   2026-07-24
+Date:   2026-10-27
+Version: v2.1.0
 '''
 import json
 import uuid
@@ -73,7 +74,6 @@ async def upload_file(
     '''
     user = require_user(request)
 
-    # Permission check.
     from .deps import get_permission_service
     db = create_connection()
     try:
@@ -188,7 +188,6 @@ async def upload_bulk(
     finally:
         db.close()
 
-    # Group files by their parent directory.
     root_files = []
     album_groups: dict[str, list[tuple[UploadFile, str]]] = {}
     skipped_nested = 0

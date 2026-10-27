@@ -1,10 +1,15 @@
-"""Integration tests for the AI chat file/metadata tools.
+'''
+File:   test_ai_tools_files.py
+Brief:  Integration tests for the AI chat file/metadata tools.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Tool-level tests (no LLM involved): executors are called directly with a
 ``ToolContext``, mirroring the registry sanity tests in test_ai_chat.py.
 Covers get_item_metadata, read_note, create_note, write_note, edit_note
 and the enriched get_item output.
-"""
+'''
 import asyncio
 import base64
 import io

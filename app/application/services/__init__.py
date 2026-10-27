@@ -1,4 +1,10 @@
-"""Application services - business logic layer."""
+'''
+File:   __init__.py
+Brief:  Application services - business logic layer.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 
 from .folder_service import FolderService
 from .permission_service import PermissionService

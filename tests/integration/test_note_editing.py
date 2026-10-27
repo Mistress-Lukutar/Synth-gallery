@@ -1,4 +1,11 @@
-"""Integration tests for note content editing and note cover images.
+'''
+File:   test_note_editing.py
+Brief:  Integration tests for note content editing and note cover images.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Integration tests for note content editing and note cover images.
 
 Covers:
 - PUT /api/items/{id}/content: roundtrip, validation, permissions
@@ -6,8 +13,7 @@ Covers:
 - Note thumbnail proxy (serves the cover's JPEG, 404 without cover)
 - Folder-listing has_thumbnail / thumbnail_url contract
 - Migration 0007 up/down (item_texts.cover_item_id)
-- Orphan-upload cleanup no longer deletes note files
-"""
+- Orphan-upload cleanup no longer deletes note files'''
 import asyncio
 import sqlite3
 

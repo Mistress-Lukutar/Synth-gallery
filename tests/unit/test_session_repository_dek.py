@@ -1,5 +1,9 @@
-"""Unit tests for SessionRepository DEK storage."""
-
+'''
+File:   test_session_repository_dek.py
+Brief:  Unit tests for SessionRepository DEK storage.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0'''
 from app.infrastructure.repositories import SessionRepository, UserRepository
 
 

@@ -1,4 +1,10 @@
-"""S3-compatible storage implementation (AWS S3, MinIO, DigitalOcean Spaces)."""
+'''
+File:   s3_storage.py
+Brief:  S3-compatible storage implementation (AWS S3, MinIO, DigitalOcean Spaces).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import io
 from pathlib import Path
 from typing import BinaryIO, Optional, Union, Iterator

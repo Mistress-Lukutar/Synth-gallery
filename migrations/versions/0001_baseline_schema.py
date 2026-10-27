@@ -1,4 +1,11 @@
-"""Baseline schema: every table as of the pre-migration 1.x layout.
+'''
+File:   0001_baseline_schema.py
+Brief:  Alembic revision 0001 - baseline schema.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Baseline schema: every table as of the pre-migration 1.x layout.
 
 Revision ID: 0001
 Revises: -
@@ -9,7 +16,7 @@ so it applies cleanly both to fresh empty databases and to legacy 1.x
 databases that were created by the old runtime ``init_db()``.
 The v2 polymorphic rebuilds and the album NOT NULL constraint live in
 later revisions.
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import (

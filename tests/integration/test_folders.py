@@ -1,13 +1,17 @@
-"""
+'''
+File:   test_folders.py
+Brief:  Folder management integration tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Folder management integration tests.
 
 Verifies:
 - Folder CRUD operations
 - Permission system (owner, editor, viewer)
 - Folder tree structure
-- Sharing functionality
-"""
-
+- Sharing functionality'''
 import pytest
 from fastapi.testclient import TestClient
 from app.config import CSRF_COOKIE_NAME

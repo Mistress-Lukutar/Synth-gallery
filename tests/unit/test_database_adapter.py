@@ -1,11 +1,16 @@
-"""Unit tests for the SQLAlchemy-backed sqlite3-compatible connection adapter.
+'''
+File:   test_database_adapter.py
+Brief:  Unit tests for the SQLAlchemy-backed sqlite3-compatible connection adapter.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 The adapter (app.database.DbConnection) is the compatibility layer that
 lets repositories keep their historical calling convention
 (execute/executemany/commit/total_changes/lastrowid, ``?`` placeholders,
 ``row['col']`` access, native sqlite3 exceptions) while every statement is
 compiled through SQLAlchemy Core.
-"""
+'''
 import sqlite3
 
 import pytest

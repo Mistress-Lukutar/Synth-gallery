@@ -1,4 +1,11 @@
-"""Extend the items.type CHECK to allow the 'note' item type.
+'''
+File:   0005_items_note_type.py
+Brief:  Alembic revision 0005 - items note type.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Extend the items.type CHECK to allow the 'note' item type.
 
 Revision ID: 0005
 Revises: 0004
@@ -7,7 +14,7 @@ Create Date: 2026-08-21
 The registry-driven polymorphic item architecture routes behaviour by
 ``items.type``; text notes arrive as a new coarse type alongside 'media'.
 SQLite cannot alter a CHECK constraint in place, so the table is rebuilt.
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import rebuild_table

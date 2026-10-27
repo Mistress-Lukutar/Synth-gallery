@@ -1,4 +1,10 @@
-"""Tag dictionary for photo tagging suggestions"""
+'''
+File:   tags.py
+Brief:  Tag dictionary for photo tagging suggestions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 
 import random
 
@@ -49,7 +55,6 @@ def search_tags(query: str) -> list[str]:
     if not query:
         return []
 
-    # Prioritize tags that start with query, then contain query
     starts_with = [t for t in TAG_DICTIONARY if t.startswith(query)]
     contains = [t for t in TAG_DICTIONARY if query in t and t not in starts_with]
 

@@ -2,7 +2,8 @@
 File:   permission_service.py
 Brief:  Permission service - handles folder sharing and access control.
 Author: Mistress-Lukutar
-Date:   2026-07-24
+Date:   2026-10-27
+Version: v2.1.0
 '''
 
 from __future__ import annotations

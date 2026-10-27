@@ -1,11 +1,16 @@
-"""AI agent routes - per-user agent CRUD and the tools catalogue.
+'''
+File:   ai_agents.py
+Brief:  AI agent routes - per-user agent CRUD and the tools catalogue.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Agents are per-user rows with a system prompt and an explicit tool
 allow-list; built-ins are seeded on first list and cannot be edited or
 deleted (only duplicated). Mutating agent endpoints do not need the DEK
 (no encrypted payloads), but the router keeps the same auth contract as
 the provider settings routes.
-"""
+'''
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request

@@ -1,4 +1,10 @@
-"""Backup service for database and encrypted content."""
+'''
+File:   backup.py
+Brief:  Backup service for database and encrypted content.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import asyncio
 import base64
 import hashlib

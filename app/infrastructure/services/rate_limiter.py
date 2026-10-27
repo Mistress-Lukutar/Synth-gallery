@@ -1,8 +1,13 @@
-"""In-memory rate limiter with sliding window.
+'''
+File:   rate_limiter.py
+Brief:  In-memory rate limiter with sliding window.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Sufficient for single-instance deployments. For multi-instance,
 replace with Redis-backed implementation.
-"""
+'''
 import time
 import threading
 from typing import Dict, List

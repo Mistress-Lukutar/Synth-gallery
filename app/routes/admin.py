@@ -1,4 +1,10 @@
-"""Admin routes - backup management and admin-only features."""
+'''
+File:   admin.py
+Brief:  Admin routes - backup management and admin-only features.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -229,12 +235,10 @@ def create_user_endpoint(request: Request, data: CreateUserRequest):
     try:
         user_repo = UserRepository(db)
 
-        # Check if username already exists
         existing = user_repo.get_by_username(data.username)
         if existing:
             raise HTTPException(status_code=400, detail="Username already exists")
 
-        # Create user
         user_id = user_repo.create(data.username, data.password, data.display_name)
 
         # Set admin status if requested
@@ -259,12 +263,10 @@ def delete_user_endpoint(request: Request, user_id: int):
     try:
         user_repo = UserRepository(db)
 
-        # Check if user exists
         user = user_repo.get_by_id(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        # Delete user
         user_repo.delete(user_id)
 
         return {"status": "ok"}
@@ -289,7 +291,6 @@ def set_admin_endpoint(request: Request, user_id: int, data: SetAdminRequest):
     try:
         user_repo = UserRepository(db)
 
-        # Check if user exists
         user = user_repo.get_by_id(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")

@@ -1,4 +1,10 @@
-"""Tag co-occurrence repository - statistical relatedness for suggestions."""
+'''
+File:   tag_cooccurrence_repository.py
+Brief:  Tag co-occurrence repository - statistical relatedness for suggestions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import math
 from typing import List, Dict, Optional, Tuple
 
@@ -18,7 +24,6 @@ class TagCooccurrenceRepository(Repository):
         added = [_norm(a, b) for a, b in added_pairs]
         removed = [_norm(a, b) for a, b in removed_pairs]
 
-        # Add new pairs
         if added:
             self._execute_many(
                 """
@@ -31,7 +36,6 @@ class TagCooccurrenceRepository(Repository):
                 added
             )
 
-        # Decrement removed pairs
         if removed:
             self._execute_many(
                 """

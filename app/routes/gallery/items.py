@@ -2,7 +2,8 @@
 File:   items.py
 Brief:  Item routes - unified API for all content types.
 Author: Mistress-Lukutar
-Date:   2026-07-24
+Date:   2026-10-27
+Version: v2.1.0
 '''
 import asyncio
 import urllib.parse
@@ -238,8 +239,6 @@ def update_item_metadata(item_id: str, data: MetadataUpdateInput, request: Reque
     try:
         item_service = get_item_service(db)
         
-        # Update metadata (will raise 404 or 403 if applicable)
-        # All fields are validated by Pydantic
         result = item_service.update_metadata(
             item_id=item_id,
             user_id=user["id"],

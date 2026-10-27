@@ -1,8 +1,13 @@
-"""Item media repository - photo/video specific data.
+'''
+File:   item_media_repository.py
+Brief:  Item media repository - photo/video specific data.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This repository handles the 'item_media' table which stores
 media-specific data for photos and videos.
-"""
+'''
 import json
 from datetime import datetime
 from typing import Optional, Dict
@@ -108,7 +113,6 @@ class ItemMediaRepository(Repository):
         if not updates:
             return False
         
-        # Convert png_text_chunks dict to JSON
         if 'png_text_chunks' in updates and updates['png_text_chunks'] is not None:
             updates['png_text_chunks'] = json.dumps(updates['png_text_chunks'], ensure_ascii=False)
         

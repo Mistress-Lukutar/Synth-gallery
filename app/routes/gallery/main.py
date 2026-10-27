@@ -2,7 +2,8 @@
 File:   main.py
 Brief:  Main gallery routes - page view and folder content API.
 Author: Mistress-Lukutar
-Date:   2026-07-24
+Date:   2026-10-27
+Version: v2.1.0
 '''
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import RedirectResponse
@@ -57,7 +58,6 @@ def gallery(request: Request, folder_id: str = None):
 
         folder_tree = folder_service.get_folder_tree(user["id"])
 
-        # Determine initial folder to load
         initial_folder_id = folder_id
 
         # Check permission if folder_id provided

@@ -1,9 +1,14 @@
-"""Unit tests for the AI web tools (fetch_url / web_search).
+'''
+File:   test_ai_web_tools.py
+Brief:  Unit tests for the AI web tools (fetch_url / web_search).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Everything runs offline: HTTP is stubbed at the module's
 ``_http_request`` seam and DNS only ever sees literal addresses or the
 always-resolving ``localhost`` — no external request is attempted.
-"""
+'''
 import json
 
 import pytest

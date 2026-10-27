@@ -1,4 +1,10 @@
-"""Photo Gallery Application - FastAPI Entry Point."""
+'''
+File:   main.py
+Brief:  Photo Gallery Application - FastAPI entry point.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -27,21 +33,17 @@ from .routes.ai_agents import router as ai_agents_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    # Startup: runs before the application starts accepting requests
     init_db()
     cleanup_expired_sessions()
     backup_scheduler.start()
     tag_stats_scheduler.start()
     yield
-    # Shutdown: runs when application is stopping (cleanup code goes here)
     backup_scheduler.stop()
     tag_stats_scheduler.stop()
 
 
 app = FastAPI(title="Photo Gallery", lifespan=lifespan, root_path=ROOT_PATH)
 
-# Add middleware (order matters - first added = outermost wrapper)
-# SecurityHeaders first so it runs last on the response (after all others)
 app.add_middleware(SecurityHeadersMiddleware)
 # BasePathMiddleware redirects root requests before auth check
 app.add_middleware(BasePathMiddleware)
@@ -53,7 +55,6 @@ app.add_middleware(RateLimitMiddleware)
 # Static files
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
 
-# Include routers
 app.include_router(auth_router)
 app.include_router(gallery_router)
 app.include_router(folders_router)

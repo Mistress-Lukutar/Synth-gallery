@@ -1,4 +1,10 @@
-"""Centralized logging configuration for the application."""
+'''
+File:   logging_config.py
+Brief:  Centralized logging configuration.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import logging
 import os
 import sys
@@ -16,7 +22,6 @@ def setup_logging() -> None:
     
     Also checks SYNTH_ENV=production to set defaults.
     """
-    # Determine log level from environment
     env_level = os.environ.get("SYNTH_LOG_LEVEL", "").upper()
     env = os.environ.get("SYNTH_ENV", "development")
     

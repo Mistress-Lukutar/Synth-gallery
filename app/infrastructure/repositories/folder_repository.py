@@ -2,7 +2,8 @@
 File:   folder_repository.py
 Brief:  Folder repository - handles all folder-related database operations.
 Author: Mistress-Lukutar
-Date:   2026-07-24
+Date:   2026-10-27
+Version: v2.1.0
 '''
 
 from __future__ import annotations

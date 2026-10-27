@@ -1,4 +1,10 @@
-"""Metadata extraction service for images and videos."""
+'''
+File:   metadata.py
+Brief:  Metadata extraction service for images and videos.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import json
 import re
 import struct

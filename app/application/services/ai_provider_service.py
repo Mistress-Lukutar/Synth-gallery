@@ -1,4 +1,9 @@
-"""AI provider service - per-user LLM provider configuration.
+'''
+File:   ai_provider_service.py
+Brief:  AI provider service - per-user LLM provider configuration.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Business logic for managing AI chat providers (API keys encrypted with the
 owner's DEK), the per-provider model catalogue and the per-user active
@@ -7,7 +12,7 @@ endpoint selection consumed by the chat orchestrator.
 The LLM client package (``app.infrastructure.services.llm``) is imported
 lazily inside :meth:`AiProviderService._llm` so this module stays importable
 independent of that package's lifecycle.
-"""
+'''
 from typing import Optional
 
 from fastapi import HTTPException

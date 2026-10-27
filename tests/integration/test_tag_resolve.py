@@ -1,5 +1,9 @@
-"""
-POST /api/tags/resolve integration tests.
+'''
+File:   test_tag_resolve.py
+Brief:  POST /api/tags/resolve integration tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Verifies:
 - Lookup of existing tags with usage counts (input order preserved)
@@ -9,7 +13,7 @@ Verifies:
 - Invalid names flagged as valid=False and never created
 - Duplicate input names are safe
 - Missing "general" category is a hard error for creation
-"""
+'''
 import pytest
 from fastapi.testclient import TestClient
 

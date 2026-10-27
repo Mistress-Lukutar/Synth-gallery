@@ -1,12 +1,17 @@
-"""
+'''
+File:   test_albums.py
+Brief:  Album management integration tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Album management integration tests.
 
 Verifies:
 - Album CRUD operations
 - Album thumbnail dimensions from cover photo
 - Album photo reordering
-- Album access control
-"""
+- Album access control'''
 from fastapi.testclient import TestClient
 
 

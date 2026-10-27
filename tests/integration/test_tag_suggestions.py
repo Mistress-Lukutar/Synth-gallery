@@ -1,9 +1,14 @@
-"""Integration tests for tag suggestions and suggestion feedback.
+'''
+File:   test_tag_suggestions.py
+Brief:  Integration tests for tag suggestions and suggestion feedback.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers the per-item rejection blocklist: a tag the user rejected in the
 suggestions panel never reappears in suggestions for that item, so the
 panel refills with the next-best candidates instead.
-"""
+'''
 import pytest
 
 from app.application.services.tag_service import TagService

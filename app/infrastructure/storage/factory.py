@@ -1,4 +1,10 @@
-"""Factory for creating storage backends."""
+'''
+File:   factory.py
+Brief:  Factory for creating storage backends.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import os
 from pathlib import Path
 from typing import Optional
@@ -33,7 +39,7 @@ def get_storage_config() -> StorageConfig:
         if base_path:
             base_path = Path(base_path)
         else:
-            # Default: parent of uploads directory. Resolved at call time
+            # Resolved at call time so test path patching applies.
             # (not import time) so env overrides / test patches are honoured.
             base_path = Path(config.UPLOADS_DIR).parent
         

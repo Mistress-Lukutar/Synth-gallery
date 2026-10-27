@@ -1,4 +1,10 @@
-"""Tag suggestion feedback repository - user accept/reject tracking."""
+'''
+File:   tag_feedback_repository.py
+Brief:  Tag suggestion feedback repository - user accept/reject tracking.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from typing import List, Dict, Tuple, Optional
 
 from .base import Repository

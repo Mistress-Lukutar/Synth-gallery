@@ -2,7 +2,8 @@
 File:   item_renderers.py
 Brief:  Item renderers - Strategy pattern for per-type presentation.
 Author: Mistress-Lukutar
-Date:   2026-07-23
+Date:   2026-10-27
+Version: v2.1.0
 
 Each polymorphic item type (``media``, and future ``note`` / ``audio`` /
 ``model``) implements an :class:`ItemRenderer` that knows how to produce

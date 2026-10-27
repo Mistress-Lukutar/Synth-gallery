@@ -1,4 +1,11 @@
-"""AI chat message tree: branching for edit and retry.
+'''
+File:   0013_ai_chat_tree.py
+Brief:  Alembic revision 0013 - ai chat tree.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+AI chat message tree: branching for edit and retry.
 
 Revision ID: 0013
 Revises: 0012
@@ -16,7 +23,7 @@ Introduces:
                                        append to and history replay walks
                                        (NULL = legacy behavior: messages
                                        ordered by id).
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import column_exists, recreate_table_without_column

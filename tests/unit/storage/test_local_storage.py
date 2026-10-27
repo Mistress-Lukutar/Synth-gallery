@@ -1,4 +1,9 @@
-"""Unit tests for LocalStorage backend."""
+'''
+File:   test_local_storage.py
+Brief:  Unit tests for LocalStorage backend.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0'''
 import asyncio
 import pytest
 import tempfile

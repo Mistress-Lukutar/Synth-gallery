@@ -1,9 +1,14 @@
-"""
+'''
+File:   test_encryption.py
+Brief:  Encryption service unit tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Encryption service unit tests.
 
 Tests cryptographic primitives in isolation.
-No database or filesystem dependencies.
-"""
+No database or filesystem dependencies.'''
 import io
 import os
 

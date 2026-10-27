@@ -1,4 +1,9 @@
-"""Unit tests for the AI memory service helpers (no database needed)."""
+'''
+File:   test_ai_memory_service.py
+Brief:  Unit tests for the AI memory service helpers.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0'''
 import asyncio
 
 import pytest

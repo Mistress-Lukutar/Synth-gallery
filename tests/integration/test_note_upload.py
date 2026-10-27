@@ -1,11 +1,16 @@
-"""Integration tests for text-note uploads (items.type = 'note').
+'''
+File:   test_note_upload.py
+Brief:  Integration tests for text-note uploads (items.type = 'note').
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers:
 - Upload of txt/md/json/csv/yaml (incl. octet-stream extension inference)
 - Content roundtrip through the encrypted /files/{id} endpoint
 - Validation: binary rejection, unknown types, size limit
 - Folder listing, metadata API, thumbnails (404), albums, batch download
-"""
+'''
 import io
 import zipfile
 

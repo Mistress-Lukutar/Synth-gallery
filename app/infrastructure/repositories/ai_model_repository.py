@@ -1,10 +1,15 @@
-"""AI model repository - per-provider model catalogue.
+'''
+File:   ai_model_repository.py
+Brief:  AI model repository - per-provider model catalogue.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 ``ai_models`` has a composite primary key ``(provider_id, model_id)`` and
 is refreshed wholesale from the provider's API; per-user adjustments
 (pinned flag, manually overridden limits) are merged back by the service
 layer before a replace.
-"""
+'''
 from typing import Optional
 
 from .base import Repository

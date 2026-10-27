@@ -3,7 +3,8 @@ File:   database.py
 Brief:  SQLAlchemy engine, sqlite3-compatible connection adapter and
         Alembic-driven schema migrations.
 Author: Mistress-Lukutar
-Date:   2026-08-21
+Date:   2026-10-27
+Version: v2.1.0
 '''
 import os
 import sqlite3

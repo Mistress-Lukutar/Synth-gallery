@@ -1,7 +1,12 @@
-"""WebAuthn repository - handles hardware key credential storage.
+'''
+File:   webauthn_repository.py
+Brief:  WebAuthn repository - handles hardware key credential storage.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This repository manages WebAuthn credentials for passwordless authentication.
-"""
+'''
 from .base import Repository
 
 

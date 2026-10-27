@@ -1,7 +1,13 @@
-"""Tests for application services (Issue #16).
+'''
+File:   test_services.py
+Brief:  Tests for application services.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
-Tests the service layer business logic in isolation.
-"""
+Tests for application services (Issue #16).
+
+Tests the service layer business logic in isolation.'''
 from unittest.mock import Mock
 
 import pytest

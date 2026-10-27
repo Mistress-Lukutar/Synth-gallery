@@ -2,7 +2,8 @@
 File:   config.py
 Brief:  Application configuration and constants.
 Author: Mistress-Lukutar
-Date:   2026-07-21
+Date:   2026-10-27
+Version: v2.1.0
 '''
 
 import os
@@ -31,7 +32,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOADS_DIR = Path(os.environ.get("SYNTH_UPLOADS_DIR", str(BASE_DIR / "uploads")))
 THUMBNAILS_DIR = Path(os.environ.get("SYNTH_THUMBNAILS_DIR", str(BASE_DIR / "thumbnails")))
 
-# Create directories if they don't exist.
 UPLOADS_DIR.mkdir(exist_ok=True)
 THUMBNAILS_DIR.mkdir(exist_ok=True)
 

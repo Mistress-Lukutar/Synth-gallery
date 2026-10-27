@@ -1,4 +1,11 @@
-"""Enforce NOT NULL on albums.name.
+'''
+File:   0003_album_name_not_null.py
+Brief:  Alembic revision 0003 - album name not null.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Enforce NOT NULL on albums.name.
 
 Revision ID: 0003
 Revises: 0002
@@ -10,7 +17,7 @@ downloads with a TypeError). Such rows are backfilled with a deterministic
 ``Untitled (id8)`` name — unique per album and traceable to its id —
 before the table is rebuilt with the constraint. Databases created by
 revision 0001 already have the NOT NULL column and this is a no-op.
-"""
+'''
 from alembic import op
 
 from app.database import DATABASE_PATH

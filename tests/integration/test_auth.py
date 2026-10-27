@@ -1,12 +1,17 @@
-"""
+'''
+File:   test_auth.py
+Brief:  Authentication integration tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Authentication integration tests.
 
 Verifies:
 - Login/logout flows
 - Session management
 - Protected route access
-- CSRF protection
-"""
+- CSRF protection'''
 from fastapi.testclient import TestClient
 from app.config import SESSION_COOKIE, CSRF_COOKIE_NAME
 

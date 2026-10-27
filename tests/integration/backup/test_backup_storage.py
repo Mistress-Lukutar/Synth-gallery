@@ -1,4 +1,10 @@
-"""Integration tests for backup service using storage abstraction layer."""
+'''
+File:   test_backup_storage.py
+Brief:  Integration tests for backup service using storage abstraction layer.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import asyncio
 import json
 import tempfile

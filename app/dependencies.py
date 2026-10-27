@@ -1,4 +1,10 @@
-"""Shared FastAPI dependencies."""
+'''
+File:   dependencies.py
+Brief:  Shared FastAPI request dependencies.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from fastapi import Request, HTTPException
 
 

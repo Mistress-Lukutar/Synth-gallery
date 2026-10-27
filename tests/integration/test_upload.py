@@ -1,4 +1,10 @@
-"""
+'''
+File:   test_upload.py
+Brief:  File upload integration tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 File upload integration tests.
 
 Verifies:
@@ -6,8 +12,7 @@ Verifies:
 - Album upload (multiple files)
 - File type validation
 - Access control for uploads
-- Download/retrieval of uploaded files
-"""
+- Download/retrieval of uploaded files'''
 from fastapi.testclient import TestClient
 from app.config import CSRF_COOKIE_NAME
 

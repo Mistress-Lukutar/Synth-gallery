@@ -1,4 +1,9 @@
-"""AI agent repository - per-user agent definitions.
+'''
+File:   ai_agent_repository.py
+Brief:  AI agent repository - per-user agent definitions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 An agent carries a system prompt and an explicit tool allow-list
 (``tools_json``). Built-in agents are seeded per user by
@@ -6,7 +11,7 @@ An agent carries a system prompt and an explicit tool allow-list
 ``builtin_key`` so prompt improvements roll out while row ids stay stable.
 Every query is scoped by ``user_id`` so ownership is enforced at the
 storage layer.
-"""
+'''
 import json
 from typing import Optional
 

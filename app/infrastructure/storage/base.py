@@ -1,4 +1,13 @@
-"""Abstract storage interface."""
+'''
+File:   base.py
+Brief:  Storage abstraction interface (ABC).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Defines the abstract ``StorageInterface`` and ``RandomAccessReader`` ABCs,
+plus error classes shared by local and S3 backends.
+'''
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path

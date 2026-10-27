@@ -1,11 +1,16 @@
-"""Integration tests for AI memory (migration 0014).
+'''
+File:   test_ai_memory.py
+Brief:  Integration tests for AI memory (migration 0014).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers the memory settings route (privacy/ownership validation, index
 creation, re-enable), the memory tools (create/write/edit, name
 resolution, reserved MEMORY name), the memory block in the system
 prompt, the global-tool bypass of agent allow-lists, the sharing guard
 and the folder-delete reset.
-"""
+'''
 import asyncio
 import json
 

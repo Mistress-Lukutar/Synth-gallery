@@ -2,7 +2,8 @@
 File:   item_text_repository.py
 Brief:  Repository for the item_texts detail table (note items).
 Author: Mistress-Lukutar
-Date:   2026-08-21
+Date:   2026-10-27
+Version: v2.1.0
 '''
 from typing import Dict, Optional
 

@@ -1,4 +1,9 @@
-"""AI tool foundation - context, errors and tool definitions.
+'''
+File:   base.py
+Brief:  AI tool foundation - context, errors and tool definitions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Every tool executor receives a :class:`ToolContext` (the requesting user
 plus the session DEK) and the parsed arguments dict, and returns a
@@ -7,7 +12,7 @@ coroutine functions; the orchestrator awaits coroutine results. They raise
 :class:`ToolError` when the model should see an error result, and
 :class:`VisionRequestSignal` when the user must approve image viewing
 first.
-"""
+'''
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, List, Optional, Union
 

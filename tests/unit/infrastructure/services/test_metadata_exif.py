@@ -1,11 +1,15 @@
-"""
-Live EXIF probe unit tests.
+'''
+File:   test_metadata_exif.py
+Brief:  Live EXIF probe unit tests.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Tests the pure helpers behind the AI chat ``get_item_metadata`` tool in
 isolation: GPS decimal conversion, EXIF UserComment charset prefixes and
 the summary extractor on a real (Pillow-generated) JPEG.
 No database or filesystem dependencies.
-"""
+'''
 import io
 
 import pytest

@@ -1,4 +1,10 @@
-"""WebAuthn service for hardware key authentication."""
+'''
+File:   webauthn.py
+Brief:  WebAuthn service for hardware key authentication.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 
 import json
 from webauthn import (
@@ -98,7 +104,6 @@ class WebAuthnService:
             attestation=AttestationConveyancePreference.NONE,
         )
 
-        # Store challenge with rp_id, origin, and expiration (5 minutes)
         challenge = options.challenge
         cls._challenges[challenge] = (user_id, rp_id, origin, time.time() + 300)
 
@@ -140,7 +145,6 @@ class WebAuthnService:
                 expected_origin=origin,
             )
 
-            # Clean up challenge
             del cls._challenges[challenge]
 
             return (
@@ -178,7 +182,6 @@ class WebAuthnService:
             user_verification=UserVerificationRequirement.PREFERRED,
         )
 
-        # Store challenge with rp_id, origin, and expiration (5 minutes)
         challenge = options.challenge
         cls._challenges[challenge] = (user_id, rp_id, origin, time.time() + 300)
 
@@ -247,7 +250,6 @@ class WebAuthnService:
                 credential_current_sign_count=credential_current_sign_count,
             )
 
-            # Clean up challenge
             del cls._challenges[challenge]
 
             return verification.new_sign_count

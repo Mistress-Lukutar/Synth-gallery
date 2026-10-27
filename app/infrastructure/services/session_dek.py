@@ -1,4 +1,9 @@
-"""Session-based DEK encryption service.
+'''
+File:   session_dek.py
+Brief:  Session-based DEK encryption service.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This service allows storing DEKs in the database encrypted with a key
 derived from the session ID. This provides:
@@ -12,14 +17,13 @@ Security model:
 - session_id is only transmitted in HTTP-only cookies (never in response body)
 - Even with full database access, DEK cannot be decrypted without session_id
 - Session invalidation removes encrypted DEK from database
-"""
+'''
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 
-# Constants
 NONCE_SIZE = 12
 
 

@@ -1,4 +1,11 @@
-"""Drop tags.display_name.
+'''
+File:   0008_drop_tag_display_name.py
+Brief:  Alembic revision 0008 - drop tag display name.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Drop tags.display_name.
 
 Revision ID: 0008
 Revises: 0007
@@ -6,7 +13,7 @@ Create Date: 2026-10-06
 
 Tags now have a single name: the stored name is also the displayed one,
 so the redundant human-readable display_name column is removed.
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import column_exists, recreate_table_without_column

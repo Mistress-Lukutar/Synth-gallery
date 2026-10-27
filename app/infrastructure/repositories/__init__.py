@@ -1,5 +1,10 @@
-# Repository Pattern Implementation
-"""
+'''
+File:   __init__.py
+Brief:  Repository package init - exports all repository classes.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
 Repositories abstract database operations.
 Each entity has its own repository.
 
@@ -9,7 +14,7 @@ Usage:
     db = create_connection()
     repo = UserRepository(db)
     user = repo.get_by_id(user_id)
-"""
+'''
 from .base import Repository
 from .user_repository import UserRepository
 from .session_repository import SessionRepository

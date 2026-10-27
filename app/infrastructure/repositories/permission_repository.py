@@ -1,10 +1,15 @@
-"""Permission repository - handles folder access control and sharing.
+'''
+File:   permission_repository.py
+Brief:  Permission repository - handles folder access control and sharing.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Manages relationships between users and folders with permission levels:
 - owner: full control (implicit via folder.user_id)
 - editor: can add/edit/delete content
 - viewer: read-only access
-"""
+'''
 from .base import Repository
 
 
@@ -112,7 +117,6 @@ class PermissionRepository(Repository):
         Returns:
             'owner', 'editor', 'viewer', or None
         """
-        # Check if owner
         cursor = self._execute(
             "SELECT user_id FROM folders WHERE id = ?",
             (folder_id,)
@@ -122,7 +126,6 @@ class PermissionRepository(Repository):
         if folder and folder["user_id"] == user_id:
             return "owner"
         
-        # Check explicit permission
         cursor = self._execute(
             "SELECT permission FROM folder_permissions WHERE folder_id = ? AND user_id = ?",
             (folder_id, user_id)

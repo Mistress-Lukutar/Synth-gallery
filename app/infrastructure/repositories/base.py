@@ -1,7 +1,12 @@
-"""Base repository protocol and utilities.
+'''
+File:   base.py
+Brief:  Base repository protocol - shared CRUD plumbing.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This module defines the interface that all repositories must implement.
-"""
+'''
 import sqlite3
 
 

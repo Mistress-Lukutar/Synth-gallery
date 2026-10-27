@@ -1,4 +1,11 @@
-"""Add the item_texts detail table for the 'note' item type.
+'''
+File:   0006_item_texts_table.py
+Brief:  Alembic revision 0006 - item texts table.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Add the item_texts detail table for the 'note' item type.
 
 Revision ID: 0006
 Revises: 0005
@@ -9,7 +16,7 @@ Text notes (txt/md/json/csv/yaml) are stored as polymorphic items with
 encrypted SGE1 envelope (same as media files); this table holds only the
 per-type metadata: detected encoding, character/line counts, the original
 MIME type and filename.
-"""
+'''
 from alembic import op
 
 # revision identifiers, used by Alembic.

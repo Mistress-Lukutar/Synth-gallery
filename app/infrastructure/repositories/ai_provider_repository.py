@@ -1,10 +1,15 @@
-"""AI provider repository - per-user LLM provider endpoints.
+'''
+File:   ai_provider_repository.py
+Brief:  AI provider repository - per-user LLM provider endpoints.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Providers carry the user's API key as an SGE1-encrypted blob (encrypted
 with the owner's DEK); this repository only stores and returns the blob.
 Every query is scoped by ``user_id`` so ownership is enforced at the
 storage layer.
-"""
+'''
 from typing import Optional
 
 from .base import Repository

@@ -2,7 +2,8 @@
 File:   folder_service.py
 Brief:  Folder service - handles folder management operations.
 Author: Mistress-Lukutar
-Date:   2026-07-13
+Date:   2026-10-27
+Version: v2.1.0
 '''
 
 from __future__ import annotations

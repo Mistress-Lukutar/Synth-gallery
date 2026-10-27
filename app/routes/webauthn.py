@@ -1,4 +1,10 @@
-"""WebAuthn routes for hardware key authentication."""
+'''
+File:   webauthn.py
+Brief:  WebAuthn routes for hardware key authentication.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import base64
 import hashlib
 

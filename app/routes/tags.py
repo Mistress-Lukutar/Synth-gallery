@@ -2,7 +2,8 @@
 File:   tags.py
 Brief:  Tag management routes - Flat Tags v3 with implications.
 Author: Mistress-Lukutar
-Date:   2026-07-24
+Date:   2026-10-27
+Version: v2.1.0
 '''
 from typing import List, Optional
 

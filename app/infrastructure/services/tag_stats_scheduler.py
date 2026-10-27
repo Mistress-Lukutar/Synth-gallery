@@ -1,4 +1,10 @@
-"""Background scheduler for periodic tag stats rebuild."""
+'''
+File:   tag_stats_scheduler.py
+Brief:  Background scheduler for periodic tag stats rebuild.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import threading
 from datetime import datetime, timedelta
 from typing import Optional

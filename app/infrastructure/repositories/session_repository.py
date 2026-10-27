@@ -1,7 +1,12 @@
-"""Session repository - handles all session-related database operations.
+'''
+File:   session_repository.py
+Brief:  Session repository - handles all session-related database operations.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Sessions are temporary authentication tokens for logged-in users.
-"""
+'''
 import secrets
 
 from .base import Repository

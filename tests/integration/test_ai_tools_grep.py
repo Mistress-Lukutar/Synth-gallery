@@ -1,11 +1,16 @@
-"""Integration tests for the AI chat ``grep_library`` tool.
+'''
+File:   test_ai_tools_grep.py
+Brief:  Integration tests for the AI chat ``grep_library`` tool.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Tool-level tests (no LLM involved): executors are called directly with a
 ``ToolContext``, mirroring the registry-sanity style of
 ``test_ai_tools_files.py`` and ``test_ai_tools_tags.py``.  Covers title,
 description, note, tag, metadata, filename sources plus case sensitivity,
 regex, folder scoping, pagination, and error paths.
-"""
+'''
 import asyncio
 import io
 import json

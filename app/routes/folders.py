@@ -2,7 +2,8 @@
 File:   folders.py
 Brief:  Folder management routes.
 Author: Mistress-Lukutar
-Date:   2026-07-13
+Date:   2026-10-27
+Version: v2.1.0
 '''
 from pathlib import Path
 from typing import Literal
@@ -92,7 +93,6 @@ def get_folders(request: Request):
     """Get folder tree for current user."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     service = get_folder_service()
     return service.get_folder_tree(user["id"])
 
@@ -102,7 +102,6 @@ def create_new_folder(request: Request, data: FolderCreate):
     """Create a new folder."""
     user = require_user(request)
 
-    # Using service layer (Issue #16)
     service = get_folder_service()
     folder = service.create_folder(
         name=data.name,
@@ -118,7 +117,6 @@ def update_existing_folder(request: Request, folder_id: str, data: FolderUpdate)
     """Update folder name."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     service = get_folder_service()
     folder = service.update_folder(folder_id, data.name, user["id"])
     
@@ -130,7 +128,6 @@ def move_folder_route(request: Request, folder_id: str, data: FolderMove):
     """Move folder to new parent."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     service = get_folder_service()
     service.move_folder(folder_id, data.parent_id, user["id"])
     
@@ -142,7 +139,6 @@ def delete_folder_route(request: Request, folder_id: str):
     """Delete folder and all its contents."""
     user = require_user(request)
 
-    # Using service layer (Issue #16)
     service = get_folder_service()
     filenames = service.delete_folder(folder_id, user["id"])
 
@@ -175,7 +171,6 @@ def set_default_folder(request: Request, folder_id: str):
     """Set folder as user's default folder."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     service = get_user_settings_service()
     service.set_default_folder(user["id"], folder_id)
     return {"status": "ok"}
@@ -188,7 +183,6 @@ def get_folder_permissions_route(request: Request, folder_id: str):
     """Get all permissions for a folder (owner only)."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     service = get_permission_service()
     permissions = service.get_folder_permissions(folder_id, user["id"])
     
@@ -212,7 +206,6 @@ def add_folder_permission_route(request: Request, folder_id: str, data: Permissi
                     "disable AI memory for it first"
                 ),
             )
-        # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
             folder_repository=FolderRepository(db)
@@ -245,7 +238,6 @@ def update_folder_permission_route(
 
     db = create_connection()
     try:
-        # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
             folder_repository=FolderRepository(db)
@@ -277,7 +269,6 @@ def remove_folder_permission_route(
 
     db = create_connection()
     try:
-        # Using service layer (Issue #16)
         service = PermissionService(
             permission_repository=PermissionRepository(db),
             folder_repository=FolderRepository(db)
@@ -304,12 +295,10 @@ def set_sort_preference(request: Request, folder_id: str, data: SortPreference):
     """Set sort preference for a folder (per user)."""
     user = require_user(request)
     
-    # Using service layer for access check (Issue #16)
     service = get_permission_service()
     if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Using service layer (Issue #16)
     settings_service = get_user_settings_service()
     settings_service.set_sort_preference(user["id"], folder_id, data.sort_by)
     return {"status": "ok", "sort_by": data.sort_by}
@@ -320,12 +309,10 @@ def get_sort_preference(request: Request, folder_id: str):
     """Get sort preference for a folder (per user)."""
     user = require_user(request)
     
-    # Using service layer for access check (Issue #16)
     service = get_permission_service()
     if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Using service layer (Issue #16)
     settings_service = get_user_settings_service()
     sort_by = settings_service.get_sort_preference(user["id"], folder_id)
     return {"sort_by": sort_by}
@@ -336,12 +323,10 @@ def set_default_folder_route(request: Request, folder_id: str):
     """Set folder as user's default folder (opens on login)."""
     user = require_user(request)
     
-    # Using service layer for access check (Issue #16)
     service = get_permission_service()
     if not service.can_access(folder_id, user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
     
-    # Using service layer (Issue #16)
     settings_service = get_user_settings_service()
     settings_service.set_default_folder(user["id"], folder_id)
     
@@ -353,7 +338,6 @@ def get_default_folder_route(request: Request):
     """Get user's default folder ID."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     settings_service = get_user_settings_service()
     default_folder_id = settings_service.get_default_folder(user["id"])
     return {"default_folder_id": default_folder_id}
@@ -364,7 +348,6 @@ def get_collapsed_folders_route(request: Request):
     """Get list of collapsed folder IDs for current user."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     settings_service = get_user_settings_service()
     collapsed = settings_service.get_collapsed_folders(user["id"])
     return {"collapsed_folders": collapsed}
@@ -375,7 +358,6 @@ def toggle_collapse_route(request: Request, folder_id: str):
     """Toggle folder collapsed state. Returns new state."""
     user = require_user(request)
     
-    # Using service layer (Issue #16)
     settings_service = get_user_settings_service()
     is_collapsed = settings_service.toggle_collapsed_folder(user["id"], folder_id)
     return {"collapsed": is_collapsed}

@@ -1,4 +1,10 @@
-"""Authentication routes."""
+'''
+File:   auth.py
+Brief:  Authentication routes.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import hashlib
 from contextlib import contextmanager
 

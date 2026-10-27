@@ -1,4 +1,10 @@
-"""Tag implication repository - directed edges for semantic inheritance."""
+'''
+File:   tag_implication_repository.py
+Brief:  Tag implication repository - directed edges for semantic inheritance.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 from typing import Optional, List, Dict, Set
 from collections import defaultdict
 

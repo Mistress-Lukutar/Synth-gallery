@@ -1,4 +1,11 @@
-"""Drop the relic users.password_salt column.
+'''
+File:   0004_drop_password_salt.py
+Brief:  Alembic revision 0004 - drop password salt.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Drop the relic users.password_salt column.
 
 Revision ID: 0004
 Revises: 0003
@@ -9,7 +16,7 @@ its own salt, so the value was always the empty string and nothing ever
 read it. Removed via table rebuild because other tables hold foreign keys
 to ``users`` (a plain DROP COLUMN with FKs enabled would cascade-delete
 their rows).
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import rebuild_table

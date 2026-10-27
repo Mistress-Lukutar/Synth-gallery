@@ -1,4 +1,9 @@
-"""Unit tests for metadata extraction service."""
+'''
+File:   test_metadata.py
+Brief:  Unit tests for metadata extraction service.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0'''
 import io
 import struct
 import zlib

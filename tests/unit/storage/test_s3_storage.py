@@ -1,9 +1,15 @@
-"""Unit tests for the S3 storage backend (mocked with moto).
+'''
+File:   test_s3_storage.py
+Brief:  Unit tests for the S3 storage backend (mocked with moto).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Unit tests for the S3 storage backend (mocked with moto).
 
 Covers the CRUD surface, whole-object streaming and the ranged-GET
 random-access reader used by HTTP Range serving and chunked-envelope
-decryption.
-"""
+decryption.'''
 import io
 
 import pytest

@@ -1,4 +1,9 @@
-"""Test configuration and fixtures for Synth Gallery.
+'''
+File:   conftest.py
+Brief:  Pytest configuration and shared fixtures.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 This module provides isolated test environments:
 - Temporary database (SQLite)
@@ -21,8 +26,7 @@ throwaway directory. Background schedulers (backup, tag stats) are disabled
 via ``BACKUP_SCHEDULE``/``TAG_STATS_SCHEDULE``.
 
 Each test still gets its own fresh database file (see ``patched_config`` /
-``fresh_database``) so tests cannot observe each other's DB state.
-"""
+``fresh_database``) so tests cannot observe each other's DB state.'''
 import atexit
 import os
 import shutil

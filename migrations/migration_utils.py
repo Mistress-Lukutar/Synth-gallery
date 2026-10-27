@@ -1,4 +1,9 @@
-"""Reusable helpers for Synth Gallery Alembic revisions.
+'''
+File:   migration_utils.py
+Brief:  Reusable helpers for Synth Gallery Alembic revisions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 All helpers operate on the SQLAlchemy Connection that Alembic provides via
 ``op.get_bind()``. SQLite specifics:
@@ -8,7 +13,7 @@ All helpers operate on the SQLAlchemy Connection that Alembic provides via
 - ``PRAGMA foreign_keys`` is a no-op inside an open transaction, so every
   rebuild commits first and toggles the pragma around the DDL — otherwise
   ``DROP TABLE`` cascades into child rows and silently destroys them.
-"""
+'''
 from pathlib import Path
 
 

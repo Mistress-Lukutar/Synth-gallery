@@ -1,4 +1,9 @@
-"""Integration tests for MKV video upload and HTTP Range serving.
+'''
+File:   test_video_mkv.py
+Brief:  Integration tests for MKV video upload and HTTP Range serving.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers the new chunked AEAD envelope end to end:
 - Upload of an MKV file (Matroska container)
@@ -6,7 +11,7 @@ Covers the new chunked AEAD envelope end to end:
 - GET with Range header returns 206 Partial Content with correct Content-Range
 - Full GET returns the entire plaintext matching the source bytes
 - Thumbnail endpoint returns a valid JPEG
-"""
+'''
 import io
 import shutil
 import subprocess

@@ -1,9 +1,15 @@
-"""Unit tests for the reasoning-effort helper module.
+'''
+File:   test_llm_reasoning.py
+Brief:  Unit tests for the reasoning-effort helper module.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Unit tests for the reasoning-effort helper module.
 
 Covers capability heuristics (model-id patterns per protocol), the
 per-protocol payload mapping (OpenAI-compatible params, Anthropic thinking
-block, Gemini thinkingConfig) and the effort normalization rules.
-"""
+block, Gemini thinkingConfig) and the effort normalization rules.'''
 import pytest
 
 from app.infrastructure.services.llm import reasoning as r

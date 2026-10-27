@@ -1,12 +1,18 @@
-"""Security tests for file upload spoofing protection.
+'''
+File:   test_security_upload_spoofing.py
+Brief:  Security tests for file upload spoofing protection.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Security tests for file upload spoofing protection.
 
 Tests verify that:
 1. PHP scripts disguised as images are rejected
 2. HTML files disguised as images are rejected
 3. EXE files disguised as images are rejected
 4. Valid images with correct magic bytes are accepted
-5. Content-type validation works correctly
-"""
+5. Content-type validation works correctly'''
 import io
 
 from fastapi.testclient import TestClient

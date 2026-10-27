@@ -1,4 +1,11 @@
-"""Add item_texts.cover_item_id for note cover images.
+'''
+File:   0007_note_cover_item.py
+Brief:  Alembic revision 0007 - note cover item.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Add item_texts.cover_item_id for note cover images.
 
 Revision ID: 0007
 Revises: 0006
@@ -8,7 +15,7 @@ Notes can now reference a media item whose thumbnail acts as the note's
 cover in the gallery grid (mirroring albums.cover_item_id). The cover must
 be an image item; the reference is dropped (SET NULL) when the referenced
 item is deleted.
-"""
+'''
 from alembic import op
 
 from migrations.migration_utils import column_exists, recreate_table_without_column

@@ -1,11 +1,17 @@
-"""Regression tests for upgrading pre-Alembic legacy databases.
+'''
+File:   test_migration_legacy_users.py
+Brief:  Regression tests for upgrading pre-Alembic legacy databases.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Regression tests for upgrading pre-Alembic legacy databases.
 
 Databases created before the Alembic baseline carry relic columns the
 baseline no longer declares (e.g. ``users.default_folder_id`` from the
 pre-user_settings era). Revision 0004 rebuilds the ``users`` table and must
 preserve such columns instead of crashing on the copy INSERT
-("table users_new has no column named default_folder_id").
-"""
+("table users_new has no column named default_folder_id").'''
 import sqlite3
 
 from alembic import command

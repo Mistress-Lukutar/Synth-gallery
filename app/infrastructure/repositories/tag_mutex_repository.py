@@ -1,4 +1,10 @@
-"""Tag mutex repository - negative correlation detection for suggestions."""
+'''
+File:   tag_mutex_repository.py
+Brief:  Tag mutex repository - negative correlation detection for suggestions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import math
 from typing import List, Dict, Optional
 
@@ -13,7 +19,6 @@ class TagMutexRepository(Repository):
 
     def rebuild_all(self) -> None:
         """Recalculate phi for all frequent tag pairs and repopulate table."""
-        # Gather tag usage counts
         cursor = self._execute("SELECT id, usage_count FROM tags WHERE usage_count >= ?", (self.MIN_USAGE,))
         tags = {row["id"]: row["usage_count"] for row in cursor.fetchall()}
         tag_ids = sorted(tags.keys())
@@ -26,7 +31,6 @@ class TagMutexRepository(Repository):
         if total_items == 0:
             return
 
-        # Load co-occurrence counts into a dict for fast lookup
         cursor = self._execute("SELECT tag_a_id, tag_b_id, count FROM tag_cooccurrence")
         cooc = {}
         for row in cursor.fetchall():

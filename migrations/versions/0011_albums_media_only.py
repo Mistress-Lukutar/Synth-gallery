@@ -1,4 +1,11 @@
-"""Albums hold media only: remove note memberships and note covers.
+'''
+File:   0011_albums_media_only.py
+Brief:  Alembic revision 0011 - albums media only.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+
+Albums hold media only: remove note memberships and note covers.
 
 Revision ID: 0011
 Revises: 0010
@@ -16,7 +23,7 @@ created before the guard existed:
   (the card falls back to its first media item, or "Empty Album")
 
 Albums that contained only notes become empty albums.
-"""
+'''
 from alembic import op
 
 # revision identifiers, used by Alembic.

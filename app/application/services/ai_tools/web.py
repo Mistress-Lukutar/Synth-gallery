@@ -1,4 +1,9 @@
-"""Web access tools for the chat agent: ``fetch_url`` and ``web_search``.
+'''
+File:   web.py
+Brief:  Web access tools for the chat agent: fetch_url and web_search.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Both run server-side without API keys:
 
@@ -14,7 +19,7 @@ Both run server-side without API keys:
 Executors are coroutines that push the blocking HTTP work into a worker
 thread (the orchestrator runs on the event loop). Tests monkeypatch
 :data:`_http_request` instead of touching the network.
-"""
+'''
 from __future__ import annotations
 
 import asyncio

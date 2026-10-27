@@ -1,4 +1,9 @@
-"""Integration tests for batch download (ZIP archives, single files, conversion).
+'''
+File:   test_batch_download.py
+Brief:  Integration tests for batch download (ZIP archives, single files, conversion).
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 Covers the reworked POST /api/items/batch-download endpoint:
 - Album downloads include ALL album items inside a subfolder named after
@@ -9,7 +14,7 @@ Covers the reworked POST /api/items/batch-download endpoint:
   unchanged regardless of the chosen options.
 - Duplicate titles are deduplicated inside the archive.
 - JXL-stored images are served as-is for the default (jxl) format.
-"""
+'''
 import io
 import shutil
 import subprocess

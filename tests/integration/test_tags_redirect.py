@@ -1,9 +1,14 @@
-"""Regression tests for the legacy /tags page redirect.
+'''
+File:   test_tags_redirect.py
+Brief:  Regression tests for the legacy /tags page redirect.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
 
 The standalone /tags route in app/routes/admin_tags.py now redirects to the
 in-gallery SPA tags view (/?view=tags).  Every path through that endpoint
 requires authentication (require_user).
-"""
+'''
 import pytest
 from fastapi.testclient import TestClient
 

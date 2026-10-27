@@ -1,4 +1,10 @@
-"""Tag service - flat tags with implication-based inheritance and suggestions."""
+'''
+File:   tag_service.py
+Brief:  Tag service - flat tags with implication-based inheritance and suggestions.
+Author: Mistress-Lukutar
+Date:   2026-10-27
+Version: v2.1.0
+'''
 import re
 from typing import Optional, List, Dict, Tuple
 
