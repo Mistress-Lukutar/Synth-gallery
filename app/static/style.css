@@ -5890,7 +5890,8 @@ a.sidebar-ai-btn:hover {
    and a descendant can never paint below it, so inside the panel the
    slide-in would draw above the chat. Base z 165 = above the mobile
    panel (160); desktop overrides to 155 = between sidebar (150) and
-   panel (160). Closed state hides behind the panel edge. */
+   panel (160). Closed state hides behind the panel edge (desktop); the
+   max-width:900px block parks it off the left edge instead. */
 .ai-chat-list {
     display: flex;
     position: fixed;
@@ -6988,6 +6989,15 @@ body.ai-chat-open.ai-chat-list-open .ai-chat-list {
     .ai-chat-panel {
         left: 0;
         width: 100%;
+    }
+
+    /* Mobile: the drawer paints above the panel (z 165 > 160), so the
+       desktop park position translateX(100%) (hidden under the panel
+       edge) would fly it across the whole screen. Park it off the left
+       edge instead: it slides in from the corner, mirroring the
+       gallery sidebar and the list swipe gestures. */
+    .ai-chat-list {
+        transform: translateX(-100%);
     }
 
     /* Keep the agent chip from squeezing out the chat title and badge. */
