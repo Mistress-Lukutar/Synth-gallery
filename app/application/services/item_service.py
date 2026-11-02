@@ -46,7 +46,7 @@ from app.infrastructure.services.media import (
     get_media_type,
 )
 from app.infrastructure.services.metadata import (
-    extract_png_text_chunks,
+    extract_image_text_chunks,
     extract_taken_date,
 )
 from app.infrastructure.storage import get_storage
@@ -504,7 +504,7 @@ class ItemService:
                     taken_at = extract_taken_date(plain_path)
                 except Exception:
                     pass
-                png_text_chunks = extract_png_text_chunks(content_bytes) or None
+                png_text_chunks = extract_image_text_chunks(content_bytes) or None
                 try:
                     thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(
                         content_bytes

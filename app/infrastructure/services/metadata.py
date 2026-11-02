@@ -2,9 +2,10 @@
 File:   metadata.py
 Brief:  Metadata extraction service for images and videos.
 Author: Mistress-Lukutar
-Date:   2026-10-27
+Date:   2026-11-02
 Version: v2.1.0
 '''
+import brotli
 import json
 import re
 import struct
@@ -18,7 +19,7 @@ from typing import Optional, Any
 from PIL import Image
 from PIL.ExifTags import GPSTAGS, TAGS
 
-from .jxl import decode_jxl
+from .jxl import JXL_CONTAINER_MAGIC, decode_jxl
 
 
 def extract_taken_date(file_path: Path) -> Optional[datetime]:
@@ -386,6 +387,169 @@ def _parse_itext_chunk(chunk_data: bytes, chunks: dict[str, str]) -> None:
             chunks[keyword] = text
     except Exception:
         pass
+
+
+#: TIFF byte-order markers that may start an Exif payload directly.
+_EXIF_TIFF_MAGICS = (b'II\x2a\x00', b'MM\x00\x2a')
+
+#: JPEG APP1-style marker some writers place before the TIFF header.
+_EXIF_APP1_MARKER = b'Exif\x00\x00'
+
+
+def extract_jxl_text_chunks(data: bytes) -> dict[str, str]:
+    """Extract metadata text chunks from a JPEG XL container.
+
+    JPEG XL files carry metadata as ISOBMFF boxes: a plain ``Exif`` box
+    (a TIFF payload, optionally preceded by a 4-byte big-endian offset
+    to the TIFF header) or a ``brob`` box (brotli-compressed; the first
+    four payload bytes name the original box type — cjxl compresses
+    metadata boxes into ``brob`` by default). The EXIF UserComment
+    (tag 0x9286) is decoded with :func:`_decode_user_comment`;
+    generation tools store a JSON object there (ComfyUI: ``prompt`` /
+    ``workflow`` / ``datetime``), so a JSON object is split into one
+    chunk per key — matching the separate tEXt chunks a ComfyUI PNG
+    upload carries. Any other text lands under a single
+    ``user_comment`` key.
+
+    Bare codestreams (``\\xff\\x0a``) carry no boxes and yield ``{}``.
+
+    Args:
+        data: Raw JXL file bytes.
+
+    Returns:
+        Dictionary mapping chunk keyword to text value.
+    """
+    payload = _find_jxl_exif_payload(data)
+    if payload is None:
+        return {}
+    return _parse_jxl_exif_user_comment(payload)
+
+
+def _find_jxl_exif_payload(data: bytes) -> bytes | None:
+    """Return the Exif box payload of a JXL container, or None.
+
+    Walks the top-level boxes only; the first candidate wins when both
+    a plain ``Exif`` box and a ``brob``-compressed one are present.
+    Malformed boxes (truncated header, size overrun) stop the walk.
+    """
+    pos = 12  # skip the 12-byte signature box
+    candidate: bytes | None = None
+
+    while pos < len(data):
+        if pos + 8 > len(data):
+            break
+        size = struct.unpack('>I', data[pos:pos + 4])[0]
+        box_type = data[pos + 4:pos + 8]
+        header_len = 8
+        if size == 1:
+            # Extended size in the following 8 bytes
+            if pos + 16 > len(data):
+                break
+            size = struct.unpack('>Q', data[pos + 8:pos + 16])[0]
+            header_len = 16
+        elif size == 0:
+            # Final box extends to EOF
+            size = len(data) - pos
+        if size < header_len or pos + size > len(data):
+            break
+
+        payload = data[pos + header_len:pos + size]
+        if box_type == b'Exif':
+            if candidate is None:
+                candidate = payload
+        elif box_type == b'brob' and candidate is None and len(payload) >= 4:
+            if payload[:4] == b'Exif':
+                try:
+                    candidate = brotli.decompress(payload[4:])
+                except brotli.error:
+                    pass
+
+        pos += size
+
+    return candidate
+
+
+def _parse_jxl_exif_user_comment(payload: bytes) -> dict[str, str]:
+    """Parse an Exif box payload (TIFF blob) into text chunks.
+
+    Writers emit the TIFF blob in three layouts:
+
+    1. TIFF header at byte 0 (the ComfyUI JXL encoder);
+    2. a 4-byte big-endian "TIFF header offset" field, then the TIFF
+       header (ISO/IEC 18181-2; offset 0 = right after the field);
+    3. the offset field, then a JPEG APP1-style ``Exif\\0\\0`` marker
+       before the TIFF header (what Pillow's ``Exif.tobytes()`` emits).
+
+    Args:
+        payload: Raw bytes from an Exif (or brob-decompressed) box.
+
+    Returns:
+        Dictionary of text chunks, or an empty dict on parse failure.
+    """
+    if len(payload) < 4:
+        return {}
+    if not payload.startswith(_EXIF_TIFF_MAGICS):
+        if payload.startswith(_EXIF_APP1_MARKER):
+            payload = payload[6:]
+        else:
+            offset = struct.unpack('>I', payload[:4])[0]
+            candidate = payload[4 + offset:]
+            if candidate.startswith(_EXIF_TIFF_MAGICS):
+                payload = candidate
+            elif candidate.startswith(_EXIF_APP1_MARKER):
+                payload = candidate[6:]
+            else:
+                return {}
+
+    try:
+        exif = Image.Exif()
+        exif.load(payload)
+    except Exception:
+        return {}
+
+    # Prefer the EXIF sub-IFD; fall back to the root IFD.
+    sub_ifd = exif.get_ifd(0x8769)
+    raw = _ifd_value(sub_ifd, 0x9286) if sub_ifd else None
+    if not raw:
+        raw = exif.get(0x9286)
+
+    text = _decode_user_comment(raw)
+    if not text:
+        return {}
+    stripped = text.strip()
+    if not stripped:
+        return {}
+
+    try:
+        obj = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return {'user_comment': stripped}
+    if not isinstance(obj, dict):
+        return {'user_comment': stripped}
+    return {
+        str(k): (v if isinstance(v, str) else json.dumps(v))
+        for k, v in obj.items()
+        if str(k)
+    }
+
+
+def extract_image_text_chunks(data: bytes) -> dict[str, str]:
+    """Dispatch text-chunk extraction by image format.
+
+    PNG bytes go to :func:`extract_png_text_chunks`, JPEG XL containers
+    to :func:`extract_jxl_text_chunks`; anything else yields ``{}``.
+
+    Args:
+        data: Raw image file bytes.
+
+    Returns:
+        Dictionary mapping chunk keyword to text value.
+    """
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return extract_png_text_chunks(data)
+    if data.startswith(JXL_CONTAINER_MAGIC):
+        return extract_jxl_text_chunks(data)
+    return {}
 
 
 # ---------------------------------------------------------------------------

@@ -20,6 +20,11 @@ import app.application.services.item_service as item_service_module
 import app.config as config_module
 from app.config import CSRF_COOKIE_NAME
 
+import os
+import json
+from app.infrastructure.services.jxl import _get_jxl_binary
+from app.infrastructure.services.jxl_encoder import encode_to_lossless_jxl
+
 
 def _csrf_headers(client: TestClient) -> dict[str, str]:
     '''Get CSRF headers for POST requests.'''
@@ -268,3 +273,89 @@ class TestPngTextChunkPreservation:
             'prompt': 'masterpiece, best quality',
             'workflow': '{"nodes": []}',
         }
+
+
+# ===========================================================================
+# JXL native upload with embedded EXIF metadata
+# ===========================================================================
+
+def _make_exif_png() -> bytes:
+    """Create a 100x80 PNG carrying an EXIF UserComment with JSON text.
+
+    Returns:
+        PNG file bytes ready for JXL transcoding / direct upload.
+    """
+    img = Image.new('RGB', (100, 80), color='blue')
+    exif = Image.Exif()
+    json_text = json.dumps({
+        'prompt': 'integration prompt',
+        'workflow': 'integration workflow',
+    })
+    exif[0x9286] = b'UNICODE\x00\xff\xfe' + json_text.encode('utf-16-le')
+    buf = io.BytesIO()
+    img.save(buf, format='PNG', exif=exif.tobytes())
+    return buf.getvalue()
+
+
+@pytest.mark.skipif(
+    _get_jxl_binary('cjxl.exe' if os.name == 'nt' else 'cjxl') is None,
+    reason='cjxl binary not installed',
+)
+class TestJxlMetadataBlocks:
+    """Integration tests for native JXL EXIF metadata extraction."""
+
+    def test_native_jxl_upload_extracts_exif_blocks(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+    ) -> None:
+        """Uploading a native JXL with embedded EXIF should populate png_text_chunks."""
+        exif_png = _make_exif_png()
+        jxl_bytes = encode_to_lossless_jxl(exif_png, is_jpeg=False)
+
+        response = authenticated_client.post(
+            '/api/uploads',
+            data={'folder_id': test_folder},
+            headers=_csrf_headers(authenticated_client),
+            files={'file': ('test.jxl', jxl_bytes, 'image/jxl')},
+        )
+
+        assert response.status_code == 200
+        item_id = response.json()['id']
+
+        meta_response = authenticated_client.get(f'/api/items/{item_id}/metadata')
+        assert meta_response.status_code == 200
+        meta = meta_response.json()
+        assert meta['content_type'] == 'image/jxl'
+        assert meta['png_text_chunks'] == {
+            'prompt': 'integration prompt',
+            'workflow': 'integration workflow',
+        }
+
+    def test_native_jxl_upload_without_exif_has_no_blocks(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+    ) -> None:
+        """A native JXL without EXIF should have empty/None png_text_chunks."""
+        plain_img = Image.new('RGB', (100, 80), color='green')
+        buf = io.BytesIO()
+        plain_img.save(buf, format='PNG')
+        plain_png = buf.getvalue()
+
+        jxl_bytes = encode_to_lossless_jxl(plain_png, is_jpeg=False)
+
+        response = authenticated_client.post(
+            '/api/uploads',
+            data={'folder_id': test_folder},
+            headers=_csrf_headers(authenticated_client),
+            files={'file': ('plain.jxl', jxl_bytes, 'image/jxl')},
+        )
+
+        assert response.status_code == 200
+        item_id = response.json()['id']
+
+        meta_response = authenticated_client.get(f'/api/items/{item_id}/metadata')
+        assert meta_response.status_code == 200
+        meta = meta_response.json()
+        assert not meta['png_text_chunks']
