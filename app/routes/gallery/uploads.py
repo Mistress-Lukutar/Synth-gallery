@@ -12,6 +12,7 @@ from datetime import datetime
 from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
 
 from app.application.services import ItemService
+from app.application.services.item_service import JxlUploadOptions
 from app.application.services.item_types import ItemType
 from app.database import create_connection
 from app.dependencies import require_user
@@ -39,6 +40,7 @@ async def _process_upload(
     file: UploadFile,
     folder_id: str,
     user: dict,
+    jxl_options: JxlUploadOptions,
 ) -> dict:
     '''Process a single file upload of any registered item type.
 
@@ -56,6 +58,7 @@ async def _process_upload(
             folder_id=folder_id,
             user_id=user['id'],
             user_dek=user_dek,
+            jxl_options=jxl_options,
         )
     finally:
         db.close()
@@ -66,6 +69,9 @@ async def upload_file(
     request: Request,
     file: UploadFile = File(...),
     folder_id: str = Form(...),
+    jxl_lossless: bool = Form(False),
+    jxl_quality: int = Form(95, ge=1, le=100),
+    jxl_effort: int = Form(7, ge=1, le=9),
 ):
     '''Upload a single file.
 
@@ -83,7 +89,12 @@ async def upload_file(
     finally:
         db.close()
 
-    item = await _process_upload(file=file, folder_id=folder_id, user=user)
+    jxl_options = JxlUploadOptions(
+        lossless=jxl_lossless, quality=jxl_quality, effort=jxl_effort,
+    )
+    item = await _process_upload(
+        file=file, folder_id=folder_id, user=user, jxl_options=jxl_options,
+    )
 
     response = {
         'id': item['id'],
@@ -115,6 +126,9 @@ async def upload_batch(
     request: Request,
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
+    jxl_lossless: bool = Form(False),
+    jxl_quality: int = Form(95, ge=1, le=100),
+    jxl_effort: int = Form(7, ge=1, le=9),
 ):
     '''Upload multiple files. Creates one Item per file.'''
     user = require_user(request)
@@ -128,13 +142,16 @@ async def upload_batch(
     finally:
         db.close()
 
+    jxl_options = JxlUploadOptions(
+        lossless=jxl_lossless, quality=jxl_quality, effort=jxl_effort,
+    )
     results = []
     errors = []
 
     for file in files:
         try:
             item = await _process_upload(
-                file=file, folder_id=folder_id, user=user
+                file=file, folder_id=folder_id, user=user, jxl_options=jxl_options,
             )
             results.append({
                 'id': item['id'],
@@ -162,6 +179,9 @@ async def upload_bulk(
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
     paths: str = Form(...),
+    jxl_lossless: bool = Form(False),
+    jxl_quality: int = Form(95, ge=1, le=100),
+    jxl_effort: int = Form(7, ge=1, le=9),
 ):
     '''Bulk upload a folder structure with files.
 
@@ -187,6 +207,10 @@ async def upload_bulk(
             raise HTTPException(403, 'Cannot upload to this folder')
     finally:
         db.close()
+
+    jxl_options = JxlUploadOptions(
+        lossless=jxl_lossless, quality=jxl_quality, effort=jxl_effort,
+    )
 
     root_files = []
     album_groups: dict[str, list[tuple[UploadFile, str]]] = {}
@@ -217,7 +241,7 @@ async def upload_bulk(
         for file, filename in root_files:
             try:
                 await _process_upload(
-                    file=file, folder_id=folder_id, user=user
+                    file=file, folder_id=folder_id, user=user, jxl_options=jxl_options,
                 )
                 individual_photos += 1
             except Exception as exc:
@@ -234,6 +258,7 @@ async def upload_bulk(
                             file=file,
                             folder_id=folder_id,
                             user=user,
+                            jxl_options=jxl_options,
                         )
                         item_ids.append(item['id'])
                         photos_in_albums += 1
@@ -276,6 +301,9 @@ async def upload_album(
     files: list[UploadFile] = File(...),
     folder_id: str = Form(...),
     album_name: str = Form(''),
+    jxl_lossless: bool = Form(False),
+    jxl_quality: int = Form(95, ge=1, le=100),
+    jxl_effort: int = Form(7, ge=1, le=9),
 ):
     '''Upload multiple files as an album.
 
@@ -295,11 +323,15 @@ async def upload_album(
     finally:
         db.close()
 
+    jxl_options = JxlUploadOptions(
+        lossless=jxl_lossless, quality=jxl_quality, effort=jxl_effort,
+    )
+
     item_ids = []
     for file in files:
         try:
             item = await _process_upload(
-                file=file, folder_id=folder_id, user=user
+                file=file, folder_id=folder_id, user=user, jxl_options=jxl_options,
             )
             item_ids.append(item['id'])
         except Exception:

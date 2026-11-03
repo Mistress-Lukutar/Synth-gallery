@@ -1,9 +1,9 @@
 '''
 File:   test_jxl_encoder.py
-Brief:  Unit tests for the lossless JPEG XL encoder.
+Brief:  Unit tests for the JPEG XL encoder (lossless and lossy modes).
 Author: Mistress-Lukutar
 Date:   2026-07-11
-Version: v0.2.0
+Version: v0.3.0
 '''
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from PIL import Image
 
 from app.infrastructure.services import jxl_encoder
 from app.infrastructure.services.jxl_encoder import (
-    encode_to_lossless_jxl,
+    encode_to_jxl,
     is_jxl_encoding_available,
     JxlEncodeError,
 )
@@ -62,7 +62,7 @@ def test_encode_without_cjxl_raises(jpeg_bytes: bytes) -> None:
         return_value=None,
     ):
         with pytest.raises(JxlEncodeError):
-            encode_to_lossless_jxl(jpeg_bytes, is_jpeg=True)
+            encode_to_jxl(jpeg_bytes, is_jpeg=True)
 
 
 def test_encode_passes_progressive_flags(jpeg_bytes: bytes, fake_jxl_output: bytes) -> None:
@@ -82,7 +82,7 @@ def test_encode_passes_progressive_flags(jpeg_bytes: bytes, fake_jxl_output: byt
         return_value=Path('/usr/bin/cjxl'),
     ):
         with patch('app.infrastructure.services.jxl_encoder.subprocess.run', side_effect=fake_run) as run_mock:
-            result = encode_to_lossless_jxl(jpeg_bytes, is_jpeg=True)
+            result = encode_to_jxl(jpeg_bytes, is_jpeg=True)
 
     assert result == fake_jxl_output
 
@@ -123,7 +123,7 @@ def test_encode_respects_disabled_progressive_flags(
             ), patch.object(
                 jxl_encoder, 'JXL_PROGRESSIVE_DC', 0
             ):
-                result = encode_to_lossless_jxl(jpeg_bytes, is_jpeg=True)
+                result = encode_to_jxl(jpeg_bytes, is_jpeg=True)
 
     assert result == fake_jxl_output
 
@@ -152,7 +152,7 @@ def test_encode_non_jpeg_uses_distance_zero(fake_jxl_output: bytes) -> None:
         return_value=Path('/usr/bin/cjxl'),
     ):
         with patch('app.infrastructure.services.jxl_encoder.subprocess.run', side_effect=fake_run) as run_mock:
-            result = encode_to_lossless_jxl(png_bytes, is_jpeg=False)
+            result = encode_to_jxl(png_bytes, is_jpeg=False)
 
     assert result == fake_jxl_output
 
@@ -165,7 +165,7 @@ def test_encode_non_jpeg_uses_distance_zero(fake_jxl_output: bytes) -> None:
 def test_encode_empty_data_raises() -> None:
     '''Encoding empty data should raise a clear error.'''
     with pytest.raises(JxlEncodeError):
-        encode_to_lossless_jxl(b'')
+        encode_to_jxl(b'')
 
 
 def test_encode_cjxl_failure_raises(jpeg_bytes: bytes) -> None:
@@ -180,4 +180,99 @@ def test_encode_cjxl_failure_raises(jpeg_bytes: bytes) -> None:
     ):
         with patch('app.infrastructure.services.jxl_encoder.subprocess.run', return_value=mock_result):
             with pytest.raises(JxlEncodeError):
-                encode_to_lossless_jxl(jpeg_bytes, is_jpeg=True)
+                encode_to_jxl(jpeg_bytes, is_jpeg=True)
+
+
+# ===========================================================================
+# Lossy encoding tests (new for v0.3)
+# ===========================================================================
+
+
+def test_lossy_png_uses_quality_flag(fake_jxl_output: bytes) -> None:
+    '''Lossy PNG → JXL must use -q <quality> and NOT -d / --lossless_jpeg=1.'''
+    png_bytes = b'\x89PNG\r\n\x1a\nfake'
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stderr = ''
+
+    def fake_run(cmd: list[str | Path], **kwargs: object) -> MagicMock:
+        output_path = Path(str(cmd[2]))
+        output_path.write_bytes(fake_jxl_output)
+        return mock_result
+
+    with patch(
+        'app.infrastructure.services.jxl_encoder._get_jxl_binary',
+        return_value=Path('/usr/bin/cjxl'),
+    ):
+        with patch('app.infrastructure.services.jxl_encoder.subprocess.run', side_effect=fake_run) as run_mock:
+            result = encode_to_jxl(png_bytes, is_jpeg=False, quality=95, effort=7)
+
+    assert result == fake_jxl_output
+
+    cmd = [str(arg) for arg in run_mock.call_args[0][0]]
+    assert '-q' in cmd
+    assert '95' in cmd
+    assert '-e' in cmd
+    assert '7' in cmd
+    # Lossy must NOT contain distance flag or lossless-jpeg flag
+    idx_q = cmd.index('-q')
+    assert cmd[idx_q + 1] == '95'
+    assert '-d' not in cmd
+    assert '--lossless_jpeg=1' not in cmd
+
+
+def test_lossy_jpeg_disables_reversible_transcode(fake_jxl_output: bytes) -> None:
+    '''Lossy JPEG must use -q, include --lossless_jpeg=0, and NOT -d or --lossless_jpeg=1.'''
+    jpeg_data = b'\xff\xd8' + b'\x00' * 100
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stderr = ''
+
+    def fake_run(cmd: list[str | Path], **kwargs: object) -> MagicMock:
+        output_path = Path(str(cmd[2]))
+        output_path.write_bytes(fake_jxl_output)
+        return mock_result
+
+    with patch(
+        'app.infrastructure.services.jxl_encoder._get_jxl_binary',
+        return_value=Path('/usr/bin/cjxl'),
+    ):
+        with patch('app.infrastructure.services.jxl_encoder.subprocess.run', side_effect=fake_run) as run_mock:
+            result = encode_to_jxl(jpeg_data, is_jpeg=True, quality=95)
+
+    assert result == fake_jxl_output
+
+    cmd = [str(arg) for arg in run_mock.call_args[0][0]]
+    assert '-q' in cmd
+    assert '95' in cmd
+    assert '--lossless_jpeg=0' in cmd
+    assert '--lossless_jpeg=1' not in cmd
+    assert '-d' not in cmd
+
+
+def test_lossless_default_uses_distance_zero(fake_jxl_output: bytes) -> None:
+    '''encode_to_jxl with no quality kwarg must produce lossless (-d 0).'''
+    png_bytes = b'\x89PNG\r\n\x1a\nfake'
+    mock_result = MagicMock()
+    mock_result.returncode = 0
+    mock_result.stderr = ''
+
+    def fake_run(cmd: list[str | Path], **kwargs: object) -> MagicMock:
+        output_path = Path(str(cmd[2]))
+        output_path.write_bytes(fake_jxl_output)
+        return mock_result
+
+    with patch(
+        'app.infrastructure.services.jxl_encoder._get_jxl_binary',
+        return_value=Path('/usr/bin/cjxl'),
+    ):
+        with patch('app.infrastructure.services.jxl_encoder.subprocess.run', side_effect=fake_run) as run_mock:
+            result = encode_to_jxl(png_bytes, is_jpeg=False)
+
+    assert result == fake_jxl_output
+
+    cmd = [str(arg) for arg in run_mock.call_args[0][0]]
+    assert '-d' in cmd
+    assert '0' in cmd
+    # Lossless must NOT contain a quality flag
+    assert '-q' not in cmd

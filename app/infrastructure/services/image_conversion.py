@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from PIL import Image, ImageOps
 
 from .jxl import decode_jxl_to_pixels, extract_jxl_exif, reconstruct_jpeg
-from .jxl_encoder import encode_to_lossless_jxl
+from .jxl_encoder import encode_to_jxl
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +137,7 @@ def convert_image(
         )
     try:
         if settings.format == 'jxl':
-            converted = encode_to_lossless_jxl(
+            converted = encode_to_jxl(
                 data, effort=settings.jxl_effort
             )
         elif settings.format == 'jpeg' and source_content_type == 'image/jxl':

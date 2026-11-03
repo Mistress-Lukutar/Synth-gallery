@@ -40,11 +40,24 @@ def _csrf_headers(client: TestClient) -> dict[str, str]:
 
 
 def _upload(client: TestClient, folder_id: str, filename: str,
-            data: bytes, content_type: str) -> dict:
-    '''Upload one file and return the response JSON.'''
+            data: bytes, content_type: str, extra_data: dict | None = None) -> dict:
+    '''Upload one file and return the response JSON.
+
+    Args:
+        client: FastAPI TestClient.
+        folder_id: Target folder id.
+        filename: Name for the uploaded file.
+        data: Raw file bytes.
+        content_type: MIME type of the file.
+        extra_data: Additional Form fields merged into the request (e.g.
+            ``{'jxl_lossless': 'true'}``).
+
+    Returns:
+        Response JSON dict.
+    '''
     resp = client.post(
         '/api/uploads',
-        data={'folder_id': folder_id},
+        data={'folder_id': folder_id, **(extra_data or {})},
         files={'file': (filename, data, content_type)},
         headers=_csrf_headers(client),
     )
@@ -174,8 +187,11 @@ class TestJxlReconstruction:
         if not is_jxl_encoding_available():
             pytest.skip('cjxl encoder not available')
 
+        # Upload with lossless=True so the JXL carries --lossless_jpeg=1,
+        # which preserves the original JPEG for bit-exact reconstruction.
         data = _upload(authenticated_client, test_folder,
-                       'photo.jpg', test_image_bytes, 'image/jpeg')
+                       'photo.jpg', test_image_bytes, 'image/jpeg',
+                       extra_data={'jxl_lossless': 'true'})
         assert data['content_type'] == 'image/jxl'
 
         resp = _batch_download(authenticated_client, {
@@ -188,6 +204,34 @@ class TestJxlReconstruction:
         assert 'photo.jpg' in resp.headers['content-disposition']
         # djxl reconstruction: the stored JPEG comes back byte-for-byte.
         assert resp.content == test_image_bytes
+
+    def test_jxl_lossy_default_download_reencodes(
+        self, authenticated_client, test_folder, test_image_bytes, jxl_enabled
+    ):
+        '''Default (lossy q95) upload produces a JXL that re-encodes on download.
+
+        The lossy-by-default upload means the stored JXL has no reconstructable
+        JPEG inside; batch-download with format=jpeg therefore goes through
+        Pillow re-encoding at the requested quality, yielding bytes different
+        from the original.
+        '''
+        if not is_jxl_encoding_available():
+            pytest.skip('cjxl encoder not available')
+
+        data = _upload(authenticated_client, test_folder,
+                       'photo.jpg', test_image_bytes, 'image/jpeg')
+        assert data['content_type'] == 'image/jxl'
+
+        resp = _batch_download(authenticated_client, {
+            'item_ids': [data['id']],
+            'options': {'format': 'jpeg', 'jpeg_quality': 85},
+        })
+
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'] == 'image/jpeg'
+        assert 'photo.jpg' in resp.headers['content-disposition']
+        # Lossy default: not bit-exact (Pillow re-encodes at quality 85).
+        assert resp.content != test_image_bytes
 
 
 class TestAlbumDownload:

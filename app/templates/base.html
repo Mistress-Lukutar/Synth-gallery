@@ -15,6 +15,7 @@
         {% if user %}
         window.SYNTH_USER_ID = {{ user.id }};
         {% endif %}
+        window.SYNTH_USE_JXL = {{ 'true' if use_jxl else 'false' }};
     </script>
     
     <!-- Core utilities -->
@@ -155,6 +156,28 @@
                     </label>
                 </div>
 
+
+                <div class="upload-option upload-jxl-option" id="upload-jxl-option" hidden>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="upload-jxl-lossless">
+                        <span class="checkmark"></span>
+                        Lossless (effort 9)
+                    </label>
+                    <div class="upload-jxl-lossy" id="upload-jxl-lossy">
+                        <div class="upload-jxl-field">
+                            <label for="upload-jxl-quality">Quality <span id="upload-jxl-quality-value">95</span></label>
+                            <input type="range" id="upload-jxl-quality" class="range-input" min="1" max="100" value="95">
+                        </div>
+                        <div class="upload-jxl-field">
+                            <label for="upload-jxl-effort">Effort</label>
+                            <select id="upload-jxl-effort">
+                                <option value="5">Fast (5)</option>
+                                <option value="7" selected>Balanced (7)</option>
+                                <option value="9">Maximum (9)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
 
             </div>
 

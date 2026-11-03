@@ -190,7 +190,7 @@ class TestConvertImageJxl:
     def test_jxl_target_uses_cjxl_with_effort(self) -> None:
         fake_jxl = b'\x00\x00\x00\x0cJXL encoded'
         with patch(
-            'app.infrastructure.services.image_conversion.encode_to_lossless_jxl',
+            'app.infrastructure.services.image_conversion.encode_to_jxl',
             return_value=fake_jxl,
         ) as mock_encode:
             data, ct, ext = convert_image(
@@ -208,7 +208,7 @@ class TestConvertImageJxl:
         from app.infrastructure.services.jxl_encoder import JxlEncodeError
 
         with patch(
-            'app.infrastructure.services.image_conversion.encode_to_lossless_jxl',
+            'app.infrastructure.services.image_conversion.encode_to_jxl',
             side_effect=JxlEncodeError('cjxl not found'),
         ):
             with pytest.raises(ImageConversionError):

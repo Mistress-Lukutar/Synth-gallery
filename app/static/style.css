@@ -1384,6 +1384,27 @@ main {
     align-items: center;
 }
 
+/* Upload JXL options */
+.upload-jxl-option {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.upload-jxl-lossy {
+    margin-top: 0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.upload-jxl-field label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+}
+
 .manual-tags-section {
     margin-top: 0.5rem;
 }

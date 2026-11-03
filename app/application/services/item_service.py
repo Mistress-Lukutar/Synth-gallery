@@ -13,6 +13,7 @@ import logging
 import os
 import tempfile
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional
@@ -37,7 +38,7 @@ from app.infrastructure.services.ffmpeg import (
 from app.infrastructure.services.jxl import is_jxl_content
 from app.infrastructure.services.jxl_encoder import (
     JxlEncodeError,
-    encode_to_lossless_jxl,
+    encode_to_jxl,
     is_jxl_encoding_available,
 )
 from app.infrastructure.services.media import (
@@ -59,6 +60,14 @@ from .item_types import (
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class JxlUploadOptions:
+    '''Per-upload JPEG XL encoding options (defaults = lossy q95/e7).'''
+    lossless: bool = False
+    quality: int = 95
+    effort: int = 7
 
 
 # Magic bytes used by :meth:`ItemService._validate_content`.
@@ -137,13 +146,18 @@ class ItemService:
         source_path: Path,
         media_type: str,
         content_type: str,
+        jxl_options: JxlUploadOptions,
     ) -> tuple[Path, str, bool]:
-        '''Transcode image uploads to lossless JPEG XL when enabled.
+        '''Transcode image uploads to JPEG XL when enabled.
+
+        Supports both lossless (effort 9) and lossy (configurable quality)
+        encoding modes via *jxl_options*.
 
         Args:
             source_path: Path to the original plaintext image file.
             media_type: ``'image'`` or ``'video'``.
             content_type: Original MIME type.
+            jxl_options: Per-upload JPEG XL encoding options.
 
         Returns:
             Tuple of ``(path, content_type, produced_tmp)``. When transcoding
@@ -155,15 +169,25 @@ class ItemService:
             return source_path, content_type, False
         if media_type != 'image':
             return source_path, content_type, False
+
+        # Read bytes early so we can detect already-JXL sources by magic bytes.
+        content = source_path.read_bytes()
+        if is_jxl_content(content):
+            return source_path, content_type, False
         if content_type == 'image/jxl':
             return source_path, content_type, False
         if not content_type or not content_type.startswith('image/'):
             return source_path, content_type, False
 
         try:
-            content = source_path.read_bytes()
             is_jpeg = content_type == 'image/jpeg'
-            transcoded = encode_to_lossless_jxl(content, is_jpeg=is_jpeg)
+            if jxl_options.lossless:
+                transcoded = encode_to_jxl(content, is_jpeg=is_jpeg, effort=9)
+            else:
+                transcoded = encode_to_jxl(
+                    content, is_jpeg=is_jpeg, quality=jxl_options.quality,
+                    effort=jxl_options.effort,
+                )
         except JxlEncodeError as exc:
             logger.warning('JXL transcode failed, keeping original: %s', exc)
             return source_path, content_type, False
@@ -248,6 +272,7 @@ class ItemService:
         folder_id: str,
         user_id: int,
         user_dek: Optional[bytes] = None,
+        jxl_options: Optional[JxlUploadOptions] = None,
     ) -> Dict:
         '''Dispatch an upload to the handler for its item type.
 
@@ -261,6 +286,8 @@ class ItemService:
             folder_id: Target folder.
             user_id: Owner user ID.
             user_dek: User's DEK for server-side encryption.
+            jxl_options: Optional JPEG XL encoding options (lossless flag +
+                quality/effort). Ignored for note uploads.
 
         Returns:
             Created item dict.
@@ -286,6 +313,7 @@ class ItemService:
             folder_id=folder_id,
             user_id=user_id,
             user_dek=user_dek,
+            jxl_options=jxl_options,
         )
 
     @staticmethod
@@ -423,6 +451,7 @@ class ItemService:
         folder_id: str,
         user_id: int,
         user_dek: Optional[bytes] = None,
+        jxl_options: Optional[JxlUploadOptions] = None,
     ) -> Dict:
         '''Process a media upload with bounded memory usage.
 
@@ -437,6 +466,8 @@ class ItemService:
             folder_id: Target folder.
             user_id: Owner user ID.
             user_dek: User's DEK for server-side encryption.
+            jxl_options: Optional JPEG XL encoding options (lossless flag +
+                quality/effort). Ignored for note uploads.
 
         Returns:
             Created item dict.
@@ -534,7 +565,8 @@ class ItemService:
             # Stage 3: optional JXL transcode (image only).
             final_path, final_content_type, produced_tmp = (
                 self._maybe_transcode_to_jxl_file(
-                    plain_path, media_type, content_type
+                    plain_path, media_type, content_type,
+                    jxl_options or JxlUploadOptions(),
                 )
             )
             content_type = final_content_type

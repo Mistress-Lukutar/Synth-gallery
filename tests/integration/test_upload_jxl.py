@@ -13,6 +13,7 @@ import struct
 import zlib
 
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -23,7 +24,7 @@ from app.config import CSRF_COOKIE_NAME
 import os
 import json
 from app.infrastructure.services.jxl import _get_jxl_binary
-from app.infrastructure.services.jxl_encoder import encode_to_lossless_jxl
+from app.infrastructure.services.jxl_encoder import encode_to_jxl
 
 
 def _csrf_headers(client: TestClient) -> dict[str, str]:
@@ -59,6 +60,11 @@ def jxl_enabled(monkeypatch):
     '''Enable JXL transcoding for the duration of a test.'''
     monkeypatch.setattr(config_module, 'USE_JXL', True)
     monkeypatch.setattr(item_service_module, 'USE_JXL', True)
+    monkeypatch.setattr(
+        item_service_module,
+        'is_jxl_encoding_available',
+        lambda: True,
+    )
 
 
 @pytest.fixture
@@ -311,7 +317,7 @@ class TestJxlMetadataBlocks:
     ) -> None:
         """Uploading a native JXL with embedded EXIF should populate png_text_chunks."""
         exif_png = _make_exif_png()
-        jxl_bytes = encode_to_lossless_jxl(exif_png, is_jpeg=False)
+        jxl_bytes = encode_to_jxl(exif_png, is_jpeg=False)
 
         response = authenticated_client.post(
             '/api/uploads',
@@ -343,7 +349,7 @@ class TestJxlMetadataBlocks:
         plain_img.save(buf, format='PNG')
         plain_png = buf.getvalue()
 
-        jxl_bytes = encode_to_lossless_jxl(plain_png, is_jpeg=False)
+        jxl_bytes = encode_to_jxl(plain_png, is_jpeg=False)
 
         response = authenticated_client.post(
             '/api/uploads',
@@ -359,3 +365,252 @@ class TestJxlMetadataBlocks:
         assert meta_response.status_code == 200
         meta = meta_response.json()
         assert not meta['png_text_chunks']
+
+
+# ===========================================================================
+# JXL upload options (mock-based, no real cjxl binary needed)
+# ===========================================================================
+
+
+class TestJxlUploadOptions:
+    '''Test JXL upload form fields and item_service encoding path.'''
+
+    def _upload_jpeg(
+        self,
+        client: TestClient,
+        folder_id: str,
+        data: dict | None = None,
+    ) -> dict:
+        '''Helper to upload a JPEG with optional JXL form data.
+
+        Returns the raw :class:`fastapi.testclient.Response` so callers can
+        inspect status_code and .json().
+        '''
+        if data is None:
+            data = {}
+        # Generate test JPEG bytes inline (no fixture injection needed).
+        buf = io.BytesIO()
+        Image.new('RGB', (100, 80), color='red').save(buf, format='JPEG', quality=90)
+        jpeg_bytes = buf.getvalue()
+
+        response = client.post(
+            '/api/uploads',
+            data=data,
+            headers=_csrf_headers(client),
+            files={'file': ('test.jpg', jpeg_bytes, 'image/jpeg')},
+        )
+        return response
+
+    def test_default_is_lossy_q95_e7(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''Uploading a JPEG without JXL fields should use lossy q=95, e=7.'''
+        fake_jxl = b'\x00\x00\x00\x0cJXL fake'
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = self._upload_jpeg(
+                authenticated_client,
+                test_folder,
+                {'folder_id': test_folder},
+            )
+
+        assert response.status_code == 200, response.text
+        item_data = response.json()
+        mock_encode.assert_called_once()
+        kwargs = mock_encode.call_args.kwargs
+        assert kwargs['quality'] == 95
+        assert kwargs['effort'] == 7
+        assert kwargs['is_jpeg'] is True
+
+        # Verify stored content type is JXL
+        meta_response = authenticated_client.get(
+            f'/api/items/{item_data["id"]}'
+        )
+        assert meta_response.status_code == 200
+        meta = meta_response.json()
+        assert meta['content_type'] == 'image/jxl'
+
+    def test_lossless_forces_effort_9(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''jxl_lossless=true should force effort=9 and omit quality.'''
+        fake_jxl = b'\x00\x00\x00\x0cJXL fake'
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = self._upload_jpeg(
+                authenticated_client,
+                test_folder,
+                {
+                    'folder_id': test_folder,
+                    'jxl_lossless': 'true',
+                    'jxl_quality': '80',
+                },
+            )
+
+        assert response.status_code == 200
+        mock_encode.assert_called_once()
+        kwargs = mock_encode.call_args.kwargs
+        assert kwargs['effort'] == 9
+        assert 'quality' not in kwargs
+        assert kwargs['is_jpeg'] is True
+
+    def test_custom_quality_effort_passthrough(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''Custom jxl_quality and jxl_effort should be forwarded to encode_to_jxl.'''
+        fake_jxl = b'\x00\x00\x00\x0cJXL fake'
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = self._upload_jpeg(
+                authenticated_client,
+                test_folder,
+                {
+                    'folder_id': test_folder,
+                    'jxl_quality': '80',
+                    'jxl_effort': '5',
+                },
+            )
+
+        assert response.status_code == 200
+        mock_encode.assert_called_once()
+        kwargs = mock_encode.call_args.kwargs
+        assert kwargs['quality'] == 80
+        assert kwargs['effort'] == 5
+
+    def test_out_of_range_quality_rejected(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''jxl_quality=150 should return 422 (FastAPI validation).'''
+        fake_jxl = b'\x00\x00\x00\x0cJXL fake'
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = self._upload_jpeg(
+                authenticated_client,
+                test_folder,
+                {
+                    'folder_id': test_folder,
+                    'jxl_quality': '150',
+                },
+            )
+
+        assert response.status_code == 422
+        mock_encode.assert_not_called()
+
+    def test_already_jxl_mime_not_reencoded(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''A file with MIME image/jxl should skip encoding entirely.'''
+        fake_jxl = b'\x00\x00\x00\x0cJXL fake'
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = authenticated_client.post(
+                '/api/uploads',
+                data={'folder_id': test_folder},
+                headers=_csrf_headers(authenticated_client),
+                files={
+                    'file': ('photo.jxl', fake_jxl, 'image/jxl'),
+                },
+            )
+
+        assert response.status_code == 200
+        mock_encode.assert_not_called()
+        item_data = response.json()
+        meta_response = authenticated_client.get(
+            f'/api/items/{item_data["id"]}'
+        )
+        assert meta_response.status_code == 200
+        meta = meta_response.json()
+        assert meta['content_type'] == 'image/jxl'
+
+    def test_already_jxl_magic_bytes_not_reencoded(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''JXL magic bytes with MIME image/png should skip encoding.'''
+        jxl_magic = b'\x00\x00\x00\x0cJXL ' + b'\x00' * 64
+        fake_jxl = jxl_magic
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = authenticated_client.post(
+                '/api/uploads',
+                data={'folder_id': test_folder},
+                headers=_csrf_headers(authenticated_client),
+                files={
+                    'file': ('photo.png', jxl_magic, 'image/png'),
+                },
+            )
+
+        assert response.status_code == 200
+        mock_encode.assert_not_called()
+        item_data = response.json()
+        meta_response = authenticated_client.get(
+            f'/api/items/{item_data["id"]}'
+        )
+        assert meta_response.status_code == 200
+        meta = meta_response.json()
+        # Magic-byte guard skips before encoding, so MIME stays as-is.
+        assert meta['content_type'] == 'image/png'
+
+    def test_video_uploads_skip_encoder(
+        self,
+        authenticated_client: TestClient,
+        test_folder: str,
+        jxl_enabled,
+    ) -> None:
+        '''MP4 video uploads should never reach encode_to_jxl.'''
+        fake_jxl = b'\x00\x00\x00\x0cJXL fake'
+        # Minimal MP4-ish bytes (ftyp header + padding)
+        mp4_header = b'\x00\x00\x00\x20ftypisom'
+        mp4_bytes = mp4_header + b'\x00' * 1000
+
+        with patch.object(
+            item_service_module,
+            'encode_to_jxl',
+            return_value=fake_jxl,
+        ) as mock_encode:
+            response = authenticated_client.post(
+                '/api/uploads',
+                data={'folder_id': test_folder},
+                headers=_csrf_headers(authenticated_client),
+                files={
+                    'file': ('clip.mp4', mp4_bytes, 'video/mp4'),
+                },
+            )
+
+        assert response.status_code == 200
+        mock_encode.assert_not_called()

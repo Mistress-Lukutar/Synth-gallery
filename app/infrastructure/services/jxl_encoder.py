@@ -1,6 +1,8 @@
 '''
 File:   jxl_encoder.py
-Brief:  Encode raster images to lossless JPEG XL via the official cjxl CLI.
+Brief:  Encode raster images to JPEG XL via the official cjxl CLI.
+        Supports both lossless (``-d 0`` / ``--lossless_jpeg=1``) and
+        lossy (``-q <quality>``) encoding modes.
 Author: Mistress-Lukutar
 Date:   2026-07-11
 '''
@@ -61,8 +63,15 @@ def _encode_with_cjxl(
     image_bytes: bytes,
     is_jpeg: bool,
     effort: int | None = None,
+    quality: int | None = None,
 ) -> bytes:
-    '''Encode image bytes to lossless progressive JPEG XL using the cjxl CLI.
+    '''Encode image bytes to JPEG XL using the cjxl CLI.
+
+    When *quality* is ``None`` the encoder produces lossless output
+    (``-d 0`` or ``--lossless_jpeg=1`` for JPEG sources).  When a quality
+    value (1–100) is supplied, lossy encoding is used (``-q <quality>``);
+    JPEG inputs additionally receive ``--lossless_jpeg=0`` to disable cjxl's
+    default reversible transcoding.
 
     Progressive encoding is controlled through the ``JXL_PROGRESSIVE_AC``,
     ``JXL_QPROGRESSIVE_AC`` and ``JXL_PROGRESSIVE_DC`` configuration flags.
@@ -72,9 +81,11 @@ def _encode_with_cjxl(
         is_jpeg: Whether the source is a JPEG file.
         effort: Encoder effort override (1-9). When ``None``, the
             ``JXL_EFFORT`` configuration constant is used.
+        quality: Lossy quality (1–100). When ``None``, lossless mode is
+            selected.
 
     Returns:
-        Lossless progressive JXL bytes.
+        JPEG XL bytes (lossless or lossy depending on *quality*).
 
     Raises:
         JxlEncodeError: If cjxl is unavailable or encoding fails.
@@ -119,10 +130,19 @@ def _encode_with_cjxl(
         if progressive_dc_enabled:
             cmd.extend(['--progressive_dc', str(JXL_PROGRESSIVE_DC)])
 
-        if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
-            cmd.append('--lossless_jpeg=1')
+        if quality is None:
+            # Lossless mode.
+            if is_jpeg and JXL_LOSSLESS_TRANSCODE_JPEG:
+                cmd.append('--lossless_jpeg=1')
+            else:
+                cmd.extend(['-d', '0'])
         else:
-            cmd.extend(['-d', '0'])
+            # Lossy mode with explicit quality (1–100). JPEG inputs need an
+            # explicit --lossless_jpeg=0: cjxl defaults to reversible JPEG
+            # transcoding and rejects a quality setting while it is active.
+            cmd.extend(['-q', str(quality)])
+            if is_jpeg:
+                cmd.append('--lossless_jpeg=0')
 
         result = subprocess.run(
             cmd,
@@ -152,17 +172,19 @@ def _encode_with_cjxl(
                     pass
 
 
-def encode_to_lossless_jxl(
+def encode_to_jxl(
     source: bytes | BinaryIO,
     is_jpeg: bool | None = None,
     effort: int | None = None,
+    quality: int | None = None,
 ) -> bytes:
-    '''Encode raster image data to lossless JPEG XL.
+    '''Encode raster image data to JPEG XL.
 
     JPEG sources are transcoded losslessly when the feature flag
-    JXL_LOSSLESS_TRANSCODE_JPEG is enabled. Other formats are
-    re-encoded losslessly. EXIF metadata is preserved inside the
-    JXL container.
+    ``JXL_LOSSLESS_TRANSCODE_JPEG`` is enabled and *quality* is ``None``.
+    When a quality value (1–100) is supplied, lossy encoding is used.
+    Other formats are re-encoded losslessly in lossless mode.
+    EXIF metadata is preserved inside the JXL container.
 
     Encoding is performed exclusively through the official ``cjxl`` CLI.
 
@@ -172,9 +194,11 @@ def encode_to_lossless_jxl(
             value is detected from magic bytes.
         effort: Encoder effort override (1-9). When ``None``, the
             ``JXL_EFFORT`` configuration constant is used.
+        quality: Lossy quality (1–100). When ``None``, lossless mode is
+            selected.
 
     Returns:
-        Lossless JPEG XL bytes.
+        JPEG XL bytes (lossless or lossy depending on *quality*).
 
     Raises:
         JxlEncodeError: If the encoder is unavailable or encoding fails.
@@ -197,4 +221,4 @@ def encode_to_lossless_jxl(
     if binary is None:
         raise JxlEncodeError('cjxl encoder not found')
 
-    return _encode_with_cjxl(image_bytes, is_jpeg, effort=effort)
+    return _encode_with_cjxl(image_bytes, is_jpeg, effort=effort, quality=quality)

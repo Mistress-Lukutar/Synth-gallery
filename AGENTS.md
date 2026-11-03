@@ -294,10 +294,15 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 - **MKV playback in browsers**: most browsers cannot decode MKV in `<video>`. The lightbox renders a `<video>` element regardless; if it fires an `error` event (typically for MKV), an overlay is shown with a download link. Playback-capable formats (MP4 H.264/AAC, WebM) continue to play inline
 
 **JPEG XL Experimental Storage:**
-- Set `USE_JXL=true` to transcode new image uploads to lossless JPEG XL
+- Set `USE_JXL=true` to transcode new image uploads to JPEG XL. Default is lossy (`-q 95 -e 7`); per-upload options override this (see below).
 - Encoding and decoding require the official `cjxl` / `djxl` binaries from libjxl; `Start.bat` adds them to PATH automatically
 - If `cjxl` is not found, `Start.bat` downloads the latest Windows static build to `.venv\jxl-tools`
-- JPEG sources are transcoded losslessly when possible; other raster formats are re-encoded losslessly
+- **Per-upload options** (all four upload routes: `/api/uploads`, `/api/uploads/batch`, `/upload-bulk`, `/upload-album`): form fields `jxl_lossless` (bool, default false), `jxl_quality` (int 1–100, default 95), `jxl_effort` (int 1–9, default 7). Thread through `process_upload(..., jxl_options=)` → `process_media_upload` → `_maybe_transcode_to_jxl_file` via the `JxlUploadOptions` dataclass (`item_service.py`). Notes and videos ignore them.
+- **Lossless opt-in**: `jxl_lossless=true` → lossless encoding at fixed effort 9 (reversible JPEG transcode for JPEG sources when config `JXL_LOSSLESS_TRANSCODE_JPEG` is true; `-d 0` otherwise).
+- **Already-JXL skip**: images with `content_type == 'image/jxl'` OR magic-byte detection (`is_jxl_content`) pass through untouched — never re-encoded.
+- cjxl constraint: JPEG inputs in lossy mode receive `--lossless_jpeg=0` because cjxl defaults to `--lossless_jpeg=1` and rejects a quality setting while it is active.
+- **Encoder API**: `encode_to_lossless_jxl(source, is_jpeg=None, effort=None)` → `encode_to_jxl(source, is_jpeg=None, effort=None, quality=None)`; `quality=None` keeps lossless behavior. The batch-download path (`image_conversion.py`, `options.format == 'jxl'`) calls it without `quality` — downloads remain lossless-only (unchanged).
+- **Upload modal controls** (`base.html` `#upload-options`): a `Lossless (effort 9)` checkbox (unchecked by default) plus, while unchecked, a quality slider (1–100, default 95) and an effort select (5/7/9, default 7). Rendered only when `window.SYNTH_USE_JXL === true` (Jinja env global `use_jxl` set in the four modules that create `Jinja2Templates`). `upload.js` appends the three fields to the FormData of all upload paths.
 - EXIF and embedded metadata are preserved inside the JXL container
 - Thumbnails continue to be generated as JPEG
 - Files with `content_type == image/jxl` are served as JXL when the client sends `Accept: image/jxl`
@@ -306,7 +311,7 @@ for each plaintext chunk (CHUNK_SIZE bytes, last may be shorter):
 - **ffmpeg is intentionally NOT used for JXL**: its libjxl wrapper cannot do `--lossless_jpeg` reversible transcodes, EXIF containers or progressive flags (verified against gyan.dev full builds with `--enable-libjxl`); ffmpeg stays video-only
 
 **Batch Download & Download Conversion:**
-- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `original` (default = as stored, no re-encode), `jxl`, `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_lossless_jxl(effort=...)`)
+- `POST /api/items/batch-download` takes `{item_ids, album_ids, options}`; `options.format` selects `original` (default = as stored, no re-encode), `jxl`, `jpeg`, `png` or `webp` plus per-format settings (quality sliders, WebP lossless, PNG optimize, JXL effort override via `encode_to_jxl(effort=...)`)
 - A selection resolving to a single file is served directly with `Content-Disposition: attachment` (no ZIP); two or more files produce a **streaming ZIP** (`zipstream-ng`): the archive is generated while it is sent to the client, with no server-side spool file
 - The ZIP uses `ZIP_STORED` (media payloads are already compressed; DEFLATE would only burn CPU)
 - Items are prepared (download → decrypt → convert) in parallel by a worker pool (`SYNTH_DOWNLOAD_WORKERS`, default 4) with a bounded look-ahead window, while the build thread writes the archive; the whole pipeline runs off the event loop (`iterate_in_threadpool`), so the server stays responsive during downloads
@@ -870,7 +875,7 @@ On first startup, if no users exist, a temporary admin account is created automa
 | `S3_ENDPOINT` | Custom endpoint (for MinIO) | - |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | S3 credentials | - |
 | `S3_USE_SSL` | SSL for S3 connections | `true` |
-| `USE_JXL` | Transcode new image uploads to lossless JPEG XL | `false` |
+| `USE_JXL` | Master switch for JPEG XL: transcode new image uploads (lossy q95/e7 by default; per-upload `jxl_lossless` opts in to lossless effort 9) | `false` |
 | `JXL_TOOL_DIR` | Directory containing `cjxl`/`djxl`; overrides PATH lookup | - |
 | `JXL_FALLBACK_QUALITY` | JPEG quality for generated fallbacks | `85` |
 | `JXL_LOSSLESS_TRANSCODE_JPEG` | Use lossless JPEG transcode for JPEG sources | `true` |

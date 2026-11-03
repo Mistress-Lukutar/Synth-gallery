@@ -18,6 +18,7 @@
     let modal, closeBtn, dropZone, fileInput, folderInput;
     let filesDropText, folderDropText, previewContainer, preview, previewCount;
     let clearFilesBtn, uploadOptions, albumCheckbox;
+    let uploadJxlOption, uploadJxlLossless, uploadJxlLossy, uploadJxlQuality, uploadJxlQualityValue, uploadJxlEffort;
     let progressDiv, progressFill, progressText, cancelBtn, submitBtn;
 
     // Initialize when DOM is ready
@@ -37,6 +38,12 @@
         clearFilesBtn = document.getElementById('clear-files-btn');
         uploadOptions = document.getElementById('upload-options');
         albumCheckbox = document.getElementById('upload-as-album');
+        uploadJxlOption = document.getElementById('upload-jxl-option');
+        uploadJxlLossless = document.getElementById('upload-jxl-lossless');
+        uploadJxlLossy = document.getElementById('upload-jxl-lossy');
+        uploadJxlQuality = document.getElementById('upload-jxl-quality');
+        uploadJxlQualityValue = document.getElementById('upload-jxl-quality-value');
+        uploadJxlEffort = document.getElementById('upload-jxl-effort');
         progressDiv = document.getElementById('upload-progress');
         progressFill = document.getElementById('progress-fill');
         progressText = document.getElementById('progress-text');
@@ -102,6 +109,17 @@
         if (uploadOptions) uploadOptions.classList.add('hidden');
         if (progressDiv) progressDiv.classList.add('hidden');
         if (albumCheckbox) albumCheckbox.checked = false;
+        if (uploadJxlLossless) uploadJxlLossless.checked = false;
+        if (uploadJxlLossy) uploadJxlLossy.hidden = false;
+        if (uploadJxlQuality) {
+            uploadJxlQuality.value = 95;
+        }
+        if (uploadJxlQualityValue) {
+            uploadJxlQualityValue.textContent = '95';
+        }
+        if (uploadJxlEffort) {
+            uploadJxlEffort.value = '7';
+        }
         if (submitBtn) submitBtn.disabled = true;
         if (progressFill) {
             progressFill.style.width = '0%';
@@ -195,6 +213,24 @@
         if (submitBtn) {
             submitBtn.onclick = handleUpload;
         }
+
+        // JXL lossless toggle
+        if (uploadJxlLossless) {
+            uploadJxlLossless.addEventListener('change', () => {
+                if (uploadJxlLossy) {
+                    uploadJxlLossy.hidden = uploadJxlLossless.checked;
+                }
+            });
+        }
+
+        // JXL quality range live update
+        if (uploadJxlQuality) {
+            uploadJxlQuality.addEventListener('input', () => {
+                if (uploadJxlQualityValue) {
+                    uploadJxlQualityValue.textContent = uploadJxlQuality.value;
+                }
+            });
+        }
     }
 
     function setUploadMode(mode) {
@@ -222,6 +258,7 @@
         if (previewContainer) previewContainer.classList.add('hidden');
         if (uploadOptions) uploadOptions.classList.add('hidden');
         if (submitBtn) submitBtn.disabled = true;
+        if (uploadJxlOption) uploadJxlOption.hidden = true;
     }
 
     // Check valid media file
@@ -412,6 +449,13 @@
             albumOption.style.display = 'none';
             albumCheckbox.checked = false;
         }
+
+        // JXL upload options: visible iff files selected and USE_JXL is enabled
+        if (uploadJxlOption && window.SYNTH_USE_JXL === true) {
+            uploadJxlOption.hidden = selectedFiles.length === 0;
+        } else if (uploadJxlOption) {
+            uploadJxlOption.hidden = true;
+        }
     }
 
     // Reorder files after drag-drop
@@ -591,6 +635,9 @@
                 formData.append('paths', JSON.stringify(paths));
                 formData.append('folder_id', targetFolderId);
 
+                const jxlFields = collectUploadJxlOptions();
+                Object.entries(jxlFields).forEach(([key, value]) => formData.append(key, value));
+
                 const resp = await csrfUpload(`${getBaseUrl()}/upload-bulk`, formData, {
                     signal: abortController.signal,
                     onProgress: (e) => {
@@ -653,6 +700,9 @@
                     }
                     formData.append('folder_id', targetFolderId);
 
+                    const jxlFields = collectUploadJxlOptions();
+                    Object.entries(jxlFields).forEach(([key, value]) => formData.append(key, value));
+
                     const resp = await csrfUpload(`${getBaseUrl()}/upload-album`, formData, {
                         signal: abortController.signal,
                         onProgress: (e) => {
@@ -692,6 +742,9 @@
                         const formData = new FormData();
                         formData.append('file', file);
                         formData.append('folder_id', targetFolderId);
+
+                        const jxlFields = collectUploadJxlOptions();
+                        Object.entries(jxlFields).forEach(([key, value]) => formData.append(key, value));
 
                         const resp = await csrfUpload(`${getBaseUrl()}/api/uploads`, formData, {
                             signal: abortController.signal,
@@ -766,6 +819,30 @@
         document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
+    }
+
+    function buildUploadJxlFields(lossless, quality, effort) {
+        return {
+            jxl_lossless: lossless ? 'true' : 'false',
+            jxl_quality: String(parseInt(quality, 10) || 95),
+            jxl_effort: String(parseInt(effort, 10) || 7),
+        };
+    }
+
+    function collectUploadJxlOptions() {
+        if (!uploadJxlLossless) {
+            return buildUploadJxlFields(false, 95, 7);
+        }
+        return buildUploadJxlFields(
+            uploadJxlLossless.checked,
+            uploadJxlQuality.value,
+            uploadJxlEffort.value,
+        );
+    }
+
+    // CommonJS export for Jest unit tests (no-op in the browser).
+    if (typeof module !== 'undefined' && module.exports) {
+        module.exports = { buildUploadJxlFields };
     }
 
 })();

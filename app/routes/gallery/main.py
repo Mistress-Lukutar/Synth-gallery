@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from app.routes.gallery.deps import get_folder_service, get_permission_service
 from app.application.services import UserSettingsService, ItemService
 from app.infrastructure.repositories import UserRepository
-from app.config import APP_VERSION, ROOT_PATH, BASE_DIR, EXTERNAL_HOST
+from app.config import APP_VERSION, ROOT_PATH, BASE_DIR, EXTERNAL_HOST, USE_JXL
 from app.database import create_connection
 from app.dependencies import get_current_user
 from app.infrastructure.repositories import (
@@ -30,6 +30,7 @@ templates = Jinja2Templates(directory=BASE_DIR / "app" / "templates")
 templates.env.globals["base_url"] = ROOT_PATH
 templates.env.globals["app_version"] = APP_VERSION
 templates.env.globals["external_host"] = EXTERNAL_HOST
+templates.env.globals["use_jxl"] = USE_JXL
 
 
 @router.get("/")
