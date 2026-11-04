@@ -16,9 +16,23 @@ const fs = require('fs');
 const path = require('path');
 
 const JS_DIR = path.join(__dirname, '..', '..', 'app', 'static', 'js');
+const TEMPLATE = path.join(__dirname, '..', '..', 'app', 'templates', 'gallery.html');
 
 function loadScript(name) {
     window.eval(fs.readFileSync(path.join(JS_DIR, name), 'utf8'));
+}
+
+// Collect every function name referenced by inline onclick/onchange="fn(...)"
+// attributes in a chunk of markup. Bare statements (event.stopPropagation())
+// and window.* refs are ignored — only plain identifiers matter here.
+function extractHandlerNames(source) {
+    const names = new Set();
+    const re = /on(?:click|change|input|submit)\s*=\s*"([a-zA-Z_$][\w$]*)\s*\(/g;
+    let match;
+    while ((match = re.exec(source)) !== null) {
+        names.add(match[1]);
+    }
+    return [...names];
 }
 
 function setupDom() {
@@ -93,7 +107,36 @@ describe('tags-page.js public surface', () => {
             'selectRemapTarget',
             'deleteTag',
             'deleteCategory',
+            // Static-template modal buttons (gallery.html) — these were
+            // missed when the IIFE wrapper was introduced (2026-11-04):
+            // every tags-modal button silently threw a ReferenceError.
+            'createTag',
+            'closeModal',
+            'createCategory',
+            'closeCategoriesModal',
+            'updateCategory',
+            'closeRemapModal',
+            'confirmRemap',
         ]) {
+            expect(typeof window[name]).toBe('function');
+        }
+    });
+});
+
+describe('every inline handler resolves on window', () => {
+    test('handlers referenced by tags-page.js generated markup are exported', () => {
+        const source = fs.readFileSync(path.join(JS_DIR, 'tags-page.js'), 'utf8');
+        for (const name of extractHandlerNames(source)) {
+            expect(typeof window[name]).toBe('function');
+        }
+    });
+
+    test('handlers referenced by the gallery.html tags section are exported', () => {
+        // The tags view + its three modals sit at the end of gallery.html;
+        // slicing from id="tags-view" keeps other modules' handlers out.
+        const template = fs.readFileSync(TEMPLATE, 'utf8');
+        const tagsSection = template.slice(template.indexOf('id="tags-view"'));
+        for (const name of extractHandlerNames(tagsSection)) {
             expect(typeof window[name]).toBe('function');
         }
     });

@@ -1095,8 +1095,10 @@ if (!document.getElementById('tags-view')) {
 }
 
 // Public surface: initTagsPage / navigateToTagByName are exported at their
-// definitions; the rest back the inline onclick="..." handlers in the
-// generated markup. Keep in sync with any new onclick="fn(...)" above.
+// definitions; the rest back the inline onclick/onchange handlers — both in
+// the generated markup and in the static template (the three tags modals in
+// gallery.html). Keep in sync with any new inline handler in either place;
+// tests/js/tags-page-isolation.test.js scans both sources for this.
 window.selectTag = selectTag;
 window.loadCategoryTags = loadCategoryTags;
 window.cancelEdit = cancelEdit;
@@ -1110,5 +1112,13 @@ window.openRemapModal = openRemapModal;
 window.selectRemapTarget = selectRemapTarget;
 window.deleteTag = deleteTag;
 window.deleteCategory = deleteCategory;
+// Modal buttons from the static template (gallery.html) + categories rows.
+window.closeModal = closeModal;
+window.createTag = createTag;
+window.createCategory = createCategory;
+window.closeCategoriesModal = closeCategoriesModal;
+window.updateCategory = updateCategory;
+window.closeRemapModal = closeRemapModal;
+window.confirmRemap = confirmRemap;
 
 })();
