@@ -10,13 +10,16 @@ import brotli
 import json
 import struct
 import zlib
+from datetime import datetime
 
 import pytest
 from PIL import Image
 
 from app.infrastructure.services.metadata import (
     extract_image_text_chunks,
+    extract_jxl_exif_summary,
     extract_jxl_text_chunks,
+    extract_taken_date,
 )
 
 
@@ -271,3 +274,122 @@ class TestExtractImageTextChunks:
         """Unrecognised bytes should return empty dict."""
         result = extract_image_text_chunks(b'not-an-image')
         assert result == {}
+
+
+# ===========================================================================
+# TestJxlExifSummary (full EXIF summary from the container)
+# ===========================================================================
+
+def _camera_payload(offset_prefix: bool) -> bytes:
+    """Build an Exif box payload carrying camera + capture-date tags."""
+    exif = Image.Exif()
+    exif[271] = "Canon"  # Make
+    exif[272] = "EOS R6"  # Model
+    exif[0x8769] = {  # EXIF sub-IFD
+        0x9003: "2026:06:15 08:00:00",  # DateTimeOriginal
+        0x8827: 800,                    # ISOSpeedRatings
+    }
+    tiff = exif.tobytes()
+    if offset_prefix:
+        return struct.pack('>I', 0) + tiff
+    return tiff
+
+
+XMP_DOC = b'<x:xmpmeta xmlns:x="adobe:ns:meta/">TestXMP</x:xmpmeta>'
+
+
+class TestJxlExifSummary:
+    """Full EXIF summary + XMP extraction from JXL containers."""
+
+    def test_camera_and_iso_from_plain_exif_box(self):
+        data = (
+            _signature_box() + _ftyp_box()
+            + _box(b'Exif', _camera_payload(offset_prefix=True))
+        )
+        summary = extract_jxl_exif_summary(data)
+        assert summary['camera'] == 'Canon EOS R6'
+        assert summary['iso'] == 800
+        assert summary['xmp'] is None
+
+    def test_camera_from_brob_box(self):
+        data = (
+            _signature_box() + _ftyp_box()
+            + _brob_box(b'Exif', _camera_payload(True))
+        )
+        summary = extract_jxl_exif_summary(data)
+        assert summary['camera'] == 'Canon EOS R6'
+
+    def test_xmp_from_plain_xml_box(self):
+        data = (
+            _signature_box() + _ftyp_box()
+            + _box(b'xml ', XMP_DOC)
+        )
+        assert extract_jxl_exif_summary(data)['xmp'] == XMP_DOC.decode()
+
+    def test_xmp_from_brob_xml_box(self):
+        data = (
+            _signature_box() + _ftyp_box()
+            + _brob_box(b'xml ', XMP_DOC)
+        )
+        assert extract_jxl_exif_summary(data)['xmp'] == XMP_DOC.decode()
+
+    def test_codestream_yields_empty_summary(self):
+        data = b'\xff\x0a' + b'\x00' * 32
+        summary = extract_jxl_exif_summary(data)
+        assert summary['camera'] is None
+        assert summary['xmp'] is None
+
+    def test_dispatcher_merges_camera_into_chunks(self):
+        data = (
+            _signature_box() + _ftyp_box()
+            + _brob_box(b'Exif', _camera_payload(True))
+        )
+        chunks = extract_image_text_chunks(data)
+        assert chunks['camera'] == 'Canon EOS R6'
+        assert chunks['iso'] == '800'
+
+    def test_dispatcher_does_not_duplicate_user_comment(self):
+        """UserComment JSON is already split into chunks — no duplicate."""
+        exif = Image.Exif()
+        exif[271] = "Canon"
+        bom = b'\xff\xfe'
+        exif[0x9286] = b'UNICODE\x00' + bom + COMFY_TEXT.encode('utf-16-le')
+        data = (
+            _signature_box() + _ftyp_box()
+            + _box(b'Exif', struct.pack('>I', 0) + exif.tobytes())
+        )
+        chunks = extract_image_text_chunks(data)
+        assert chunks['prompt'] == '{"1": {"inputs": {}}}'
+        assert chunks['camera'] == 'Canon'
+        assert 'user_comment' not in chunks
+
+
+# ===========================================================================
+# TestJxlTakenDate
+# ===========================================================================
+
+class TestJxlTakenDate:
+    """Capture-date extraction from JXL containers (extract_taken_date)."""
+
+    def test_datetime_original_from_exif_box(self, tmp_path):
+        data = (
+            _signature_box() + _ftyp_box()
+            + _box(b'Exif', _camera_payload(offset_prefix=True))
+        )
+        path = tmp_path / 'photo.jxl'
+        path.write_bytes(data)
+        assert extract_taken_date(path) == datetime(2026, 6, 15, 8, 0, 0)
+
+    def test_datetime_from_user_comment_json(self, tmp_path):
+        """ComfyUI-style JXL: no EXIF dates, a 'datetime' key instead."""
+        path = tmp_path / 'gen.jxl'
+        path.write_bytes(
+            _signature_box() + _ftyp_box()
+            + _box(b'Exif', _exif_payload(COMFY_TEXT, offset_prefix=True))
+        )
+        assert extract_taken_date(path) == datetime(2026, 11, 2)
+
+    def test_no_metadata_returns_none(self, tmp_path):
+        path = tmp_path / 'empty.jxl'
+        path.write_bytes(_signature_box() + _ftyp_box())
+        assert extract_taken_date(path) is None

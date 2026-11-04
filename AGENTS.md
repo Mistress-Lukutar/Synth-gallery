@@ -390,6 +390,35 @@ items (base)                          item_media (detail: type='media')
 - API response keys renamed: `photo_count` → `item_count`, `cover_photo_id` → `cover_item_id`, request bodies `photo_ids` → `item_ids`
 - File-serving path param renamed `photo_id` → `item_id` (URL is `/files/{item_id}`)
 
+**Upload metadata extraction** (`item_media.png_text_chunks` is the generic
+text-metadata column; `taken_at` carries the capture date):
+
+- **PNG**: native tEXt/zTXt/iTXt chunks (`extract_png_text_chunks`), captured
+  before any JXL transcode
+- **JPEG / WebP / PNG eXIf / GIF**: EXIF + XMP flattened into text-chunk-style
+  entries via `extract_exif_text_chunks` (`metadata.py`): `camera` (Make +
+  Model), `lens`, `iso`, `exposure_time` (photographic fraction, `1/250`/`2s`),
+  `f_number`, `focal_length_mm`, `gps` (JSON object string),
+  `user_comment`, `image_description`, raw `xmp`. Native text chunks always
+  win over EXIF-derived keys (`setdefault` merge in `extract_image_text_chunks`)
+- **JPEG XL**: container parsing covers the full Exif box (all three payload
+  layouts via `_normalize_exif_payload`) + `xml `/`brob` XMP boxes — the full
+  summary merges in alongside the UserComment chunks (UserComment text itself
+  is never duplicated); `taken_at` reads EXIF `DateTimeOriginal`/`DateTimeDigitized`
+  from the Exif box, falling back to text-chunk date keys (`datetime` etc.)
+- **EXIF dates generally**: `_extract_exif_date` uses `img.getexif()` +
+  sub-IFD lookup (`_date_from_exif_object`) — the old `_getexif()` root-IFD
+  read never saw `DateTimeOriginal`, so `taken_at` fell back to file
+  modification time
+- **Videos**: ffprobe container tags (`probe_video_tags` in `ffmpeg.py`,
+  format-level tags like `creation_time`, `com.apple.quicktime.make/model`)
+  are stored in the same column
+- Everything lands in `grep_library`'s metadata source and the AI
+  `get_item_metadata` tool automatically; regression tests:
+  `tests/unit/infrastructure/services/test_metadata_exif.py`,
+  `test_metadata_jxl.py`, `test_video_tags.py`,
+  `tests/integration/test_upload_metadata.py`
+
 ### 6c. Schema Migrations (Alembic)
 
 All schema changes are Alembic revisions under `migrations/versions/` (0001 baseline → 0012 `ai_reasoning`). `init_db()` runs `command.upgrade(alembic_cfg, "head")` automatically at startup via `run_db_migrations()`; the Alembic env (`migrations/env.py`) reuses `app.database.get_engine()`, so `SYNTH_DB_PATH` and test path-patching apply to migrations too.

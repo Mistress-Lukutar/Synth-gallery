@@ -46,7 +46,13 @@ def extract_taken_date(file_path: Path) -> Optional[datetime]:
     # Image files
     try:
         if suffix == '.jxl':
-            decoded = decode_jxl(file_path.read_bytes())
+            data = file_path.read_bytes()
+            # Container files carry metadata as ISOBMFF boxes; djxl returns
+            # bare pixels, so EXIF dates must be read from the Exif box.
+            jxl_date = _extract_jxl_container_date(data)
+            if jxl_date:
+                return jxl_date
+            decoded = decode_jxl(data)
             img = Image.open(BytesIO(decoded))
         else:
             img = Image.open(file_path)
@@ -76,26 +82,73 @@ def extract_taken_date(file_path: Path) -> Optional[datetime]:
 def _extract_exif_date(img: Image.Image) -> Optional[datetime]:
     """Extract date from EXIF metadata."""
     try:
-        exif_data = img._getexif()  # type: ignore[attr-defined]  # noqa: W0212
-        if not exif_data:
-            return None
+        exif = img.getexif()
+    except Exception:
+        return None
+    if not exif:
+        return None
+    return _date_from_exif_object(exif)
 
-        # Map EXIF tag IDs to names
-        exif = {TAGS.get(k, k): v for k, v in exif_data.items()}
 
-        # Priority order for date fields
-        date_fields = ['DateTimeOriginal', 'DateTimeDigitized', 'DateTime']
+def _date_from_exif_object(exif: Image.Exif) -> Optional[datetime]:
+    """Read the capture date from an :class:`PIL.Image.Exif` object.
 
-        for field in date_fields:
-            if field in exif and exif[field]:
-                date_str = exif[field]
-                parsed = _parse_exif_datetime(date_str)
+    Checks the EXIF sub-IFD first (where ``DateTimeOriginal`` and
+    ``DateTimeDigitized`` live on real camera files), then the root IFD
+    (``DateTime`` = last in-camera modification).
+    """
+    try:
+        sub_ifd = exif.get_ifd(0x8769)
+    except Exception:
+        sub_ifd = None
+
+    date_tag_ids = (0x9003, 0x9004, 0x0132)
+    for ifd in (sub_ifd, exif):
+        if not ifd:
+            continue
+        for tag_id in date_tag_ids:
+            value = _ifd_value(ifd, tag_id)
+            if value:
+                parsed = _parse_exif_datetime(str(value))
                 if parsed:
                     return parsed
+    return None
 
+
+def _extract_jxl_container_date(data: bytes) -> Optional[datetime]:
+    """Extract the capture date from a JPEG XL container's metadata.
+
+    Reads EXIF date tags from the Exif box payload; falls back to text
+    chunks (generation tools store a ``datetime`` key in the UserComment
+    JSON object).
+    """
+    if not data.startswith(JXL_CONTAINER_MAGIC):
+        return None
+
+    payload = _find_jxl_exif_payload(data)
+    if payload:
+        tiff = _normalize_exif_payload(payload)
+        if tiff:
+            try:
+                exif = Image.Exif()
+                exif.load(tiff)
+                parsed = _date_from_exif_object(exif)
+                if parsed:
+                    return parsed
+            except Exception:
+                pass
+
+    try:
+        chunks = extract_jxl_text_chunks(data)
     except Exception:
-        pass
-
+        return None
+    for key in ('DateTimeOriginal', 'CreateDate', 'datetime',
+                'DateTime', 'date'):
+        value = chunks.get(key)
+        if value:
+            parsed = _parse_flexible_datetime(value)
+            if parsed:
+                return parsed
     return None
 
 
@@ -395,6 +448,20 @@ _EXIF_TIFF_MAGICS = (b'II\x2a\x00', b'MM\x00\x2a')
 #: JPEG APP1-style marker some writers place before the TIFF header.
 _EXIF_APP1_MARKER = b'Exif\x00\x00'
 
+#: Field template of the compact EXIF summary (all values absent).
+_EXIF_SUMMARY_DEFAULTS: dict[str, Any] = {
+    'camera': None,
+    'lens': None,
+    'iso': None,
+    'exposure_time': None,
+    'f_number': None,
+    'focal_length_mm': None,
+    'gps': None,
+    'user_comment': None,
+    'image_description': None,
+    'xmp': None,
+}
+
 
 def extract_jxl_text_chunks(data: bytes) -> dict[str, str]:
     """Extract metadata text chunks from a JPEG XL container.
@@ -425,15 +492,39 @@ def extract_jxl_text_chunks(data: bytes) -> dict[str, str]:
     return _parse_jxl_exif_user_comment(payload)
 
 
-def _find_jxl_exif_payload(data: bytes) -> bytes | None:
-    """Return the Exif box payload of a JXL container, or None.
+def _normalize_exif_payload(payload: bytes) -> bytes | None:
+    """Return the bare TIFF blob from an Exif box payload, or None.
 
-    Walks the top-level boxes only; the first candidate wins when both
-    a plain ``Exif`` box and a ``brob``-compressed one are present.
+    Writers emit the TIFF blob in three layouts:
+
+    1. TIFF header at byte 0 (the ComfyUI JXL encoder);
+    2. a 4-byte big-endian "TIFF header offset" field, then the TIFF
+       header (ISO/IEC 18181-2; offset 0 = right after the field);
+    3. the offset field, then a JPEG APP1-style ``Exif\\0\\0`` marker
+       before the TIFF header (what Pillow's ``Exif.tobytes()`` emits).
+    """
+    if len(payload) < 4:
+        return None
+    if payload.startswith(_EXIF_TIFF_MAGICS):
+        return payload
+    if payload.startswith(_EXIF_APP1_MARKER):
+        candidate = payload[6:]
+    else:
+        offset = struct.unpack('>I', payload[:4])[0]
+        candidate = payload[4 + offset:]
+    if candidate.startswith(_EXIF_TIFF_MAGICS):
+        return candidate
+    if candidate.startswith(_EXIF_APP1_MARKER):
+        return candidate[6:]
+    return None
+
+
+def _iter_jxl_top_level_boxes(data: bytes):
+    """Yield ``(box_type, payload)`` for a JXL container's top-level boxes.
+
     Malformed boxes (truncated header, size overrun) stop the walk.
     """
     pos = 12  # skip the 12-byte signature box
-    candidate: bytes | None = None
 
     while pos < len(data):
         if pos + 8 > len(data):
@@ -453,32 +544,95 @@ def _find_jxl_exif_payload(data: bytes) -> bytes | None:
         if size < header_len or pos + size > len(data):
             break
 
-        payload = data[pos + header_len:pos + size]
+        yield box_type, data[pos + header_len:pos + size]
+        pos += size
+
+
+def _find_jxl_exif_payload(data: bytes) -> bytes | None:
+    """Return the Exif box payload of a JXL container, or None.
+
+    Walks the top-level boxes only; the first candidate wins when both
+    a plain ``Exif`` box and a ``brob``-compressed one are present.
+    """
+    for box_type, payload in _iter_jxl_top_level_boxes(data):
         if box_type == b'Exif':
-            if candidate is None:
-                candidate = payload
-        elif box_type == b'brob' and candidate is None and len(payload) >= 4:
+            return payload
+        if box_type == b'brob' and len(payload) >= 4:
             if payload[:4] == b'Exif':
                 try:
-                    candidate = brotli.decompress(payload[4:])
+                    return brotli.decompress(payload[4:])
                 except brotli.error:
                     pass
 
-        pos += size
+    return None
 
-    return candidate
+
+def _find_jxl_xmp(data: bytes) -> str | None:
+    """Return the XMP document of a JXL container, or None.
+
+    XMP lives in an ``xml `` box (note the trailing space), plain or
+    brob-compressed by cjxl.
+    """
+    for box_type, payload in _iter_jxl_top_level_boxes(data):
+        if box_type == b'xml ':
+            return payload.decode('utf-8', errors='ignore')
+        if box_type == b'brob' and len(payload) >= 4:
+            if payload[:4] == b'xml ':
+                try:
+                    return brotli.decompress(payload[4:]).decode(
+                        'utf-8', errors='ignore'
+                    )
+                except brotli.error:
+                    pass
+
+    return None
+
+
+def extract_jxl_exif_summary(data: bytes) -> dict[str, Any]:
+    """Extract the compact EXIF summary from a JPEG XL container.
+
+    Parses the TIFF payload of the container's Exif box (see
+    :func:`_normalize_exif_payload` for the supported layouts) and the
+    XMP document when present; bare codestreams yield the all-None
+    summary.
+
+    Args:
+        data: Raw JXL file bytes.
+
+    Returns:
+        The same summary shape as :func:`extract_image_exif`.
+    """
+    result = _EXIF_SUMMARY_DEFAULTS.copy()
+    xmp = _find_jxl_xmp(data)
+    payload = _find_jxl_exif_payload(data)
+    if payload is None:
+        result['xmp'] = xmp
+        return result
+    tiff = _normalize_exif_payload(payload)
+    if tiff is None:
+        result['xmp'] = xmp
+        return result
+
+    try:
+        exif = Image.Exif()
+        exif.load(tiff)
+    except Exception:
+        return result
+
+    return _exif_summary_from_exif(exif, xmp=xmp)
 
 
 def _parse_jxl_exif_user_comment(payload: bytes) -> dict[str, str]:
     """Parse an Exif box payload (TIFF blob) into text chunks.
 
-    Writers emit the TIFF blob in three layouts:
-
-    1. TIFF header at byte 0 (the ComfyUI JXL encoder);
-    2. a 4-byte big-endian "TIFF header offset" field, then the TIFF
-       header (ISO/IEC 18181-2; offset 0 = right after the field);
-    3. the offset field, then a JPEG APP1-style ``Exif\\0\\0`` marker
-       before the TIFF header (what Pillow's ``Exif.tobytes()`` emits).
+    The payload layout is normalized by :func:`_normalize_exif_payload`
+    (TIFF header first, offset-prefixed, or APP1-marker-prefixed). The
+    EXIF UserComment (tag 0x9286) is decoded with
+    :func:`_decode_user_comment`; generation tools store a JSON object
+    there (ComfyUI: ``prompt`` / ``workflow`` / ``datetime``), so a JSON
+    object is split into one chunk per key — matching the separate tEXt
+    chunks a ComfyUI PNG upload carries. Any other text lands under a
+    single ``user_comment`` key.
 
     Args:
         payload: Raw bytes from an Exif (or brob-decompressed) box.
@@ -486,24 +640,13 @@ def _parse_jxl_exif_user_comment(payload: bytes) -> dict[str, str]:
     Returns:
         Dictionary of text chunks, or an empty dict on parse failure.
     """
-    if len(payload) < 4:
+    tiff = _normalize_exif_payload(payload)
+    if tiff is None:
         return {}
-    if not payload.startswith(_EXIF_TIFF_MAGICS):
-        if payload.startswith(_EXIF_APP1_MARKER):
-            payload = payload[6:]
-        else:
-            offset = struct.unpack('>I', payload[:4])[0]
-            candidate = payload[4 + offset:]
-            if candidate.startswith(_EXIF_TIFF_MAGICS):
-                payload = candidate
-            elif candidate.startswith(_EXIF_APP1_MARKER):
-                payload = candidate[6:]
-            else:
-                return {}
 
     try:
         exif = Image.Exif()
-        exif.load(payload)
+        exif.load(tiff)
     except Exception:
         return {}
 
@@ -537,7 +680,11 @@ def extract_image_text_chunks(data: bytes) -> dict[str, str]:
     """Dispatch text-chunk extraction by image format.
 
     PNG bytes go to :func:`extract_png_text_chunks`, JPEG XL containers
-    to :func:`extract_jxl_text_chunks`; anything else yields ``{}``.
+    to :func:`extract_jxl_text_chunks` plus the full EXIF summary of the
+    container's Exif box (:func:`extract_jxl_exif_summary`); everything
+    else (JPEG, WebP, GIF, PNG with an eXIf chunk) contributes
+    EXIF/XMP-derived entries via :func:`extract_exif_text_chunks`.
+    Native text chunks always win over EXIF-derived keys.
 
     Args:
         data: Raw image file bytes.
@@ -545,11 +692,88 @@ def extract_image_text_chunks(data: bytes) -> dict[str, str]:
     Returns:
         Dictionary mapping chunk keyword to text value.
     """
+    chunks: dict[str, str] = {}
+
     if data.startswith(b'\x89PNG\r\n\x1a\n'):
-        return extract_png_text_chunks(data)
-    if data.startswith(JXL_CONTAINER_MAGIC):
-        return extract_jxl_text_chunks(data)
-    return {}
+        chunks = extract_png_text_chunks(data)
+    elif data.startswith(JXL_CONTAINER_MAGIC):
+        chunks = extract_jxl_text_chunks(data)
+        summary_chunks = _exif_summary_to_chunks(
+            extract_jxl_exif_summary(data)
+        )
+        if chunks:
+            # The UserComment text is already stored (split into
+            # per-key chunks or verbatim) — do not duplicate it.
+            summary_chunks.pop('user_comment', None)
+        for key, value in summary_chunks.items():
+            chunks.setdefault(key, value)
+        return chunks
+
+    for key, value in extract_exif_text_chunks(data).items():
+        chunks.setdefault(key, value)
+    return chunks
+
+
+def extract_exif_text_chunks(data: bytes) -> dict[str, str]:
+    """Extract EXIF/XMP metadata as text-chunk-style entries.
+
+    Covers the formats without native text chunks (JPEG, WebP, GIF) and
+    PNG files carrying an eXIf chunk. GPS coordinates are stored as a
+    JSON object string, exposure as a photographic fraction
+    (``1/250``); the raw XMP document, when present, is stored verbatim
+    under the ``xmp`` key.
+
+    Args:
+        data: Raw image file bytes.
+
+    Returns:
+        Dictionary mapping chunk keyword to text value.
+    """
+    return _exif_summary_to_chunks(extract_image_exif(data))
+
+
+def _exif_summary_to_chunks(summary: dict[str, Any]) -> dict[str, str]:
+    """Flatten a compact EXIF summary into string-valued chunks."""
+    chunks: dict[str, str] = {}
+
+    for key in ('camera', 'lens', 'user_comment', 'image_description'):
+        value = summary.get(key)
+        if value:
+            chunks[key] = str(value)
+
+    if summary.get('iso') is not None:
+        chunks['iso'] = str(summary['iso'])
+
+    exposure = summary.get('exposure_time')
+    if exposure:
+        chunks['exposure_time'] = _format_exposure(exposure)
+
+    if summary.get('f_number') is not None:
+        chunks['f_number'] = f"{summary['f_number']:g}"
+
+    if summary.get('focal_length_mm') is not None:
+        chunks['focal_length_mm'] = f"{summary['focal_length_mm']:g}"
+
+    gps = summary.get('gps')
+    if gps:
+        chunks['gps'] = json.dumps(gps, ensure_ascii=False)
+
+    if summary.get('xmp'):
+        chunks['xmp'] = summary['xmp']
+
+    return chunks
+
+
+def _format_exposure(seconds: float) -> str:
+    """Format an exposure time as a photographic value (``1/250``, ``2s``)."""
+    if seconds <= 0:
+        return str(seconds)
+    if seconds >= 1:
+        return f'{seconds:g}s'
+    denom = round(1 / seconds)
+    if denom and abs(1 / denom - seconds) / seconds < 0.02:
+        return f'1/{denom}'
+    return f'{seconds:g}'
 
 
 # ---------------------------------------------------------------------------
@@ -597,7 +821,9 @@ def gps_to_decimal(gps: dict) -> Optional[dict[str, float]]:
             return None
         try:
             deg, minutes, seconds = (float(p) for p in parts)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ZeroDivisionError):
+            # 0/0 rationals mean "no fix" (e.g. Pixel exports carry an
+            # empty GPS IFD) — treat the coordinate as absent.
             return None
         return deg + minutes / 60.0 + seconds / 3600.0
 
@@ -680,7 +906,8 @@ def extract_image_exif(data: bytes) -> dict[str, Any]:
 
     Works on raw image bytes (JPEG, TIFF, WebP, PNG with an eXIf chunk).
     JPEG XL cannot be probed this way (djxl returns bare pixels); callers
-    should rely on stored metadata for those files.
+    should rely on stored metadata or :func:`extract_jxl_exif_summary`
+    for those files.
 
     Returns:
         Dict with plain JSON-typed fields: camera, lens, iso,
@@ -688,18 +915,7 @@ def extract_image_exif(data: bytes) -> dict[str, Any]:
         :func:`gps_to_decimal`), user_comment, image_description and the
         raw ``xmp`` document when present.
     """
-    result: dict[str, Any] = {
-        'camera': None,
-        'lens': None,
-        'iso': None,
-        'exposure_time': None,
-        'f_number': None,
-        'focal_length_mm': None,
-        'gps': None,
-        'user_comment': None,
-        'image_description': None,
-        'xmp': None,
-    }
+    result: dict[str, Any] = _EXIF_SUMMARY_DEFAULTS.copy()
     try:
         img = Image.open(BytesIO(data))
     except Exception:
@@ -711,54 +927,76 @@ def extract_image_exif(data: bytes) -> dict[str, Any]:
         except Exception:
             return result
 
-        make = exif.get(271)  # Make
-        model = exif.get(272)  # Model
-        camera = ' '.join(
-            str(value).strip() for value in (make, model) if value
-        )
-        result['camera'] = camera or None
-        lens = exif.get(42036)  # LensModel
-        result['lens'] = str(lens) if lens else None
-
-        sub_ifd = exif.get_ifd(0x8769)  # EXIF sub-IFD
-
-        def _rational(tag_id: int) -> Optional[float]:
-            value = _ifd_value(sub_ifd, tag_id)
-            if value is None:
-                return None
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                return None
-
-        result['exposure_time'] = _rational(33434)  # ExposureTime
-        result['f_number'] = _rational(33437)  # FNumber
-        result['focal_length_mm'] = _rational(37386)  # FocalLength
-
-        iso = _ifd_value(sub_ifd, 34855) or exif.get(34855)
-        try:
-            result['iso'] = int(iso) if iso is not None else None
-        except (TypeError, ValueError):
-            result['iso'] = None
-
-        result['user_comment'] = _decode_user_comment(
-            _ifd_value(sub_ifd, 37510)
-        )
-
-        description = exif.get(270)  # ImageDescription
-        if isinstance(description, bytes):
-            description = description.decode('utf-8', errors='ignore')
-        if isinstance(description, str) and description.strip():
-            result['image_description'] = description.strip()
-
-        gps_ifd = exif.get_ifd(0x8825)  # GPSInfo
-        if gps_ifd:
-            result['gps'] = gps_to_decimal(dict(gps_ifd))
-
         xmp = img.info.get('XML:com.adobe.xmp') or img.info.get('xmp')
         if isinstance(xmp, bytes):
             xmp = xmp.decode('utf-8', errors='ignore')
-        if isinstance(xmp, str) and xmp.strip():
-            result['xmp'] = xmp
+        if not isinstance(xmp, str) or not xmp.strip():
+            xmp = None
 
+        return _exif_summary_from_exif(exif, xmp=xmp)
+
+
+def _exif_summary_from_exif(
+    exif: Image.Exif,
+    xmp: Optional[str] = None,
+) -> dict[str, Any]:
+    """Build the compact EXIF summary from an :class:`PIL.Image.Exif` object.
+
+    Shared by :func:`extract_image_exif` (Pillow-decoded images) and
+    :func:`extract_jxl_exif_summary` (JXL Exif box payloads).
+
+    Args:
+        exif: Loaded EXIF object (root IFD tags readable by id).
+        xmp: Raw XMP document when the source format carries one.
+
+    Returns:
+        Dict with plain JSON-typed fields (see :func:`extract_image_exif`).
+    """
+    result: dict[str, Any] = _EXIF_SUMMARY_DEFAULTS.copy()
+
+    make = exif.get(271)  # Make
+    model = exif.get(272)  # Model
+    camera = ' '.join(
+        str(value).strip() for value in (make, model) if value
+    )
+    result['camera'] = camera or None
+    lens = exif.get(42036)  # LensModel
+    result['lens'] = str(lens) if lens else None
+
+    sub_ifd = exif.get_ifd(0x8769)  # EXIF sub-IFD
+
+    def _rational(tag_id: int) -> Optional[float]:
+        value = _ifd_value(sub_ifd, tag_id)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    result['exposure_time'] = _rational(33434)  # ExposureTime
+    result['f_number'] = _rational(33437)  # FNumber
+    result['focal_length_mm'] = _rational(37386)  # FocalLength
+
+    iso = _ifd_value(sub_ifd, 34855) or exif.get(34855)
+    try:
+        result['iso'] = int(iso) if iso is not None else None
+    except (TypeError, ValueError):
+        result['iso'] = None
+
+    result['user_comment'] = _decode_user_comment(
+        _ifd_value(sub_ifd, 37510)
+    )
+
+    description = exif.get(270)  # ImageDescription
+    if isinstance(description, bytes):
+        description = description.decode('utf-8', errors='ignore')
+    if isinstance(description, str) and description.strip():
+        result['image_description'] = description.strip()
+
+    gps_ifd = exif.get_ifd(0x8825)  # GPSInfo
+    if gps_ifd:
+        result['gps'] = gps_to_decimal(dict(gps_ifd))
+
+    result['xmp'] = xmp
     return result

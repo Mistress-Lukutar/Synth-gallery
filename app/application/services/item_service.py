@@ -34,6 +34,7 @@ from app.infrastructure.services.encryption import EncryptionService, dek_cache
 from app.infrastructure.services.ffmpeg import (
     extract_video_thumbnail_bytes,
     probe_media,
+    probe_video_tags,
 )
 from app.infrastructure.services.jxl import is_jxl_content
 from app.infrastructure.services.jxl_encoder import (
@@ -535,7 +536,14 @@ class ItemService:
                     taken_at = extract_taken_date(plain_path)
                 except Exception:
                     pass
-                png_text_chunks = extract_image_text_chunks(content_bytes) or None
+                try:
+                    # Metadata extraction must never fail an upload;
+                    # corrupt/unparseable blocks just yield nothing.
+                    png_text_chunks = (
+                        extract_image_text_chunks(content_bytes) or None
+                    )
+                except Exception:
+                    pass
                 try:
                     thumb_bytes, thumb_w, thumb_h = create_thumbnail_bytes(
                         content_bytes
@@ -553,6 +561,12 @@ class ItemService:
                         duration = int(round(info['duration']))
                 try:
                     taken_at = extract_taken_date(plain_path)
+                except Exception:
+                    pass
+                # Container tags (creation time, recording device) are
+                # stored the same way PNG text chunks are for images.
+                try:
+                    png_text_chunks = probe_video_tags(plain_path) or None
                 except Exception:
                     pass
                 try:

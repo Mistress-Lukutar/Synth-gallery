@@ -197,6 +197,57 @@ def probe_media(file_path: Path) -> dict | None:
     }
 
 
+def probe_video_tags(file_path: Path) -> dict[str, str]:
+    '''Extract a video's container format tags via ffprobe.
+
+    Container tags carry creation metadata and recording-device info
+    (e.g. ``creation_time``, ``com.apple.quicktime.make``,
+    ``com.android.version``); they are stored alongside the media item
+    the same way PNG text chunks are for images.
+
+    Args:
+        file_path: Path to the video file.
+
+    Returns:
+        Dict of non-empty string tags; empty dict when ffprobe is
+        unavailable or the file has no tags.
+    '''
+    binary = _get_ffmpeg_binary("ffprobe")
+    if binary is None:
+        logger.warning("ffprobe binary not found; cannot probe video tags")
+        return {}
+
+    try:
+        result = _run_tool(
+            binary,
+            [
+                "-v", "quiet",
+                "-print_format", "json",
+                "-show_format",
+                str(file_path),
+            ],
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("ffprobe timed out probing tags of %s", file_path)
+        return {}
+    if result.returncode != 0:
+        return {}
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        logger.warning("ffprobe returned non-JSON output")
+        return {}
+
+    tags = (data.get("format", {}) or {}).get("tags", {}) or {}
+    return {
+        str(key): str(value)
+        for key, value in tags.items()
+        if str(key).strip() and str(value or "").strip()
+    }
+
+
 def extract_video_thumbnail(
     in_path: Path,
     out_path: Path,
