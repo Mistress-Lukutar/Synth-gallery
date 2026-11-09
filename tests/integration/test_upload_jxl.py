@@ -436,13 +436,13 @@ class TestJxlUploadOptions:
         meta = meta_response.json()
         assert meta['content_type'] == 'image/jxl'
 
-    def test_lossless_forces_effort_9(
+    def test_lossless_uses_chosen_effort(
         self,
         authenticated_client: TestClient,
         test_folder: str,
         jxl_enabled,
     ) -> None:
-        '''jxl_lossless=true should force effort=9 and omit quality.'''
+        '''jxl_lossless=true should omit quality and forward the chosen effort.'''
         fake_jxl = b'\x00\x00\x00\x0cJXL fake'
         with patch.object(
             item_service_module,
@@ -456,13 +456,14 @@ class TestJxlUploadOptions:
                     'folder_id': test_folder,
                     'jxl_lossless': 'true',
                     'jxl_quality': '80',
+                    'jxl_effort': '6',
                 },
             )
 
         assert response.status_code == 200
         mock_encode.assert_called_once()
         kwargs = mock_encode.call_args.kwargs
-        assert kwargs['effort'] == 9
+        assert kwargs['effort'] == 6
         assert 'quality' not in kwargs
         assert kwargs['is_jpeg'] is True
 

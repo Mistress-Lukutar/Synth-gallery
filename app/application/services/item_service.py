@@ -151,8 +151,8 @@ class ItemService:
     ) -> tuple[Path, str, bool]:
         '''Transcode image uploads to JPEG XL when enabled.
 
-        Supports both lossless (effort 9) and lossy (configurable quality)
-        encoding modes via *jxl_options*.
+        Supports both lossless (ignores quality, uses the chosen effort) and
+        lossy (configurable quality) encoding modes via *jxl_options*.
 
         Args:
             source_path: Path to the original plaintext image file.
@@ -183,7 +183,9 @@ class ItemService:
         try:
             is_jpeg = content_type == 'image/jpeg'
             if jxl_options.lossless:
-                transcoded = encode_to_jxl(content, is_jpeg=is_jpeg, effort=9)
+                transcoded = encode_to_jxl(
+                    content, is_jpeg=is_jpeg, effort=jxl_options.effort,
+                )
             else:
                 transcoded = encode_to_jxl(
                     content, is_jpeg=is_jpeg, quality=jxl_options.quality,

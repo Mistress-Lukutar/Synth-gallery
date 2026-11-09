@@ -1384,17 +1384,11 @@ main {
     align-items: center;
 }
 
-/* Upload JXL options */
+/* Upload JXL options: quality slider (100 = lossless) + effort slider */
 .upload-jxl-option {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-}
-
-.upload-jxl-lossy {
-    margin-top: 0.25rem;
-    display: flex;
-    flex-direction: column;
+    align-items: stretch;
     gap: 0.5rem;
 }
 
@@ -1402,7 +1396,27 @@ main {
     display: block;
     font-size: 0.85rem;
     color: var(--text-muted);
-    margin-bottom: 0.4rem;
+    margin-bottom: 0;
+}
+
+.upload-jxl-field label span {
+    color: var(--text-secondary);
+}
+
+.upload-jxl-field label span.lossless {
+    color: var(--accent);
+}
+
+.upload-jxl-field .range-input {
+    margin: 0.25rem 0 0;
+}
+
+.upload-jxl-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    margin-top: 2px;
 }
 
 .manual-tags-section {

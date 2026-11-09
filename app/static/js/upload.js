@@ -18,7 +18,7 @@
     let modal, closeBtn, dropZone, fileInput, folderInput;
     let filesDropText, folderDropText, previewContainer, preview, previewCount;
     let clearFilesBtn, uploadOptions, albumCheckbox;
-    let uploadJxlOption, uploadJxlLossless, uploadJxlLossy, uploadJxlQuality, uploadJxlQualityValue, uploadJxlEffort;
+    let uploadJxlOption, uploadJxlQuality, uploadJxlQualityValue, uploadJxlEffort, uploadJxlEffortValue;
     let progressDiv, progressFill, progressText, cancelBtn, submitBtn;
 
     // Initialize when DOM is ready
@@ -39,11 +39,10 @@
         uploadOptions = document.getElementById('upload-options');
         albumCheckbox = document.getElementById('upload-as-album');
         uploadJxlOption = document.getElementById('upload-jxl-option');
-        uploadJxlLossless = document.getElementById('upload-jxl-lossless');
-        uploadJxlLossy = document.getElementById('upload-jxl-lossy');
         uploadJxlQuality = document.getElementById('upload-jxl-quality');
         uploadJxlQualityValue = document.getElementById('upload-jxl-quality-value');
         uploadJxlEffort = document.getElementById('upload-jxl-effort');
+        uploadJxlEffortValue = document.getElementById('upload-jxl-effort-value');
         progressDiv = document.getElementById('upload-progress');
         progressFill = document.getElementById('progress-fill');
         progressText = document.getElementById('progress-text');
@@ -109,16 +108,15 @@
         if (uploadOptions) uploadOptions.classList.add('hidden');
         if (progressDiv) progressDiv.classList.add('hidden');
         if (albumCheckbox) albumCheckbox.checked = false;
-        if (uploadJxlLossless) uploadJxlLossless.checked = false;
-        if (uploadJxlLossy) uploadJxlLossy.hidden = false;
         if (uploadJxlQuality) {
             uploadJxlQuality.value = 95;
         }
-        if (uploadJxlQualityValue) {
-            uploadJxlQualityValue.textContent = '95';
-        }
+        updateJxlQualityValue();
         if (uploadJxlEffort) {
             uploadJxlEffort.value = '7';
+        }
+        if (uploadJxlEffortValue) {
+            uploadJxlEffortValue.textContent = '7';
         }
         if (submitBtn) submitBtn.disabled = true;
         if (progressFill) {
@@ -214,23 +212,26 @@
             submitBtn.onclick = handleUpload;
         }
 
-        // JXL lossless toggle
-        if (uploadJxlLossless) {
-            uploadJxlLossless.addEventListener('change', () => {
-                if (uploadJxlLossy) {
-                    uploadJxlLossy.hidden = uploadJxlLossless.checked;
-                }
-            });
+        // JXL quality range live update (quality 100 = lossless)
+        if (uploadJxlQuality) {
+            uploadJxlQuality.addEventListener('input', updateJxlQualityValue);
         }
 
-        // JXL quality range live update
-        if (uploadJxlQuality) {
-            uploadJxlQuality.addEventListener('input', () => {
-                if (uploadJxlQualityValue) {
-                    uploadJxlQualityValue.textContent = uploadJxlQuality.value;
+        // JXL effort range live update
+        if (uploadJxlEffort) {
+            uploadJxlEffort.addEventListener('input', () => {
+                if (uploadJxlEffortValue) {
+                    uploadJxlEffortValue.textContent = uploadJxlEffort.value;
                 }
             });
         }
+    }
+
+    function updateJxlQualityValue() {
+        if (!uploadJxlQualityValue) return;
+        const lossless = uploadJxlQuality && parseInt(uploadJxlQuality.value, 10) >= 100;
+        uploadJxlQualityValue.textContent = lossless ? 'Lossless' : uploadJxlQuality.value;
+        uploadJxlQualityValue.classList.toggle('lossless', lossless);
     }
 
     function setUploadMode(mode) {
@@ -821,23 +822,21 @@
         init();
     }
 
-    function buildUploadJxlFields(lossless, quality, effort) {
+    // Quality 100 means lossless; anything below encodes lossy at that quality.
+    function buildUploadJxlFields(quality, effort) {
+        const q = parseInt(quality, 10) || 95;
         return {
-            jxl_lossless: lossless ? 'true' : 'false',
-            jxl_quality: String(parseInt(quality, 10) || 95),
+            jxl_lossless: q >= 100 ? 'true' : 'false',
+            jxl_quality: String(q),
             jxl_effort: String(parseInt(effort, 10) || 7),
         };
     }
 
     function collectUploadJxlOptions() {
-        if (!uploadJxlLossless) {
-            return buildUploadJxlFields(false, 95, 7);
+        if (!uploadJxlQuality || !uploadJxlEffort) {
+            return buildUploadJxlFields(95, 7);
         }
-        return buildUploadJxlFields(
-            uploadJxlLossless.checked,
-            uploadJxlQuality.value,
-            uploadJxlEffort.value,
-        );
+        return buildUploadJxlFields(uploadJxlQuality.value, uploadJxlEffort.value);
     }
 
     // CommonJS export for Jest unit tests (no-op in the browser).
