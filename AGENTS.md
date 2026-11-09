@@ -14,7 +14,7 @@ Synth Gallery is a **personal media vault** with server-side encryption, hardwar
 - **Tags & Search**: Categorize and find content quickly; tags carry Markdown descriptions (AI-editable via `set_tag_descriptions`, `[[tag]]` wiki-links); PMI-based tag suggestions learn from accept/reject feedback — a rejected tag is hidden from that item's suggestions for good
 - **AI Chat**: In-site assistant sidebar with server-side tool-call agent loop; per-user LLM provider keys encrypted with the user's DEK; vision via user-approved `view_images`
 - **AI Agents**: per-user chat personas (system prompt + explicit tool allow-list) with three seeded built-ins; every mutating tool call pauses the turn for an approval card in the chat (optional per-chat "always allow")
-- **Backup & Recovery**: Full backups with integrity verification and recovery keys
+- **Backup & Recovery**: Full backups with integrity verification and recovery keys; the newest archive is prefixed `latest-`, and rotation moves that prefix to the newly created backup
 
 ## Technology Stack
 

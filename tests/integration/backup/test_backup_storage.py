@@ -2,8 +2,8 @@
 File:   test_backup_storage.py
 Brief:  Integration tests for backup service using storage abstraction layer.
 Author: Mistress-Lukutar
-Date:   2026-10-27
-Version: v2.1.0
+Date:   2026-11-09
+Version: v2.1.1
 '''
 import asyncio
 import json
@@ -172,6 +172,29 @@ class TestFullBackupWithStorage:
         assert "users" in result["stats"]
         assert "testuser" in result["stats"]["users"]
 
+    def test_new_backup_demotes_previous_latest(self, temp_backup_env):
+        """A new backup should receive the latest prefix from its predecessor."""
+        env = temp_backup_env
+        previous_name = "latest-backup-2026-02-26-012000.zip"
+        previous_latest = env["backup_dir"] / previous_name
+        previous_latest.write_bytes(b"previous backup")
+
+        with _backup_env(env):
+            result = FullBackupService.create_full_backup()
+
+        assert result["success"] is True
+        assert result["filename"].startswith("latest-backup-")
+        assert Path(result["path"]).name == result["filename"]
+        assert not previous_latest.exists()
+        assert (env["backup_dir"] / previous_name.removeprefix("latest-")).exists()
+
+        with _backup_env(env):
+            backups = FullBackupService.list_full_backups()
+        assert [backup["filename"] for backup in backups] == [
+            result["filename"],
+            previous_name.removeprefix("latest-"),
+        ]
+
 
 class TestRestoreWithStorage:
     """Test restore using storage abstraction."""
@@ -285,9 +308,27 @@ class TestBackupRotation:
             with patch("app.infrastructure.services.backup.BACKUP_ROTATION_COUNT", 5):
                 FullBackupService.rotate_full_backups()
 
-        # Check that only 5 remain (the most recent ones)
-        backups = sorted(env["backup_dir"].glob("backup-*.zip"))
+        # Check that only 5 remain and the newest is marked as latest
+        backups = sorted(env["backup_dir"].glob("*backup-*.zip"))
         assert len(backups) == 5
+        assert (env["backup_dir"] / "latest-backup-2026-02-26-012006.zip").exists()
+        assert not (env["backup_dir"] / "backup-2026-02-26-012006.zip").exists()
+
+    def test_rotate_moves_latest_prefix_to_newest(self, temp_backup_env):
+        """Rotation should demote an older latest backup before marking newest."""
+        env = temp_backup_env
+        old_latest = env["backup_dir"] / "latest-backup-2026-02-26-012000.zip"
+        old_latest.write_bytes(b"old latest")
+        newest = env["backup_dir"] / "backup-2026-02-26-012001.zip"
+        newest.write_bytes(b"newest")
+
+        with patch("app.infrastructure.services.backup.BACKUP_PATH", env["backup_dir"]):
+            FullBackupService.rotate_full_backups()
+
+        assert not old_latest.exists()
+        assert (env["backup_dir"] / "backup-2026-02-26-012000.zip").exists()
+        assert not newest.exists()
+        assert (env["backup_dir"] / "latest-backup-2026-02-26-012001.zip").exists()
 
 
 class TestBackupWithEmptyStorage:

@@ -14,6 +14,7 @@ logs/
 *.db
 gallery.db.*-bak
 backup-*.zip
+latest-backup-*.zip
 offline/
 
 # IDE

@@ -2,8 +2,8 @@
 File:   backup.py
 Brief:  Backup service for database and encrypted content.
 Author: Mistress-Lukutar
-Date:   2026-10-27
-Version: v2.1.0
+Date:   2026-11-09
+Version: v2.1.1
 '''
 import asyncio
 import base64
@@ -101,6 +101,20 @@ class FullBackupService:
 
     MANIFEST_VERSION = "1.0"
     DB_NAME = "gallery.db"
+    LATEST_PREFIX = "latest-"
+
+    @staticmethod
+    def _get_backup_files() -> list[Path]:
+        """Return backup archives ordered from newest to oldest."""
+        backups = [
+            *BACKUP_PATH.glob("backup-*.zip"),
+            *BACKUP_PATH.glob("latest-backup-*.zip"),
+        ]
+        return sorted(
+            backups,
+            key=lambda path: path.name.removeprefix(FullBackupService.LATEST_PREFIX),
+            reverse=True,
+        )
 
     @staticmethod
     def get_file_checksum(file_path: Path) -> str:
@@ -118,7 +132,7 @@ class FullBackupService:
         if not BACKUP_PATH.exists():
             return backups
 
-        for file in sorted(BACKUP_PATH.glob("backup-*.zip"), reverse=True):
+        for file in FullBackupService._get_backup_files():
             try:
                 with zipfile.ZipFile(file, "r") as zf:
                     if "manifest.json" in zf.namelist():
@@ -167,7 +181,7 @@ class FullBackupService:
             dict with backup info or error
         """
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-        backup_filename = f"backup-{timestamp}.zip"
+        backup_filename = f"{FullBackupService.LATEST_PREFIX}backup-{timestamp}.zip"
         backup_path = BACKUP_PATH / backup_filename
         temp_path = BACKUP_PATH / f".{backup_filename}.tmp"
 
@@ -435,15 +449,31 @@ class FullBackupService:
             return {"success": False, "error": str(e)}
 
     @staticmethod
-    def rotate_full_backups():
-        """Remove old backups, keeping only BACKUP_ROTATION_COUNT most recent."""
-        backups = sorted(BACKUP_PATH.glob("backup-*.zip"), reverse=True)
+    def rotate_full_backups() -> None:
+        """Keep the newest backups and mark the newest one with ``latest-``."""
+        backups = FullBackupService._get_backup_files()
 
         for old_backup in backups[BACKUP_ROTATION_COUNT:]:
             try:
                 old_backup.unlink()
             except Exception:
                 pass
+
+        retained = backups[:BACKUP_ROTATION_COUNT]
+        if not retained:
+            return
+
+        for backup in retained[1:]:
+            if backup.name.startswith(FullBackupService.LATEST_PREFIX):
+                backup.rename(backup.with_name(
+                    backup.name.removeprefix(FullBackupService.LATEST_PREFIX)
+                ))
+
+        latest = retained[0]
+        if not latest.name.startswith(FullBackupService.LATEST_PREFIX):
+            latest.rename(latest.with_name(
+                f"{FullBackupService.LATEST_PREFIX}{latest.name}"
+            ))
 
     @staticmethod
     def _get_app_version() -> str:
