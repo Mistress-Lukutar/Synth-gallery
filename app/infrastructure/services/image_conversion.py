@@ -5,7 +5,7 @@ Brief:  On-demand image conversion for downloads (original / JXL / JPEG /
         bit-exact JPEG reconstruction); encoding of JXL targets goes through
         cjxl; all other targets are produced with Pillow.
 Author: Mistress-Lukutar
-Date:   2026-08-19
+Date:   2026-11-10
 '''
 from __future__ import annotations
 
@@ -17,6 +17,15 @@ from PIL import Image, ImageOps
 
 from .jxl import decode_jxl_to_pixels, extract_jxl_exif, reconstruct_jpeg
 from .jxl_encoder import encode_to_jxl
+from .metadata_embed import (
+    EmbeddableMetadata,
+    build_exif,
+    build_png_info,
+    embed_jpeg_metadata,
+    has_content,
+    parse_exif_bytes,
+    xmp_document,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +60,8 @@ class ConversionSettings:
         webp_lossless: Encode WebP losslessly instead.
         jxl_effort: cjxl effort override (1-9); None uses JXL_EFFORT.
         png_optimize: Ask Pillow to optimize the PNG payload.
+        embed_metadata: Embed the item's DB metadata into converted
+            JPEG/PNG/WebP files (ignored for original/jxl targets).
     '''
 
     format: str = ORIGINAL_FORMAT
@@ -59,6 +70,7 @@ class ConversionSettings:
     webp_lossless: bool = False
     jxl_effort: int | None = None
     png_optimize: bool = True
+    embed_metadata: bool = True
 
 
 def is_convertible(content_type: str) -> bool:
@@ -108,6 +120,7 @@ def convert_image(
     data: bytes,
     source_content_type: str,
     settings: ConversionSettings,
+    metadata: EmbeddableMetadata | None = None,
 ) -> tuple[bytes, str, str]:
     '''Convert raw image bytes to the requested target format.
 
@@ -119,10 +132,17 @@ def convert_image(
     path applies the requested quality. Every other conversion goes through
     Pillow.
 
+    When ``settings.embed_metadata`` is set and ``metadata`` carries
+    content, the item's DB metadata is embedded into the result: JPEG
+    targets via APP1 segment surgery (bit-exact reconstructions stay
+    bit-exact), PNG/WebP targets via save kwargs. ``original`` and ``jxl``
+    targets are never modified.
+
     Args:
         data: Decrypted plaintext image bytes.
         source_content_type: MIME type the item is stored as.
         settings: Requested conversion settings.
+        metadata: DB-stored metadata to embed (optional).
 
     Returns:
         Tuple (converted_bytes, content_type, file_extension).
@@ -135,6 +155,7 @@ def convert_image(
         raise ImageConversionError(
             f'Unsupported target format: {settings.format!r}'
         )
+    embed = settings.embed_metadata and has_content(metadata)
     try:
         if settings.format == 'jxl':
             converted = encode_to_jxl(
@@ -146,14 +167,23 @@ def convert_image(
             # round-trip and bit-exact (quality setting does not apply).
             reconstructed = reconstruct_jpeg(data)
             if reconstructed is not None:
-                return reconstructed, 'image/jpeg', '.jpg'
-            converted = _convert_with_pillow(data, source_content_type, settings)
+                converted = reconstructed
+            else:
+                converted = _convert_with_pillow(
+                    data, source_content_type, settings, metadata
+                )
         else:
-            converted = _convert_with_pillow(data, source_content_type, settings)
+            converted = _convert_with_pillow(
+                data, source_content_type, settings,
+                metadata if embed else None,
+            )
     except ImageConversionError:
         raise
     except Exception as exc:  # noqa: BLE001 - normalize for callers
         raise ImageConversionError(str(exc)) from exc
+
+    if settings.format == 'jpeg' and embed:
+        converted = embed_jpeg_metadata(converted, metadata)
 
     content_type, extension = _FORMAT_INFO[settings.format]
     return converted, content_type, extension
@@ -163,22 +193,55 @@ def _convert_with_pillow(
     data: bytes,
     source_content_type: str,
     settings: ConversionSettings,
+    metadata: EmbeddableMetadata | None = None,
 ) -> bytes:
-    '''Decode via Pillow (djxl for JXL sources) and re-encode.'''
+    '''Decode via Pillow (djxl for JXL sources) and re-encode.
+
+    When ``metadata`` carries content, EXIF/XMP/PNG-text save kwargs are
+    derived from it (DB values win over the source EXIF) and applied to
+    the save call — the metadata lands in the file on the single encode
+    pass (WebP must not be re-encoded a second time).
+    '''
     with _open_image(data, source_content_type) as img:
         img = ImageOps.exif_transpose(img)
         output = io.BytesIO()
         if settings.format == 'jpeg':
             _save_jpeg(img, output, settings)
         elif settings.format == 'png':
-            img.save(output, 'PNG', optimize=settings.png_optimize)
+            kwargs: dict = {'optimize': settings.png_optimize}
+            if has_content(metadata):
+                kwargs.update(_metadata_save_kwargs(img, metadata))
+            img.save(output, 'PNG', **kwargs)
         elif settings.format == 'webp':
-            _save_webp(img, output, settings)
+            _save_webp(img, output, settings, metadata)
         else:  # pragma: no cover - guarded by convert_image()
             raise ImageConversionError(
                 f'Unsupported target format: {settings.format!r}'
             )
         return output.getvalue()
+
+
+def _metadata_save_kwargs(
+    img: Image.Image, meta: EmbeddableMetadata
+) -> dict:
+    '''Build Pillow save kwargs embedding DB metadata into the output.
+
+    The EXIF overlay base is the source file's EXIF (kept for
+    non-overlapping tags; DB values win). ``pnginfo`` and ``xmp`` kwargs
+    are ignored by plugins that do not support them, so one kwargs dict
+    serves both PNG and WebP targets.
+    '''
+    kwargs: dict = {}
+    exif = build_exif(meta, parse_exif_bytes(img.info.get('exif')))
+    if exif is not None:
+        kwargs['exif'] = exif.tobytes()
+    png_info = build_png_info(meta)
+    if png_info is not None:
+        kwargs['pnginfo'] = png_info
+    xmp = xmp_document(meta)
+    if xmp:
+        kwargs['xmp'] = xmp
+    return kwargs
 
 
 def _open_image(data: bytes, source_content_type: str) -> Image.Image:
@@ -224,11 +287,25 @@ def _save_jpeg(img: Image.Image, output: io.BytesIO, settings: ConversionSetting
     img.save(output, 'JPEG', **kwargs)
 
 
-def _save_webp(img: Image.Image, output: io.BytesIO, settings: ConversionSettings) -> None:
-    '''Save as WebP; paletted/alpha modes keep their alpha channel.'''
-    if img.mode in ('P', 'LA'):
-        img = img.convert('RGBA')
+def _save_webp(
+    img: Image.Image,
+    output: io.BytesIO,
+    settings: ConversionSettings,
+    metadata: EmbeddableMetadata | None = None,
+) -> None:
+    '''Save as WebP; paletted/alpha modes keep their alpha channel.
+
+    When ``metadata`` carries content, EXIF/XMP derived from the DB
+    metadata are written in the same encode pass (a second pass would
+    re-encode the lossy payload).
+    '''
+    kwargs: dict = {}
     if settings.webp_lossless:
-        img.save(output, 'WEBP', lossless=True)
+        kwargs['lossless'] = True
     else:
-        img.save(output, 'WEBP', quality=settings.webp_quality)
+        kwargs['quality'] = settings.webp_quality
+    if has_content(metadata):
+        kwargs.update(_metadata_save_kwargs(img, metadata))
+    if img.mode in ('P', 'LA'):
+        img = img.convert('RGBA')  # mode-converted copy drops img.info
+    img.save(output, 'WEBP', **kwargs)

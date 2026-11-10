@@ -2,10 +2,11 @@
 File:   items.py
 Brief:  Item routes - unified API for all content types.
 Author: Mistress-Lukutar
-Date:   2026-10-27
+Date:   2026-11-10
 Version: v2.1.0
 '''
 import asyncio
+import json
 import urllib.parse
 import uuid
 from collections import deque
@@ -37,6 +38,7 @@ from app.infrastructure.services.image_conversion import (
     format_extension,
     needs_conversion,
 )
+from app.infrastructure.services.metadata_embed import EmbeddableMetadata
 from app.infrastructure.services.media import get_media_type
 from app.infrastructure.storage import get_storage
 from app.logging_config import get_logger
@@ -434,6 +436,7 @@ class BatchDownloadOptions(BaseModel):
     webp_lossless: bool = False
     jxl_effort: int = Field(default=7, ge=1, le=9)
     png_optimize: bool = True
+    embed_metadata: bool = True
 
     @field_validator("format")
     @classmethod
@@ -462,6 +465,8 @@ class _DownloadEntry:
     owner_id: int
     content_type: str
     media_type: str    # 'image' | 'video'
+    png_text_chunks: Optional[dict] = None  # DB metadata for embedding
+    taken_at: Optional[str] = None          # capture date for embedding
 
 
 def _sanitize_name(name: str | None, fallback: str = "file") -> str:
@@ -550,7 +555,20 @@ def _entry_from_row(row, dir_name: str = "") -> _DownloadEntry:
         owner_id=row["user_id"],
         content_type=content_type,
         media_type=media_type,
+        png_text_chunks=_parse_metadata_chunks(row["png_text_chunks"]),
+        taken_at=row["taken_at"],
     )
+
+
+def _parse_metadata_chunks(raw) -> Optional[dict]:
+    """Parse the png_text_chunks JSON column, tolerating corrupt data."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 @dataclass
@@ -591,9 +609,12 @@ def _prepare_download_item(
         return None
     encrypted = asyncio.run(storage.download(entry.item_id, "uploads"))
     plaintext = EncryptionService.decrypt_bytes(encrypted, dek)
+    metadata = EmbeddableMetadata(
+        chunks=entry.png_text_chunks, taken_at=entry.taken_at
+    )
     try:
         data, content_type, extension = convert_image(
-            plaintext, entry.content_type, conversion
+            plaintext, entry.content_type, conversion, metadata
         )
         return _PreparedDownload(data, content_type, extension)
     except ImageConversionError as exc:
@@ -813,7 +834,9 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             item = db.execute(
                 """SELECT i.id, i.title, i.user_id,
                           COALESCE(im.content_type, it.content_type) AS content_type,
-                          im.media_type
+                          im.media_type,
+                          im.png_text_chunks,
+                          im.taken_at
                    FROM items i
                    LEFT JOIN item_media im ON im.item_id = i.id
                    LEFT JOIN item_texts it ON it.item_id = i.id
@@ -837,7 +860,9 @@ async def batch_download(data: BatchDownloadInput, request: Request):
             album_items = db.execute(
                 """SELECT i.id, i.title, i.user_id,
                           COALESCE(im.content_type, it.content_type) AS content_type,
-                          im.media_type
+                          im.media_type,
+                          im.png_text_chunks,
+                          im.taken_at
                    FROM items i
                    JOIN album_items ai ON i.id = ai.item_id
                    LEFT JOIN item_media im ON im.item_id = i.id

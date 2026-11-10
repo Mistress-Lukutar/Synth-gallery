@@ -2614,6 +2614,12 @@ main {
     margin-bottom: 1rem;
 }
 
+/* Metadata-embed toggle sits between the format radios and the
+   per-format option blocks; keep it visually apart from them. */
+#download-embed-wrap {
+    margin-bottom: 1rem;
+}
+
 .download-note {
     font-size: 0.85rem;
     color: var(--text-muted);

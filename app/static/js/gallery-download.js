@@ -74,6 +74,11 @@
         Object.entries(FORMAT_BLOCKS).forEach(([f, id]) => {
             document.getElementById(id).classList.toggle('hidden', f !== fmt);
         });
+        // Metadata embedding only applies to converted JPEG/PNG/WebP files.
+        const embedWrap = document.getElementById('download-embed-wrap');
+        if (embedWrap) {
+            embedWrap.classList.toggle('hidden', fmt === 'original' || fmt === 'jxl');
+        }
     }
 
     // Count selected standalone items by media type using the DOM dataset.
@@ -126,6 +131,8 @@
         } else if (fmt === 'jxl') {
             options.jxl_effort = parseInt(document.getElementById('download-jxl-effort').value, 10);
         }
+
+        options.embed_metadata = document.getElementById('download-embed-metadata').checked;
 
         return options;
     }
