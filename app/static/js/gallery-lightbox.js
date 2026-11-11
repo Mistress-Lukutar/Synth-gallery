@@ -1386,10 +1386,14 @@
         const baseUrl = window.SYNTH_BASE_URL || '';
         
         let link;
+        const folderId = window.currentFolderId;
         if (externalHost) {
             link = `https://${externalHost}${baseUrl}/?photo_id=${photoId}`;
         } else {
             link = `${window.location.origin}${baseUrl}/?photo_id=${photoId}`;
+        }
+        if (folderId) {
+            link += `&folder_id=${folderId}`;
         }
         
         const copied = await _copyToClipboard(link);
