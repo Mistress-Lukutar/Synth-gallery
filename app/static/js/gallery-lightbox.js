@@ -780,19 +780,21 @@
         // Find current item in flat order - Phase 5: support polymorphic items
         currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && (p.type === 'item' || p.type === 'photo'));
         
-        // If not found, check if it's in an album that needs to be expanded
+        // If not found, it may live inside an album that is rendered as a card
+        // in the folder view (deep links: ?folder_id=...&photo_id=...). Search
+        // every album in the folder, expanding them into the nav order as needed.
         if (currentNavIndex === -1) {
-            // Check if this photo belongs to an album in the gallery
-            const albumItem = gallery?.querySelector('.gallery-item[data-item-type="album"]');
-            if (albumItem) {
+            const albumItems = gallery?.querySelectorAll('.gallery-item[data-item-type="album"]') || [];
+            for (const albumItem of albumItems) {
                 const albumId = albumItem.dataset.albumId;
-                // Try to find and expand this album
+                if (!albumId) continue;
                 const placeholderIndex = flatNavOrder.findIndex(p => p.type === 'album_placeholder' && p.albumId === albumId);
-                if (placeholderIndex >= 0) {
-                    await expandAlbumInNavOrder(albumId, placeholderIndex);
-                    // Re-find item after expansion
-                    currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && (p.type === 'item' || p.type === 'photo'));
-                }
+                if (placeholderIndex < 0) continue;
+                const photos = await expandAlbumInNavOrder(albumId, placeholderIndex);
+                if (!photos) continue;
+                // Re-find item after expansion
+                currentNavIndex = flatNavOrder.findIndex(p => p.id === photoId && (p.type === 'item' || p.type === 'photo'));
+                if (currentNavIndex !== -1) break;
             }
         }
         
